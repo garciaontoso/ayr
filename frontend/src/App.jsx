@@ -207,6 +207,9 @@ export default function ARApp() {
   const [fmpError, setFmpError] = useState(null);
   const [portfolio, setPortfolio] = useState([]);
   const [lastSaved, setLastSaved] = useState(null); // ISO date of last save for current ticker
+  const [recentTickers, setRecentTickers] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('ayr_recent') || '[]'); } catch { return []; }
+  });
   const [fmpApiKey, setFmpApiKey] = useState("");
   // v10.2: New FMP data (rating, DCF, estimates, price targets, key metrics, financial growth)
   const [fmpExtra, setFmpExtra] = useState({ rating: {}, dcf: {}, estimates: [], priceTarget: {}, keyMetrics: [], finGrowth: [], grades: {}, ownerEarnings: [], revSegments: [], geoSegments: [], peers: [], earnings: [], ptSummary: {}, profile: {} });
@@ -1185,6 +1188,14 @@ function buildPositionsFromCB() {
         profile: data.profile || {},
       });
 
+      // Update recent tickers
+      const ticker = data.cfg.ticker || t;
+      setRecentTickers(prev => {
+        const next = [ticker, ...prev.filter(x => x !== ticker)].slice(0, 8);
+        try { localStorage.setItem('ayr_recent', JSON.stringify(next)); } catch {}
+        return next;
+      });
+
       // Auto-populate Comparables from FMP Peers when comps are empty
       const peersList = data.fmpPeers || [];
       if (comps.length === 0 && peersList.length > 0) {
@@ -1674,7 +1685,14 @@ function buildPositionsFromCB() {
             {/* Row 1: Back + Config */}
             <div className="ar-analysis-header" style={{display:"flex",alignItems:"center",gap:10,padding:"8px 24px 4px",flexWrap:"wrap"}}>
               <button onClick={goHome} style={{padding:"5px 12px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:11,cursor:"pointer",fontFamily:"var(--fm)",fontWeight:600,flexShrink:0}}>← Inicio</button>
-              <div style={{width:26,height:26,borderRadius:6,background:"linear-gradient(135deg,#d69e2e,#b8860b)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:800,color:"#000",fontFamily:"var(--fm)",flexShrink:0}}>A&R</div>
+              {/* Company logo */}
+              <div style={{width:28,height:28,borderRadius:7,overflow:"hidden",background:"#161b22",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                {cfg.ticker ? (
+                  <img src={`https://images.financialmodelingprep.com/symbol/${cfg.ticker.replace(':','.')}.png`} alt="" style={{width:28,height:28,objectFit:"contain"}}
+                    onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}/>
+                ) : null}
+                <div style={{display:cfg.ticker?"none":"flex",width:28,height:28,borderRadius:7,background:"linear-gradient(135deg,#d69e2e,#b8860b)",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:800,color:"#000",fontFamily:"var(--fm)"}}>A&R</div>
+              </div>
               <Inp label="Ticker" value={cfg.ticker} onChange={v=>upCfg("ticker",v)} type="text" w={68} placeholder="AAPL"/>
               <Inp label="Empresa" value={cfg.name} onChange={v=>upCfg("name",v)} type="text" w={140} placeholder="Apple Inc."/>
               <Inp label="Precio" value={cfg.price} onChange={v=>upCfg("price",v)} step={0.01} w={68} suffix="$"/>
@@ -1696,6 +1714,14 @@ function buildPositionsFromCB() {
               <button onClick={saveCurrentCompany} style={{padding:"4px 8px",borderRadius:100,border:"1px solid rgba(100,210,255,.25)",background:"rgba(100,210,255,.06)",color:"#64d2ff",fontSize:10,cursor:"pointer",fontFamily:"var(--fm)",alignSelf:"flex-end",flexShrink:0}}>💾</button>
               {fmpError && <span style={{fontSize:9,color:"var(--red)",alignSelf:"flex-end",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={fmpError}>⚠ {fmpError}</span>}
               {lastSaved && !fmpError && <span style={{fontSize:8,color:"var(--text-tertiary)",alignSelf:"flex-end",fontFamily:"var(--fm)"}}>⟳ {new Date(lastSaved).toLocaleDateString('es-ES')}</span>}
+              {/* Recent tickers */}
+              {recentTickers.length>1 && <span className="ar-hide-mobile" style={{display:"flex",gap:3,alignSelf:"flex-end"}}>
+                {recentTickers.filter(t=>t!==cfg.ticker).slice(0,5).map(t=>(
+                  <button key={t} onClick={()=>loadFromAPI(t)} style={{padding:"2px 6px",borderRadius:5,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:8,cursor:"pointer",fontFamily:"var(--fm)",fontWeight:600,transition:"all .15s"}}
+                    onMouseEnter={e=>{e.target.style.borderColor="var(--gold)";e.target.style.color="var(--gold)";}}
+                    onMouseLeave={e=>{e.target.style.borderColor="var(--border)";e.target.style.color="var(--text-tertiary)";}}>{t}</button>
+                ))}
+              </span>}
               {/* Mini currency toggle */}
               <div style={{display:"flex",gap:0,border:"1px solid var(--border)",borderRadius:6,overflow:"hidden",alignSelf:"flex-end",marginLeft:"auto"}}>
                 {DISPLAY_CCYS.slice(0,3).map(ccy=>(
