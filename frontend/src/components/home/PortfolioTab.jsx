@@ -60,6 +60,33 @@ export default function PortfolioTab() {
             ))}
           </div>
         )}
+        {/* Quick stats row */}
+        {portfolioList.length>0 && (() => {
+          const pos = portfolioTotals.positions || [];
+          if (!pos.length) return null;
+          const countries = new Set(pos.map(p => getCountry(p.ticker, p.currency))).size;
+          const best = pos.reduce((a,b) => (b.pnlPct||0) > (a.pnlPct||0) ? b : a, pos[0]);
+          const worst = pos.reduce((a,b) => (b.pnlPct||0) < (a.pnlPct||0) ? b : a, pos[0]);
+          const top3Weight = [...pos].sort((a,b)=>(b.weight||0)-(a.weight||0)).slice(0,3).reduce((s,p)=>s+(p.weight||0),0);
+          const greenCount = pos.filter(p=>(p.pnlPct||0)>=0).length;
+          return (
+          <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:8}}>
+            {[
+              {l:"Posiciones",v:pos.length,c:"var(--text-primary)"},
+              {l:"Países",v:countries,c:"#64d2ff"},
+              {l:"Yield",v:_sf(portfolioTotals.yieldUSD*100,1)+"%",c:"var(--gold)"},
+              {l:"Verdes",v:`${greenCount}/${pos.length}`,c:"var(--green)"},
+              {l:"Top 3",v:_sf(top3Weight*100,0)+"%",c:"var(--text-secondary)"},
+              {l:"Mejor",v:`${best.ticker} +${_sf((best.pnlPct||0)*100,0)}%`,c:"var(--green)"},
+              {l:"Peor",v:`${worst.ticker} ${_sf((worst.pnlPct||0)*100,0)}%`,c:"var(--red)"},
+            ].map((s,i)=>(
+              <div key={i} style={{fontSize:10,fontFamily:"var(--fm)"}}>
+                <span style={{color:"var(--text-tertiary)"}}>{s.l}: </span>
+                <span style={{color:s.c,fontWeight:600}}>{s.v}</span>
+              </div>
+            ))}
+          </div>);
+        })()}
         {/* Allocation mini donut + Export */}
         {portfolioList.length>0 && (() => {
           const byCountry = {};
