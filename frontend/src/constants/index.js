@@ -54,4 +54,5 @@ export const HOME_TABS = [
   {id:"watchlist",lbl:"Watchlist",ico:"👁"},{id:"historial",lbl:"Historial",ico:"📦"},
   {id:"research",lbl:"Research",ico:"🔍"},
   {id:"covered-calls",lbl:"CC Income",ico:"📞"},
+  {id:"income-lab",lbl:"Income Lab",ico:"🧪"},
 ];
