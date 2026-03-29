@@ -90,6 +90,17 @@ const CB_EXPANDED = expandCB(CB_DATA);
 
 
 
+// Scroll to top button
+function ScrollToTop() {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setVisible(window.scrollY > 400);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+  return <button className={`ar-scroll-top ${visible ? 'visible' : ''}`} onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>↑</button>;
+}
+
 export default function ARApp() {
   const [dataLoaded, setDataLoaded] = useState(false);
   const [dataError, setDataError] = useState(null);
@@ -1480,6 +1491,9 @@ function buildPositionsFromCB() {
         {/* Actions */}
         <div style={{display:"flex",gap:3,justifyContent:"flex-end"}}>
           <button onClick={(e)=>{e.stopPropagation();openCostBasis(p.ticker);}} title="Cost Basis" style={{width:32,height:32,borderRadius:8,border:"1px solid rgba(200,164,78,.25)",background:"rgba(200,164,78,.06)",color:"var(--gold)",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>📋</button>
+          <button onClick={(e)=>{e.stopPropagation();if(confirm(`¿Eliminar ${p.ticker} del portfolio?`))removePosition(p.ticker);}} title="Eliminar" style={{width:32,height:32,borderRadius:8,border:"1px solid rgba(255,69,58,.2)",background:"transparent",color:"var(--text-tertiary)",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:.4,transition:"all .15s"}}
+            onMouseEnter={e=>{e.target.style.opacity="1";e.target.style.background="rgba(255,69,58,.08)";e.target.style.color="var(--red)";}}
+            onMouseLeave={e=>{e.target.style.opacity=".4";e.target.style.background="transparent";e.target.style.color="var(--text-tertiary)";}}>✕</button>
         </div>
       </div>
     );
@@ -1717,6 +1731,7 @@ function buildPositionsFromCB() {
         <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fb)"}}>No constituye asesoramiento financiero</span>
       </footer>
       {toast && <Toast message={toast.message} type={toast.type} onClose={()=>setToast(null)}/>}
+      <ScrollToTop/>
     </div>
   );
 }

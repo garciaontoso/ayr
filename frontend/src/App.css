@@ -157,6 +157,40 @@ input[type=number] { -moz-appearance: textfield; }
   50% { box-shadow: 0 0 40px rgba(200,164,78,.2); }
 }
 
+/* ═══ Scroll to top button ═══ */
+.ar-scroll-top {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(22,22,22,.85);
+  backdrop-filter: blur(12px);
+  color: var(--text-tertiary);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: translateY(10px);
+  transition: all .3s ease;
+  pointer-events: none;
+  z-index: 50;
+}
+.ar-scroll-top.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.ar-scroll-top:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: var(--gold-dim);
+}
+
 @media print {
   @page { size: A4 landscape; margin: 8mm; }
   header, footer, .ar-no-print, .ar-tabs-scroll { display: none !important; }
