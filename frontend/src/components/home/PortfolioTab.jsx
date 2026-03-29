@@ -2,8 +2,18 @@ import { useState } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 
+const SORT_OPTIONS = [
+  {id:"name",lbl:"A-Z",fn:(a,b)=>(a.name||a.ticker).localeCompare(b.name||b.ticker)},
+  {id:"value",lbl:"Valor",fn:(a,b)=>(b.valueUSD||0)-(a.valueUSD||0)},
+  {id:"pnl",lbl:"P&L%",fn:(a,b)=>(b.pnlPct||0)-(a.pnlPct||0)},
+  {id:"weight",lbl:"Peso",fn:(a,b)=>(b.weight||0)-(a.weight||0)},
+  {id:"div",lbl:"Div",fn:(a,b)=>(b.divAnnualUSD||0)-(a.divAnnualUSD||0)},
+  {id:"price",lbl:"Precio",fn:(a,b)=>(b.priceUSD||0)-(a.priceUSD||0)},
+];
+
 export default function PortfolioTab() {
   const [quickFilter, setQuickFilter] = useState("");
+  const [listSort, setListSort] = useState("value");
   const {
     portfolioList, portfolioTotals, portfolioComputed,
     searchTicker, setSearchTicker, updatePosition,
@@ -72,16 +82,28 @@ export default function PortfolioTab() {
             {quickFilter && <button onClick={()=>setQuickFilter("")} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"var(--text-tertiary)",cursor:"pointer",fontSize:14}}>×</button>}
           </div>
         )}
+        {/* Sort buttons */}
+        {portfolioList.length>1 && (
+          <div style={{display:"flex",gap:4,alignItems:"center",marginBottom:6}}>
+            <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginRight:4}}>Ordenar:</span>
+            {SORT_OPTIONS.map(s=>(
+              <button key={s.id} onClick={()=>setListSort(listSort===s.id?s.id:s.id)}
+                style={{padding:"3px 8px",borderRadius:6,border:`1px solid ${listSort===s.id?"var(--gold)":"var(--border)"}`,background:listSort===s.id?"var(--gold-dim)":"transparent",color:listSort===s.id?"var(--gold)":"var(--text-tertiary)",fontSize:9,fontWeight:listSort===s.id?700:500,cursor:"pointer",fontFamily:"var(--fm)",transition:"all .15s"}}>
+                {s.lbl}
+              </button>
+            ))}
+          </div>
+        )}
         {portfolioList.length===0 && <div style={{textAlign:"center",padding:60,color:"var(--text-tertiary)"}}><div style={{fontSize:48,marginBottom:16}}>💼</div>Portfolio vacío. Añade tu primera empresa arriba.</div>}
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {portfolioTotals.positions?.filter(p => {
+          {[...(portfolioTotals.positions||[])].filter(p => {
             if (countryFilter && getCountry(p.ticker, p.currency) !== countryFilter) return false;
             if (quickFilter) {
               const q = quickFilter.toLowerCase();
               return p.ticker.toLowerCase().includes(q) || (p.name||"").toLowerCase().includes(q);
             }
             return true;
-          }).map(p=><CompanyRow key={p.ticker} p={p} showPos={true} onOpen={openAnalysis}/>)}
+          }).sort(SORT_OPTIONS.find(s=>s.id===listSort)?.fn || (()=>0)).map(p=><CompanyRow key={p.ticker} p={p} showPos={true} onOpen={openAnalysis}/>)}
         </div>
 
         {/* Market Cap Index — Sortable Table */}
