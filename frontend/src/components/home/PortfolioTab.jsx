@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 
 export default function PortfolioTab() {
+  const [quickFilter, setQuickFilter] = useState("");
   const {
     portfolioList, portfolioTotals, portfolioComputed,
     searchTicker, setSearchTicker, updatePosition,
@@ -61,10 +63,25 @@ export default function PortfolioTab() {
             ))}
           </div>);
         })()}
-        {/* Company List */}
+        {/* Quick filter + Company List */}
+        {portfolioList.length>5 && (
+          <div style={{position:"relative",marginBottom:4}}>
+            <input type="text" placeholder="🔍 Buscar ticker o empresa..." value={quickFilter} onChange={e=>setQuickFilter(e.target.value)}
+              style={{width:"100%",padding:"8px 14px 8px 14px",background:"rgba(255,255,255,.03)",border:"1px solid var(--border)",borderRadius:10,color:"var(--text-primary)",fontSize:12,outline:"none",fontFamily:"var(--fm)",transition:"border-color .2s"}}
+              onFocus={e=>e.target.style.borderColor="rgba(200,164,78,.3)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/>
+            {quickFilter && <button onClick={()=>setQuickFilter("")} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"var(--text-tertiary)",cursor:"pointer",fontSize:14}}>×</button>}
+          </div>
+        )}
         {portfolioList.length===0 && <div style={{textAlign:"center",padding:60,color:"var(--text-tertiary)"}}><div style={{fontSize:48,marginBottom:16}}>💼</div>Portfolio vacío. Añade tu primera empresa arriba.</div>}
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {portfolioTotals.positions?.filter(p => !countryFilter || getCountry(p.ticker, p.currency) === countryFilter).map(p=><CompanyRow key={p.ticker} p={p} showPos={true} onOpen={openAnalysis}/>)}
+          {portfolioTotals.positions?.filter(p => {
+            if (countryFilter && getCountry(p.ticker, p.currency) !== countryFilter) return false;
+            if (quickFilter) {
+              const q = quickFilter.toLowerCase();
+              return p.ticker.toLowerCase().includes(q) || (p.name||"").toLowerCase().includes(q);
+            }
+            return true;
+          }).map(p=><CompanyRow key={p.ticker} p={p} showPos={true} onOpen={openAnalysis}/>)}
         </div>
 
         {/* Market Cap Index — Sortable Table */}

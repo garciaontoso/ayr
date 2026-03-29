@@ -125,6 +125,15 @@ input[type=number] { -moz-appearance: textfield; }
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* Smooth tab content transition */
+.ar-tab-content {
+  animation: fadeIn .3s ease-out;
+}
+
+/* Hover effects for buttons */
+.ar-hover-gold:hover { border-color: rgba(200,164,78,.3) !important; color: var(--gold) !important; }
+.ar-hover-lift:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.3); }
+
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
