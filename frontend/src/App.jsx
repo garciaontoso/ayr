@@ -1318,6 +1318,15 @@ function buildPositionsFromCB() {
 
   useEffect(()=>{setAnim(true);const t=setTimeout(()=>setAnim(false),600);return()=>clearTimeout(t);},[tab]);
 
+  // Dynamic browser tab title
+  useEffect(() => {
+    document.title = viewMode === "analysis" && cfg.ticker
+      ? `${cfg.ticker} — A&R`
+      : viewMode === "costbasis" && cbTicker
+        ? `${cbTicker} CB — A&R`
+        : "A&R — Dividend Equity Analysis";
+  }, [viewMode, cfg.ticker, cbTicker]);
+
   const upFin = useCallback((y,k,v)=>setFin(p=>({...p,[y]:{...p[y],[k]:parseFloat(v)||0}})),[]);
   const upCfg = useCallback((k,v)=>setCfg(p=>({...p,[k]:v})),[]);
 
@@ -1712,6 +1721,11 @@ function buildPositionsFromCB() {
                 {fmpLoading?"⏳":"⚡ Cargar"}
               </button>
               <button onClick={saveCurrentCompany} style={{padding:"4px 8px",borderRadius:100,border:"1px solid rgba(100,210,255,.25)",background:"rgba(100,210,255,.06)",color:"#64d2ff",fontSize:10,cursor:"pointer",fontFamily:"var(--fm)",alignSelf:"flex-end",flexShrink:0}}>💾</button>
+              {cfg.ticker && <>
+                <button onClick={()=>{navigator.clipboard.writeText(cfg.ticker);setToast({message:`${cfg.ticker} copiado`,type:"info"});}} title="Copiar ticker" style={{padding:"4px 8px",borderRadius:100,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)",alignSelf:"flex-end",flexShrink:0}}>📋</button>
+                <a href={`https://finance.yahoo.com/quote/${cfg.ticker}`} target="_blank" rel="noopener" title="Yahoo Finance" style={{padding:"4px 6px",borderRadius:100,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,textDecoration:"none",fontFamily:"var(--fm)",alignSelf:"flex-end",flexShrink:0}}>Y!</a>
+                <a href={`https://seekingalpha.com/symbol/${cfg.ticker}`} target="_blank" rel="noopener" title="Seeking Alpha" style={{padding:"4px 6px",borderRadius:100,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,textDecoration:"none",fontFamily:"var(--fm)",alignSelf:"flex-end",flexShrink:0}}>SA</a>
+              </>}
               {fmpError && <span style={{fontSize:9,color:"var(--red)",alignSelf:"flex-end",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={fmpError}>⚠ {fmpError}</span>}
               {lastSaved && !fmpError && <span style={{fontSize:8,color:"var(--text-tertiary)",alignSelf:"flex-end",fontFamily:"var(--fm)"}}>⟳ {new Date(lastSaved).toLocaleDateString('es-ES')}</span>}
               {/* Recent tickers */}
