@@ -53,4 +53,5 @@ export const HOME_TABS = [
   {id:"gastos",lbl:"Gastos",ico:"💸"},{id:"control",lbl:"Control",ico:"📋"},
   {id:"watchlist",lbl:"Watchlist",ico:"👁"},{id:"historial",lbl:"Historial",ico:"📦"},
   {id:"research",lbl:"Research",ico:"🔍"},
+  {id:"covered-calls",lbl:"CC Income",ico:"📞"},
 ];

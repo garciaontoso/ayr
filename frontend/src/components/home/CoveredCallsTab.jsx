@@ -1,0 +1,326 @@
+import { useState, useEffect, useMemo } from 'react';
+import { useHome } from '../../context/HomeContext';
+import { _sf, fDol } from '../../utils/formatters.js';
+import { API_URL } from '../../constants/index.js';
+
+// ── Black-Scholes Normal CDF approximation ──
+const normCDF = (x) => {
+  const a1=0.254829592, a2=-0.284496736, a3=1.421413741, a4=-1.453152027, a5=1.061405429, p=0.3275911;
+  const sign = x < 0 ? -1 : 1;
+  x = Math.abs(x) / Math.sqrt(2);
+  const t = 1 / (1 + p * x);
+  const y = 1 - ((((a5*t+a4)*t+a3)*t+a2)*t+a1)*t*Math.exp(-x*x);
+  return 0.5 * (1 + sign * y);
+};
+
+// Black-Scholes Call Price
+const bsCall = (S, K, T, r, sigma) => {
+  if (T <= 0 || sigma <= 0 || S <= 0 || K <= 0) return 0;
+  const d1 = (Math.log(S / K) + (r + sigma * sigma / 2) * T) / (sigma * Math.sqrt(T));
+  const d2 = d1 - sigma * Math.sqrt(T);
+  return S * normCDF(d1) - K * Math.exp(-r * T) * normCDF(d2);
+};
+
+// Probability of expiring OTM (for calls: prob price < strike)
+const probOTM = (S, K, T, r, sigma) => {
+  if (T <= 0 || sigma <= 0) return 0;
+  const d2 = (Math.log(S / K) + (r - sigma * sigma / 2) * T) / (sigma * Math.sqrt(T));
+  return normCDF(-d2); // prob S < K at expiry
+};
+
+// Calculate historical volatility from daily prices
+const calcIV = (prices) => {
+  if (!prices || prices.length < 10) return 0.30; // default 30%
+  const returns = [];
+  for (let i = 1; i < prices.length; i++) {
+    if (prices[i-1] > 0) returns.push(Math.log(prices[i] / prices[i-1]));
+  }
+  if (!returns.length) return 0.30;
+  const mean = returns.reduce((s,r) => s+r, 0) / returns.length;
+  const variance = returns.reduce((s,r) => s + (r-mean)*(r-mean), 0) / returns.length;
+  return Math.sqrt(variance) * Math.sqrt(252); // annualized
+};
+
+const SORT_OPTIONS = [
+  {id:"yield",lbl:"Yield CC",fn:(a,b)=>(b.yieldCC||0)-(a.yieldCC||0)},
+  {id:"premium",lbl:"Prima Total",fn:(a,b)=>(b.totalPremium||0)-(a.totalPremium||0)},
+  {id:"signal",lbl:"Señal",fn:(a,b)=>(a.signalOrder||9)-(b.signalOrder||9)},
+  {id:"ticker",lbl:"Ticker",fn:(a,b)=>a.ticker.localeCompare(b.ticker)},
+  {id:"iv",lbl:"IV",fn:(a,b)=>(b.iv||0)-(a.iv||0)},
+];
+
+const DTE_OPTIONS = [15, 30, 45, 60];
+const OTM_PCT = 0.05; // 5% out of the money default
+const RISK_FREE = 0.045; // ~4.5% risk free rate
+
+export default function CoveredCallsTab() {
+  const { portfolioTotals, positions, openAnalysis, hide, privacyMode } = useHome();
+
+  const [loading, setLoading] = useState(true);
+  const [earningsData, setEarningsData] = useState({});
+  const [priceData, setPriceData] = useState({});
+  const [dte, setDte] = useState(30);
+  const [otmPct, setOtmPct] = useState(5);
+  const [sortBy, setSortBy] = useState("yield");
+  const [signalFilter, setSignalFilter] = useState("all");
+  const [calcTicker, setCalcTicker] = useState(null);
+  const [calcStrike, setCalcStrike] = useState(0);
+  const [calcDte, setCalcDte] = useState(30);
+
+  // Get eligible positions (≥100 shares in portfolio)
+  const eligible = useMemo(() => {
+    return (portfolioTotals.positions || []).filter(p =>
+      (p.shares || 0) >= 100 && p.lastPrice > 0
+    );
+  }, [portfolioTotals.positions]);
+
+  // Fetch earnings dates + price history for eligible tickers
+  useEffect(() => {
+    if (!eligible.length) { setLoading(false); return; }
+    const tickers = eligible.map(p => p.ticker);
+
+    // Batch earnings
+    fetch(`${API_URL}/api/earnings-batch?symbols=${tickers.join(",")}`)
+      .then(r => r.json())
+      .then(data => setEarningsData(data || {}))
+      .catch(() => {});
+
+    // Fetch 60-day price history for IV calculation (batch in groups of 5)
+    const fetchPrices = async () => {
+      const from = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+      const results = {};
+      for (let i = 0; i < tickers.length; i += 3) {
+        const batch = tickers.slice(i, i + 3);
+        await Promise.all(batch.map(async t => {
+          try {
+            const r = await fetch(`${API_URL}/api/price-history?symbol=${t}&from=${from}`);
+            const d = await r.json();
+            const prices = (d.historical || d || []).map(p => p.close).reverse();
+            results[t] = prices;
+          } catch { results[t] = []; }
+        }));
+      }
+      setPriceData(results);
+      setLoading(false);
+    };
+    fetchPrices();
+  }, [eligible]);
+
+  // Calculate CC data for each position
+  const ccData = useMemo(() => {
+    const T = dte / 365;
+    const otm = otmPct / 100;
+    const now = new Date();
+
+    return eligible.map(p => {
+      const S = p.lastPrice || 0;
+      const shares = p.shares || 0;
+      const contracts = Math.floor(shares / 100);
+      const K = Math.round(S * (1 + otm)); // strike rounded to nearest integer
+      const iv = calcIV(priceData[p.ticker]);
+      const premium = bsCall(S, K, T, RISK_FREE, iv);
+      const totalPremium = premium * 100 * contracts;
+      const yieldCC = S > 0 ? (premium / S) * (365 / dte) : 0; // annualized
+      const yieldCCMonthly = S > 0 ? premium / S : 0;
+      const pOTM = probOTM(S, K, T, RISK_FREE, iv);
+
+      // Earnings/dividend timing
+      const earn = earningsData[p.ticker];
+      const nextEarnings = earn?.nextDate ? new Date(earn.nextDate) : null;
+      const daysToEarnings = nextEarnings ? Math.ceil((nextEarnings - now) / 86400000) : 999;
+
+      // Dividend ex-date approximation (if DPS > 0, assume quarterly)
+      const hasDividend = (p.dpsUSD || 0) > 0;
+
+      // Signal logic
+      let signal, signalColor, signalOrder, timing;
+      if (contracts === 0) {
+        signal = "⚫"; signalColor = "#48484a"; signalOrder = 4; timing = "<100 acciones";
+      } else if (daysToEarnings < 14) {
+        signal = "🔴"; signalColor = "#ff453a"; signalOrder = 3; timing = `Earnings ${earn?.nextDate || "pronto"} — EVITAR`;
+      } else if (iv < 0.15) {
+        signal = "🔴"; signalColor = "#ff453a"; signalOrder = 3; timing = `IV muy baja (${_sf(iv*100,0)}%)`;
+      } else if (daysToEarnings < 45 || iv < 0.20) {
+        signal = "🟡"; signalColor = "#ffd60a"; signalOrder = 2;
+        timing = daysToEarnings < 45 ? `Earnings en ${daysToEarnings}d` : `IV baja (${_sf(iv*100,0)}%)`;
+      } else {
+        signal = "🟢"; signalColor = "#30d158"; signalOrder = 1;
+        timing = nextEarnings ? `OK — earnings ${_sf(daysToEarnings,0)}d` : "OK — sin eventos";
+      }
+
+      return {
+        ...p, contracts, K, iv, premium, totalPremium, yieldCC, yieldCCMonthly, pOTM,
+        signal, signalColor, signalOrder, timing, daysToEarnings, hasDividend,
+        breakeven: S + premium,
+        maxProfit: (K - S + premium) * 100 * contracts,
+      };
+    });
+  }, [eligible, priceData, earningsData, dte, otmPct]);
+
+  // Filtered and sorted
+  const filtered = useMemo(() => {
+    let list = ccData;
+    if (signalFilter === "green") list = list.filter(x => x.signalOrder === 1);
+    if (signalFilter === "yellow") list = list.filter(x => x.signalOrder <= 2);
+    if (signalFilter === "eligible") list = list.filter(x => x.contracts > 0);
+    return [...list].sort(SORT_OPTIONS.find(s => s.id === sortBy)?.fn || (() => 0));
+  }, [ccData, signalFilter, sortBy]);
+
+  // Totals
+  const totalPremiumAll = ccData.filter(x => x.signalOrder <= 2).reduce((s, x) => s + x.totalPremium, 0);
+  const totalPremiumAnnual = totalPremiumAll * (365 / dte);
+  const eligibleCount = ccData.filter(x => x.contracts > 0).length;
+  const greenCount = ccData.filter(x => x.signalOrder === 1).length;
+
+  // Calculator selected position
+  const calcPos = calcTicker ? ccData.find(x => x.ticker === calcTicker) : null;
+  const calcPremium = calcPos ? bsCall(calcPos.lastPrice, calcStrike || calcPos.K, calcDte / 365, RISK_FREE, calcPos.iv) : 0;
+  const calcPOTM = calcPos ? probOTM(calcPos.lastPrice, calcStrike || calcPos.K, calcDte / 365, RISK_FREE, calcPos.iv) : 0;
+
+  const hd = {fontSize:13,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:10,paddingBottom:6,borderBottom:"2px solid rgba(200,164,78,.2)"};
+  const card = {background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16,marginBottom:14};
+
+  if (loading) return <div style={{padding:40,textAlign:"center",color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Cargando datos de opciones para {eligible.length} posiciones...</div>;
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      {/* ── HEADER: Income Summary ── */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+        {[
+          {l:"PREMIUM MENSUAL EST.",v:privacyMode?"•••":"$"+fDol(totalPremiumAll),c:"var(--gold)"},
+          {l:"PREMIUM ANUAL EST.",v:privacyMode?"•••":"$"+fDol(totalPremiumAnnual),c:"var(--gold)"},
+          {l:"POSICIONES ELEGIBLES",v:`${eligibleCount} de ${ccData.length}`,c:"var(--text-primary)"},
+          {l:"SEÑAL VERDE",v:`${greenCount} posiciones`,c:"var(--green)"},
+        ].map((m,i)=>(
+          <div key={i} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"14px 16px"}}>
+            <div style={{fontSize:9,color:"var(--text-tertiary)",fontWeight:600,textTransform:"uppercase",fontFamily:"var(--fm)",letterSpacing:.5}}>{m.l}</div>
+            <div style={{fontSize:22,fontWeight:700,color:m.c,fontFamily:"var(--fm)",marginTop:4}}>{m.v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── CONTROLS ── */}
+      <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+        <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>DTE:</div>
+        {DTE_OPTIONS.map(d=>(
+          <button key={d} onClick={()=>setDte(d)} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${dte===d?"var(--gold)":"var(--border)"}`,background:dte===d?"var(--gold-dim)":"transparent",color:dte===d?"var(--gold)":"var(--text-tertiary)",fontSize:10,fontWeight:dte===d?700:500,cursor:"pointer",fontFamily:"var(--fm)"}}>{d}d</button>
+        ))}
+        <div style={{width:1,height:16,background:"var(--border)",margin:"0 4px"}}/>
+        <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>OTM:</div>
+        {[3,5,7,10].map(p=>(
+          <button key={p} onClick={()=>setOtmPct(p)} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${otmPct===p?"var(--gold)":"var(--border)"}`,background:otmPct===p?"var(--gold-dim)":"transparent",color:otmPct===p?"var(--gold)":"var(--text-tertiary)",fontSize:10,fontWeight:otmPct===p?700:500,cursor:"pointer",fontFamily:"var(--fm)"}}>{p}%</button>
+        ))}
+        <div style={{width:1,height:16,background:"var(--border)",margin:"0 4px"}}/>
+        <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Filtro:</div>
+        {[{id:"all",l:"Todas"},{id:"eligible",l:"Elegibles"},{id:"green",l:"🟢 Verde"},{id:"yellow",l:"🟡+ Verde"}].map(f=>(
+          <button key={f.id} onClick={()=>setSignalFilter(f.id)} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${signalFilter===f.id?"var(--gold)":"var(--border)"}`,background:signalFilter===f.id?"var(--gold-dim)":"transparent",color:signalFilter===f.id?"var(--gold)":"var(--text-tertiary)",fontSize:10,fontWeight:signalFilter===f.id?700:500,cursor:"pointer",fontFamily:"var(--fm)"}}>{f.l}</button>
+        ))}
+        <div style={{marginLeft:"auto",display:"flex",gap:4}}>
+          <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Ordenar:</span>
+          {SORT_OPTIONS.map(s=>(
+            <button key={s.id} onClick={()=>setSortBy(s.id)} style={{padding:"3px 8px",borderRadius:6,border:`1px solid ${sortBy===s.id?"var(--gold)":"var(--border)"}`,background:sortBy===s.id?"var(--gold-dim)":"transparent",color:sortBy===s.id?"var(--gold)":"var(--text-tertiary)",fontSize:9,fontWeight:sortBy===s.id?700:500,cursor:"pointer",fontFamily:"var(--fm)"}}>{s.lbl}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── MAIN TABLE ── */}
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:900}}>
+          <thead>
+            <tr style={{borderBottom:"2px solid var(--border)"}}>
+              {["","Ticker","Precio","Acciones","Ctrts","Strike","IV","Prima","Total","Yield CC","P(OTM)","Señal","Timing"].map(h=>(
+                <th key={h} style={{padding:"6px 8px",textAlign:h==="Ticker"?"left":"right",color:"var(--text-tertiary)",fontSize:9,fontWeight:700,fontFamily:"var(--fm)",letterSpacing:.3,whiteSpace:"nowrap"}}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(p=>(
+              <tr key={p.ticker} onClick={()=>openAnalysis(p.ticker)} style={{borderBottom:"1px solid rgba(255,255,255,.04)",cursor:"pointer",transition:"background .15s"}}
+                onMouseEnter={e=>e.currentTarget.style.background="var(--card-hover)"}
+                onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                {/* Logo */}
+                <td style={{padding:"6px 4px",width:28}}>
+                  <img src={`https://images.financialmodelingprep.com/symbol/${p.ticker}.png`} alt="" style={{width:24,height:24,borderRadius:5,background:"#161b22"}} onError={e=>{e.target.style.display="none";}}/>
+                </td>
+                {/* Ticker */}
+                <td style={{padding:"6px 8px",fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",textAlign:"left"}}>
+                  {p.ticker}
+                  <div style={{fontSize:8,color:"var(--text-tertiary)",fontWeight:400}}>{(p.name||"").slice(0,20)}</div>
+                </td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-primary)"}}>${_sf(p.lastPrice,2)}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)"}}>{privacyMode?"•••":p.shares}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:p.contracts>0?"var(--text-primary)":"var(--text-tertiary)",fontWeight:p.contracts>0?700:400}}>{p.contracts}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)"}}>${_sf(p.K,0)}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:p.iv>0.35?"var(--green)":p.iv>0.20?"var(--text-primary)":"var(--text-tertiary)"}}>{_sf(p.iv*100,0)}%</td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-primary)"}}>${_sf(p.premium,2)}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",fontWeight:600}}>{privacyMode?"•••":"$"+_sf(p.totalPremium,0)}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:p.yieldCC>0.12?"var(--green)":p.yieldCC>0.06?"var(--gold)":"var(--text-tertiary)",fontWeight:700}}>{_sf(p.yieldCC*100,1)}%</td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:p.pOTM>0.7?"var(--green)":"var(--text-secondary)"}}>{_sf(p.pOTM*100,0)}%</td>
+                <td style={{padding:"6px 8px",textAlign:"center",fontSize:14}}>{p.signal}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontSize:9,color:p.signalColor,fontFamily:"var(--fm)",maxWidth:160,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.timing}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── QUICK CALCULATOR ── */}
+      <div style={card}>
+        <div style={hd}>Calculadora Rápida</div>
+        <div style={{display:"flex",gap:12,alignItems:"flex-start",flexWrap:"wrap"}}>
+          <div>
+            <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:4}}>Posición</div>
+            <select value={calcTicker||""} onChange={e=>{setCalcTicker(e.target.value); const pos = ccData.find(x=>x.ticker===e.target.value); if(pos) setCalcStrike(pos.K);}}
+              style={{padding:"6px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text-primary)",fontSize:12,fontFamily:"var(--fm)",outline:"none",minWidth:120}}>
+              <option value="">Seleccionar...</option>
+              {ccData.filter(x=>x.contracts>0).map(p=><option key={p.ticker} value={p.ticker}>{p.ticker} ({p.contracts} ctrts)</option>)}
+            </select>
+          </div>
+          {calcPos && <>
+            <div>
+              <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:4}}>Strike ($)</div>
+              <input type="number" value={calcStrike} onChange={e=>setCalcStrike(Number(e.target.value))}
+                style={{padding:"6px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text-primary)",fontSize:12,fontFamily:"var(--fm)",outline:"none",width:80}}/>
+            </div>
+            <div>
+              <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:4}}>DTE</div>
+              <div style={{display:"flex",gap:4}}>
+                {DTE_OPTIONS.map(d=>(
+                  <button key={d} onClick={()=>setCalcDte(d)} style={{padding:"4px 8px",borderRadius:5,border:`1px solid ${calcDte===d?"var(--gold)":"var(--border)"}`,background:calcDte===d?"var(--gold-dim)":"transparent",color:calcDte===d?"var(--gold)":"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)"}}>{d}d</button>
+                ))}
+              </div>
+            </div>
+            <div style={{display:"flex",gap:16,marginLeft:16}}>
+              {[
+                {l:"Prima/acción",v:"$"+_sf(calcPremium,2),c:"var(--text-primary)"},
+                {l:"Total",v:"$"+_sf(calcPremium*100*calcPos.contracts,0),c:"var(--gold)"},
+                {l:"Yield (ann.)",v:_sf((calcPremium/calcPos.lastPrice)*(365/calcDte)*100,1)+"%",c:calcPremium/calcPos.lastPrice*(365/calcDte)>0.12?"var(--green)":"var(--gold)"},
+                {l:"P(OTM)",v:_sf(calcPOTM*100,0)+"%",c:calcPOTM>0.7?"var(--green)":"var(--text-secondary)"},
+                {l:"Breakeven",v:"$"+_sf(calcPos.lastPrice+calcPremium,2),c:"var(--text-secondary)"},
+                {l:"Max Profit",v:"$"+_sf(((calcStrike||calcPos.K)-calcPos.lastPrice+calcPremium)*100*calcPos.contracts,0),c:"var(--green)"},
+              ].map((m,i)=>(
+                <div key={i}>
+                  <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.3}}>{m.l}</div>
+                  <div style={{fontSize:16,fontWeight:700,color:m.c,fontFamily:"var(--fm)"}}>{m.v}</div>
+                </div>
+              ))}
+            </div>
+          </>}
+        </div>
+        {calcPos && (
+          <div style={{marginTop:12,padding:"10px 14px",background:"rgba(200,164,78,.04)",borderRadius:8,borderLeft:"3px solid var(--gold)",fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>
+            <strong style={{color:"var(--gold)"}}>{calcPos.ticker}</strong> · Precio: ${_sf(calcPos.lastPrice,2)} · IV: {_sf(calcPos.iv*100,0)}% · {calcPos.timing}
+          </div>
+        )}
+      </div>
+
+      {/* ── LEGEND ── */}
+      <div style={{display:"flex",gap:20,fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",padding:"0 4px"}}>
+        <span>🟢 IV alta + sin eventos = buena oportunidad</span>
+        <span>🟡 IV moderada o earnings cerca</span>
+        <span>🔴 Earnings inminentes o IV muy baja</span>
+        <span>⚫ Menos de 100 acciones</span>
+      </div>
+    </div>
+  );
+}

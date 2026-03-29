@@ -672,6 +672,41 @@ export default {
         }
       }
 
+      // GET /api/earnings-batch?symbols=AAPL,MSFT,GOOG — batch earnings dates
+      if (path === "/api/earnings-batch" && request.method === "GET") {
+        const symbols = (url.searchParams.get("symbols") || "").split(",").filter(Boolean).slice(0, 50);
+        if (!symbols.length) return json({ error: "Missing ?symbols=" }, corsHeaders, 400);
+        try {
+          const results = {};
+          const batches = [];
+          for (let i = 0; i < symbols.length; i += 5) {
+            batches.push(symbols.slice(i, i + 5));
+          }
+          for (const batch of batches) {
+            const fetches = batch.map(async sym => {
+              try {
+                const resp = await fetch(`${FMP_BASE}/earnings?symbol=${sym.trim().toUpperCase()}&apikey=${FMP_KEY}`);
+                const data = await resp.json();
+                const upcoming = (data || []).filter(e => new Date(e.date) >= new Date()).sort((a, b) => new Date(a.date) - new Date(b.date));
+                const past = (data || []).filter(e => new Date(e.date) < new Date()).sort((a, b) => new Date(b.date) - new Date(a.date));
+                results[sym.trim().toUpperCase()] = {
+                  next: upcoming[0] || null,
+                  last: past[0] || null,
+                  nextDate: upcoming[0]?.date || null,
+                  lastDate: past[0]?.date || null,
+                };
+              } catch (e) {
+                results[sym.trim().toUpperCase()] = { next: null, last: null, nextDate: null, lastDate: null };
+              }
+            });
+            await Promise.all(fetches);
+          }
+          return json(results, corsHeaders);
+        } catch (e) {
+          return json({ error: "Earnings batch failed: " + e.message }, corsHeaders, 500);
+        }
+      }
+
       // GET /api/fundamentals?symbol=AAPL — get cached or fetch fresh
       // v6: Now fetches 12 FMP endpoints (was 6) — adds rating, DCF, estimates, price targets, key metrics, financial growth
       if (path === "/api/fundamentals" && request.method === "GET") {

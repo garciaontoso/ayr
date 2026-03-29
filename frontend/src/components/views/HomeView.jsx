@@ -16,6 +16,7 @@ const WatchlistTab = lazy(() => import('../home/WatchlistTab'));
 const HistorialTab = lazy(() => import('../home/HistorialTab'));
 const AdvisorTab = lazy(() => import('../home/AdvisorTab'));
 const ResearchTab = lazy(() => import('../home/ResearchTab'));
+const CoveredCallsTab = lazy(() => import('../home/CoveredCallsTab'));
 const SettingsPanel = lazy(() => import('../home/SettingsPanel'));
 
 const Loading = () => <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:'50vh',color:'var(--text-secondary)'}}>Cargando...</div>;
@@ -88,6 +89,7 @@ export default function HomeView() {
       {homeTab==="historial" && <HistorialTab />}
       {homeTab==="advisor" && <AdvisorTab />}
       {homeTab==="research" && <ResearchTab />}
+      {homeTab==="covered-calls" && <CoveredCallsTab />}
     </Suspense>
 
     {/* Settings Panel */}
