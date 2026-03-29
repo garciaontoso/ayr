@@ -46,13 +46,19 @@ export const TABS_OLD = [
 export const API_URL = "https://aar-api.garciaontoso.workers.dev";
 
 export const HOME_TABS = [
-  {id:"portfolio",lbl:"Portfolio",ico:"💼"},{id:"screener",lbl:"Screener",ico:"🔬"},
-  {id:"advisor",lbl:"Advisor",ico:"🧭"},{id:"trades",lbl:"Trades",ico:"📊"},
-  {id:"patrimonio",lbl:"Patrimonio",ico:"🏛"},{id:"dashboard",lbl:"Dashboard",ico:"📊"},
-  {id:"dividendos",lbl:"Dividendos",ico:"💰"},{id:"fire",lbl:"FIRE",ico:"🔥"},
-  {id:"gastos",lbl:"Gastos",ico:"💸"},{id:"control",lbl:"Control",ico:"📋"},
-  {id:"watchlist",lbl:"Watchlist",ico:"👁"},{id:"historial",lbl:"Historial",ico:"📦"},
-  {id:"research",lbl:"Research",ico:"🔍"},
+  {id:"portfolio",lbl:"Portfolio",ico:"💼"},
   {id:"covered-calls",lbl:"CC Income",ico:"📞"},
   {id:"income-lab",lbl:"Income Lab",ico:"🧪"},
+  {id:"dividendos",lbl:"Dividendos",ico:"💰"},
+  {id:"screener",lbl:"Screener",ico:"🔬"},
+  {id:"advisor",lbl:"Advisor",ico:"🧭"},
+  {id:"trades",lbl:"Trades",ico:"📊"},
+  {id:"patrimonio",lbl:"Patrimonio",ico:"🏛"},
+  {id:"dashboard",lbl:"Dashboard",ico:"📊"},
+  {id:"fire",lbl:"FIRE",ico:"🔥"},
+  {id:"gastos",lbl:"Gastos",ico:"💸"},
+  {id:"control",lbl:"Control",ico:"📋"},
+  {id:"watchlist",lbl:"Watchlist",ico:"👁"},
+  {id:"historial",lbl:"Historial",ico:"📦"},
+  {id:"research",lbl:"Research",ico:"🔍"},
 ];
