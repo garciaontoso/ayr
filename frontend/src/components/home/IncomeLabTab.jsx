@@ -3,7 +3,28 @@ import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 
 const MONTHS = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-const SECTORS = {};
+const SECTOR_MAP = {
+  ACN:"Technology",AMCR:"Materials",AMT:"Real Estate",ARE:"Real Estate",AZJ:"Industrials",
+  BIZD:"Financials","BME:AMS":"Technology","BME:VIS":"Consumer Staples",
+  CAG:"Consumer Staples",CLPR:"Real Estate",CMCSA:"Communication",CNSWF:"Technology",
+  CPB:"Consumer Staples",CUBE:"Real Estate",CZR:"Consumer Disc.",DEO:"Consumer Staples",
+  DIDIY:"Technology",EMN:"Materials",ENG:"Utilities",FDJU:"Consumer Disc.",FDS:"Financials",
+  FLO:"Consumer Staples",GEO:"Real Estate",GIS:"Consumer Staples",GPC:"Consumer Disc.",
+  GQG:"Financials",HEN3:"Consumer Staples","HGK:9616":"Technology","HKG:1052":"Industrials",
+  "HKG:1910":"Consumer Disc.","HKG:2219":"Healthcare","HKG:9618":"Consumer Disc.",
+  HR:"Healthcare",HRB:"Financials",IIPR:"Real Estate",KHC:"Consumer Staples",KRG:"Real Estate",
+  LANDP:"Real Estate",LSEG:"Financials",LW:"Consumer Staples",LYB:"Materials",
+  MDV:"Real Estate",MO:"Consumer Staples",MSDL:"Financials",MTN:"Consumer Disc.",
+  "NET.UN":"Real Estate",NNN:"Real Estate",NOMD:"Consumer Staples",NVO:"Healthcare",
+  O:"Real Estate",OBDC:"Financials",OMC:"Communication",OWL:"Financials",OZON:"Technology",
+  PATH:"Technology",PAYX:"Industrials",PEP:"Consumer Staples",PFE:"Healthcare",
+  PG:"Consumer Staples",PYPL:"Financials",RAND:"Financials",REXR:"Real Estate",
+  RHI:"Industrials",RICK:"Consumer Disc.",RYN:"Real Estate",SAFE:"Real Estate",
+  SCHD:"Financials",SHUR:"Real Estate",SPHD:"Financials",SUI:"Real Estate",
+  TAP:"Consumer Staples",TROW:"Financials",UNH:"Healthcare",VICI:"Real Estate",
+  WEEL:"Financials",WEN:"Consumer Disc.",WKL:"Technology",WPC:"Real Estate",
+  XYZ:"Financials",YYY:"Financials",ZTS:"Healthcare",
+};
 
 export default function IncomeLabTab() {
   const { portfolioTotals, portfolioList, positions, displayCcy, privacyMode, hide, openAnalysis, getCountry, FLAGS, POS_STATIC } = useHome();
@@ -48,7 +69,7 @@ export default function IncomeLabTab() {
     const bySector = {};
     const totalVal = pos.reduce((s,p) => s + (p.valueUSD||0), 0) || 1;
     pos.forEach(p => {
-      const sec = POS_STATIC[p.ticker]?.sec || "Otros";
+      const sec = SECTOR_MAP[p.ticker] || POS_STATIC[p.ticker]?.sec || "Otros";
       if (!bySector[sec]) bySector[sec] = {value:0, count:0, tickers:[]};
       bySector[sec].value += (p.valueUSD||0);
       bySector[sec].count++;
