@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Gastos">
+<meta name="theme-color" content="#0a0a0a">
+<link rel="apple-touch-icon" sizes="180x180" href="/gastos-icon-180.png">
+<link rel="apple-touch-icon-precomposed" sizes="180x180" href="/gastos-icon-180.png">
+<link rel="icon" type="image/png" sizes="180x180" href="/gastos-icon-180.png">
+<link rel="manifest" href="/gastos-manifest.json">
+<title>Gastos</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{--bg:#0a0a0a;--card:rgba(255,255,255,.04);--glass:rgba(255,255,255,.06);--glass-border:rgba(255,255,255,.08);--gold:#d4af37;--gold-dim:rgba(212,175,55,.1);--gold-glow:rgba(212,175,55,.15);--text:#f5f5f5;--text2:rgba(255,255,255,.55);--text3:rgba(255,255,255,.3);--green:#34d399;--red:#f87171;--radius:16px;--font:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);overflow-x:hidden;-webkit-font-smoothing:antialiased}
+body{padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom) 0}
+
+.container{max-width:480px;margin:0 auto;padding:12px 14px 100px;min-height:100vh}
+
+/* Status indicator */
+.status{position:fixed;top:env(safe-area-inset-top,0);left:0;right:0;height:3px;z-index:100;transition:opacity .6s}
+.status.online{background:linear-gradient(90deg,transparent,var(--gold),transparent);opacity:0}
+.status.offline{background:linear-gradient(90deg,transparent,var(--red),transparent);opacity:1;animation:pulse-bar 2s ease infinite}
+@keyframes pulse-bar{0%,100%{opacity:.4}50%{opacity:1}}
+
+/* Header */
+.header{text-align:center;padding:24px 0 28px}
+.header h1{font-size:28px;font-weight:800;letter-spacing:-.5px;background:linear-gradient(135deg,#fff 0%,var(--gold) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.header .sub{font-size:11px;color:var(--text3);letter-spacing:2px;text-transform:uppercase;margin-top:4px}
+
+/* Month total */
+.month-total{background:linear-gradient(135deg,rgba(212,175,55,.08) 0%,rgba(212,175,55,.02) 100%);border:1px solid rgba(212,175,55,.12);border-radius:14px;padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between}
+.month-total .left{display:flex;align-items:baseline;gap:8px}
+.month-total .label{font-size:10px;color:var(--text3);letter-spacing:1px;text-transform:uppercase}
+.month-total .amount{font-size:28px;font-weight:800;color:var(--gold);letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+.month-total .amount .currency{font-size:13px;font-weight:600;opacity:.5;margin-left:1px}
+.month-total .detail{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+.month-total .detail span{font-size:10px;color:var(--text3)}
+.month-total .detail strong{color:var(--text2)}
+
+/* Pending badge */
+.pending-badge{display:inline-flex;align-items:center;gap:6px;background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.2);color:var(--red);font-size:11px;font-weight:600;padding:6px 14px;border-radius:20px;margin-bottom:16px}
+.pending-badge.hidden{display:none}
+.pending-dot{width:6px;height:6px;border-radius:50%;background:var(--red);animation:blink 1.5s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* Form card */
+.form-card{background:var(--card);border:1px solid var(--glass-border);border-radius:16px;padding:16px;margin-bottom:14px;backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px)}
+
+.field{margin-bottom:12px}
+.field label{display:block;font-size:11px;color:var(--text3);letter-spacing:.5px;margin-bottom:6px;text-transform:uppercase}
+.field input,.field select{width:100%;padding:11px 14px;background:var(--glass);border:1px solid var(--glass-border);border-radius:10px;color:var(--text);font-size:15px;font-family:var(--font);outline:none;transition:border-color .3s,box-shadow .3s;appearance:none;-webkit-appearance:none}
+.field select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='rgba(255,255,255,0.3)' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 16px center;padding-right:40px}
+.field input:focus,.field select:focus{border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-dim)}
+.field input::placeholder{color:var(--text3)}
+.field input[type="date"]{color-scheme:dark}
+.field input[type="number"]{font-variant-numeric:tabular-nums;font-weight:600;font-size:18px}
+
+.row{display:flex;gap:12px}
+.row .field{flex:1}
+
+/* Emoji selector for categories */
+.cat-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:12px}
+.cat-btn{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px;background:var(--glass);border:1.5px solid transparent;border-radius:8px;cursor:pointer;transition:all .2s;-webkit-user-select:none;user-select:none}
+.cat-btn:active{transform:scale(.93)}
+.cat-btn.active{border-color:var(--gold);background:var(--gold-dim);box-shadow:0 0 12px var(--gold-dim)}
+.cat-btn .emoji{font-size:18px;line-height:1}
+.cat-btn .cat-label{font-size:8px;color:var(--text3);letter-spacing:.3px;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.cat-btn.active .cat-label{color:var(--gold)}
+
+/* Save button */
+.save-btn{width:100%;padding:14px;border:none;border-radius:12px;background:linear-gradient(135deg,var(--gold) 0%,#c9972e 100%);color:#0a0a0a;font-size:15px;font-weight:800;font-family:var(--font);letter-spacing:.5px;cursor:pointer;transition:all .2s;position:relative;overflow:hidden;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.save-btn:active{transform:scale(.97)}
+.save-btn:disabled{opacity:.4;transform:none}
+.save-btn{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.save-btn .flash{position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.6),transparent);transform:translateX(-100%);transition:none}
+.save-btn.success .flash{transform:translateX(100%);transition:transform .6s ease}
+
+/* History */
+.history{margin-top:8px}
+.history .section-title{font-size:13px;font-weight:700;color:var(--text2);letter-spacing:1px;text-transform:uppercase;margin-bottom:16px;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.day-group{margin-bottom:20px}
+.day-header{font-size:11px;color:var(--text3);letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px;padding-left:4px}
+.expense-item{display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--card);border:1px solid var(--glass-border);border-radius:14px;margin-bottom:8px;position:relative;overflow:hidden;touch-action:pan-y;transition:transform .2s ease,opacity .3s}
+.expense-item.swiping{transition:none}
+.expense-item.removing{transform:translateX(-100%);opacity:0}
+.expense-item .emoji-col{font-size:24px;flex-shrink:0}
+.expense-item .info{flex:1;min-width:0}
+.expense-item .desc{font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.expense-item .meta{font-size:11px;color:var(--text3);margin-top:2px}
+.expense-item .amt{font-size:16px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums;flex-shrink:0}
+.expense-item .pending-icon{position:absolute;top:8px;right:8px;width:6px;height:6px;border-radius:50%;background:var(--red)}
+.delete-bg{position:absolute;right:0;top:0;bottom:0;width:80px;background:linear-gradient(90deg,transparent,rgba(248,113,113,.15));display:flex;align-items:center;justify-content:flex-end;padding-right:16px;opacity:0;transition:opacity .2s}
+.expense-item.swiped-left .delete-bg{opacity:1}
+.edit-bg{position:absolute;left:0;top:0;bottom:0;width:80px;background:linear-gradient(270deg,transparent,rgba(212,175,55,.15));display:flex;align-items:center;justify-content:flex-start;padding-left:16px;opacity:0;transition:opacity .2s}
+.expense-item.swiped-right .edit-bg{opacity:1}
+
+/* Confirm dialog */
+.confirm-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:250;display:flex;align-items:center;justify-content:center;padding:24px;opacity:0;pointer-events:none;transition:opacity .2s}
+.confirm-overlay.show{opacity:1;pointer-events:auto}
+.confirm-card{background:#1a1a1a;border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:28px 24px;max-width:300px;width:100%;text-align:center}
+.confirm-card p{font-size:14px;color:var(--text);margin-bottom:20px}
+.confirm-card .meta{font-size:12px;color:var(--text2);margin-bottom:20px}
+.confirm-btns{display:flex;gap:10px}
+.confirm-btns button{flex:1;padding:14px;border:none;border-radius:12px;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer}
+.confirm-btns .cancel{background:var(--glass);color:var(--text2)}
+.confirm-btns .danger{background:rgba(248,113,113,.15);color:var(--red)}
+
+/* Success overlay */
+.success-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:200;pointer-events:none;opacity:0;transition:opacity .3s}
+.success-overlay.show{opacity:1}
+.success-check{width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,var(--gold),#c9972e);display:flex;align-items:center;justify-content:center;font-size:40px;transform:scale(.5);transition:transform .4s cubic-bezier(.34,1.56,.64,1)}
+.success-overlay.show .success-check{transform:scale(1)}
+
+/* Empty state */
+.empty{text-align:center;padding:40px 20px;color:var(--text3)}
+.empty .emoji-big{font-size:48px;margin-bottom:12px}
+.empty p{font-size:13px}
+
+/* Secret items - no visual difference */
+.save-btn.secret-mode{background:linear-gradient(135deg,#6366f1 0%,#4f46e5 100%) !important}
+
+</style>
+</head>
+<body>
+
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-card">
+    <p id="confirmMsg">Borrar este gasto?</p>
+    <div class="confirm-btns">
+      <button class="cancel" onclick="closeConfirm()">Cancelar</button>
+      <button class="danger" id="confirmBtn" onclick="confirmAction()">Borrar</button>
+    </div>
+  </div>
+</div>
+<div class="status" id="statusBar"></div>
+<div class="success-overlay" id="successOverlay"><div class="success-check">✓</div></div>
+
+<div class="container">
+  <!-- Month total -->
+  <div class="month-total">
+    <div class="left">
+      <div class="label" id="monthLabel"></div>
+      <div class="amount" id="monthAmount">0<span class="currency">€</span></div>
+    </div>
+    <div class="detail">
+      <span><strong id="monthCount">0</strong> gastos</span>
+      <span>media <strong id="monthAvg">0</strong>€</span>
+    </div>
+  </div>
+
+  <!-- Pending badge -->
+  <div class="pending-badge hidden" id="pendingBadge">
+    <span class="pending-dot"></span>
+    <span id="pendingText">0 pendientes</span>
+  </div>
+
+  <!-- Form -->
+  <div class="form-card">
+    <div class="field">
+      <label>Fecha</label>
+      <input type="date" id="fDate">
+    </div>
+
+    <div class="field">
+      <label>Categoria</label>
+    </div>
+    <div class="cat-grid" id="catGrid"></div>
+
+    <div class="field">
+      <label>Concepto</label>
+      <input type="text" id="fDesc" placeholder="Ej: Cena con amigos" autocomplete="off">
+    </div>
+
+    <div class="row">
+      <div class="field" style="flex:2">
+        <label>Importe</label>
+        <input type="number" id="fAmount" placeholder="0.00" step="0.01" min="0" inputmode="decimal">
+      </div>
+      <div class="field" style="flex:1">
+        <label>Divisa</label>
+        <select id="fCurrency">
+          <option value="EUR">EUR €</option>
+          <option value="USD">USD $</option>
+          <option value="CNY">CNY ¥</option>
+          <option value="GBP">GBP £</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="save-btn" id="saveBtn" disabled>
+      <span class="flash"></span>
+      Guardar
+    </button>
+  </div>
+
+  <!-- History -->
+  <div class="history">
+    <div class="section-title" id="recientesTitle">Recientes</div>
+    <div id="historyList"></div>
+  </div>
+</div>
+
+<script>
+const API = 'https://aar-api.garciaontoso.workers.dev';
+const DB_NAME = 'gastos-pwa';
+const DB_VERSION = 1;
+const STORE = 'pending';
+const CATS = [
+  {id:'SUP',emoji:'🛒',label:'Super'},
+  {id:'COM',emoji:'🍽️',label:'Restaurante'},
+  {id:'TRA',emoji:'🚗',label:'Transporte'},
+  {id:'ROP',emoji:'👔',label:'Ropa'},
+  {id:'DEP',emoji:'🎾',label:'Deportes'},
+  {id:'ALQ',emoji:'🏠',label:'Alquiler'},
+  {id:'HOM',emoji:'🏡',label:'Casa'},
+  {id:'UTI',emoji:'💡',label:'Utilities'},
+  {id:'UCH',emoji:'🇨🇳',label:'Util. China'},
+  {id:'SUB',emoji:'🎬',label:'Suscripc.'},
+  {id:'HEA',emoji:'💊',label:'Salud'},
+  {id:'MAS',emoji:'💆',label:'Masajes'},
+  {id:'SBL',emoji:'📈',label:'Bolsa'},
+  {id:'VIA',emoji:'✈️',label:'Viajes'},
+  {id:'CAP',emoji:'✨',label:'Caprichos'},
+  {id:'REG',emoji:'🎁',label:'Regalos'},
+  {id:'BAR',emoji:'⛵',label:'Barco'},
+  {id:'ENT',emoji:'🎭',label:'Ocio'},
+  {id:'HIP',emoji:'🏦',label:'Hipoteca'},
+  {id:'EDU',emoji:'📚',label:'Educacion'},
+  {id:'OTH',emoji:'📦',label:'Otros'},
+];
+const CURRENCY_SYM = {EUR:'€',USD:'$',CNY:'¥',GBP:'£'};
+const CAT_NAME = {};
+CATS.forEach(c => { CAT_NAME[c.id] = c.label; });
+// Extra mappings for old/full names in DB
+Object.assign(CAT_NAME, {Restaurante:'Restaurante',Supermercado:'Super',Alquiler:'Alquiler',Barco:'Barco',Caprichos:'Caprichos',Ropa:'Ropa',Other:'Otros',Masajes:'Masajes',Regalos:'Regalos',Entretenimiento:'Ocio',Home:'Casa',Healthcare:'Salud','Comidas y Cenas':'Restaurante','Medicos y Salud':'Salud',"Deportes & Hobby's":'Deportes','Viajes, Billetes y Hoteles':'Viajes','Transporte, cargas, gasolina, Parking.':'Transporte','Subscripciones Casa':'Suscripc.','Subscripciones Bolsa':'Bolsa',"Utility's Costa Brava":'Utilities','Utilities China':'Util. China','Coche, (seguros, permisos, mantenimiento )':'Transporte',Hipoteca:'Hipoteca',Educacion:'Educacion'});
+
+// ── State ──
+let selectedCat = '';
+let allExpenses = [];
+let pendingCount = 0;
+let isSecreto = false;
+let showSecrets = false;
+// FX rates vs USD
+let fxRates = {USD:1, EUR:0.876, GBP:0.756, CNY:7.24, THB:34.5};
+
+function toEur(amount, ccy) {
+  const c = (ccy||'EUR').toUpperCase();
+  if (c === 'EUR') return amount;
+  const rateFrom = fxRates[c] || 1;
+  const rateEur = fxRates['EUR'] || 0.876;
+  return amount / rateFrom * rateEur;
+}
+
+async function loadFxRates() {
+  try {
+    const cached = localStorage.getItem('gastos-fx');
+    if (cached) {
+      const d = JSON.parse(cached);
+      if (Date.now() - d.ts < 6 * 3600 * 1000) { fxRates = d.rates; return; }
+    }
+    const resp = await fetch('https://aar-api.garciaontoso.workers.dev/api/fx');
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.EUR) { fxRates = data; localStorage.setItem('gastos-fx', JSON.stringify({rates:data,ts:Date.now()})); }
+    }
+  } catch(e) {}
+}
+
+// ── IndexedDB ──
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE)) {
+        db.createObjectStore(STORE, {keyPath:'localId',autoIncrement:true});
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function savePending(expense) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).add(expense);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function getPending() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readonly');
+    const req = tx.objectStore(STORE).getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function deletePending(localId) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).delete(localId);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// ── Sync ──
+async function syncPending() {
+  if (!navigator.onLine) return;
+  const items = await getPending();
+  for (const item of items) {
+    try {
+      const payload = {
+        fecha: item.fecha,
+        categoria: item.categoria,
+        importe: -Math.abs(item.importe),
+        divisa: item.divisa,
+        descripcion: item.descripcion,
+      };
+      const resp = await fetch(`${API}/api/gastos`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload),
+      });
+      if (resp.ok) await deletePending(item.localId);
+    } catch(e) { break; }
+  }
+  updatePendingBadge();
+  loadHistory();
+}
+
+async function updatePendingBadge() {
+  const items = await getPending();
+  pendingCount = items.length;
+  const badge = document.getElementById('pendingBadge');
+  const text = document.getElementById('pendingText');
+  if (pendingCount > 0) {
+    badge.classList.remove('hidden');
+    text.textContent = `${pendingCount} pendiente${pendingCount > 1 ? 's' : ''} de sincronizar`;
+  } else {
+    badge.classList.add('hidden');
+  }
+}
+
+// ── Online/Offline ──
+function updateStatus() {
+  const bar = document.getElementById('statusBar');
+  bar.className = 'status ' + (navigator.onLine ? 'online' : 'offline');
+  if (navigator.onLine) syncPending();
+}
+
+// ── Load history from API (with local cache for instant render) ──
+async function loadHistory() {
+  const now = new Date();
+  const month = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const cacheKey = `gastos-cache-${month}`;
+
+  // 1. Render from local cache instantly
+  try {
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) { allExpenses = JSON.parse(cached); renderHistory(); renderMonthTotal(); }
+  } catch(e) {}
+
+  // 2. Fetch fresh in background
+  try {
+    const resp = await fetch(`${API}/api/gastos?month=${month}`);
+    if (resp.ok) {
+      allExpenses = await resp.json();
+      localStorage.setItem(cacheKey, JSON.stringify(allExpenses));
+      renderHistory();
+      renderMonthTotal();
+    }
+  } catch(e) { /* offline — local cache already rendered */ }
+}
+
+// ── Render month total ──
+function isSecretExpense(e) {
+  return (e.descripcion || '').includes('{secreto}');
+}
+
+function renderMonthTotal() {
+  const now = new Date();
+  const monthNames = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  document.getElementById('monthLabel').textContent = `${monthNames[now.getMonth()]} ${now.getFullYear()}`;
+
+  const gastos = allExpenses.filter(e => (e.importe || 0) < 0 && !isSecretExpense(e));
+  const totalEur = gastos.reduce((s,e) => s + toEur(Math.abs(e.importe || 0), e.divisa), 0);
+  const count = gastos.length;
+  const avg = count > 0 ? totalEur / count : 0;
+
+  document.getElementById('monthAmount').innerHTML = `${totalEur.toLocaleString('es-ES',{minimumFractionDigits:0,maximumFractionDigits:0})}<span class="currency">€</span>`;
+  document.getElementById('monthCount').textContent = count;
+  document.getElementById('monthAvg').textContent = avg > 0 ? avg.toFixed(0) : '0';
+}
+
+// ── Render history grouped by day ──
+function renderHistory() {
+  const list = document.getElementById('historyList');
+  // Sort: newest first (by date, then by id descending for same day)
+  const sorted = [...allExpenses].sort((a,b) => {
+    if (a.fecha !== b.fecha) return b.fecha.localeCompare(a.fecha);
+    return (b.id||0) - (a.id||0);
+  });
+  const visible = showSecrets ? sorted : sorted.filter(e => !isSecretExpense(e));
+  const recent = visible.slice(0, 20);
+
+  if (recent.length === 0) {
+    list.innerHTML = '<div class="empty"><div class="emoji-big">✨</div><p>Sin gastos este mes</p></div>';
+    return;
+  }
+
+  const groups = {};
+  for (const e of recent) {
+    const day = e.fecha || 'Sin fecha';
+    if (!groups[day]) groups[day] = [];
+    groups[day].push(e);
+  }
+
+  const dayNames = ['domingo','lunes','martes','miercoles','jueves','viernes','sabado'];
+  let html = '';
+  for (const [day, items] of Object.entries(groups)) {
+    const d = new Date(day + 'T12:00:00');
+    const isToday = day === todayStr();
+    const dayLabel = isToday ? 'Hoy' : isNaN(d) ? day : `${dayNames[d.getDay()]} ${d.getDate()}`;
+    const dayTotal = items.filter(i=>(i.importe||0)<0 && !isSecretExpense(i)).reduce((s,i)=>s+toEur(Math.abs(i.importe||0),i.divisa),0);
+
+    html += `<div class="day-group">`;
+    html += `<div class="day-header">${dayLabel} · ${dayTotal.toFixed(0)}€</div>`;
+    for (const e of items) {
+      const cat = CATS.find(c => c.id === e.categoria) || {emoji:'📦'};
+      const sym = CURRENCY_SYM[e.divisa||'EUR'] || '€';
+      const isSecret = isSecretExpense(e);
+      const desc = (e.descripcion || e.categoria || '').replace(/\{secreto\}\s?/g,'').replace(/^\[.*?\]\s*/,'');
+      html += `<div class="expense-item" data-id="${e.id}" data-amt="${Math.abs(e.importe)}" data-cat="${e.categoria}" data-desc="${esc(desc)}" data-ccy="${e.divisa||'EUR'}" data-fecha="${e.fecha}" data-secret="${isSecret?'1':''}" ontouchstart="swipeStart(event,this)" ontouchmove="swipeMove(event,this)" ontouchend="swipeEnd(event,this)">
+        <div class="delete-bg">🗑️</div>
+        <div class="edit-bg">✏️</div>
+        <div class="emoji-col">${cat.emoji}</div>
+        <div class="info">
+          <div class="desc">${esc(desc || CAT_NAME[e.categoria] || e.categoria)}</div>
+          <div class="meta">${CAT_NAME[e.categoria] || e.categoria}</div>
+        </div>
+        <div class="amt">${Math.abs(Number(e.importe)).toFixed(2)}${sym}</div>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+  list.innerHTML = html;
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function todayStr() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+
+// ── Swipe: left=delete, right=edit ──
+let swipeState = null;
+let pendingDelete = null;
+
+function swipeStart(e, el) {
+  swipeState = { el, startX: e.touches[0].clientX, dir: null };
+}
+function swipeMove(e, el) {
+  if (!swipeState || swipeState.el !== el) return;
+  const dx = e.touches[0].clientX - swipeState.startX;
+  if (Math.abs(dx) < 10) return;
+  swipeState.dir = dx < 0 ? 'left' : 'right';
+  const x = Math.max(-80, Math.min(80, dx));
+  el.style.transform = `translateX(${x}px)`;
+  el.classList.add('swiping');
+  el.classList.toggle('swiped-left', dx < -40);
+  el.classList.toggle('swiped-right', dx > 40);
+}
+function swipeEnd(e, el) {
+  if (!swipeState || swipeState.el !== el) return;
+  el.classList.remove('swiping');
+  const isLeft = el.classList.contains('swiped-left');
+  const isRight = el.classList.contains('swiped-right');
+  el.classList.remove('swiped-left','swiped-right');
+  el.style.transform = '';
+
+  if (isLeft) {
+    // Delete with confirmation
+    pendingDelete = { id: el.dataset.id, el };
+    document.getElementById('confirmMsg').textContent = `Borrar gasto de ${Math.abs(el.dataset.amt)}${el.dataset.ccy}?`;
+    document.getElementById('confirmOverlay').classList.add('show');
+  } else if (isRight) {
+    // Edit: fill form with this expense data
+    editExpense(el);
+  }
+  swipeState = null;
+}
+
+function editExpense(el) {
+  const catId = el.dataset.cat;
+  document.getElementById('fDate').value = el.dataset.fecha || todayStr();
+  document.getElementById('fDesc').value = el.dataset.desc || '';
+  document.getElementById('fAmount').value = el.dataset.amt || '';
+  document.getElementById('fCurrency').value = el.dataset.ccy || 'EUR';
+  // Restore secreto state
+  isSecreto = el.dataset.secret === '1';
+  document.getElementById('saveBtn').classList.toggle('secret-mode', isSecreto);
+  // Select category
+  const catBtn = document.querySelector(`.cat-btn[data-cat="${catId}"]`);
+  if (catBtn) selectCat(catId, catBtn);
+  // Scroll to form
+  window.scrollTo({top: 0, behavior: 'smooth'});
+  // Delete the old one silently
+  fetch(`${API}/api/gastos/${el.dataset.id}`, {method:'DELETE'}).then(()=>loadHistory());
+}
+
+function closeConfirm() {
+  document.getElementById('confirmOverlay').classList.remove('show');
+  pendingDelete = null;
+}
+
+async function confirmAction() {
+  if (!pendingDelete) return;
+  const { id, el } = pendingDelete;
+  closeConfirm();
+  el.classList.add('removing');
+  setTimeout(async () => {
+    try {
+      await fetch(`${API}/api/gastos/${id}`, {method:'DELETE'});
+      loadHistory();
+    } catch(err) { el.classList.remove('removing'); }
+  }, 300);
+}
+
+// ── Build UI ──
+function buildCatGrid() {
+  const grid = document.getElementById('catGrid');
+  grid.innerHTML = CATS.map(c =>
+    `<div class="cat-btn" data-cat="${c.id}" onclick="selectCat('${c.id}',this)">
+      <span class="emoji">${c.emoji}</span>
+      <span class="cat-label">${c.label}</span>
+    </div>`
+  ).join('');
+}
+
+function selectCat(id, el) {
+  document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  selectedCat = id;
+  checkForm();
+}
+
+function checkForm() {
+  const amt = document.getElementById('fAmount').value;
+  document.getElementById('saveBtn').disabled = !(selectedCat && amt > 0);
+}
+
+function setupLongPress() {
+  // Long-press on Save = toggle secret mode
+  const saveBtn = document.getElementById('saveBtn');
+  let saveTimer = null;
+  let saveFired = false;
+  saveBtn.addEventListener('contextmenu', e => e.preventDefault());
+  saveBtn.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    saveFired = false;
+    saveTimer = setTimeout(() => {
+      saveFired = true;
+      isSecreto = !isSecreto;
+      saveBtn.classList.toggle('secret-mode', isSecreto);
+      if(navigator.vibrate) navigator.vibrate(30);
+    }, 800);
+  });
+  saveBtn.addEventListener('touchend', (e) => {
+    clearTimeout(saveTimer);
+    if (saveFired) { e.preventDefault(); saveFired = false; }
+    else if (!saveBtn.disabled) { saveExpense(); }
+    saveTimer = null;
+  });
+  saveBtn.addEventListener('touchmove', () => { clearTimeout(saveTimer); saveTimer = null; });
+  saveBtn.addEventListener('touchcancel', () => { clearTimeout(saveTimer); saveTimer = null; });
+  // Block the click if long-press just fired
+  saveBtn.addEventListener('click', (e) => { if (saveFired) { e.preventDefault(); e.stopImmediatePropagation(); saveFired = false; } }, true);
+  // Mouse fallback
+  saveBtn.addEventListener('mousedown', () => { saveFired = false; saveTimer = setTimeout(() => { saveFired = true; isSecreto = !isSecreto; saveBtn.classList.toggle('secret-mode', isSecreto); }, 800); });
+  saveBtn.addEventListener('mouseup', () => { clearTimeout(saveTimer); saveTimer = null; });
+  saveBtn.addEventListener('mouseleave', () => { clearTimeout(saveTimer); saveTimer = null; });
+
+  // Long-press on "Recientes" = toggle show secrets
+  const title = document.getElementById('recientesTitle');
+  let titleTimer = null;
+  title.addEventListener('touchstart', () => {
+    titleTimer = setTimeout(() => {
+      showSecrets = !showSecrets;
+      renderHistory();
+      renderMonthTotal();
+      if(navigator.vibrate) navigator.vibrate(30);
+      titleTimer = 'fired';
+    }, 800);
+  }, {passive:true});
+  title.addEventListener('touchend', () => { if (titleTimer !== 'fired') clearTimeout(titleTimer); titleTimer = null; });
+  title.addEventListener('touchmove', () => { clearTimeout(titleTimer); titleTimer = null; });
+  title.addEventListener('touchcancel', () => { clearTimeout(titleTimer); titleTimer = null; });
+  // Mouse fallback
+  title.addEventListener('mousedown', () => { titleTimer = setTimeout(() => { showSecrets = !showSecrets; renderHistory(); renderMonthTotal(); titleTimer = 'fired'; }, 800); });
+  title.addEventListener('mouseup', () => { if (titleTimer !== 'fired') clearTimeout(titleTimer); titleTimer = null; });
+  title.addEventListener('mouseleave', () => { clearTimeout(titleTimer); titleTimer = null; });
+}
+
+// ── Save ──
+async function saveExpense() {
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true;
+
+  const divisa = document.getElementById('fCurrency').value;
+  localStorage.setItem('gastos-currency', divisa);
+  const secretoPrefix = isSecreto ? '{secreto} ' : '';
+  const expense = {
+    fecha: document.getElementById('fDate').value,
+    categoria: selectedCat,
+    descripcion: secretoPrefix + document.getElementById('fDesc').value.trim(),
+    importe: parseFloat(document.getElementById('fAmount').value),
+    divisa,
+  };
+
+  // Always save to IndexedDB first
+  await savePending(expense);
+  updatePendingBadge();
+
+  // Show success
+  showSuccess();
+
+  // Reset form
+  document.getElementById('fDesc').value = '';
+  document.getElementById('fAmount').value = '';
+  document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+  selectedCat = '';
+  isSecreto = false;
+  document.getElementById('saveBtn').classList.remove('secret-mode');
+  checkForm();
+
+  // Try sync immediately
+  if (navigator.onLine) {
+    await syncPending();
+  }
+}
+
+function showSuccess() {
+  const overlay = document.getElementById('successOverlay');
+  overlay.classList.add('show');
+  const btn = document.getElementById('saveBtn');
+  btn.classList.add('success');
+  setTimeout(() => {
+    overlay.classList.remove('show');
+    btn.classList.remove('success');
+  }, 800);
+}
+
+// ── Init ──
+function init() {
+  document.getElementById('fDate').value = todayStr();
+
+  // Restore last currency
+  const savedCurrency = localStorage.getItem('gastos-currency');
+  if (savedCurrency) document.getElementById('fCurrency').value = savedCurrency;
+
+  buildCatGrid();
+
+  document.getElementById('fAmount').addEventListener('input', checkForm);
+  document.getElementById('saveBtn').addEventListener('click', saveExpense);
+  setupLongPress();
+
+  updateStatus();
+  window.addEventListener('online', updateStatus);
+  window.addEventListener('offline', updateStatus);
+
+  // Load everything in parallel
+  updatePendingBadge();
+  loadHistory();
+  loadFxRates();
+
+  // Register service worker
+  if ('serviceWorker' in navigator) {
+    // Kill old broken SW, register new one with different name
+    navigator.serviceWorker.getRegistrations().then(regs => {
+      regs.forEach(r => { if (r.active && r.active.scriptURL.includes('gastos-sw')) r.unregister(); });
+    });
+    navigator.serviceWorker.register('/gsw.js').catch(() => {});
+  }
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+export { default as PortfolioTab } from './PortfolioTab';
+export { default as ScreenerTab } from './ScreenerTab';
+export { default as TradesTab } from './TradesTab';
+export { default as PatrimonioTab } from './PatrimonioTab';
+export { default as DashboardTab } from './DashboardTab';
+export { default as DividendosTab } from './DividendosTab';
+export { default as FireTab } from './FireTab';
+export { default as GastosTab } from './GastosTab';
+export { default as ControlTab } from './ControlTab';
+export { default as WatchlistTab } from './WatchlistTab';
+export { default as HistorialTab } from './HistorialTab';
+export { default as AdvisorTab } from './AdvisorTab';
+export { default as ResearchTab } from './ResearchTab';
+export { default as SettingsPanel } from './SettingsPanel';

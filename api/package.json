@@ -1,0 +1,17 @@
+{
+  "name": "aar-api",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create aar-finanzas",
+    "db:schema": "wrangler d1 execute aar-finanzas --file=./schema.sql --remote",
+    "db:seed": "node seed.js",
+    "db:migrate:patrimonio": "wrangler d1 execute aar-finanzas --file=./02_migrate_patrimonio.sql --remote",
+    "db:migrate:dividendos": "wrangler d1 execute aar-finanzas --file=./03_migrate_dividendos.sql --remote",
+    "db:migrate:gastos": "wrangler d1 execute aar-finanzas --file=./04_migrate_gastos.sql --remote",
+    "db:migrate:ingresos": "wrangler d1 execute aar-finanzas --file=./05_migrate_ingresos.sql --remote",
+    "db:migrate:resto": "wrangler d1 execute aar-finanzas --file=./06_migrate_resto.sql --remote"
+  }
+}

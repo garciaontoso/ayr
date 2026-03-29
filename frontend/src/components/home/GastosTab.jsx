@@ -1,0 +1,320 @@
+import { useHome } from '../../context/HomeContext';
+import { _sf, fDol } from '../../utils/formatters.js';
+import { CURRENCIES } from '../../constants/index.js';
+
+export default function GastosTab() {
+  const {
+    gastosLog, gastosLoading, gastosShowForm, setGastosShowForm,
+    gastosForm, setGastosForm, gastosFilter, setGastosFilter,
+    gastosSort, setGastosSort, addGasto, deleteGasto,
+    GASTO_CAT_LIST, fxRates,
+  } = useHome();
+
+  return (
+<div style={{display:"flex",flexDirection:"column",gap:12}}>
+  {/* Summary + filters */}
+  {(() => {
+    // Helper: convert gasto amount to EUR
+    const gToEur = (g) => {
+      const ccy = (g.currency||"EUR").toUpperCase().trim();
+      const raw = Math.abs(g.amount||0);
+      if(ccy === "EUR" || !ccy) return raw;
+      // Use live fxRates (rates are vs USD: EUR=0.92, CNY=7.25 etc)
+      const rateFrom = fxRates[ccy]; // e.g. CNY=7.25 (how many CNY per USD)
+      const rateEur = fxRates["EUR"]; // e.g. 0.92
+      if(rateFrom && rateEur) return raw / rateFrom * rateEur; // CNY→USD→EUR
+      // Hardcoded fallbacks
+      if(ccy === "CNY") return raw * 0.127;
+      if(ccy === "USD") return raw * 0.926;
+      return raw;
+    };
+    const ccySym = (ccy) => ({EUR:"€",USD:"$",CNY:"¥"}[(ccy||"EUR").toUpperCase()] || "€");
+
+    const filtered = gastosLog.filter(g => {
+      if (gastosFilter.year !== "all" && !g.date?.startsWith(gastosFilter.year)) return false;
+      if (gastosFilter.month !== "all" && !g.date?.startsWith(gastosFilter.month)) return false;
+      if (gastosFilter.cat !== "all" && g.cat !== gastosFilter.cat) return false;
+      if (gastosFilter.ccy && gastosFilter.ccy !== "all" && (g.currency||"EUR").toUpperCase() !== gastosFilter.ccy) return false;
+      if (gastosFilter.tipo && gastosFilter.tipo !== "all") {
+        const t = g.tipo || "normal";
+        if (gastosFilter.tipo === "nochina" && t === "china") return false;
+        else if (gastosFilter.tipo !== "nochina" && t !== gastosFilter.tipo) return false;
+      }
+      if (gastosFilter.search && !(g.detail||"").toLowerCase().includes(gastosFilter.search.toLowerCase()) && !(g.cat||"").toLowerCase().includes(gastosFilter.search.toLowerCase())) return false;
+      if (g.secreto && !gastosFilter.showSecretos) return false;
+      return true;
+    });
+    const expenses = filtered.filter(g=>g.amount<0);
+    const incomes = filtered.filter(g=>g.amount>0);
+    const totalGastosEur = expenses.reduce((s,g) => s+gToEur(g), 0);
+    const totalIngresosEur = incomes.reduce((s,g) => s+gToEur(g), 0);
+    const totalEur = totalGastosEur;
+    const totalChinaEur = expenses.filter(g=>g.tipo==="china").reduce((s,g) => s+gToEur(g), 0);
+    const totalExtraEur = expenses.filter(g=>g.tipo==="extra").reduce((s,g) => s+gToEur(g), 0);
+    const totalBaseEur = totalEur - totalChinaEur - totalExtraEur;
+    const months = new Set(expenses.map(g=>g.date?.slice(0,7)));
+    const avgMonthly = months.size > 0 ? totalEur / months.size : 0;
+
+    // By category (in EUR)
+    const byCat = {};
+    expenses.forEach(g => { byCat[g.cat] = (byCat[g.cat]||0) + gToEur(g); });
+    const topCats = Object.entries(byCat).sort((a,b) => b[1]-a[1]).slice(0,10);
+    const maxCat = Math.max(...topCats.map(([,v])=>v), 1);
+
+    // By currency breakdown
+    const byCcy = {};
+    expenses.forEach(g => {
+      const c = (g.currency||"EUR").toUpperCase().trim()||"EUR";
+      if(!byCcy[c]) byCcy[c] = {raw:0, eur:0, count:0};
+      byCcy[c].raw += Math.abs(g.amount||0);
+      byCcy[c].eur += gToEur(g);
+      byCcy[c].count++;
+    });
+
+    // By month (in EUR)
+    const byMonth = {};
+    expenses.forEach(g => {
+      const m = g.date?.slice(0,7);
+      if(!m) return;
+      if(!byMonth[m]) byMonth[m] = {eur:0,cny:0,usd:0,eurNat:0};
+      const eurAmt = gToEur(g);
+      const ccy = (g.currency||"EUR").toUpperCase().trim()||"EUR";
+      byMonth[m].eur += eurAmt;
+      if(ccy==="CNY") byMonth[m].cny += eurAmt;
+      else if(ccy==="USD") byMonth[m].usd += eurAmt;
+      else byMonth[m].eurNat += eurAmt;
+    });
+    const monthKeys = Object.keys(byMonth).sort().reverse();
+
+    return <>
+      {/* KPI cards */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12}}>
+        <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+          <div><div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>TOTAL (EUR)</div><div style={{fontSize:20,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>€{totalEur.toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>
+          <div><div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>BASE</div><div style={{fontSize:20,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>€{totalBaseEur.toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>
+          {totalChinaEur > 0 && <div><div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>🇨🇳 CHINA</div><div style={{fontSize:20,fontWeight:700,color:"#ef4444",fontFamily:"var(--fm)"}}>€{totalChinaEur.toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>}
+          {totalExtraEur > 0 && <div><div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>EXTRA</div><div style={{fontSize:20,fontWeight:700,color:"#a855f7",fontFamily:"var(--fm)"}}>€{totalExtraEur.toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>}
+          {totalIngresosEur > 0 && <div><div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>INGRESOS</div><div style={{fontSize:20,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)"}}>€{totalIngresosEur.toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>}
+          <div><div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>MEDIA/MES</div><div style={{fontSize:20,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>€{avgMonthly.toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>
+          <div onTouchStart={()=>{window._secTimer=setTimeout(()=>{setGastosFilter(p=>({...p,showSecretos:!p.showSecretos}));if(navigator.vibrate)navigator.vibrate(30);window._secTimer='fired';},1000);}} onTouchEnd={()=>{if(window._secTimer!=='fired')clearTimeout(window._secTimer);window._secTimer=null;}} onTouchMove={()=>{clearTimeout(window._secTimer);window._secTimer=null;}} onMouseDown={()=>{window._secTimer=setTimeout(()=>{setGastosFilter(p=>({...p,showSecretos:!p.showSecretos}));window._secTimer='fired';},1000);}} onMouseUp={()=>{if(window._secTimer!=='fired')clearTimeout(window._secTimer);window._secTimer=null;}} style={{cursor:"default",userSelect:"none",WebkitUserSelect:"none"}}><div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>REGISTROS</div><div style={{fontSize:20,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{filtered.length}</div></div>
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+          <select value={gastosFilter.year} onChange={e=>setGastosFilter(p=>({...p,year:e.target.value,month:"all"}))} style={{padding:"5px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
+            <option value="all">Todos años</option>
+            {[...new Set(gastosLog.map(g=>g.date?.slice(0,4)).filter(Boolean))].sort().reverse().map(y=><option key={y} value={y}>{y}</option>)}
+          </select>
+          {gastosFilter.year !== "all" && <select value={gastosFilter.month} onChange={e=>setGastosFilter(p=>({...p,month:e.target.value}))} style={{padding:"5px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
+            <option value="all">Todos meses</option>
+            {[...new Set(gastosLog.filter(g=>g.date?.startsWith(gastosFilter.year)).map(g=>g.date?.slice(0,7)).filter(Boolean))].sort().reverse().map(m=>{const mn=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"][parseInt(m.slice(5,7))-1]; return <option key={m} value={m}>{mn} {m.slice(0,4)}</option>;})}
+          </select>}
+          <select value={gastosFilter.cat} onChange={e=>setGastosFilter(p=>({...p,cat:e.target.value}))} style={{padding:"5px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
+            <option value="all">Todas categorías</option>
+            {GASTO_CAT_LIST.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+          <select value={gastosFilter.ccy||"all"} onChange={e=>setGastosFilter(p=>({...p,ccy:e.target.value}))} style={{padding:"5px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
+            <option value="all">Todas divisas</option>
+            <option value="EUR">🇪🇺 EUR</option><option value="USD">🇺🇸 USD</option><option value="CNY">🇨🇳 CNY</option><option value="GBP">🇬🇧 GBP</option>
+          </select>
+          <select value={gastosFilter.tipo||"all"} onChange={e=>setGastosFilter(p=>({...p,tipo:e.target.value}))} style={{padding:"5px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
+            <option value="all">Todos tipos</option>
+            <option value="normal">Normal</option>
+            <option value="china">🇨🇳 China</option>
+            <option value="extra">⚡ Extraordinario</option>
+            <option value="nochina">Sin China</option>
+          </select>
+          <input type="text" placeholder="Buscar concepto..." value={gastosFilter.search||""} onChange={e=>setGastosFilter(p=>({...p,search:e.target.value}))} style={{padding:"5px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)",width:130}}/>
+          <button onClick={()=>{setGastosForm(p=>({...p,isIngreso:false}));setGastosShowForm(!gastosShowForm);}} style={{padding:"7px 14px",borderRadius:7,border:"1px solid var(--gold)",background:gastosShowForm&&!gastosForm.isIngreso?"var(--gold)":"var(--gold-dim)",color:gastosShowForm&&!gastosForm.isIngreso?"#000":"var(--gold)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>
+            {gastosShowForm&&!gastosForm.isIngreso?"✕":"+ Gasto"}
+          </button>
+          <button onClick={()=>{setGastosForm(p=>({...p,isIngreso:true}));setGastosShowForm(!gastosShowForm||!gastosForm.isIngreso);}} style={{padding:"7px 14px",borderRadius:7,border:"1px solid var(--green)",background:gastosShowForm&&gastosForm.isIngreso?"var(--green)":"rgba(52,211,153,.1)",color:gastosShowForm&&gastosForm.isIngreso?"#000":"var(--green)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>
+            {gastosShowForm&&gastosForm.isIngreso?"✕":"+ Ingreso"}
+          </button>
+        </div>
+      </div>
+
+      {/* Currency breakdown pills */}
+      {Object.keys(byCcy).length > 1 && (
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {Object.entries(byCcy).sort((a,b)=>b[1].eur-a[1].eur).map(([ccy,d]) => (
+            <div key={ccy} style={{padding:"5px 12px",background:"rgba(255,255,255,.03)",borderRadius:8,border:"1px solid var(--border)",display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:11,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{CURRENCIES[ccy]?.flag||""} {ccy}</span>
+              <span style={{fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{ccySym(ccy)}{(d.raw||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>
+              <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>=</span>
+              <span style={{fontSize:10,fontWeight:600,color:"var(--red)",fontFamily:"var(--fm)"}}>€{(d.eur||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>
+              <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>({_sf(d.eur/totalEur*100,0)}%)</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Monthly breakdown grid */}
+      {monthKeys.length > 1 && (() => {
+        const mNames = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+        return <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:6}}>
+          {monthKeys.slice(0,12).map(m => {
+            const d = byMonth[m];
+            const mi = parseInt(m.slice(5,7))-1;
+            const yr = m.slice(0,4);
+            return (
+              <div key={m} style={{padding:"8px 10px",background:"rgba(255,255,255,.02)",borderRadius:8,border:"1px solid rgba(255,255,255,.04)"}}>
+                <div style={{fontSize:10,fontWeight:600,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginBottom:4}}>{mNames[mi]} {yr}</div>
+                <div style={{fontSize:16,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>€{(d.eur||0).toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+                {(d.cny > 0 || d.usd > 0) && <div style={{display:"flex",gap:3,marginTop:4,flexWrap:"wrap"}}>
+                  {d.eurNat > 0 && <span style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(48,209,88,.06)",color:"var(--green)",fontFamily:"var(--fm)"}}>EUR €{(d.eurNat||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
+                  {d.cny > 0 && <span style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(255,69,58,.06)",color:"var(--red)",fontFamily:"var(--fm)"}}>CNY €{(d.cny||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
+                  {d.usd > 0 && <span style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(10,132,255,.06)",color:"#0a84ff",fontFamily:"var(--fm)"}}>USD €{(d.usd||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
+                </div>}
+              </div>
+            );
+          })}
+        </div>;
+      })()}
+
+      {/* Category breakdown mini-bars (in EUR) */}
+      {topCats.length > 0 && <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+        {topCats.map(([cat,val]) => (
+          <div key={cat} style={{flex:"1 1 220px",display:"flex",alignItems:"center",gap:6,padding:"5px 10px",background:"rgba(255,255,255,.02)",borderRadius:6}}>
+            <span style={{fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)",width:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cat}</span>
+            <div style={{flex:1,height:6,background:"rgba(255,255,255,.04)",borderRadius:3,overflow:"hidden"}}>
+              <div style={{width:`${val/maxCat*100}%`,height:"100%",background:"var(--gold)",borderRadius:3,opacity:.5}}/>
+            </div>
+            <span style={{fontSize:9,color:"var(--text-secondary)",fontFamily:"var(--fm)",width:60,textAlign:"right"}}>€{val.toLocaleString(undefined,{maximumFractionDigits:0})}</span>
+          </div>
+        ))}
+      </div>}
+    </>;
+  })()}
+
+  {/* Add form */}
+  {gastosShowForm && (
+    <div style={{padding:14,background:"var(--card)",border:`1px solid ${gastosForm.isIngreso?"rgba(52,211,153,.3)":"var(--gold-dim)"}`,borderRadius:12}}>
+      <div style={{fontSize:10,fontWeight:700,color:gastosForm.isIngreso?"var(--green)":"var(--gold)",fontFamily:"var(--fm)",marginBottom:8,letterSpacing:1}}>{gastosForm.isIngreso?"NUEVO INGRESO":"NUEVO GASTO"}</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:8,alignItems:"flex-end"}}>
+        <div><label style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:3}}>FECHA</label>
+          <input type="date" value={gastosForm.date} onChange={e=>setGastosForm(p=>({...p,date:e.target.value}))} style={{padding:"6px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}/></div>
+        <div><label style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:3}}>CATEGORÍA</label>
+          <select value={gastosForm.cat} onChange={e=>setGastosForm(p=>({...p,cat:e.target.value}))} style={{padding:"6px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
+            {GASTO_CAT_LIST.map(c=><option key={c} value={c}>{c}</option>)}
+          </select></div>
+        <div><label style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:3}}>IMPORTE</label>
+          <input type="number" step="0.01" value={gastosForm.amount||""} onChange={e=>setGastosForm(p=>({...p,amount:parseFloat(e.target.value)||0}))} placeholder="25.50" style={{width:80,padding:"6px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}/></div>
+        <div><label style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:3}}>DIVISA</label>
+          <select value={gastosForm.currency} onChange={e=>setGastosForm(p=>({...p,currency:e.target.value}))} style={{padding:"6px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
+            <option value="EUR">EUR €</option><option value="USD">USD $</option><option value="CNY">CNY ¥</option>
+          </select></div>
+        <div><label style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:3}}>CONCEPTO</label>
+          <input type="text" value={gastosForm.detail} onChange={e=>setGastosForm(p=>({...p,detail:e.target.value}))} placeholder="Cena con amigos..." style={{width:160,padding:"6px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}/></div>
+        <div><label style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:3}}>TIPO</label>
+          <div style={{display:"flex",gap:4}}>
+            {[{v:"normal",l:"Normal"},{v:"china",l:"🇨🇳 China"},{v:"extra",l:"⚡ Extra"}].map(t=>(
+              <button key={t.v} type="button" onClick={()=>setGastosForm(p=>({...p,tipo:t.v}))} style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${gastosForm.tipo===t.v?"var(--gold)":"var(--border)"}`,background:gastosForm.tipo===t.v?"var(--gold-dim)":"transparent",color:gastosForm.tipo===t.v?"var(--gold)":"var(--text-tertiary)",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>{t.l}</button>
+            ))}
+          </div></div>
+        <label style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",cursor:"pointer"}}>
+          <input type="checkbox" checked={gastosForm.recur} onChange={e=>setGastosForm(p=>({...p,recur:e.target.checked}))}/>Recurrente
+        </label>
+        <button onTouchStart={(e)=>{e.preventDefault();window._saveSTimer=setTimeout(()=>{setGastosForm(p=>({...p,secreto:!p.secreto}));if(navigator.vibrate)navigator.vibrate(30);window._saveSTimer='fired';},1000);}} onTouchEnd={(e)=>{clearTimeout(window._saveSTimer);if(window._saveSTimer==='fired'){e.preventDefault();window._saveSTimer=null;return;}window._saveSTimer=null;}} onTouchMove={()=>{clearTimeout(window._saveSTimer);window._saveSTimer=null;}} onMouseDown={()=>{window._saveSTimer=setTimeout(()=>{setGastosForm(p=>({...p,secreto:!p.secreto}));window._saveSTimer='fired';},1000);}} onMouseUp={()=>{clearTimeout(window._saveSTimer);window._saveSTimer=null;}} onClick={async(e)=>{if(window._saveSTimer==='fired'){e.preventDefault();return;}if(gastosForm.date&&gastosForm.amount!==0){await addGasto(gastosForm);setGastosForm(p=>({...p,amount:0,detail:"",tipo:"normal",secreto:false,isIngreso:false}));}}} style={{padding:"6px 16px",borderRadius:6,border:"none",background:gastosForm.secreto?(gastosForm.isIngreso?"#4f46e5":"#6366f1"):(gastosForm.isIngreso?"var(--green)":"var(--gold)"),color:"#000",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)",height:30,userSelect:"none",WebkitUserSelect:"none",WebkitTouchCallout:"none",transition:"background .2s"}}>{gastosForm.isIngreso?"Guardar Ingreso":"Guardar Gasto"}</button>
+      </div>
+    </div>
+  )}
+
+  {/* Gastos table (multi-currency aware) */}
+  <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
+    {gastosLoading ? (
+      <div style={{padding:40,textAlign:"center",color:"var(--text-tertiary)"}}>Cargando gastos...</div>
+    ) : (
+      <div style={{overflowX:"auto"}}>
+        {(() => {
+          const _gToEur = (g) => {
+            const ccy = (g.currency||"EUR").toUpperCase().trim();
+            const raw = Math.abs(g.amount||0);
+            if(ccy === "EUR" || !ccy) return raw;
+            const rateFrom = fxRates[ccy]; const rateEur = fxRates["EUR"];
+            if(rateFrom && rateEur) return raw / rateFrom * rateEur;
+            if(ccy === "CNY") return raw * 0.127;
+            if(ccy === "USD") return raw * 0.926;
+            return raw;
+          };
+          const _ccySym = (ccy) => ({EUR:"€",USD:"$",CNY:"¥",GBP:"£"}[(ccy||"EUR").toUpperCase()] || "€");
+          const _ccyFlag = (ccy) => ({EUR:"🇪🇺",USD:"🇺🇸",CNY:"🇨🇳",GBP:"🇬🇧"}[(ccy||"EUR").toUpperCase()] || "");
+          const filteredRows = gastosLog.filter(g => {
+            if (gastosFilter.year !== "all" && !g.date?.startsWith(gastosFilter.year)) return false;
+            if (gastosFilter.month !== "all" && !g.date?.startsWith(gastosFilter.month)) return false;
+            if (gastosFilter.cat !== "all" && g.cat !== gastosFilter.cat) return false;
+            if (gastosFilter.ccy && gastosFilter.ccy !== "all" && (g.currency||"EUR").toUpperCase() !== gastosFilter.ccy) return false;
+            if (gastosFilter.tipo && gastosFilter.tipo !== "all") {
+              const t = g.tipo || "normal";
+              if (gastosFilter.tipo === "nochina" && t === "china") return false;
+              else if (gastosFilter.tipo !== "nochina" && t !== gastosFilter.tipo) return false;
+            }
+            if (gastosFilter.search && !(g.detail||"").toLowerCase().includes(gastosFilter.search.toLowerCase()) && !(g.cat||"").toLowerCase().includes(gastosFilter.search.toLowerCase())) return false;
+            return true;
+          });
+          const sortedRows = [...filteredRows].sort((a,b) => {
+            const col = gastosSort.col;
+            let va, vb;
+            if (col === "date") { va = a.date||""; vb = b.date||""; }
+            else if (col === "cat") { va = a.cat||""; vb = b.cat||""; }
+            else if (col === "amount") { va = Math.abs(a.amount||0); vb = Math.abs(b.amount||0); }
+            else if (col === "eur") { va = _gToEur(a); vb = _gToEur(b); }
+            else if (col === "detail") { va = a.detail||""; vb = b.detail||""; }
+            else { va = a.date||""; vb = b.date||""; }
+            if (typeof va === "string") return gastosSort.asc ? va.localeCompare(vb) : vb.localeCompare(va);
+            return gastosSort.asc ? va - vb : vb - va;
+          }).slice(0,500);
+          const gSortBy = (col) => setGastosSort(p => p.col === col ? {col, asc: !p.asc} : {col, asc: col==="amount"||col==="eur"?false:true});
+          const gSortArr = (col) => gastosSort.col === col ? (gastosSort.asc ? " ▲" : " ▼") : "";
+          const thStyle = (col,align) => ({padding:"7px 10px",textAlign:align||"left",color:gastosSort.col===col?"var(--gold)":"var(--text-tertiary)",fontSize:9,fontWeight:600,fontFamily:"var(--fm)",letterSpacing:.4,borderBottom:"1px solid var(--border)",cursor:"pointer",userSelect:"none",whiteSpace:"nowrap"});
+          const filtTotal = filteredRows.reduce((s,g) => s + _gToEur(g), 0);
+          return <>
+            <div style={{padding:"6px 12px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid var(--border)"}}>
+              <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{filteredRows.length} gastos</span>
+              <span style={{fontSize:11,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>Total: €{filtTotal.toLocaleString(undefined,{maximumFractionDigits:0})}</span>
+            </div>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:750}}>
+            <thead><tr>
+              <th onClick={()=>gSortBy("date")} style={thStyle("date")}>FECHA{gSortArr("date")}</th>
+              <th onClick={()=>gSortBy("cat")} style={thStyle("cat")}>CATEGORÍA{gSortArr("cat")}</th>
+              <th onClick={()=>gSortBy("amount")} style={thStyle("amount","right")}>IMPORTE{gSortArr("amount")}</th>
+              <th style={{padding:"7px 4px",borderBottom:"1px solid var(--border)",width:30}}></th>
+              <th onClick={()=>gSortBy("eur")} style={thStyle("eur","right")}>≈ EUR{gSortArr("eur")}</th>
+              <th onClick={()=>gSortBy("detail")} style={thStyle("detail")}>CONCEPTO{gSortArr("detail")}</th>
+              <th style={{padding:"7px 4px",borderBottom:"1px solid var(--border)",width:60}}></th>
+            </tr></thead>
+            <tbody>
+              {sortedRows.map((g,i) => {
+                const ccy = (g.currency||"EUR").toUpperCase().trim()||"EUR";
+                const isNonEur = ccy !== "EUR";
+                const eurVal = _gToEur(g);
+                return (
+                  <tr key={g.id||i} style={{background:i%2?"rgba(255,255,255,.01)":"transparent",opacity:g.secreto?.5:1}}
+                    onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"} onMouseLeave={e=>e.currentTarget.style.background=i%2?"rgba(255,255,255,.01)":"transparent"}>
+                    <td style={{padding:"5px 10px",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{g.date}</td>
+                    <td style={{padding:"5px 10px",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid rgba(255,255,255,.03)",maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.cat}{g.secreto?<span style={{fontSize:7,marginLeft:4,padding:"1px 4px",borderRadius:3,background:"rgba(99,102,241,.08)",color:"#6366f1",verticalAlign:"middle"}}>🔒</span>:""}{g.tipo==="china"?<span style={{fontSize:7,marginLeft:4,padding:"1px 4px",borderRadius:3,background:"rgba(239,68,68,.08)",color:"#ef4444",verticalAlign:"middle"}}>🇨🇳 CHINA</span>:g.tipo==="extra"?<span style={{fontSize:7,marginLeft:4,padding:"1px 4px",borderRadius:3,background:"rgba(168,85,247,.08)",color:"#a855f7",verticalAlign:"middle"}}>EXTRA</span>:""}{g.recur?<span style={{fontSize:7,marginLeft:3,padding:"1px 4px",borderRadius:3,background:"rgba(255,159,10,.08)",color:"var(--orange)",verticalAlign:"middle"}}>REC</span>:""}</td>
+                    <td style={{padding:"5px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:g.amount>0?"var(--green)":"var(--text-primary)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{_ccyFlag(ccy)} {g.amount>0?"+":""}{_ccySym(ccy)}{Math.abs(g.amount||0).toLocaleString(undefined,{minimumFractionDigits:ccy==="CNY"?0:2,maximumFractionDigits:2})}</td>
+                    <td style={{padding:"3px 4px",fontFamily:"var(--fm)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{isNonEur && <span style={{fontSize:8,padding:"1px 5px",borderRadius:3,background:"rgba(255,255,255,.04)",color:"var(--text-tertiary)"}}>{ccy}</span>}</td>
+                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:isNonEur?"var(--text-secondary)":"var(--text-tertiary)",borderBottom:"1px solid rgba(255,255,255,.03)",fontSize:isNonEur?11:10.5}}>{isNonEur ? `€${eurVal.toLocaleString(undefined,{maximumFractionDigits:0})}` : `€${_sf(Math.abs(g.amount||0),2)}`}</td>
+                    <td style={{padding:"5px 10px",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid rgba(255,255,255,.03)",fontSize:10,maxWidth:240,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.detail||""}</td>
+                    <td style={{padding:"3px 6px",borderBottom:"1px solid rgba(255,255,255,.03)",whiteSpace:"nowrap"}}>
+                      <button onClick={()=>{setGastosForm({date:g.date,cat:g.cat,amount:Math.abs(g.amount||0),currency:ccy,recur:!!g.recur,detail:g.detail||"",tipo:g.tipo||"normal",secreto:!!g.secreto});setGastosShowForm(true);deleteGasto(g.id);}} title="Editar" style={{width:22,height:22,borderRadius:4,border:"1px solid rgba(255,255,255,.08)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center",marginRight:4}}>✎</button>
+                      <button onClick={()=>{if(confirm("Borrar este gasto?"))deleteGasto(g.id);}} title="Borrar" style={{width:22,height:22,borderRadius:4,border:"1px solid rgba(255,69,58,.2)",background:"transparent",color:"var(--red)",fontSize:9,cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table></>;
+        })()}
+      </div>
+    )}
+  </div>
+
+  {/* Export */}
+  {gastosLog.length > 0 && (
+    <div style={{display:"flex",justifyContent:"flex-end"}}>
+      <button onClick={()=>{const blob=new Blob([JSON.stringify(gastosLog,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="gastos_ar.json";a.click();}} style={{padding:"5px 12px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer",fontFamily:"var(--fm)"}}>↓ Exportar JSON</button>
+    </div>
+  )}
+</div>
+  );
+}

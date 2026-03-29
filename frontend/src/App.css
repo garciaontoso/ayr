@@ -1,0 +1,155 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Playfair+Display:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --bg: #000000;
+  --surface: #111111;
+  --card: #161616;
+  --card-hover: #1a1a1a;
+  --border: rgba(255,255,255,.06);
+  --border-hover: rgba(255,255,255,.1);
+  --gold: #c8a44e;
+  --gold-dim: rgba(200,164,78,.15);
+  --gold-glow: rgba(200,164,78,.08);
+  --text-primary: #f5f5f7;
+  --text-secondary: #86868b;
+  --text-tertiary: #48484a;
+  --green: #30d158;
+  --red: #ff453a;
+  --yellow: #ffd60a;
+  --orange: #ff9f0a;
+  --fb: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --fd: 'Playfair Display', Georgia, serif;
+  --fm: 'IBM Plex Mono', monospace;
+}
+
+* { box-sizing: border-box; margin: 0; }
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 4px; }
+
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
+input[type=number] { -moz-appearance: textfield; }
+
+::placeholder { color: rgba(255,255,255,.15); }
+
+@keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pulse { 0%, 100% { opacity: .6; } 50% { opacity: 1; } }
+
+.ar-tabs-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+.ar-tabs-scroll::-webkit-scrollbar { display: none; }
+
+.ar-tab-btn { position: relative; white-space: nowrap; }
+.ar-tab-btn::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 20%;
+  right: 20%;
+  height: 2px;
+  background: var(--gold);
+  border-radius: 2px;
+  transform: scaleX(0);
+  transition: transform .25s ease;
+}
+.ar-tab-btn[data-active="true"]::after { transform: scaleX(1); }
+
+/* ═══ Mobile Responsive ═══ */
+@media (max-width: 768px) {
+  /* Reduce main padding */
+  main { padding: 16px 12px !important; }
+
+  /* Home tabs: horizontal scroll instead of wrapping */
+  .ar-home-tabs {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 6px !important;
+    padding-bottom: 8px;
+  }
+  .ar-home-tabs::-webkit-scrollbar { display: none; }
+  .ar-home-tabs > button { flex-shrink: 0 !important; }
+
+  /* Summary cards: horizontal scroll */
+  .ar-summary-cards {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    gap: 10px !important;
+  }
+  .ar-summary-cards::-webkit-scrollbar { display: none; }
+  .ar-summary-cards > div { flex-shrink: 0 !important; min-width: 140px !important; }
+
+  /* Actions bar: stack vertically */
+  .ar-actions-bar {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+
+  /* Analysis header: compact on mobile */
+  .ar-analysis-header {
+    padding: 6px 12px 4px !important;
+    gap: 6px !important;
+  }
+
+  /* Analysis tabs: smaller on mobile */
+  .ar-tabs-scroll {
+    gap: 2px !important;
+    padding: 0 12px !important;
+  }
+  .ar-tab-btn { padding: 6px 10px !important; font-size: 10px !important; }
+
+  /* Hide non-essential elements on mobile */
+  .ar-hide-mobile { display: none !important; }
+
+  /* Analysis main content */
+  .ar-analysis-main { padding: 12px !important; }
+
+  /* Footer compact */
+  footer { padding: 6px 12px !important; }
+}
+
+@media (max-width: 480px) {
+  main { padding: 10px 8px !important; }
+  .ar-summary-cards > div { min-width: 120px !important; }
+}
+
+/* ═══ Tab transitions ═══ */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Skeleton shimmer effect */
+.ar-skeleton {
+  background: linear-gradient(90deg, #161616 25%, #1e1e1e 50%, #161616 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* Landing page animations */
+@keyframes logoFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(200,164,78,.1); }
+  50% { box-shadow: 0 0 40px rgba(200,164,78,.2); }
+}
+
+@media print {
+  @page { size: A4 landscape; margin: 8mm; }
+  header, footer, .ar-no-print, .ar-tabs-scroll { display: none !important; }
+  main { padding: 0 !important; }
+}
