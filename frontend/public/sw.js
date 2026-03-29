@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ayr-v10.2';
+const CACHE_NAME = 'ayr-v10.3';
 const STATIC_ASSETS = ['/', '/index.html', '/favicon.svg', '/apple-touch-icon.png'];
 
 // Install: cache shell

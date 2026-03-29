@@ -34,10 +34,9 @@ export default function HomeView() {
 
   return (
   <div style={{maxWidth:1400,margin:"0 auto"}}>
-    {/* Row 1: Logo + Navigation Tabs */}
-    <div className="ar-home-tabs" style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,flexWrap:"wrap"}}>
-      {/* Logo SVG */}
-      <svg width="32" height="32" viewBox="0 0 40 40" style={{flexShrink:0,cursor:"pointer"}} onClick={()=>setHomeTab("portfolio")}>
+    {/* Row 1: Logo + Currency/FX/Settings */}
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+      <svg width="28" height="28" viewBox="0 0 40 40" style={{flexShrink:0,cursor:"pointer"}} onClick={()=>setHomeTab("portfolio")}>
         <defs>
           <linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1">
             <stop offset="0%" stopColor="#d69e2e"/><stop offset="100%" stopColor="#946b1a"/>
@@ -47,17 +46,8 @@ export default function HomeView() {
         <rect x="1.5" y="1.5" width="37" height="37" rx="8" fill="none" stroke="url(#logoGrad)" strokeWidth="1.8" opacity=".55"/>
         <text x="20" y="26.5" textAnchor="middle" fontSize="15" fontWeight="800" fill="url(#logoGrad)" fontFamily="system-ui,-apple-system,sans-serif" letterSpacing="-0.3">A&amp;R</text>
       </svg>
-      {/* Main tabs inline with logo */}
-      {HOME_TABS.map(t=>(
-        <button key={t.id} onClick={()=>setHomeTab(t.id)} style={{display:"flex",alignItems:"center",gap:4,padding:"6px 12px",borderRadius:8,border:`1px solid ${homeTab===t.id?"var(--gold)":"transparent"}`,background:homeTab===t.id?"var(--gold-dim)":"transparent",color:homeTab===t.id?"var(--gold)":"var(--text-tertiary)",fontSize:11.5,fontWeight:homeTab===t.id?700:500,cursor:"pointer",fontFamily:"var(--fb)",transition:"all .15s",whiteSpace:"nowrap"}}>
-          <span style={{fontSize:12}}>{t.ico}</span>{t.lbl}
-          {t.id==="portfolio" && portfolioList.length>0 && <span style={{fontSize:10,color:homeTab===t.id?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",opacity:.7}}>{portfolioList.length}</span>}
-          {t.id==="watchlist" && watchlistList.length>0 && <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",opacity:.7}}>{watchlistList.length}</span>}
-          {t.id==="historial" && historialList.length>0 && <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",opacity:.7}}>{historialList.length}</span>}
-        </button>
-      ))}
-      {/* Currency + FX + Settings — right-aligned */}
-      <div style={{marginLeft:"auto",display:"flex",gap:3,alignItems:"center"}}>
+      {/* Currency + FX + Settings */}
+      <div style={{display:"flex",gap:3,alignItems:"center"}}>
         <div style={{display:"flex",gap:0,border:"1px solid var(--border)",borderRadius:6,overflow:"hidden"}}>
           {DISPLAY_CCYS.map(ccy=>(
             <button key={ccy} onClick={()=>switchDisplayCcy(ccy)}
@@ -73,6 +63,21 @@ export default function HomeView() {
         <button onClick={()=>setPrivacyMode(!privacyMode)} title={privacyMode?"Mostrar datos":"Ocultar datos sensibles"} style={{padding:"4px 8px",borderRadius:6,border:`1px solid ${privacyMode?"var(--gold)":"var(--border)"}`,background:privacyMode?"var(--gold-dim)":"transparent",color:privacyMode?"var(--gold)":"var(--text-tertiary)",fontSize:10,cursor:"pointer",transition:"all .15s"}}>{privacyMode?"🙈":"👁"}</button>
         <button onClick={()=>setShowSettings(!showSettings)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer"}}>⚙</button>
       </div>
+    </div>
+    {/* Row 2: Navigation Tabs — scrollable */}
+    <div style={{position:"relative",marginBottom:6}}>
+      <div className="ar-home-tabs" style={{display:"flex",alignItems:"center",gap:4,overflowX:"auto",flexWrap:"nowrap",paddingBottom:2,scrollbarWidth:"none"}}>
+        {HOME_TABS.map(t=>(
+          <button key={t.id} onClick={()=>setHomeTab(t.id)} style={{display:"flex",alignItems:"center",gap:4,padding:"5px 10px",borderRadius:8,border:`1px solid ${homeTab===t.id?"var(--gold)":"transparent"}`,background:homeTab===t.id?"var(--gold-dim)":"transparent",color:homeTab===t.id?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:homeTab===t.id?700:500,cursor:"pointer",fontFamily:"var(--fb)",transition:"all .15s",whiteSpace:"nowrap",flexShrink:0}}>
+            <span style={{fontSize:11}}>{t.ico}</span>{t.lbl}
+            {t.id==="portfolio" && portfolioList.length>0 && <span style={{fontSize:9,color:homeTab===t.id?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",opacity:.7}}>{portfolioList.length}</span>}
+            {t.id==="watchlist" && watchlistList.length>0 && <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",opacity:.7}}>{watchlistList.length}</span>}
+            {t.id==="historial" && historialList.length>0 && <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",opacity:.7}}>{historialList.length}</span>}
+          </button>
+        ))}
+      </div>
+      {/* Fade gradient — indicates more tabs to the right */}
+      <div style={{position:"absolute",right:0,top:0,bottom:0,width:48,background:"linear-gradient(to right, transparent, #000000)",pointerEvents:"none"}}/>
     </div>
 
     {/* Tab Content */}
