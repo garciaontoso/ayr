@@ -110,6 +110,11 @@ input[type=number] { -moz-appearance: textfield; }
   /* Analysis main content */
   .ar-analysis-main { padding: 12px !important; }
 
+  /* CC tab: stack summary cards 2x2 */
+  .ar-cc-summary { grid-template-columns: repeat(2, 1fr) !important; }
+  .ar-cc-controls { gap: 6px !important; }
+  .ar-cc-controls > div { margin: 0 !important; }
+
   /* Footer compact */
   footer { padding: 6px 12px !important; }
 }

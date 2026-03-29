@@ -123,6 +123,8 @@ export default function CoveredCallsTab() {
       const yieldCC = S > 0 ? (premium / S) * (365 / dte) : 0; // annualized
       const yieldCCMonthly = S > 0 ? premium / S : 0;
       const pOTM = probOTM(S, K, T, RISK_FREE, iv);
+      const distancePct = S > 0 ? (K - S) / S : 0; // % distance to strike
+      const pITM = 1 - pOTM; // probability of assignment
 
       // Earnings/dividend timing
       const earn = earningsData[p.ticker];
@@ -148,8 +150,13 @@ export default function CoveredCallsTab() {
         timing = nextEarnings ? `OK — earnings ${_sf(daysToEarnings,0)}d` : "OK — sin eventos";
       }
 
+      // Assignment risk label
+      const assignRisk = pITM > 0.4 ? "ALTO" : pITM > 0.2 ? "MEDIO" : "BAJO";
+      const assignColor = pITM > 0.4 ? "#ff453a" : pITM > 0.2 ? "#ffd60a" : "#30d158";
+
       return {
-        ...p, contracts, K, iv, premium, totalPremium, yieldCC, yieldCCMonthly, pOTM,
+        ...p, contracts, K, iv, premium, totalPremium, yieldCC, yieldCCMonthly, pOTM, pITM,
+        distancePct, assignRisk, assignColor,
         signal, signalColor, signalOrder, timing, daysToEarnings, hasDividend,
         breakeven: S + premium,
         maxProfit: (K - S + premium) * 100 * contracts,
@@ -185,7 +192,7 @@ export default function CoveredCallsTab() {
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
       {/* ── HEADER: Income Summary ── */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+      <div className="ar-cc-summary" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
         {[
           {l:"PREMIUM MENSUAL EST.",v:privacyMode?"•••":"$"+fDol(totalPremiumAll),c:"var(--gold)"},
           {l:"PREMIUM ANUAL EST.",v:privacyMode?"•••":"$"+fDol(totalPremiumAnnual),c:"var(--gold)"},
@@ -200,7 +207,7 @@ export default function CoveredCallsTab() {
       </div>
 
       {/* ── CONTROLS ── */}
-      <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+      <div className="ar-cc-controls" style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
         <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>DTE:</div>
         {DTE_OPTIONS.map(d=>(
           <button key={d} onClick={()=>setDte(d)} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${dte===d?"var(--gold)":"var(--border)"}`,background:dte===d?"var(--gold-dim)":"transparent",color:dte===d?"var(--gold)":"var(--text-tertiary)",fontSize:10,fontWeight:dte===d?700:500,cursor:"pointer",fontFamily:"var(--fm)"}}>{d}d</button>
@@ -225,10 +232,10 @@ export default function CoveredCallsTab() {
 
       {/* ── MAIN TABLE ── */}
       <div style={{overflowX:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:900}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:1050}}>
           <thead>
             <tr style={{borderBottom:"2px solid var(--border)"}}>
-              {["","Ticker","Precio","Acciones","Ctrts","Strike","IV","Prima","Total","Yield CC","P(OTM)","Señal","Timing"].map(h=>(
+              {["","Ticker","Precio","Acciones","Ctrts","Strike","Dist.","IV","Prima","Total","Yield CC","P(OTM)","Riesgo","Señal","Timing"].map(h=>(
                 <th key={h} style={{padding:"6px 8px",textAlign:h==="Ticker"?"left":"right",color:"var(--text-tertiary)",fontSize:9,fontWeight:700,fontFamily:"var(--fm)",letterSpacing:.3,whiteSpace:"nowrap"}}>{h}</th>
               ))}
             </tr>
@@ -251,11 +258,15 @@ export default function CoveredCallsTab() {
                 <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)"}}>{privacyMode?"•••":p.shares}</td>
                 <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:p.contracts>0?"var(--text-primary)":"var(--text-tertiary)",fontWeight:p.contracts>0?700:400}}>{p.contracts}</td>
                 <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)"}}>${_sf(p.K,0)}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:p.distancePct>0.07?"var(--green)":p.distancePct>0.03?"var(--text-primary)":"var(--red)"}}>{_sf(p.distancePct*100,1)}%</td>
                 <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:p.iv>0.35?"var(--green)":p.iv>0.20?"var(--text-primary)":"var(--text-tertiary)"}}>{_sf(p.iv*100,0)}%</td>
                 <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-primary)"}}>${_sf(p.premium,2)}</td>
                 <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",fontWeight:600}}>{privacyMode?"•••":"$"+_sf(p.totalPremium,0)}</td>
                 <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:p.yieldCC>0.12?"var(--green)":p.yieldCC>0.06?"var(--gold)":"var(--text-tertiary)",fontWeight:700}}>{_sf(p.yieldCC*100,1)}%</td>
                 <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:p.pOTM>0.7?"var(--green)":"var(--text-secondary)"}}>{_sf(p.pOTM*100,0)}%</td>
+                <td style={{padding:"6px 8px",textAlign:"center",fontFamily:"var(--fm)",fontSize:9,fontWeight:700,color:p.assignColor}}>
+                  <div style={{padding:"2px 6px",borderRadius:4,background:`${p.assignColor}15`,display:"inline-block"}}>{p.assignRisk}</div>
+                </td>
                 <td style={{padding:"6px 8px",textAlign:"center",fontSize:14}}>{p.signal}</td>
                 <td style={{padding:"6px 8px",textAlign:"right",fontSize:9,color:p.signalColor,fontFamily:"var(--fm)",maxWidth:160,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.timing}</td>
               </tr>
