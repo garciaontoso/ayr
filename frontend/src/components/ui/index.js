@@ -9,3 +9,4 @@ export { default as Card } from './Card.jsx';
 export { default as SensitivityTable } from './SensitivityTable.jsx';
 export { default as generatePDF } from './generatePDF.js';
 export { default as ErrorBoundary } from './ErrorBoundary.jsx';
+export { default as Toast } from './Toast.jsx';

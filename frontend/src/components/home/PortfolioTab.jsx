@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 
@@ -14,6 +14,23 @@ const SORT_OPTIONS = [
 export default function PortfolioTab() {
   const [quickFilter, setQuickFilter] = useState("");
   const [listSort, setListSort] = useState("value");
+  const searchRef = useRef(null);
+
+  // Cmd+K / Ctrl+K to focus search
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+      if (e.key === 'Escape' && quickFilter) {
+        setQuickFilter("");
+        searchRef.current?.blur();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [quickFilter]);
   const {
     portfolioList, portfolioTotals, portfolioComputed,
     searchTicker, setSearchTicker, updatePosition,
@@ -76,7 +93,7 @@ export default function PortfolioTab() {
         {/* Quick filter + Company List */}
         {portfolioList.length>5 && (
           <div style={{position:"relative",marginBottom:4}}>
-            <input type="text" placeholder="🔍 Buscar ticker o empresa..." value={quickFilter} onChange={e=>setQuickFilter(e.target.value)}
+            <input ref={searchRef} type="text" placeholder="🔍 Buscar ticker o empresa... (⌘K)" value={quickFilter} onChange={e=>setQuickFilter(e.target.value)}
               style={{width:"100%",padding:"8px 14px 8px 14px",background:"rgba(255,255,255,.03)",border:"1px solid var(--border)",borderRadius:10,color:"var(--text-primary)",fontSize:12,outline:"none",fontFamily:"var(--fm)",transition:"border-color .2s"}}
               onFocus={e=>e.target.style.borderColor="rgba(200,164,78,.3)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/>
             {quickFilter && <button onClick={()=>setQuickFilter("")} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"var(--text-tertiary)",cursor:"pointer",fontSize:14}}>×</button>}
@@ -95,16 +112,30 @@ export default function PortfolioTab() {
           </div>
         )}
         {portfolioList.length===0 && <div style={{textAlign:"center",padding:60,color:"var(--text-tertiary)"}}><div style={{fontSize:48,marginBottom:16}}>💼</div>Portfolio vacío. Añade tu primera empresa arriba.</div>}
-        <div style={{display:"flex",flexDirection:"column",gap:8}}>
-          {[...(portfolioTotals.positions||[])].filter(p => {
+        {(() => {
+          const all = portfolioTotals.positions || [];
+          const filtered = all.filter(p => {
             if (countryFilter && getCountry(p.ticker, p.currency) !== countryFilter) return false;
             if (quickFilter) {
               const q = quickFilter.toLowerCase();
               return p.ticker.toLowerCase().includes(q) || (p.name||"").toLowerCase().includes(q);
             }
             return true;
-          }).sort(SORT_OPTIONS.find(s=>s.id===listSort)?.fn || (()=>0)).map(p=><CompanyRow key={p.ticker} p={p} showPos={true} onOpen={openAnalysis}/>)}
-        </div>
+          });
+          const sorted = [...filtered].sort(SORT_OPTIONS.find(s=>s.id===listSort)?.fn || (()=>0));
+          const isFiltered = quickFilter || countryFilter;
+          return <>
+            {isFiltered && filtered.length !== all.length && (
+              <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:4}}>
+                Mostrando <span style={{color:"var(--gold)",fontWeight:700}}>{filtered.length}</span> de {all.length} posiciones
+                {!filtered.length && quickFilter && <span style={{marginLeft:8}}>— sin resultados para "{quickFilter}"</span>}
+              </div>
+            )}
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {sorted.map(p=><CompanyRow key={p.ticker} p={p} showPos={true} onOpen={openAnalysis}/>)}
+            </div>
+          </>;
+        })()}
 
         {/* Market Cap Index — Sortable Table */}
         {portfolioTotals.positions?.length > 0 && (

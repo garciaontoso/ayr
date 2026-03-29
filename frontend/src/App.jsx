@@ -8,7 +8,7 @@ import { generateReport } from './api/claude.js';
 import { fetchAllData } from './api/data.js';
 import { useAnalysisMetrics } from './hooks/useAnalysisMetrics.js';
 import './App.css';
-import { Badge, BarChart, AreaSparkline, DonutChart, GaugeVerdict, Tooltip, Inp, Card, SensitivityTable, generatePDF, ErrorBoundary } from './components/ui';
+import { Badge, BarChart, AreaSparkline, DonutChart, GaugeVerdict, Tooltip, Inp, Card, SensitivityTable, generatePDF, ErrorBoundary, Toast } from './components/ui';
 import AnalysisContext from './context/AnalysisContext';
 import HomeContext from './context/HomeContext';
 import CostBasisContext from './context/CostBasisContext';
@@ -369,6 +369,7 @@ function buildPositionsFromCB() {
   const [editingPos, setEditingPos] = useState(null); // ticker being edited
   const [pricesLoading, setPricesLoading] = useState(false);
   const [pricesLastUpdate, setPricesLastUpdate] = useState(null);
+  const [toast, setToast] = useState(null);
 
   // ── Live Price Refresh ──
   const refreshPrices = useCallback(async (force = false) => {
@@ -417,8 +418,12 @@ function buildPositionsFromCB() {
           return updated;
         });
         setPricesLastUpdate(data.updated || new Date().toISOString());
+        if (force) setToast({ message: `Precios actualizados (${Object.keys(data.prices||{}).length} tickers)`, type: "success" });
       }
-    } catch(e) { console.error("Price refresh error:", e); }
+    } catch(e) {
+      console.error("Price refresh error:", e);
+      if (force) setToast({ message: "Error actualizando precios", type: "error" });
+    }
     setPricesLoading(false);
   }, []);
 
@@ -1711,6 +1716,7 @@ function buildPositionsFromCB() {
         <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fb)",fontWeight:500}}>A&R v10.2</span>
         <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fb)"}}>No constituye asesoramiento financiero</span>
       </footer>
+      {toast && <Toast message={toast.message} type={toast.type} onClose={()=>setToast(null)}/>}
     </div>
   );
 }
