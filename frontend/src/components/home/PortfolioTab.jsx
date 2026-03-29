@@ -60,6 +60,67 @@ export default function PortfolioTab() {
             ))}
           </div>
         )}
+        {/* Allocation mini donut + Export */}
+        {portfolioList.length>0 && (() => {
+          const byCountry = {};
+          (portfolioTotals.positions||[]).forEach(p => {
+            const cc = getCountry(p.ticker, p.currency);
+            byCountry[cc] = (byCountry[cc]||0) + (p.valueUSD||0);
+          });
+          const total = Object.values(byCountry).reduce((s,v)=>s+v,0) || 1;
+          const slices = Object.entries(byCountry).sort((a,b)=>b[1]-a[1]).slice(0,8);
+          const colors = ["#c8a44e","#30d158","#64d2ff","#ff9f0a","#bf5af2","#ff453a","#ffd60a","#86868b"];
+          let cumPct = 0;
+          const R = 40, CX = 50, CY = 50;
+          const exportCSV = () => {
+            const rows = [["Ticker","Nombre","Acciones","Precio","Coste","P&L%","Valor USD","Peso%","Div Anual"]];
+            (portfolioTotals.positions||[]).forEach(p => {
+              rows.push([p.ticker, p.name||"", p.shares||0, (p.lastPrice||0).toFixed(2),
+                (p.adjustedBasis||p.avgCost||0).toFixed(2), ((p.pnlPct||0)*100).toFixed(1),
+                (p.valueUSD||0).toFixed(0), ((p.weight||0)*100).toFixed(1), (p.divAnnualUSD||0).toFixed(0)]);
+            });
+            const csv = rows.map(r=>r.join(",")).join("\n");
+            const blob = new Blob([csv], {type:"text/csv"});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a"); a.href = url; a.download = `ayr_portfolio_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+            URL.revokeObjectURL(url);
+          };
+          return (
+          <div style={{display:"flex",gap:16,alignItems:"center",marginBottom:8,flexWrap:"wrap"}}>
+            {/* Mini donut */}
+            <svg viewBox="0 0 100 100" width="64" height="64" style={{flexShrink:0}}>
+              {slices.map(([cc, val], i) => {
+                const pct = val / total;
+                const startAngle = cumPct * 360;
+                const endAngle = (cumPct + pct) * 360;
+                cumPct += pct;
+                const s = (Math.PI/180) * (startAngle - 90);
+                const e = (Math.PI/180) * (endAngle - 90);
+                const large = pct > 0.5 ? 1 : 0;
+                const x1 = CX + R * Math.cos(s), y1 = CY + R * Math.sin(s);
+                const x2 = CX + R * Math.cos(e), y2 = CY + R * Math.sin(e);
+                return <path key={cc} d={`M${CX},${CY} L${x1},${y1} A${R},${R} 0 ${large},1 ${x2},${y2} Z`} fill={colors[i%colors.length]} opacity=".85"/>;
+              })}
+              <circle cx={CX} cy={CY} r="22" fill="var(--bg)"/>
+              <text x={CX} y={CY+4} textAnchor="middle" fontSize="10" fontWeight="700" fill="var(--text-primary)" fontFamily="var(--fm)">{slices.length}</text>
+            </svg>
+            {/* Legend */}
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",flex:1}}>
+              {slices.map(([cc,val],i) => (
+                <div key={cc} style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>
+                  <div style={{width:8,height:8,borderRadius:2,background:colors[i%colors.length],flexShrink:0}}/>
+                  {FLAGS[cc]||"🏳️"} {_sf((val/total)*100,0)}%
+                </div>
+              ))}
+            </div>
+            {/* Export CSV */}
+            <button onClick={exportCSV} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)",flexShrink:0,transition:"all .15s"}}
+              onMouseEnter={e=>{e.target.style.borderColor="var(--gold)";e.target.style.color="var(--gold)";}}
+              onMouseLeave={e=>{e.target.style.borderColor="var(--border)";e.target.style.color="var(--text-tertiary)";}}>
+              📥 CSV
+            </button>
+          </div>);
+        })()}
         {/* Add company + Refresh prices */}
         <div className="ar-actions-bar" style={{display:"flex",gap:10,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
           <input type="text" placeholder="Ticker (ej: AAPL)" value={searchTicker} onChange={e=>setSearchTicker(e.target.value.toUpperCase())}
