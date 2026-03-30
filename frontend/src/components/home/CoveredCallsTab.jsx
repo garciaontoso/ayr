@@ -233,7 +233,7 @@ export default function CoveredCallsTab() {
         signal, signalColor, signalOrder, timing, daysToEarnings,
         expiration, realDTE, liquidityGood, spreadPct,
         breakeven: S + premium,
-        maxProfit: maxProfitPerShare * 100 * contracts,
+        maxProfit: (K > S ? (K - S + premium) : premium) * 100 * contracts,
       };
     });
   }, [eligible, priceData, optionsData, earningsData, dte, otmPct]);
