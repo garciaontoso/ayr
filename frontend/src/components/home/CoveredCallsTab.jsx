@@ -56,6 +56,8 @@ export default function CoveredCallsTab() {
   const [earningsData, setEarningsData] = useState({});
   const [priceData, setPriceData] = useState({});
   const [optionsData, setOptionsData] = useState({});
+  const [lastUpdate, setLastUpdate] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0); // increment to force refresh
   const [dte, setDte] = useState(30);
   const [otmPct, setOtmPct] = useState(5);
   const [sortBy, setSortBy] = useState("yield");
@@ -83,7 +85,7 @@ export default function CoveredCallsTab() {
     const tickers = eligible.map(p => p.ticker);
     let completed = 0;
     const total = 3;
-    const checkDone = () => { completed++; if (completed >= total) setLoading(false); };
+    const checkDone = () => { completed++; if (completed >= total) { setLoading(false); setLastUpdate(new Date()); } };
 
     // 1. Earnings dates
     setLoadingMsg("Cargando earnings...");
@@ -136,7 +138,15 @@ export default function CoveredCallsTab() {
       checkDone();
     };
     fetchPrices();
-  }, [eligible, dte, otmPct]);
+  }, [eligible, dte, otmPct, refreshKey]);
+
+  // Auto-refresh every 15 minutes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setRefreshKey(k => k + 1);
+    }, 15 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Calculate CC data for each position
   const ccData = useMemo(() => {
@@ -269,17 +279,21 @@ export default function CoveredCallsTab() {
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
-      {/* ── DATA SOURCE BADGE ── */}
-      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+      {/* ── DATA SOURCE BADGE + REFRESH ── */}
+      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
         <span style={{fontSize:9,padding:"3px 8px",borderRadius:6,fontFamily:"var(--fm)",fontWeight:600,
           background: dataSource === "real" ? "rgba(48,209,88,.1)" : dataSource === "mixed" ? "rgba(255,214,10,.1)" : "rgba(255,255,255,.05)",
           color: dataSource === "real" ? "#30d158" : dataSource === "mixed" ? "#ffd60a" : "var(--text-tertiary)",
           border: `1px solid ${dataSource === "real" ? "rgba(48,209,88,.3)" : dataSource === "mixed" ? "rgba(255,214,10,.3)" : "var(--border)"}`}}>
-          {dataSource === "real" ? "📡 Datos reales Yahoo Finance" : dataSource === "mixed" ? `📡 ${realCount} reales · ${ccData.length - realCount} B-S estimados` : "📐 Black-Scholes estimado"}
+          {dataSource === "real" ? "📡 Yahoo Finance" : dataSource === "mixed" ? `📡 ${realCount} reales · ${ccData.length - realCount} B-S` : "📐 Black-Scholes"}
         </span>
-        <span style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>
-          {dataSource !== "bs" && "Bid = precio real al vender · "}IV = implied volatility del mercado
-        </span>
+        <button onClick={()=>{setLoading(true); setRefreshKey(k=>k+1);}} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",cursor:"pointer",fontFamily:"var(--fm)",fontWeight:600,transition:"all .15s"}}
+          onMouseEnter={e=>e.target.style.borderColor="var(--gold)"} onMouseLeave={e=>e.target.style.borderColor="var(--border)"}>
+          🔄 Refresh
+        </button>
+        {lastUpdate && <span style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>
+          Actualizado: {lastUpdate.toLocaleTimeString("es-ES")} · Auto-refresh: 15min
+        </span>}
       </div>
 
       {/* ── HEADER: Income Summary ── */}
