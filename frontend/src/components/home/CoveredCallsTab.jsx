@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { API_URL } from '../../constants/index.js';
@@ -17,6 +17,11 @@ const bsCall = (S, K, T, r, sigma) => {
   const d1 = (Math.log(S / K) + (r + sigma * sigma / 2) * T) / (sigma * Math.sqrt(T));
   const d2 = d1 - sigma * Math.sqrt(T);
   return S * normCDF(d1) - K * Math.exp(-r * T) * normCDF(d2);
+};
+const bsPut = (S, K, T, r, sigma) => {
+  // Put-call parity: P = C - S + K*e^(-rT)
+  const c = bsCall(S, K, T, r, sigma);
+  return c - S + K * Math.exp(-r * T);
 };
 const probOTM = (S, K, T, r, sigma) => {
   if (T <= 0 || sigma <= 0) return 0;
@@ -47,6 +52,13 @@ const SORT_OPTIONS = [
 
 const DTE_OPTIONS = [7, 14, 21, 30, 45, 60, 90];
 const RISK_FREE = 0.045;
+const WHEEL_KEY = "ayr_wheel";
+const SECTIONS = [
+  {id:"calls",lbl:"📊 Covered Calls"},
+  {id:"rolls",lbl:"🔄 Roll Advisor"},
+  {id:"puts",lbl:"💰 Sell Puts"},
+  {id:"wheel",lbl:"🎡 Wheel Tracker"},
+];
 
 export default function CoveredCallsTab() {
   const { portfolioTotals, positions, openAnalysis, hide, privacyMode } = useHome();
@@ -66,6 +78,19 @@ export default function CoveredCallsTab() {
   const [calcStrike, setCalcStrike] = useState(0);
   const [calcDte, setCalcDte] = useState(30);
   const [dataSource, setDataSource] = useState("loading"); // "real" | "bs" | "mixed"
+  const [section, setSection] = useState("calls");
+
+  // Wheel tracker state (localStorage)
+  const [wheelEntries, setWheelEntries] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(WHEEL_KEY)) || []; } catch { return []; }
+  });
+  const [wheelForm, setWheelForm] = useState({ ticker:"", phase:"put", strike:"", premium:"", expiration:"", notes:"" });
+  const [wheelEditIdx, setWheelEditIdx] = useState(-1);
+
+  const saveWheel = useCallback((entries) => {
+    setWheelEntries(entries);
+    localStorage.setItem(WHEEL_KEY, JSON.stringify(entries));
+  }, []);
 
   // Get eligible positions (≥100 shares, US-traded only for options)
   const eligible = useMemo(() => {
@@ -269,8 +294,74 @@ export default function CoveredCallsTab() {
   const calcPremium = calcPos ? bsCall(calcPos.lastPrice, calcStrike || calcPos.K, calcDte / 365, RISK_FREE, calcPos.iv) : 0;
   const calcPOTM = calcPos ? probOTM(calcPos.lastPrice, calcStrike || calcPos.K, calcDte / 365, RISK_FREE, calcPos.iv) : 0;
 
+  // ── Roll Advisor data ──
+  const rollData = useMemo(() => {
+    return ccData
+      .filter(p => p.contracts > 0 && p.K > 0)
+      .map(p => {
+        const S = p.lastPrice;
+        const ratio = S / p.K;
+        let light, lightLabel, lightColor;
+        if (ratio >= 1) { light = "red"; lightLabel = "ROLAR YA"; lightColor = "#ff453a"; }
+        else if (ratio >= 0.95) { light = "yellow"; lightLabel = "VIGILAR"; lightColor = "#ffd60a"; }
+        else { light = "green"; lightLabel = "OK"; lightColor = "#30d158"; }
+
+        // Suggested new strike: 5-10% OTM from current price
+        const newStrike5 = Math.round(S * 1.05);
+        const newStrike10 = Math.round(S * 1.10);
+        // New expiration: +30 days from current expiration or from now
+        const baseDate = p.expiration ? new Date(p.expiration) : new Date();
+        const newExpDate = new Date(baseDate.getTime() + 30 * 86400000);
+        const newExpStr = newExpDate.toISOString().slice(0,10);
+        const newDTE = Math.max(Math.ceil((newExpDate - new Date()) / 86400000), 1);
+        const newT = newDTE / 365;
+
+        const iv = p.iv || 0.30;
+        // Cost to buy back current call (use ask price)
+        const buyBackCost = p.ask || bsCall(S, p.K, Math.max((p.realDTE||1)/365, 0.001), RISK_FREE, iv);
+        // Premium from selling new call
+        const newPrem5 = bsCall(S, newStrike5, newT, RISK_FREE, iv);
+        const newPrem10 = bsCall(S, newStrike10, newT, RISK_FREE, iv);
+        const netCredit5 = newPrem5 - buyBackCost;
+        const netCredit10 = newPrem10 - buyBackCost;
+
+        return { ...p, ratio, light, lightLabel, lightColor, buyBackCost, newStrike5, newStrike10, newExpStr, newDTE, newPrem5, newPrem10, netCredit5, netCredit10 };
+      })
+      .filter(p => p.ratio >= 0.95) // Only show positions that need attention
+      .sort((a,b) => b.ratio - a.ratio);
+  }, [ccData]);
+
+  // ── Sell Puts data ──
+  const putData = useMemo(() => {
+    const T = 30 / 365; // 30-day puts
+    return eligible.map(p => {
+      const S = p.lastPrice || 0;
+      if (S <= 0) return null;
+      const iv = calcHV(priceData[p.ticker]) || 0.30;
+      const inPortfolio = true; // all eligible are in portfolio
+
+      // Generate put strikes at 5%, 7%, 10% below current price
+      return [5, 7, 10].map(pct => {
+        const K = Math.round(S * (1 - pct / 100));
+        const putPrem = Math.max(bsPut(S, K, T, RISK_FREE, iv), 0);
+        const premPct = S > 0 ? putPrem / S : 0;
+        const annYield = premPct * (365 / 30);
+        const breakeven = K - putPrem;
+        const cashRequired = K * 100;
+        const effectivePrice = K - putPrem;
+        const discountPct = S > 0 ? (S - effectivePrice) / S : 0;
+        return {
+          ticker: p.ticker, name: p.name, S, K, putPrem, premPct, annYield, breakeven,
+          cashRequired, effectivePrice, discountPct, iv, inPortfolio, otmPct: pct,
+          shares: p.shares || 0,
+        };
+      });
+    }).filter(Boolean).flat().filter(x => x.putPrem > 0.05).sort((a,b) => b.annYield - a.annYield);
+  }, [eligible, priceData]);
+
   const hd = {fontSize:13,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:10,paddingBottom:6,borderBottom:"2px solid rgba(200,164,78,.2)"};
   const card = {background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16,marginBottom:14};
+  const pill = (active) => ({padding:"5px 14px",borderRadius:8,border:`1px solid ${active?"var(--gold)":"var(--border)"}`,background:active?"var(--gold-dim)":"transparent",color:active?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:active?700:500,cursor:"pointer",fontFamily:"var(--fm)",transition:"all .15s"});
 
   if (loading) return <div style={{padding:40,textAlign:"center",color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>
     <div style={{fontSize:14,marginBottom:8}}>Cargando datos de opciones para {eligible.length} posiciones...</div>
@@ -296,6 +387,15 @@ export default function CoveredCallsTab() {
         </span>}
       </div>
 
+      {/* ── SECTION TOGGLE ── */}
+      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+        {SECTIONS.map(s=>(
+          <button key={s.id} onClick={()=>setSection(s.id)} style={pill(section===s.id)}>{s.lbl}</button>
+        ))}
+      </div>
+
+      {/* ══════ CALLS SECTION ══════ */}
+      {section === "calls" && <>
       {/* ── HEADER: Income Summary ── */}
       <div className="ar-cc-summary" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
         {[
@@ -469,6 +569,261 @@ export default function CoveredCallsTab() {
         <span>⚫ &lt;100 acciones</span>
         <span>📡 REAL = Yahoo Finance · B-S = Black-Scholes estimado</span>
       </div>
+      </>}
+
+      {/* ══════ ROLL ADVISOR SECTION ══════ */}
+      {section === "rolls" && <>
+        <div style={card}>
+          <div style={hd}>Roll Advisor — Posiciones que necesitan atencion</div>
+          {rollData.length === 0 ? (
+            <div style={{padding:20,textAlign:"center",color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontSize:12}}>
+              Todas las posiciones estan lejos del strike. No hay rolls necesarios.
+            </div>
+          ) : (
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:900}}>
+                <thead>
+                  <tr style={{borderBottom:"2px solid var(--border)"}}>
+                    {["Estado","Ticker","Precio","Strike","Dist.","Buyback","Roll → 5% OTM","Neto 5%","Roll → 10% OTM","Neto 10%","Nueva Exp.","DTE"].map(h=>(
+                      <th key={h} style={{padding:"6px 8px",textAlign:h==="Ticker"?"left":"right",color:"var(--text-tertiary)",fontSize:9,fontWeight:700,fontFamily:"var(--fm)",letterSpacing:.3,whiteSpace:"nowrap"}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rollData.map(p=>(
+                    <tr key={p.ticker} style={{borderBottom:"1px solid rgba(255,255,255,.04)",background:p.light==="red"?"rgba(255,69,58,.06)":p.light==="yellow"?"rgba(255,214,10,.04)":"transparent"}}>
+                      <td style={{padding:"6px 8px",textAlign:"center"}}>
+                        <div style={{fontSize:14}}>{p.light==="red"?"🔴":p.light==="yellow"?"🟡":"🟢"}</div>
+                        <div style={{fontSize:7,color:p.lightColor,fontFamily:"var(--fm)",fontWeight:700}}>{p.lightLabel}</div>
+                      </td>
+                      <td style={{padding:"6px 8px",fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",textAlign:"left"}}>
+                        {p.ticker}
+                        <div style={{fontSize:8,color:"var(--text-tertiary)",fontWeight:400}}>{p.contracts} ctrts · IV {_sf(p.iv*100,0)}%</div>
+                      </td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-primary)"}}>${_sf(p.lastPrice,2)}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",fontWeight:600}}>${_sf(p.K,0)}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:p.distancePct>0.03?"var(--green)":p.distancePct>0?"var(--text-primary)":"var(--red)"}}>{_sf(p.distancePct*100,1)}%</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--red)"}}>${_sf(p.buyBackCost,2)}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--green)"}}>
+                        ${p.newStrike5} → ${_sf(p.newPrem5,2)}
+                      </td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",fontWeight:600,color:p.netCredit5>=0?"var(--green)":"var(--red)"}}>
+                        {p.netCredit5>=0?"+":""}${_sf(p.netCredit5*100*p.contracts,0)}
+                      </td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--green)"}}>
+                        ${p.newStrike10} → ${_sf(p.newPrem10,2)}
+                      </td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",fontWeight:600,color:p.netCredit10>=0?"var(--green)":"var(--red)"}}>
+                        {p.netCredit10>=0?"+":""}${_sf(p.netCredit10*100*p.contracts,0)}
+                      </td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",fontSize:9}}>{p.newExpStr}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)"}}>{p.newDTE}d</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        {/* Roll legend */}
+        <div style={{display:"flex",gap:20,fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",padding:"0 4px",flexWrap:"wrap"}}>
+          <span>🔴 ROLAR YA — precio &ge; strike</span>
+          <span>🟡 VIGILAR — precio &gt; 95% del strike</span>
+          <span>🟢 OK — precio &lt; 95% del strike</span>
+          <span>Neto positivo = credito neto (te pagan) · Neto negativo = debito (pagas)</span>
+        </div>
+      </>}
+
+      {/* ══════ SELL PUTS SECTION ══════ */}
+      {section === "puts" && <>
+        <div style={card}>
+          <div style={hd}>Cash-Secured Puts — Oportunidades de venta de puts</div>
+          <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:12}}>
+            Puts a 30 DTE sobre posiciones del portfolio. Si te asignan, compras a descuento.
+          </div>
+          {putData.length === 0 ? (
+            <div style={{padding:20,textAlign:"center",color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontSize:12}}>
+              Sin datos de puts disponibles. Esperando datos de volatilidad...
+            </div>
+          ) : (
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:1000}}>
+                <thead>
+                  <tr style={{borderBottom:"2px solid var(--border)"}}>
+                    {["Ticker","Precio","OTM%","Put Strike","Prima","Prima%","Yield Ann.","Breakeven","Descuento","Cash Req.","Acciones"].map(h=>(
+                      <th key={h} style={{padding:"6px 8px",textAlign:h==="Ticker"?"left":"right",color:"var(--text-tertiary)",fontSize:9,fontWeight:700,fontFamily:"var(--fm)",letterSpacing:.3,whiteSpace:"nowrap"}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {putData.slice(0,60).map((p,i)=>(
+                    <tr key={`${p.ticker}-${p.otmPct}`} style={{borderBottom:"1px solid rgba(255,255,255,.04)"}}>
+                      <td style={{padding:"6px 8px",fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",textAlign:"left"}}>
+                        {p.ticker}
+                        <div style={{fontSize:8,color:"var(--text-tertiary)",fontWeight:400}}>{(p.name||"").slice(0,18)}</div>
+                      </td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-primary)"}}>${_sf(p.S,2)}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)"}}>{p.otmPct}%</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",fontWeight:600}}>${_sf(p.K,0)}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--green)",fontWeight:600}}>${_sf(p.putPrem,2)}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-primary)"}}>{_sf(p.premPct*100,2)}%</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",fontWeight:700,color:p.annYield>0.12?"var(--green)":p.annYield>0.06?"var(--gold)":"var(--text-secondary)"}}>{_sf(p.annYield*100,1)}%</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)"}}>${_sf(p.breakeven,2)}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--green)"}}>{_sf(p.discountPct*100,1)}%</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-primary)"}}>{privacyMode?"•••":"$"+fDol(p.cashRequired)}</td>
+                      <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",fontSize:9}}>
+                        {p.shares > 0 ? <span style={{color:"var(--gold)"}}>{p.shares} en cartera</span> : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        <div style={{display:"flex",gap:20,fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",padding:"0 4px",flexWrap:"wrap"}}>
+          <span>Prima estimada con Black-Scholes (put-call parity)</span>
+          <span>Cash Req. = capital necesario si te asignan (100 acciones x strike)</span>
+          <span>Descuento = rebaja efectiva vs precio actual si te asignan</span>
+        </div>
+      </>}
+
+      {/* ══════ WHEEL TRACKER SECTION ══════ */}
+      {section === "wheel" && <>
+        {/* Summary cards */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+          {[
+            {l:"POSICIONES WHEEL",v:`${wheelEntries.length}`,c:"var(--text-primary)"},
+            {l:"FASE CALL",v:`${wheelEntries.filter(e=>e.phase==="call").length}`,c:"var(--green)"},
+            {l:"FASE PUT",v:`${wheelEntries.filter(e=>e.phase==="put").length}`,c:"var(--gold)"},
+            {l:"PREMIUM TOTAL",v:privacyMode?"•••":"$"+fDol(wheelEntries.reduce((s,e)=>s+(parseFloat(e.premium)||0)*100,0)),c:"var(--gold)"},
+          ].map((m,i)=>(
+            <div key={i} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"14px 16px"}}>
+              <div style={{fontSize:9,color:"var(--text-tertiary)",fontWeight:600,textTransform:"uppercase",fontFamily:"var(--fm)",letterSpacing:.5}}>{m.l}</div>
+              <div style={{fontSize:22,fontWeight:700,color:m.c,fontFamily:"var(--fm)",marginTop:4}}>{m.v}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Add/Edit form */}
+        <div style={card}>
+          <div style={hd}>{wheelEditIdx >= 0 ? "Editar entrada" : "Nueva entrada Wheel"}</div>
+          <div style={{display:"flex",gap:10,alignItems:"flex-end",flexWrap:"wrap"}}>
+            <div>
+              <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:4}}>Ticker</div>
+              <input value={wheelForm.ticker} onChange={e=>setWheelForm({...wheelForm,ticker:e.target.value.toUpperCase()})}
+                style={{padding:"6px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text-primary)",fontSize:12,fontFamily:"var(--fm)",outline:"none",width:80}} placeholder="AAPL"/>
+            </div>
+            <div>
+              <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:4}}>Fase</div>
+              <select value={wheelForm.phase} onChange={e=>setWheelForm({...wheelForm,phase:e.target.value})}
+                style={{padding:"6px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text-primary)",fontSize:12,fontFamily:"var(--fm)",outline:"none"}}>
+                <option value="put">Sell Put</option>
+                <option value="call">Sell Call</option>
+                <option value="waiting">Esperando</option>
+              </select>
+            </div>
+            <div>
+              <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:4}}>Strike</div>
+              <input type="number" value={wheelForm.strike} onChange={e=>setWheelForm({...wheelForm,strike:e.target.value})}
+                style={{padding:"6px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text-primary)",fontSize:12,fontFamily:"var(--fm)",outline:"none",width:80}} placeholder="150"/>
+            </div>
+            <div>
+              <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:4}}>Prima/accion</div>
+              <input type="number" step="0.01" value={wheelForm.premium} onChange={e=>setWheelForm({...wheelForm,premium:e.target.value})}
+                style={{padding:"6px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text-primary)",fontSize:12,fontFamily:"var(--fm)",outline:"none",width:80}} placeholder="2.50"/>
+            </div>
+            <div>
+              <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:4}}>Expiracion</div>
+              <input type="date" value={wheelForm.expiration} onChange={e=>setWheelForm({...wheelForm,expiration:e.target.value})}
+                style={{padding:"6px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text-primary)",fontSize:12,fontFamily:"var(--fm)",outline:"none"}}/>
+            </div>
+            <div>
+              <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:4}}>Notas</div>
+              <input value={wheelForm.notes} onChange={e=>setWheelForm({...wheelForm,notes:e.target.value})}
+                style={{padding:"6px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text-primary)",fontSize:12,fontFamily:"var(--fm)",outline:"none",width:160}} placeholder="Opcional..."/>
+            </div>
+            <button onClick={()=>{
+              if (!wheelForm.ticker) return;
+              const entry = {...wheelForm, strike: parseFloat(wheelForm.strike)||0, premium: parseFloat(wheelForm.premium)||0 };
+              if (wheelEditIdx >= 0) {
+                const next = [...wheelEntries]; next[wheelEditIdx] = entry; saveWheel(next);
+                setWheelEditIdx(-1);
+              } else {
+                saveWheel([...wheelEntries, entry]);
+              }
+              setWheelForm({ticker:"",phase:"put",strike:"",premium:"",expiration:"",notes:""});
+            }}
+              style={{padding:"6px 16px",borderRadius:8,border:"1px solid var(--gold)",background:"var(--gold-dim)",color:"var(--gold)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)",transition:"all .15s"}}>
+              {wheelEditIdx >= 0 ? "Guardar" : "+ Agregar"}
+            </button>
+            {wheelEditIdx >= 0 && (
+              <button onClick={()=>{setWheelEditIdx(-1);setWheelForm({ticker:"",phase:"put",strike:"",premium:"",expiration:"",notes:""});}}
+                style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:11,cursor:"pointer",fontFamily:"var(--fm)"}}>
+                Cancelar
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Wheel entries table */}
+        {wheelEntries.length > 0 && (
+          <div style={card}>
+            <div style={hd}>Posiciones activas</div>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                <thead>
+                  <tr style={{borderBottom:"2px solid var(--border)"}}>
+                    {["Fase","Ticker","Strike","Prima","Expiracion","Total","Notas",""].map(h=>(
+                      <th key={h} style={{padding:"6px 8px",textAlign:h==="Ticker"||h==="Notas"?"left":"right",color:"var(--text-tertiary)",fontSize:9,fontWeight:700,fontFamily:"var(--fm)",letterSpacing:.3,whiteSpace:"nowrap"}}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {wheelEntries.map((e,i)=>{
+                    const phaseIcon = e.phase==="call"?"📞":e.phase==="put"?"📉":"⏳";
+                    const phaseLabel = e.phase==="call"?"CALL":e.phase==="put"?"PUT":"WAIT";
+                    const phaseColor = e.phase==="call"?"var(--green)":e.phase==="put"?"var(--gold)":"var(--text-tertiary)";
+                    const isExpired = e.expiration && new Date(e.expiration) < new Date();
+                    return (
+                      <tr key={i} style={{borderBottom:"1px solid rgba(255,255,255,.04)",opacity:isExpired?0.5:1}}>
+                        <td style={{padding:"6px 8px",textAlign:"center"}}>
+                          <span style={{fontSize:13}}>{phaseIcon}</span>
+                          <div style={{fontSize:7,fontFamily:"var(--fm)",fontWeight:700,color:phaseColor}}>{phaseLabel}</div>
+                        </td>
+                        <td style={{padding:"6px 8px",fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",textAlign:"left"}}>{e.ticker}</td>
+                        <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)"}}>${_sf(e.strike,0)}</td>
+                        <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--green)"}}>${_sf(e.premium,2)}</td>
+                        <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",fontSize:9,color:isExpired?"var(--red)":"var(--text-secondary)"}}>
+                          {e.expiration || "—"}{isExpired?" (exp)":""}
+                        </td>
+                        <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",fontWeight:600}}>
+                          {privacyMode?"•••":"$"+_sf((e.premium||0)*100,0)}
+                        </td>
+                        <td style={{padding:"6px 8px",fontFamily:"var(--fm)",color:"var(--text-tertiary)",fontSize:9,textAlign:"left",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={e.notes}>{e.notes||"—"}</td>
+                        <td style={{padding:"6px 4px",textAlign:"center",whiteSpace:"nowrap"}}>
+                          <button onClick={()=>{setWheelEditIdx(i);setWheelForm({...e,strike:String(e.strike),premium:String(e.premium)});}}
+                            style={{fontSize:9,padding:"2px 8px",borderRadius:5,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",cursor:"pointer",fontFamily:"var(--fm)",marginRight:4}}>Editar</button>
+                          <button onClick={()=>{if(window.confirm("Eliminar entrada de "+e.ticker+"?")){const next=[...wheelEntries];next.splice(i,1);saveWheel(next);}}}
+                            style={{fontSize:9,padding:"2px 8px",borderRadius:5,border:"1px solid rgba(255,69,58,.3)",background:"transparent",color:"var(--red)",cursor:"pointer",fontFamily:"var(--fm)"}}>X</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        <div style={{display:"flex",gap:20,fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",padding:"0 4px",flexWrap:"wrap"}}>
+          <span>📉 PUT = vendiste put, esperas que expire OTM</span>
+          <span>📞 CALL = te asignaron, vendiste call sobre las acciones</span>
+          <span>⏳ WAIT = esperando nueva oportunidad</span>
+          <span>Datos guardados en localStorage</span>
+        </div>
+      </>}
+
     </div>
   );
 }
