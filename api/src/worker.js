@@ -1802,6 +1802,80 @@ export default {
         }
       }
 
+      // GET /api/tax-report?year=2025 — tax summary from cost_basis + dividendos
+      if (path === "/api/tax-report" && request.method === "GET") {
+        const year = url.searchParams.get("year") || String(new Date().getFullYear());
+        try {
+          // Realized gains/losses from trades
+          const trades = await env.DB.prepare(
+            "SELECT ticker, fecha, tipo, shares, precio, comision, coste FROM cost_basis WHERE fecha LIKE ? AND tipo='EQUITY'"
+          ).bind(year + "%").all();
+          const sells = (trades.results || []).filter(t => (t.shares || 0) < 0);
+          const buys = (trades.results || []).filter(t => (t.shares || 0) > 0);
+          const totalSellProceeds = sells.reduce((s, t) => s + Math.abs(t.coste || 0), 0);
+          const totalBuyCost = buys.reduce((s, t) => s + Math.abs(t.coste || 0), 0);
+          const totalCommissions = (trades.results || []).reduce((s, t) => s + Math.abs(t.comision || 0), 0);
+
+          // Option income
+          const opts = await env.DB.prepare(
+            "SELECT SUM(ABS(coste)) as total FROM cost_basis WHERE fecha LIKE ? AND tipo='OPTION' AND coste > 0"
+          ).bind(year + "%").first();
+
+          // Dividends received
+          const divs = await env.DB.prepare(
+            "SELECT SUM(div_total) as gross, COUNT(*) as count FROM dividendos WHERE fecha LIKE ?"
+          ).bind(year + "%").first();
+
+          // Dividends by ticker
+          const divByTicker = await env.DB.prepare(
+            "SELECT ticker, SUM(div_total) as total, COUNT(*) as payments FROM dividendos WHERE fecha LIKE ? GROUP BY ticker ORDER BY total DESC"
+          ).bind(year + "%").all();
+
+          return json({
+            year,
+            trades: { sells: sells.length, buys: buys.length, totalSellProceeds, totalBuyCost, totalCommissions },
+            options: { income: opts?.total || 0 },
+            dividends: { gross: divs?.gross || 0, count: divs?.count || 0, byTicker: divByTicker.results || [] },
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // GET /api/dividend-streak?symbols=AAPL,MSFT — dividend growth streak from FMP
+      if (path === "/api/dividend-streak" && request.method === "GET") {
+        const symbols = (url.searchParams.get("symbols") || "").split(",").filter(Boolean).slice(0, 50);
+        if (!symbols.length) return json({ error: "Missing ?symbols=" }, corsHeaders, 400);
+        const results = {};
+        for (let i = 0; i < symbols.length; i += 5) {
+          const batch = symbols.slice(i, i + 5);
+          await Promise.all(batch.map(async sym => {
+            try {
+              const resp = await fetch(`${FMP_BASE}/dividends?symbol=${sym.trim().toUpperCase()}&apikey=${FMP_KEY}`);
+              const data = await resp.json();
+              if (!Array.isArray(data) || !data.length) { results[sym] = { streak: 0, years: 0 }; return; }
+              // Group by year, get annual total
+              const byYear = {};
+              data.forEach(d => {
+                const y = parseInt((d.date || d.paymentDate || "").slice(0, 4));
+                if (y > 2000) byYear[y] = (byYear[y] || 0) + (d.dividend || d.adjDividend || 0);
+              });
+              const years = Object.entries(byYear).sort((a, b) => b[0] - a[0]);
+              let streak = 0;
+              for (let j = 0; j < years.length - 1; j++) {
+                if (years[j][1] > years[j + 1][1]) streak++;
+                else break;
+              }
+              results[sym.trim().toUpperCase()] = {
+                streak,
+                years: years.length,
+                lastDiv: years[0] ? { year: years[0][0], total: years[0][1] } : null,
+                label: streak >= 25 ? "Aristocrat" : streak >= 10 ? "Achiever" : streak >= 5 ? "Contender" : streak > 0 ? "Growing" : "—",
+              };
+            } catch { results[sym] = { streak: 0, years: 0 }; }
+          }));
+        }
+        return json(results, corsHeaders);
+      }
+
       // GET /api/earnings-batch?symbols=AAPL,MSFT,GOOG — batch earnings dates
       if (path === "/api/earnings-batch" && request.method === "GET") {
         const symbols = (url.searchParams.get("symbols") || "").split(",").filter(Boolean).slice(0, 50);

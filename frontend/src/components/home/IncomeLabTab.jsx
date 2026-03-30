@@ -1,6 +1,72 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
+import { API_URL } from '../../constants/index.js';
+
+function TaxReportSection({ hide, openAnalysis, pill, card, hd }) {
+  const [taxYear, setTaxYear] = useState(String(new Date().getFullYear()));
+  const [taxData, setTaxData] = useState(null);
+  const [taxLoading, setTaxLoading] = useState(false);
+
+  useEffect(() => {
+    setTaxLoading(true);
+    fetch(`${API_URL}/api/tax-report?year=${taxYear}`)
+      .then(r => r.json())
+      .then(d => { setTaxData(d); setTaxLoading(false); })
+      .catch(() => setTaxLoading(false));
+  }, [taxYear]);
+
+  return <>
+    <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:8}}>
+      {["2026","2025","2024","2023"].map(y => (
+        <button key={y} onClick={() => setTaxYear(y)} style={{...pill(taxYear===y)}}>{y}</button>
+      ))}
+    </div>
+    {taxLoading && <div style={{padding:30,textAlign:"center",color:"var(--text-tertiary)"}}>Cargando datos fiscales...</div>}
+    {taxData && !taxLoading && (
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
+          {[
+            {l:"VENTAS",v:hide("$"+fDol(taxData.trades?.totalSellProceeds||0)),c:"var(--text-primary)",sub:`${taxData.trades?.sells||0} operaciones`},
+            {l:"DIVIDENDOS",v:hide("$"+fDol(taxData.dividends?.gross||0)),c:"var(--gold)",sub:`${taxData.dividends?.count||0} cobros`},
+            {l:"OPCIONES",v:hide("$"+fDol(taxData.options?.income||0)),c:"#64d2ff"},
+            {l:"COMISIONES",v:hide("$"+fDol(taxData.trades?.totalCommissions||0)),c:"var(--red)"},
+          ].map((m,i) => (
+            <div key={i} style={{padding:"10px 14px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:12}}>
+              <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,letterSpacing:.5}}>{m.l}</div>
+              <div style={{fontSize:18,fontWeight:700,color:m.c,fontFamily:"var(--fm)",marginTop:2}}>{m.v}</div>
+              {m.sub && <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{m.sub}</div>}
+            </div>
+          ))}
+        </div>
+        {(taxData.dividends?.byTicker||[]).length > 0 && (
+          <div style={card}>
+            <div style={hd}>Dividendos por Ticker — {taxYear}</div>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                <thead><tr style={{borderBottom:"2px solid var(--border)"}}>
+                  {["Ticker","Cobros","Total"].map(h=>(
+                    <th key={h} style={{padding:"4px 8px",textAlign:h==="Ticker"?"left":"right",color:"var(--text-tertiary)",fontSize:9,fontWeight:700,fontFamily:"var(--fm)"}}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {taxData.dividends.byTicker.slice(0,30).map(d => (
+                    <tr key={d.ticker} style={{borderBottom:"1px solid rgba(255,255,255,.03)",cursor:"pointer"}} onClick={()=>openAnalysis(d.ticker)}
+                      onMouseEnter={e=>e.currentTarget.style.background="var(--card-hover)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                      <td style={{padding:"4px 8px",fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>{d.ticker}</td>
+                      <td style={{padding:"4px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)"}}>{d.payments}x</td>
+                      <td style={{padding:"4px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:"var(--green)"}}>{hide("$"+_sf(d.total,2))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    )}
+  </>;
+}
 
 const MONTHS = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 const SECTOR_MAP = {
@@ -124,7 +190,7 @@ export default function IncomeLabTab() {
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
       {/* Section toggle */}
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-        {[{id:"calendar",lbl:"📅 Calendario Dividendos"},{id:"projection",lbl:"📈 Proyección DRIP"},{id:"sectors",lbl:"🏭 Concentración"},{id:"taxloss",lbl:"🔻 Tax-Loss"},{id:"ideas",lbl:"💡 Ideas Opciones"}].map(s=>(
+        {[{id:"calendar",lbl:"📅 Calendario Dividendos"},{id:"projection",lbl:"📈 Proyección DRIP"},{id:"sectors",lbl:"🏭 Concentración"},{id:"taxloss",lbl:"🔻 Tax-Loss"},{id:"ideas",lbl:"💡 Ideas Opciones"},{id:"tax",lbl:"📋 Tax Report"}].map(s=>(
           <button key={s.id} onClick={()=>setSection(s.id)} style={pill(section===s.id)}>{s.lbl}</button>
         ))}
       </div>
@@ -444,6 +510,9 @@ export default function IncomeLabTab() {
           ⚠️ Estas son ideas educativas, no recomendaciones de inversión. Revisa cada trade con tu propio análisis antes de ejecutar.
         </div>
       </>}
+
+      {/* ══════ TAX REPORT ══════ */}
+      {section === "tax" && <TaxReportSection hide={hide} openAnalysis={openAnalysis} pill={pill} card={card} hd={hd} />}
     </div>
   );
 }

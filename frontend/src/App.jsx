@@ -1585,7 +1585,10 @@ function buildPositionsFromCB() {
   // ── HOME VIEWS ──
 
   const CompanyRow = ({p, showPos, onOpen}) => {
-    const ccy = p.ccy || p.currency || "USD";
+    const rawCcy = p.ccy || p.currency || "USD";
+    // GBX (pence) → show as GBP with /100 for display
+    const ccy = rawCcy === "GBX" ? "GBP" : rawCcy;
+    const isGBX = rawCcy === "GBX";
     const origSym = CURRENCIES[ccy]?.symbol || "$";
     const isForeign = ccy !== "USD";
     const priceUSD = p.priceUSD ?? 0;
@@ -1643,7 +1646,7 @@ function buildPositionsFromCB() {
         </div>
         {/* Price */}
         <div style={{textAlign:"right",fontFamily:"var(--fm)"}}>
-          <div style={{fontSize:12,fontWeight:700,color:"var(--text-primary)"}}>{origSym}{(p.lastPrice||0).toFixed(ccy==="HKD"?1:2)}</div>
+          <div style={{fontSize:12,fontWeight:700,color:"var(--text-primary)"}}>{origSym}{(isGBX?(p.lastPrice||0)/100:(p.lastPrice||0)).toFixed(2)}</div>
           {isForeign && <div style={{fontSize:8,color:"var(--text-tertiary)",opacity:.6}}>${_sf(priceUSD,2)}</div>}
         </div>
         {showPos && <>

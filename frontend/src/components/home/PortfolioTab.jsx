@@ -219,6 +219,18 @@ export default function PortfolioTab() {
           const sorted = [...filtered].sort(SORT_OPTIONS.find(s=>s.id===listSort)?.fn || (()=>0));
           const isFiltered = quickFilter || countryFilter;
           return <>
+            {/* Column headers */}
+            <div style={{display:"grid",gridTemplateColumns:"28px 1fr 40px 70px 55px 55px 50px 50px 65px 55px 28px",gap:4,padding:"0 10px",marginBottom:2}}>
+              <div/><div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>EMPRESA</div>
+              <div/><div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"right"}}>PRECIO</div>
+              <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"right"}}>SHARES</div>
+              <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"right"}}>COSTE</div>
+              <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"right"}}>P&L</div>
+              <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"right"}}>PESO</div>
+              <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"right"}}>VALOR</div>
+              <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"right"}}>DIV</div>
+              <div/>
+            </div>
             {isFiltered && filtered.length !== all.length && (
               <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:4}}>
                 Mostrando <span style={{color:"var(--gold)",fontWeight:700}}>{filtered.length}</span> de {all.length} posiciones
