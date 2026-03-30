@@ -17,6 +17,7 @@ export default function PortfolioTab() {
   const [quickFilter, setQuickFilter] = useState("");
   const [listSort, setListSort] = useState("value");
   const searchRef = useRef(null);
+  const [selectedIdx, setSelectedIdx] = useState(-1);
   const [showRebalance, setShowRebalance] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);
   const [alertForm, setAlertForm] = useState({ ticker: "", price: "", direction: "below" });

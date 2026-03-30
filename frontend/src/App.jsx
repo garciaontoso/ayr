@@ -290,6 +290,35 @@ export default function ARApp() {
     }).catch(() => {});
   }, [dataLoaded]);
 
+  // Dividend streak data (loaded once)
+  const [divStreaks, setDivStreaks] = useState({});
+  useEffect(() => {
+    if (!portfolioList.length) return;
+    const streakKey = 'div-streak-' + new Date().toISOString().slice(0, 10);
+    if (sessionStorage.getItem(streakKey)) {
+      try { setDivStreaks(JSON.parse(sessionStorage.getItem(streakKey + '-data')) || {}); } catch {}
+      return;
+    }
+    const usTickers = portfolioList.filter(p => !p.ticker.includes(":")).map(p => p.ticker);
+    if (!usTickers.length) return;
+    // Load in batches to avoid URL length limits
+    const loadBatch = async () => {
+      const all = {};
+      for (let i = 0; i < usTickers.length; i += 30) {
+        const batch = usTickers.slice(i, i + 30);
+        try {
+          const r = await fetch(`${API_URL}/api/dividend-streak?symbols=${batch.join(",")}`);
+          const d = await r.json();
+          Object.assign(all, d);
+        } catch {}
+      }
+      setDivStreaks(all);
+      sessionStorage.setItem(streakKey, '1');
+      try { sessionStorage.setItem(streakKey + '-data', JSON.stringify(all)); } catch {}
+    };
+    loadBatch();
+  }, [portfolioList.length]);
+
   // Auto-run alert checks after IB data + prices are loaded
   useEffect(() => {
     if (!ibData.loaded || !portfolioList.length) return;
@@ -1677,6 +1706,7 @@ function buildPositionsFromCB() {
           <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",flexShrink:0}}>{p.ticker}</span>
           {badge}
           {p.dataSource==="IB" && <span style={{fontSize:6,fontWeight:700,padding:"1px 3px",borderRadius:3,background:"rgba(100,210,255,.1)",color:"#64d2ff",flexShrink:0}}>IB</span>}
+          {divStreaks[p.ticker]?.streak >= 5 && <span style={{fontSize:6,fontWeight:700,padding:"1px 3px",borderRadius:3,background:divStreaks[p.ticker].streak>=25?"rgba(200,164,78,.15)":divStreaks[p.ticker].streak>=10?"rgba(48,209,88,.1)":"rgba(255,214,10,.08)",color:divStreaks[p.ticker].streak>=25?"var(--gold)":divStreaks[p.ticker].streak>=10?"var(--green)":"#ffd60a",flexShrink:0}} title={`${divStreaks[p.ticker].streak} años subiendo dividendo`}>{divStreaks[p.ticker].streak}y</span>}
         </div>
         {/* Sparkline */}
         <div style={{width:36,height:16}}>
@@ -1702,7 +1732,10 @@ function buildPositionsFromCB() {
             <div style={{fontSize:11,fontWeight:600,color:"var(--text-secondary)"}}>{privacyMode?"•••":origSym+_sf(p.adjustedBasis||p.avgCost||0,2)}</div>
           </div>
           {/* P&L */}
-          <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:pnlPct>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":(pnlPct>=0?"+":"")+_sf(pnlPct*100,0)+"%"}</div>
+          <div style={{textAlign:"right",fontFamily:"var(--fm)"}}>
+            <div style={{fontSize:12,fontWeight:700,color:pnlPct>=0?"var(--green)":"var(--red)"}}>{privacyMode?"•••":(pnlPct>=0?"+":"")+_sf(pnlPct*100,0)+"%"}</div>
+            {(p.dayChange||0)!==0 && <div style={{fontSize:8,color:(p.dayChange||0)>=0?"var(--green)":"var(--red)",opacity:.7}}>{(p.dayChange||0)>=0?"+":""}{_sf(p.dayChange||0,1)}%hoy</div>}
+          </div>
           {/* Weight bar */}
           <div style={{textAlign:"right",fontFamily:"var(--fm)"}}>
             <div style={{fontSize:10,fontWeight:600,color:"var(--gold)"}}>{_sf(weight*100,1)}%</div>
@@ -1822,7 +1855,7 @@ function buildPositionsFromCB() {
     GASTOS_CAT, CASH_DATA, MARGIN_INTEREST_DATA,
     // IB Integration
     ibData, ibDiscrepancies, loadIBData,
-    alerts, alertsUnread, showAlertPanel, setShowAlertPanel,
+    alerts, alertsUnread, showAlertPanel, setShowAlertPanel, divStreaks,
     markAlertsRead: () => { fetch(`${API_URL}/api/alerts/read`, { method: "POST" }).catch(() => {}); setAlertsUnread(0); setAlerts(a => a.map(x => ({ ...x, leida: 1 }))); },
   }), [homeTab, portfolioList, watchlistList, historialList, portfolioTotals, portfolioComputed,
     positions, portfolio, searchTicker, countryFilter, portSort, showCapTable,
