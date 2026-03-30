@@ -1666,7 +1666,7 @@ function buildPositionsFromCB() {
       </div>
     </div>
   ) : (
-    <div style={{display:"flex",flexDirection:"column",minHeight:"100vh",background:"var(--bg)",color:"var(--text-primary)",fontFamily:"var(--fb)",fontSize:`${uiZoom}%`}}>
+    <div style={{display:"flex",flexDirection:"column",minHeight:"100vh",background:"var(--bg)",color:"var(--text-primary)",fontFamily:"var(--fb)",zoom:uiZoom/100}}>
       {dataError && (
         <div style={{margin:"0 24px",padding:"10px 16px",background:"rgba(255,69,58,.1)",border:"1px solid rgba(255,69,58,.25)",borderRadius:10,display:"flex",alignItems:"center",gap:10,marginTop:8}}>
           <span style={{fontSize:13,color:"var(--red)",fontFamily:"var(--fm)"}}>{dataError}</span>

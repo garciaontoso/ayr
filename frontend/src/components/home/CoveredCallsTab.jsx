@@ -45,7 +45,7 @@ const SORT_OPTIONS = [
   {id:"arorc",lbl:"ARORC",fn:(a,b)=>(b.arorc||0)-(a.arorc||0)},
 ];
 
-const DTE_OPTIONS = [15, 30, 45, 60];
+const DTE_OPTIONS = [7, 14, 21, 30, 45, 60, 90];
 const RISK_FREE = 0.045;
 
 export default function CoveredCallsTab() {
@@ -215,14 +215,16 @@ export default function CoveredCallsTab() {
       const assignRisk = pITM > 0.4 ? "ALTO" : pITM > 0.2 ? "MEDIO" : "BAJO";
       const assignColor = pITM > 0.4 ? "#ff453a" : pITM > 0.2 ? "#ffd60a" : "#30d158";
 
-      // ARORC = (Max Profit / Risk Capital) × (365 / DTE)
+      // ARORC period = (Max Profit / Risk Capital) for this DTE
+      // ARORC annualized = period × (365 / DTE)
       const maxProfitPerShare = K > S ? (K - S + premium) : premium;
       const riskCapital = S - premium; // cost basis after premium
-      const arorc = riskCapital > 0 ? (maxProfitPerShare / riskCapital) * (365 / Math.max(realDTE, 1)) : 0;
+      const arorcPeriod = riskCapital > 0 ? maxProfitPerShare / riskCapital : 0;
+      const arorc = riskCapital > 0 ? arorcPeriod * (365 / Math.max(realDTE, 1)) : 0;
 
       return {
         ...p, contracts, K, iv, premium, bid, ask, oi, volume, totalPremium, yieldCC,
-        pOTM, pITM, distancePct, assignRisk, assignColor, source, arorc,
+        pOTM, pITM, distancePct, assignRisk, assignColor, source, arorc, arorcPeriod,
         signal, signalColor, signalOrder, timing, daysToEarnings,
         expiration, realDTE, liquidityGood, spreadPct,
         breakeven: S + premium,
@@ -319,7 +321,7 @@ export default function CoveredCallsTab() {
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:1100}}>
           <thead>
             <tr style={{borderBottom:"2px solid var(--border)"}}>
-              {["","Ticker","Precio","Ctrts","Strike","Dist.","Bid","Ask","IV","OI","Total","Yield CC","ARORC","Señal","Timing",""].map(h=>(
+              {["","Ticker","Precio","Ctrts","Strike","Dist.","Bid","Ask","IV","OI","Total","ARORC","Exp.","Señal",""].map(h=>(
                 <th key={h} style={{padding:"6px 8px",textAlign:h==="Ticker"?"left":"right",color:"var(--text-tertiary)",fontSize:9,fontWeight:700,fontFamily:"var(--fm)",letterSpacing:.3,whiteSpace:"nowrap"}}>{h}</th>
               ))}
             </tr>
@@ -350,10 +352,20 @@ export default function CoveredCallsTab() {
                   {p.source === "REAL" ? (p.oi > 1000 ? _sf(p.oi/1000,1)+"K" : p.oi) : "—"}
                 </td>
                 <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",fontWeight:600}}>{privacyMode?"•••":"$"+_sf(p.totalPremium,0)}</td>
-                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:p.yieldCC>0.12?"var(--green)":p.yieldCC>0.06?"var(--gold)":"var(--text-tertiary)",fontWeight:700}}>{_sf(p.yieldCC*100,1)}%</td>
-                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",fontWeight:700,color:p.arorc>0.20?"var(--green)":p.arorc>0.10?"var(--gold)":"var(--text-tertiary)"}}>{_sf(p.arorc*100,1)}%</td>
-                <td style={{padding:"6px 8px",textAlign:"center",fontSize:14}}>{p.signal}</td>
-                <td style={{padding:"6px 8px",textAlign:"right",fontSize:9,color:p.signalColor,fontFamily:"var(--fm)",maxWidth:160,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.timing}</td>
+                {/* ARORC: period return (big) + annualized (small) */}
+                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)"}}>
+                  <div style={{fontWeight:700,color:p.arorcPeriod>0.03?"var(--green)":p.arorcPeriod>0.01?"var(--gold)":"var(--text-tertiary)"}}>{_sf(p.arorcPeriod*100,2)}%</div>
+                  <div style={{fontSize:8,color:"var(--text-tertiary)"}}>{_sf(p.arorc*100,0)}% ann · {p.realDTE}d</div>
+                </td>
+                {/* Expiration date */}
+                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",fontSize:9,color:"var(--text-secondary)"}}>
+                  {p.expiration || "—"}
+                </td>
+                {/* Signal + timing combined */}
+                <td style={{padding:"6px 8px",textAlign:"center"}}>
+                  <div style={{fontSize:14}}>{p.signal}</div>
+                  <div style={{fontSize:7,color:p.signalColor,fontFamily:"var(--fm)",whiteSpace:"nowrap",maxWidth:100,overflow:"hidden",textOverflow:"ellipsis"}} title={p.timing}>{p.timing}</div>
+                </td>
                 {/* Source badge */}
                 <td style={{padding:"6px 4px",textAlign:"center"}}>
                   <span style={{fontSize:7,padding:"1px 4px",borderRadius:3,fontFamily:"var(--fm)",fontWeight:600,
@@ -402,7 +414,8 @@ export default function CoveredCallsTab() {
                 {l:"Yield (ann.)",v:_sf((calcPremium/calcPos.lastPrice)*(365/calcDte)*100,1)+"%",c:calcPremium/calcPos.lastPrice*(365/calcDte)>0.12?"var(--green)":"var(--gold)"},
                 {l:"P(OTM)",v:_sf(calcPOTM*100,0)+"%",c:calcPOTM>0.7?"var(--green)":"var(--text-secondary)"},
                 {l:"Breakeven",v:"$"+_sf(calcPos.lastPrice+calcPremium,2),c:"var(--text-secondary)"},
-                {l:"ARORC",v:_sf(((((calcStrike||calcPos.K)>calcPos.lastPrice?(calcStrike||calcPos.K)-calcPos.lastPrice+calcPremium:calcPremium)/(calcPos.lastPrice-calcPremium))*(365/calcDte)*100),1)+"%",c:((((calcStrike||calcPos.K)>calcPos.lastPrice?(calcStrike||calcPos.K)-calcPos.lastPrice+calcPremium:calcPremium)/(calcPos.lastPrice-calcPremium))*(365/calcDte))>0.15?"var(--green)":"var(--gold)"},
+                {l:`ARORC ${calcDte}d`,v:_sf(((((calcStrike||calcPos.K)>calcPos.lastPrice?(calcStrike||calcPos.K)-calcPos.lastPrice+calcPremium:calcPremium)/(calcPos.lastPrice-calcPremium))*100),2)+"%",c:"var(--gold)"},
+                {l:"ARORC ann.",v:_sf(((((calcStrike||calcPos.K)>calcPos.lastPrice?(calcStrike||calcPos.K)-calcPos.lastPrice+calcPremium:calcPremium)/(calcPos.lastPrice-calcPremium))*(365/calcDte)*100),1)+"%",c:((((calcStrike||calcPos.K)>calcPos.lastPrice?(calcStrike||calcPos.K)-calcPos.lastPrice+calcPremium:calcPremium)/(calcPos.lastPrice-calcPremium))*(365/calcDte))>0.15?"var(--green)":"var(--gold)"},
                 {l:"Max Profit",v:"$"+_sf(((calcStrike||calcPos.K)-calcPos.lastPrice+calcPremium)*100*calcPos.contracts,0),c:"var(--green)"},
               ].map((m,i)=>(
                 <div key={i}>
