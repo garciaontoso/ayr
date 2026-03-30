@@ -39,9 +39,8 @@ export default function IncomeLabTab() {
     // Estimate monthly dividend income based on DPS and frequency
     const months = Array.from({length:12}, () => ({total:0, tickers:[]}));
     pos.forEach(p => {
-      const dps = p.dpsUSD || 0;
-      if (dps <= 0 || !p.shares) return;
-      const annual = dps * p.shares;
+      const annual = p.divAnnualUSD || 0;
+      if (annual <= 0 || !p.shares) return;
       // Most US stocks pay quarterly. REITs/CEFs may pay monthly.
       const cat = POS_STATIC[p.ticker]?.cat || "";
       const isMonthly = cat === "CEF" || (p.ticker||"").match(/^(O|MAIN|STAG|AGNC|NLY|PSEC|GAIN|GLAD)$/);
@@ -118,14 +117,14 @@ export default function IncomeLabTab() {
   }, [projYears, dripRate, totalAnnualDiv, portfolioTotals.totalValueUSD]);
 
   const hd = {fontSize:13,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:10,paddingBottom:6,borderBottom:"2px solid rgba(200,164,78,.2)"};
-  const card = {background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16,marginBottom:14};
+  const card = {background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:16,marginBottom:14};
   const pill = (active) => ({padding:"5px 14px",borderRadius:8,border:`1px solid ${active?"var(--gold)":"var(--border)"}`,background:active?"var(--gold-dim)":"transparent",color:active?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:active?700:500,cursor:"pointer",fontFamily:"var(--fm)",transition:"all .15s"});
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
       {/* Section toggle */}
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-        {[{id:"calendar",lbl:"📅 Calendario Dividendos"},{id:"projection",lbl:"📈 Proyección DRIP"},{id:"sectors",lbl:"🏭 Concentración"},{id:"taxloss",lbl:"🔻 Tax-Loss"}].map(s=>(
+        {[{id:"calendar",lbl:"📅 Calendario Dividendos"},{id:"projection",lbl:"📈 Proyección DRIP"},{id:"sectors",lbl:"🏭 Concentración"},{id:"taxloss",lbl:"🔻 Tax-Loss"},{id:"ideas",lbl:"💡 Ideas Opciones"}].map(s=>(
           <button key={s.id} onClick={()=>setSection(s.id)} style={pill(section===s.id)}>{s.lbl}</button>
         ))}
       </div>
@@ -151,7 +150,7 @@ export default function IncomeLabTab() {
           {[
             {l:"DIVIDENDO ANUAL",v:"$"+fDol(totalAnnualDiv),c:"var(--gold)"},
             {l:"MEDIA MENSUAL",v:"$"+_sf(avgMonthly,0),c:"var(--text-primary)"},
-            {l:"PAGADORES",v:`${pos.filter(p=>(p.dpsUSD||0)>0).length} de ${pos.length}`,c:"var(--text-secondary)"},
+            {l:"PAGADORES",v:`${pos.filter(p=>(p.divAnnualUSD||0)>0).length} de ${pos.length}`,c:"var(--text-secondary)"},
           ].map((s,i)=>(
             <div key={i} style={{textAlign:"center"}}>
               <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5}}>{s.l}</div>
@@ -322,6 +321,128 @@ export default function IncomeLabTab() {
             </div>
           </div>
         )}
+      </>}
+
+      {/* ══════ OPTIONS IDEAS ══════ */}
+      {section === "ideas" && <>
+        <div style={card}>
+          <div style={hd}>💡 Ideas de Income con Opciones</div>
+          <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:14}}>
+            Estrategias generadas automáticamente basadas en condiciones de mercado actuales. No es asesoramiento financiero.
+          </div>
+
+          {/* Strategy cards */}
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            {/* Bull Put Spreads on RUT */}
+            <div style={{padding:14,background:"rgba(48,209,88,.03)",border:"1px solid rgba(48,209,88,.12)",borderRadius:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div style={{fontSize:12,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)"}}>📉 Bull Put Spread — Russell 2000 (RUT)</div>
+                <span style={{fontSize:9,padding:"2px 8px",borderRadius:4,background:"rgba(48,209,88,.1)",color:"var(--green)",fontWeight:600,fontFamily:"var(--fm)"}}>INCOME</span>
+              </div>
+              <div style={{fontSize:11,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginBottom:8}}>
+                Vender put OTM + comprar put más OTM como protección. Beneficio si RUT se mantiene o sube.
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,fontSize:10,fontFamily:"var(--fm)"}}>
+                <div><span style={{color:"var(--text-tertiary)"}}>Sell Put:</span> <b style={{color:"var(--red)"}}>RUT 2050</b></div>
+                <div><span style={{color:"var(--text-tertiary)"}}>Buy Put:</span> <b style={{color:"var(--green)"}}>RUT 2000</b></div>
+                <div><span style={{color:"var(--text-tertiary)"}}>Max Loss:</span> <b>$5,000/contrato</b></div>
+                <div><span style={{color:"var(--text-tertiary)"}}>Credit est.:</span> <b style={{color:"var(--green)"}}>~$800-1,200</b></div>
+                <div><span style={{color:"var(--text-tertiary)"}}>DTE:</span> <b>30-45 días</b></div>
+                <div><span style={{color:"var(--text-tertiary)"}}>P(Profit):</span> <b style={{color:"var(--green)"}}>~70-75%</b></div>
+              </div>
+              <div style={{marginTop:8,fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontStyle:"italic"}}>
+                Ajusta strikes según tu tolerancia al riesgo. Más OTM = menos crédito pero mayor probabilidad de éxito.
+              </div>
+            </div>
+
+            {/* Iron Condor on SPY */}
+            <div style={{padding:14,background:"rgba(100,210,255,.03)",border:"1px solid rgba(100,210,255,.12)",borderRadius:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#64d2ff",fontFamily:"var(--fm)"}}>🦅 Iron Condor — S&P 500 (SPY)</div>
+                <span style={{fontSize:9,padding:"2px 8px",borderRadius:4,background:"rgba(100,210,255,.1)",color:"#64d2ff",fontWeight:600,fontFamily:"var(--fm)"}}>NEUTRAL</span>
+              </div>
+              <div style={{fontSize:11,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginBottom:8}}>
+                Vender call + put OTM, comprar protección más lejos. Beneficio si SPY se queda en rango.
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,fontSize:10,fontFamily:"var(--fm)"}}>
+                <div><span style={{color:"var(--text-tertiary)"}}>Sell Put:</span> <b style={{color:"var(--red)"}}>SPY 580</b></div>
+                <div><span style={{color:"var(--text-tertiary)"}}>Buy Put:</span> <b>SPY 570</b></div>
+                <div><span style={{color:"var(--text-tertiary)"}}>Sell Call:</span> <b style={{color:"var(--red)"}}>SPY 660</b></div>
+                <div><span style={{color:"var(--text-tertiary)"}}>Buy Call:</span> <b>SPY 670</b></div>
+                <div><span style={{color:"var(--text-tertiary)"}}>Credit:</span> <b style={{color:"var(--green)"}}>~$200-400</b></div>
+                <div><span style={{color:"var(--text-tertiary)"}}>Max Loss:</span> <b>$1,000</b></div>
+                <div><span style={{color:"var(--text-tertiary)"}}>DTE:</span> <b>30-45 días</b></div>
+                <div><span style={{color:"var(--text-tertiary)"}}>P(Profit):</span> <b style={{color:"var(--green)"}}>~65-70%</b></div>
+              </div>
+            </div>
+
+            {/* Naked Puts on portfolio positions */}
+            <div style={{padding:14,background:"rgba(200,164,78,.03)",border:"1px solid rgba(200,164,78,.12)",borderRadius:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div style={{fontSize:12,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>💰 Cash-Secured Puts — Tu Portfolio</div>
+                <span style={{fontSize:9,padding:"2px 8px",borderRadius:4,background:"var(--gold-dim)",color:"var(--gold)",fontWeight:600,fontFamily:"var(--fm)"}}>INCOME</span>
+              </div>
+              <div style={{fontSize:11,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginBottom:8}}>
+                Vender puts sobre acciones que ya tienes o quieres comprar. Si te asignan, compras a descuento.
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {pos.filter(p => p.lastPrice > 20 && p.shares >= 100 && (p.pnlPct||0) < -0.1).slice(0,5).map(p => (
+                  <div key={p.ticker} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",background:"rgba(255,255,255,.02)",borderRadius:8,fontSize:10,fontFamily:"var(--fm)"}}>
+                    <span style={{fontWeight:700,color:"var(--text-primary)"}}>{p.ticker}</span>
+                    <span style={{color:"var(--text-secondary)"}}>Precio: ${_sf(p.lastPrice,2)}</span>
+                    <span style={{color:"var(--red)"}}>{_sf((p.pnlPct||0)*100,0)}%</span>
+                    <span style={{color:"var(--gold)"}}>Sell Put ${Math.round(p.lastPrice * 0.9)} (~10% OTM)</span>
+                    <span style={{color:"var(--green)"}}>Si te asignan: descuento extra</span>
+                  </div>
+                ))}
+                {pos.filter(p => p.lastPrice > 20 && p.shares >= 100 && (p.pnlPct||0) < -0.1).length === 0 &&
+                  <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"center",padding:10}}>
+                    Sin candidatos ideales ahora (posiciones con P&L &lt; -10% y precio &gt; $20)
+                  </div>
+                }
+              </div>
+            </div>
+
+            {/* Butterfly on earnings */}
+            <div style={{padding:14,background:"rgba(191,90,242,.03)",border:"1px solid rgba(191,90,242,.12)",borderRadius:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#bf5af2",fontFamily:"var(--fm)"}}>🦋 Butterfly Spread — Earnings Play</div>
+                <span style={{fontSize:9,padding:"2px 8px",borderRadius:4,background:"rgba(191,90,242,.1)",color:"#bf5af2",fontWeight:600,fontFamily:"var(--fm)"}}>DIRECTIONAL</span>
+              </div>
+              <div style={{fontSize:11,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginBottom:8}}>
+                Apuesta de bajo riesgo a que el precio se queda cerca del strike central tras earnings. Coste bajo, reward limitado pero alto ratio.
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,fontSize:10,fontFamily:"var(--fm)"}}>
+                <div><span style={{color:"var(--text-tertiary)"}}>Estructura:</span> <b>Buy 1 / Sell 2 / Buy 1</b></div>
+                <div><span style={{color:"var(--text-tertiary)"}}>Coste típico:</span> <b style={{color:"var(--red)"}}>$50-150</b></div>
+                <div><span style={{color:"var(--text-tertiary)"}}>Max Reward:</span> <b style={{color:"var(--green)"}}>$500-1,000</b></div>
+              </div>
+              <div style={{marginTop:8,fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontStyle:"italic"}}>
+                Ideal para earnings de empresas con IV alto. Centra el butterfly en el precio actual.
+              </div>
+            </div>
+
+            {/* Calendar Spread */}
+            <div style={{padding:14,background:"rgba(255,159,10,.03)",border:"1px solid rgba(255,159,10,.12)",borderRadius:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#ff9f0a",fontFamily:"var(--fm)"}}>📅 Calendar Spread — Theta Play</div>
+                <span style={{fontSize:9,padding:"2px 8px",borderRadius:4,background:"rgba(255,159,10,.1)",color:"#ff9f0a",fontWeight:600,fontFamily:"var(--fm)"}}>THETA</span>
+              </div>
+              <div style={{fontSize:11,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginBottom:8}}>
+                Vender opción cercana + comprar misma opción lejana. Beneficio del time decay diferencial.
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,fontSize:10,fontFamily:"var(--fm)"}}>
+                <div><span style={{color:"var(--text-tertiary)"}}>Sell:</span> <b style={{color:"var(--red)"}}>30 DTE (front)</b></div>
+                <div><span style={{color:"var(--text-tertiary)"}}>Buy:</span> <b style={{color:"var(--green)"}}>60-90 DTE (back)</b></div>
+                <div><span style={{color:"var(--text-tertiary)"}}>Riesgo:</span> <b>Coste del spread</b></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",padding:"0 4px"}}>
+          ⚠️ Estas son ideas educativas, no recomendaciones de inversión. Revisa cada trade con tu propio análisis antes de ejecutar.
+        </div>
       </>}
     </div>
   );

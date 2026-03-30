@@ -44,18 +44,20 @@ export default function PortfolioTab() {
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
         {/* Summary Cards */}
         {portfolioList.length>0 && (
-          <div className="ar-summary-cards" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:12}}>
+          <div className="ar-summary-cards" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:8}}>
             {[
-              {l:"VALOR TOTAL",vUSD:hide("$"+fDol(portfolioTotals.totalValueUSD)),vEUR:hide("€"+fDol(portfolioTotals.totalValueEUR)),c:"var(--text-primary)"},
-              {l:"COSTE TOTAL",vUSD:hide("$"+fDol(portfolioTotals.totalCostUSD)),vEUR:hide("€"+fDol(portfolioTotals.totalCostEUR)),c:"var(--text-secondary)"},
-              {l:"P&L TOTAL",vUSD:hide((portfolioTotals.pnlUSD>=0?"+$":"-$")+fDol(Math.abs(portfolioTotals.pnlUSD))),vEUR:hide((portfolioTotals.pnlEUR>=0?"+€":"-€")+fDol(Math.abs(portfolioTotals.pnlEUR))),c:portfolioTotals.pnlUSD>=0?"var(--green)":"var(--red)",sub:privacyMode?"•••":_sf(portfolioTotals.pnlPctUSD*100,1)+"%"},
-              {l:"DIVIDENDO ANUAL",vUSD:hide("$"+fDol(portfolioTotals.totalDivUSD)),vEUR:hide("€"+fDol(portfolioTotals.totalDivEUR)),c:"var(--gold)",sub:privacyMode?"•••":"YOC "+_sf(portfolioTotals.yocUSD*100,1)+"%"},
+              {l:"VALOR",vUSD:hide("$"+fDol(portfolioTotals.totalValueUSD)),vEUR:hide("€"+fDol(portfolioTotals.totalValueEUR)),c:"var(--text-primary)"},
+              {l:"COSTE",vUSD:hide("$"+fDol(portfolioTotals.totalCostUSD)),vEUR:hide("€"+fDol(portfolioTotals.totalCostEUR)),c:"var(--text-secondary)"},
+              {l:"P&L",vUSD:hide((portfolioTotals.pnlUSD>=0?"+$":"-$")+fDol(Math.abs(portfolioTotals.pnlUSD))),vEUR:hide((portfolioTotals.pnlEUR>=0?"+€":"-€")+fDol(Math.abs(portfolioTotals.pnlEUR))),c:portfolioTotals.pnlUSD>=0?"var(--green)":"var(--red)",sub:privacyMode?"•••":_sf(portfolioTotals.pnlPctUSD*100,1)+"%"},
+              {l:"DIVIDENDO",vUSD:hide("$"+fDol(portfolioTotals.totalDivUSD)),vEUR:hide("€"+fDol(portfolioTotals.totalDivEUR)),c:"var(--gold)",sub:privacyMode?"•••":"YOC "+_sf(portfolioTotals.yocUSD*100,1)+"%"},
             ].map((m,i)=>(
-              <div key={i} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:18,padding:"16px 20px"}}>
-                <div style={{fontSize:10,color:"var(--text-tertiary)",fontWeight:600,textTransform:"uppercase",fontFamily:"var(--fm)",letterSpacing:.6}}>{m.l}</div>
-                <div style={{fontSize:26,fontWeight:700,color:m.c,fontFamily:"var(--fm)",marginTop:6}}>{displayCcy==="EUR"?m.vEUR:m.vUSD}</div>
-                <div style={{fontSize:12,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>{displayCcy==="EUR"?m.vUSD:m.vEUR}</div>
-                {m.sub && <div style={{fontSize:12,fontWeight:600,color:m.c,fontFamily:"var(--fm)",marginTop:4,opacity:.7}}>{m.sub}</div>}
+              <div key={i} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"10px 14px"}}>
+                <div style={{fontSize:9,color:"var(--text-tertiary)",fontWeight:600,textTransform:"uppercase",fontFamily:"var(--fm)",letterSpacing:.5}}>{m.l}</div>
+                <div style={{fontSize:18,fontWeight:700,color:m.c,fontFamily:"var(--fm)",marginTop:3}}>{displayCcy==="EUR"?m.vEUR:m.vUSD}</div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:2}}>
+                  <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{displayCcy==="EUR"?m.vUSD:m.vEUR}</span>
+                  {m.sub && <span style={{fontSize:10,fontWeight:600,color:m.c,fontFamily:"var(--fm)",opacity:.7}}>{m.sub}</span>}
+                </div>
               </div>
             ))}
           </div>
@@ -134,9 +136,9 @@ export default function PortfolioTab() {
             {/* Legend */}
             <div style={{display:"flex",gap:8,flexWrap:"wrap",flex:1}}>
               {slices.map(([cc,val],i) => (
-                <div key={cc} style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>
+                <div key={cc} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>
                   <div style={{width:8,height:8,borderRadius:2,background:colors[i%colors.length],flexShrink:0}}/>
-                  {FLAGS[cc]||"🏳️"} {_sf((val/total)*100,0)}%
+                  <span style={{fontSize:16}}>{FLAGS[cc]||"🏳️"}</span> {_sf((val/total)*100,0)}%
                 </div>
               ))}
             </div>
@@ -172,9 +174,9 @@ export default function PortfolioTab() {
           const sorted = Object.entries(countryCounts).sort((a,b) => b[1] - a[1]);
           return (
           <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
-            <button onClick={()=>setCountryFilter("")} style={{padding:"6px 12px",borderRadius:8,border:countryFilter===""?"2px solid var(--gold)":"1px solid var(--border)",background:countryFilter===""?"var(--gold-dim)":"transparent",color:countryFilter===""?"var(--gold)":"var(--text-tertiary)",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>🌍 Todas ({portfolioList.length})</button>
+            <button onClick={()=>setCountryFilter("")} style={{padding:"5px 10px",borderRadius:8,border:countryFilter===""?"2px solid var(--gold)":"1px solid var(--border)",background:countryFilter===""?"var(--gold-dim)":"transparent",color:countryFilter===""?"var(--gold)":"var(--text-tertiary)",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>🌍 {portfolioList.length}</button>
             {sorted.map(([cc, count]) => (
-              <button key={cc} onClick={()=>setCountryFilter(countryFilter===cc?"":cc)} style={{padding:"6px 12px",borderRadius:8,border:countryFilter===cc?"2px solid var(--gold)":"1px solid var(--border)",background:countryFilter===cc?"var(--gold-dim)":"transparent",color:countryFilter===cc?"var(--gold)":"var(--text-secondary)",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>{FLAGS[cc]||"🏳️"} {count}</button>
+              <button key={cc} onClick={()=>setCountryFilter(countryFilter===cc?"":cc)} style={{padding:"5px 10px",borderRadius:8,border:countryFilter===cc?"2px solid var(--gold)":"1px solid var(--border)",background:countryFilter===cc?"var(--gold-dim)":"transparent",color:countryFilter===cc?"var(--gold)":"var(--text-secondary)",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}><span style={{fontSize:18,lineHeight:1,verticalAlign:"middle"}}>{FLAGS[cc]||"🏳️"}</span> <span style={{fontSize:11}}>{count}</span></button>
             ))}
           </div>);
         })()}
@@ -192,7 +194,7 @@ export default function PortfolioTab() {
           <div style={{display:"flex",gap:4,alignItems:"center",marginBottom:6}}>
             <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginRight:4}}>Ordenar:</span>
             {SORT_OPTIONS.map(s=>(
-              <button key={s.id} onClick={()=>setListSort(listSort===s.id?s.id:s.id)}
+              <button key={s.id} onClick={()=>setListSort(s.id)}
                 style={{padding:"3px 8px",borderRadius:6,border:`1px solid ${listSort===s.id?"var(--gold)":"var(--border)"}`,background:listSort===s.id?"var(--gold-dim)":"transparent",color:listSort===s.id?"var(--gold)":"var(--text-tertiary)",fontSize:9,fontWeight:listSort===s.id?700:500,cursor:"pointer",fontFamily:"var(--fm)",transition:"all .15s"}}>
                 {s.lbl}
               </button>

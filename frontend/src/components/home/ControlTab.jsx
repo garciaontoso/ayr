@@ -1,3 +1,4 @@
+import { useState, useEffect, useCallback } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 
@@ -5,7 +6,37 @@ export default function ControlTab() {
   const {
     ctrlLog, ctrlShowForm, setCtrlShowForm,
     ctrlForm, setCtrlForm, addCtrlEntry,
+    fxRates, ibData, loadIBData,
   } = useHome();
+
+  // Auto-fill form with previous snapshot data + live FX when opening
+  const prefillForm = useCallback(() => {
+    const withData = ctrlLog.filter(c => c.pu > 0);
+    const last = withData[0];
+    // Live EUR/USD from fxRates (1/EUR rate = how many USD per EUR)
+    const liveFx = fxRates?.EUR ? (1 / fxRates.EUR) : (last?.fx || 1.1);
+    if (last) {
+      setCtrlForm({
+        date: new Date().toISOString().slice(0, 10),
+        fx: Math.round(liveFx * 10000) / 10000,
+        // Use individual fields if available, otherwise put totals in primary fields
+        bankinter: last.bankinter || last.bk || 0,
+        bcCaminos: last.bcCaminos || 0,
+        constructionBank: last.constructionBank || 0,
+        revolut: last.revolut || 0,
+        otrosBancos: last.otrosBancos || 0,
+        ibUsd: last.ibUsd || last.br || 0,
+        tsUsd: last.tsUsd || 0,
+        tastyUsd: last.tastyUsd || 0,
+        fondos: last.fondos || last.fd || 0,
+        cryptoEur: last.cryptoEur || last.cr || 0,
+        sueldo: last.sueldo || last.sl || 0,
+        hipoteca: last.hipoteca || last.hp || 0,
+      });
+    } else {
+      setCtrlForm(p => ({ ...p, date: new Date().toISOString().slice(0, 10), fx: Math.round(liveFx * 10000) / 10000 }));
+    }
+  }, [ctrlLog, fxRates, setCtrlForm]);
 
   return (
 <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -15,14 +46,21 @@ export default function ControlTab() {
       const latest = withData[0] || {};
       const prev = withData[1] || {};
       const chg = prev.pu ? ((latest.pu - prev.pu) / prev.pu * 100) : 0;
-      return <div style={{display:"flex",gap:16}}>
-        <div><div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>PAT. USD</div><div style={{fontSize:20,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>${fDol(latest.pu||0)}</div></div>
-        <div><div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>PAT. EUR</div><div style={{fontSize:20,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>€{fDol(latest.pe||0)}</div></div>
-        <div><div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Δ MES</div><div style={{fontSize:20,fontWeight:700,color:chg>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)"}}>{chg>=0?"+":""}{_sf(chg,1)}%</div></div>
-        <div><div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>SNAPSHOTS</div><div style={{fontSize:20,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>{withData.length}</div></div>
+      return <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,flex:1}}>
+        {[
+          {l:"PAT. USD",v:"$"+fDol(latest.pu||0),c:"var(--text-primary)"},
+          {l:"PAT. EUR",v:"€"+fDol(latest.pe||0),c:"var(--text-secondary)"},
+          {l:"Δ MES",v:(chg>=0?"+":"")+_sf(chg,1)+"%",c:chg>=0?"var(--green)":"var(--red)"},
+          {l:"SNAPSHOTS",v:withData.length,c:"var(--gold)"},
+        ].map((m,i)=>(
+          <div key={i} style={{padding:"10px 14px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:12}}>
+            <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,letterSpacing:.5}}>{m.l}</div>
+            <div style={{fontSize:18,fontWeight:700,color:m.c,fontFamily:"var(--fm)",marginTop:2}}>{m.v}</div>
+          </div>
+        ))}
       </div>;
     })()}
-    <button onClick={()=>setCtrlShowForm(!ctrlShowForm)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid var(--gold)",background:ctrlShowForm?"var(--gold)":"var(--gold-dim)",color:ctrlShowForm?"#000":"var(--gold)",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>
+    <button onClick={()=>{if(!ctrlShowForm)prefillForm();setCtrlShowForm(!ctrlShowForm);}} style={{padding:"8px 16px",borderRadius:8,border:"1px solid var(--gold)",background:ctrlShowForm?"var(--gold)":"var(--gold-dim)",color:ctrlShowForm?"#000":"var(--gold)",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>
       {ctrlShowForm?"✕ Cerrar":"+ Nuevo Snapshot"}
     </button>
   </div>
@@ -30,7 +68,24 @@ export default function ControlTab() {
   {/* Add form */}
   {ctrlShowForm && (
     <div style={{padding:16,background:"var(--card)",border:"1px solid var(--gold-dim)",borderRadius:14}}>
-      <div style={{fontSize:11,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fm)",marginBottom:10}}>📋 Nuevo Snapshot Mensual</div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:11,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fm)"}}>📋 Nuevo Snapshot Mensual</div>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <button onClick={()=>{const liveFx=fxRates?.EUR?(1/fxRates.EUR):1.1;setCtrlForm(p=>({...p,fx:Math.round(liveFx*10000)/10000}));}} style={{padding:"4px 10px",borderRadius:6,border:"1px solid rgba(100,210,255,.3)",background:"rgba(100,210,255,.06)",color:"#64d2ff",fontSize:9,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>🔄 FX Live</button>
+          <button onClick={async ()=>{
+            let data = ibData;
+            if (!data?.loaded) { data = await loadIBData(); }
+            const ld = data?.ledger || {};
+            const ibUsd = ld.BASE?.nlv || ld.USD?.nlv || 0;
+            const summary = data?.summary || {};
+            const nlv = summary?.nlv?.amount || ibUsd;
+            if (nlv > 0) setCtrlForm(p => ({ ...p, ibUsd: Math.round(nlv) }));
+          }} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${ibData?.loaded && ibData?.ledger?.USD ? "rgba(48,209,88,.5)" : "rgba(48,209,88,.3)"}`,background:"rgba(48,209,88,.06)",color:"#30d158",fontSize:9,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>
+            📡 IB{ibData?.loaded && ibData?.ledger?.BASE ? ` ($${Math.round(ibData.ledger.BASE.nlv||0).toLocaleString()})` : ""}
+          </button>
+          <span style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Pre-rellenado del último snapshot — modifica solo lo que cambie</span>
+        </div>
+      </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
         {[
           {k:"date",l:"FECHA",t:"date"},

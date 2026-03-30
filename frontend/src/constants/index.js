@@ -1,3 +1,4 @@
+export const APP_VERSION = "1.0";
 export const _CURRENT_YEAR = new Date().getFullYear();
 export const YEARS = Array.from({length:18}, (_,i) => _CURRENT_YEAR-i);
 export const PROJ_YEARS = Array.from({length:10}, (_,i) => _CURRENT_YEAR+i);
@@ -35,6 +36,7 @@ export const TABS = [
   {id:"data",lbl:"Datos",ico:"▤"},
   {id:"report",lbl:"Informe",ico:"📄"},
   {id:"dst",lbl:"DividendST",ico:"📊"},
+  {id:"options",lbl:"Opciones",ico:"🔗"},
 ];
 
 export const TABS_OLD = [
@@ -56,6 +58,7 @@ export const HOME_TABS = [
   {id:"patrimonio",lbl:"Patrimonio",ico:"🏛"},
   {id:"dashboard",lbl:"Dashboard",ico:"📊"},
   {id:"fire",lbl:"FIRE",ico:"🔥"},
+  {id:"presupuesto",lbl:"Presupuesto",ico:"📋"},
   {id:"gastos",lbl:"Gastos",ico:"💸"},
   {id:"control",lbl:"Control",ico:"📋"},
   {id:"watchlist",lbl:"Watchlist",ico:"👁"},

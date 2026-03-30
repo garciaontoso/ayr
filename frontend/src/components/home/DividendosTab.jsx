@@ -1,5 +1,384 @@
+import { useState, useMemo } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
+import { API_URL } from '../../constants/index.js';
+
+/* ═══════════════════════════════════════════════════════════════
+   📅 CalendarioSection — Mac Calendar-style dividend calendar
+   ═══════════════════════════════════════════════════════════════ */
+function CalendarioSection({ divLog, POS_STATIC }) {
+  const now = new Date();
+  const [calMonth, setCalMonth] = useState({ year: now.getFullYear(), month: now.getMonth() });
+  const [selectedDay, setSelectedDay] = useState(null);
+  const [showProjected, setShowProjected] = useState(true);
+  const [viewMode, setViewMode] = useState("month"); // month | year
+
+  const DOW = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
+  const MNAMES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+
+  // Group divs by date
+  const divByDate = useMemo(() => {
+    const map = {};
+    divLog.forEach(d => {
+      if (!d.date) return;
+      if (!map[d.date]) map[d.date] = [];
+      map[d.date].push(d);
+    });
+    return map;
+  }, [divLog]);
+
+  // Projected future dividends from frequency
+  const projectedDivs = useMemo(() => {
+    const tickerDates = {};
+    divLog.forEach(d => {
+      if (!d.date || !d.ticker) return;
+      if (!tickerDates[d.ticker]) tickerDates[d.ticker] = [];
+      tickerDates[d.ticker].push({ date: d.date, gross: d.gross || 0, net: d.net || 0 });
+    });
+    const projected = {};
+    const today = new Date().toISOString().slice(0, 10);
+    for (const [ticker, entries] of Object.entries(tickerDates)) {
+      const dates = entries.map(e => e.date).sort();
+      if (dates.length < 2) continue;
+      const gaps = [];
+      for (let i = 1; i < dates.length; i++) {
+        const d1 = new Date(dates[i - 1]), d2 = new Date(dates[i]);
+        gaps.push((d2 - d1) / 864e5);
+      }
+      const avgGap = gaps.reduce((s, g) => s + g, 0) / gaps.length;
+      if (avgGap > 400) continue;
+      const lastDate = dates[dates.length - 1];
+      const avgGross = entries.slice(-4).reduce((s, e) => s + e.gross, 0) / Math.min(entries.length, 4);
+      const avgNet = entries.slice(-4).reduce((s, e) => s + e.net, 0) / Math.min(entries.length, 4);
+      let nextDate = new Date(lastDate);
+      for (let p = 0; p < 12; p++) {
+        nextDate = new Date(nextDate.getTime() + avgGap * 864e5);
+        const nf = nextDate.toISOString().slice(0, 10);
+        if (nf <= today) continue;
+        if (nf > new Date(Date.now() + 400 * 864e5).toISOString().slice(0, 10)) break;
+        if (!projected[nf]) projected[nf] = [];
+        projected[nf].push({ ticker, gross: avgGross, net: avgNet, projected: true });
+      }
+    }
+    return projected;
+  }, [divLog]);
+
+  // Merge real + projected for display
+  const allDivsByDate = useMemo(() => {
+    const merged = { ...divByDate };
+    if (showProjected) {
+      for (const [date, entries] of Object.entries(projectedDivs)) {
+        if (!merged[date]) merged[date] = [];
+        merged[date] = [...merged[date], ...entries];
+      }
+    }
+    return merged;
+  }, [divByDate, projectedDivs, showProjected]);
+
+  // Calendar grid
+  const { year, month } = calMonth;
+  const firstDay = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const startDow = (firstDay.getDay() + 6) % 7; // Monday = 0
+
+  const weeks = useMemo(() => {
+    const w = [];
+    let week = new Array(7).fill(null);
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dow = (new Date(year, month, d).getDay() + 6) % 7;
+      week[dow] = d;
+      if (dow === 6 || d === daysInMonth) {
+        w.push(week);
+        week = new Array(7).fill(null);
+      }
+    }
+    return w;
+  }, [year, month, daysInMonth]);
+
+  // Stats for current month
+  const monthStats = useMemo(() => {
+    const prefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+    let gross = 0, net = 0, count = 0, projGross = 0;
+    const tickers = new Set();
+    for (const [date, entries] of Object.entries(allDivsByDate)) {
+      if (!date.startsWith(prefix)) continue;
+      entries.forEach(e => {
+        if (e.projected) { projGross += e.gross || 0; }
+        else { gross += e.gross || 0; net += e.net || 0; count++; }
+        tickers.add(e.ticker);
+      });
+    }
+    return { gross, net, count, projGross, tickers: tickers.size };
+  }, [allDivsByDate, year, month]);
+
+  // Year view: aggregate by month
+  const yearData = useMemo(() => {
+    const months = Array.from({ length: 12 }, () => ({ gross: 0, net: 0, count: 0, projGross: 0, tickers: new Set() }));
+    for (const [date, entries] of Object.entries(allDivsByDate)) {
+      if (!date.startsWith(String(year))) continue;
+      const mi = parseInt(date.slice(5, 7), 10) - 1;
+      entries.forEach(e => {
+        if (e.projected) months[mi].projGross += e.gross || 0;
+        else { months[mi].gross += e.gross || 0; months[mi].net += e.net || 0; months[mi].count++; }
+        months[mi].tickers.add(e.ticker);
+      });
+    }
+    return months;
+  }, [allDivsByDate, year]);
+
+  const navMonth = (dir) => {
+    setCalMonth(prev => {
+      let m = prev.month + dir, y = prev.year;
+      if (m < 0) { m = 11; y--; } else if (m > 11) { m = 0; y++; }
+      return { year: y, month: m };
+    });
+    setSelectedDay(null);
+  };
+
+  const goToday = () => { setCalMonth({ year: now.getFullYear(), month: now.getMonth() }); setSelectedDay(null); };
+
+  // Max daily amount for heat map
+  const maxDayAmount = useMemo(() => {
+    const prefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+    let max = 0;
+    for (const [date, entries] of Object.entries(allDivsByDate)) {
+      if (!date.startsWith(prefix)) continue;
+      const total = entries.reduce((s, e) => s + (e.gross || 0), 0);
+      if (total > max) max = total;
+    }
+    return max || 1;
+  }, [allDivsByDate, year, month]);
+
+  const selectedDate = selectedDay ? `${year}-${String(month + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}` : null;
+  const selectedEntries = selectedDate ? (allDivsByDate[selectedDate] || []) : [];
+  const todayStr = now.toISOString().slice(0, 10);
+
+  // iCal URL
+  const icsUrl = `${API_URL}/api/dividendos/calendar.ics`;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* Header: Navigation + Stats */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button onClick={() => viewMode === "month" ? navMonth(-1) : setCalMonth(p => ({ ...p, year: p.year - 1 }))} style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid var(--border)", background: "transparent", color: "var(--text-secondary)", fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>◀</button>
+          <div style={{ minWidth: 160, textAlign: "center" }}>
+            <span style={{ fontSize: 18, fontWeight: 700, color: "var(--text-primary)", fontFamily: "var(--fd)", cursor: "pointer" }} onClick={() => setViewMode(v => v === "month" ? "year" : "month")}>
+              {viewMode === "month" ? `${MNAMES[month]} ${year}` : year}
+            </span>
+          </div>
+          <button onClick={() => viewMode === "month" ? navMonth(1) : setCalMonth(p => ({ ...p, year: p.year + 1 }))} style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid var(--border)", background: "transparent", color: "var(--text-secondary)", fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>▶</button>
+          <button onClick={goToday} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "transparent", color: "var(--gold)", fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: "var(--fm)" }}>Hoy</button>
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <button onClick={() => setShowProjected(!showProjected)} style={{ padding: "5px 10px", borderRadius: 6, border: `1px solid ${showProjected ? "rgba(100,210,255,.4)" : "var(--border)"}`, background: showProjected ? "rgba(100,210,255,.08)" : "transparent", color: showProjected ? "#64d2ff" : "var(--text-tertiary)", fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: "var(--fm)" }}>
+            {showProjected ? "🔮 Proyectados ON" : "🔮 Proyectados OFF"}
+          </button>
+          <button onClick={() => setViewMode(v => v === "month" ? "year" : "month")} style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "transparent", color: "var(--text-tertiary)", fontSize: 10, cursor: "pointer", fontFamily: "var(--fm)" }}>
+            {viewMode === "month" ? "📅 Año" : "📅 Mes"}
+          </button>
+        </div>
+      </div>
+
+      {/* Month KPIs */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {[
+          { l: "GROSS", v: `$${monthStats.gross >= 1000 ? _sf(monthStats.gross / 1000, 1) + "K" : _sf(monthStats.gross, 0)}`, c: "var(--gold)" },
+          { l: "NET", v: `$${monthStats.net >= 1000 ? _sf(monthStats.net / 1000, 1) + "K" : _sf(monthStats.net, 0)}`, c: "var(--green)" },
+          { l: "COBROS", v: monthStats.count, c: "var(--text-primary)" },
+          { l: "TICKERS", v: monthStats.tickers, c: "var(--text-secondary)" },
+          ...(monthStats.projGross > 0 ? [{ l: "ESTIMADO", v: `$${monthStats.projGross >= 1000 ? _sf(monthStats.projGross / 1000, 1) + "K" : _sf(monthStats.projGross, 0)}`, c: "#64d2ff" }] : []),
+        ].map((k, i) => (
+          <div key={i} style={{ flex: "1 1 80px", padding: "10px 14px", background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12 }}>
+            <div style={{ fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)", letterSpacing: .5, fontWeight: 600 }}>{k.l}</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: k.c, fontFamily: "var(--fm)" }}>{k.v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* YEAR VIEW */}
+      {viewMode === "year" && (
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+            {yearData.map((md, mi) => {
+              const total = md.gross + md.projGross;
+              const maxY = Math.max(...yearData.map(m => m.gross + m.projGross), 1);
+              const intensity = total / maxY;
+              const isCurrentMonth = year === now.getFullYear() && mi === now.getMonth();
+              return (
+                <div key={mi} onClick={() => { setCalMonth({ year, month: mi }); setViewMode("month"); }}
+                  style={{ padding: 12, borderRadius: 10, border: `1px solid ${isCurrentMonth ? "var(--gold)" : "var(--border)"}`, background: total > 0 ? `rgba(200,164,78,${0.03 + intensity * 0.12})` : "rgba(255,255,255,.01)", cursor: "pointer", transition: "all .15s" }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: isCurrentMonth ? "var(--gold)" : "var(--text-secondary)", fontFamily: "var(--fm)", marginBottom: 6 }}>{MNAMES[mi].slice(0, 3)}</div>
+                  {md.gross > 0 && <div style={{ fontSize: 15, fontWeight: 700, color: "var(--gold)", fontFamily: "var(--fm)" }}>${md.gross >= 1000 ? _sf(md.gross / 1000, 1) + "K" : _sf(md.gross, 0)}</div>}
+                  {md.projGross > 0 && md.gross === 0 && <div style={{ fontSize: 15, fontWeight: 700, color: "#64d2ff", fontFamily: "var(--fm)", opacity: .7 }}>~${md.projGross >= 1000 ? _sf(md.projGross / 1000, 1) + "K" : _sf(md.projGross, 0)}</div>}
+                  {md.count > 0 && <div style={{ fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)", marginTop: 2 }}>{md.count} cobros · {md.tickers.size} tickers</div>}
+                  {md.count === 0 && md.projGross > 0 && <div style={{ fontSize: 9, color: "rgba(100,210,255,.5)", fontFamily: "var(--fm)", marginTop: 2 }}>{md.tickers.size} estimados</div>}
+                </div>
+              );
+            })}
+          </div>
+          {/* Year total bar */}
+          <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(200,164,78,.05)", borderRadius: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", fontFamily: "var(--fm)" }}>Total {year}</span>
+            <div style={{ display: "flex", gap: 16 }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: "var(--gold)", fontFamily: "var(--fm)" }}>${yearData.reduce((s, m) => s + m.gross, 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+              {yearData.some(m => m.projGross > 0) && <span style={{ fontSize: 14, fontWeight: 600, color: "#64d2ff", fontFamily: "var(--fm)", opacity: .7 }}>+~${yearData.reduce((s, m) => s + m.projGross, 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} est.</span>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MONTH CALENDAR GRID */}
+      {viewMode === "month" && (
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
+          {/* Day headers */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, marginBottom: 6 }}>
+            {DOW.map(d => (
+              <div key={d} style={{ textAlign: "center", fontSize: 10, fontWeight: 600, color: "var(--text-tertiary)", fontFamily: "var(--fm)", padding: "4px 0" }}>{d}</div>
+            ))}
+          </div>
+          {/* Weeks */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {weeks.map((week, wi) => (
+              <div key={wi} style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+                {week.map((day, di) => {
+                  if (day === null) return <div key={di} style={{ minHeight: 72 }} />;
+                  const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                  const entries = allDivsByDate[dateStr] || [];
+                  const realEntries = entries.filter(e => !e.projected);
+                  const projEntries = entries.filter(e => e.projected);
+                  const dayTotal = entries.reduce((s, e) => s + (e.gross || 0), 0);
+                  const isToday = dateStr === todayStr;
+                  const isSelected = day === selectedDay;
+                  const isWeekend = di >= 5;
+                  const intensity = dayTotal > 0 ? Math.min(dayTotal / maxDayAmount, 1) : 0;
+
+                  return (
+                    <div key={di} onClick={() => setSelectedDay(day === selectedDay ? null : day)}
+                      style={{
+                        minHeight: 72, borderRadius: 8, padding: "4px 5px",
+                        border: `1px solid ${isSelected ? "var(--gold)" : isToday ? "rgba(200,164,78,.5)" : "rgba(255,255,255,.04)"}`,
+                        background: entries.length > 0 ? `rgba(200,164,78,${0.02 + intensity * 0.12})` : isWeekend ? "rgba(255,255,255,.01)" : "transparent",
+                        cursor: "pointer", transition: "all .12s", position: "relative",
+                      }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                        <span style={{ fontSize: 11, fontWeight: isToday ? 800 : 500, color: isToday ? "var(--gold)" : "var(--text-secondary)", fontFamily: "var(--fm)",
+                          ...(isToday ? { background: "var(--gold)", color: "#000", borderRadius: "50%", width: 20, height: 20, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10 } : {})
+                        }}>{day}</span>
+                        {dayTotal > 0 && <span style={{ fontSize: 8, fontWeight: 700, color: projEntries.length > 0 && realEntries.length === 0 ? "#64d2ff" : "var(--gold)", fontFamily: "var(--fm)" }}>${dayTotal >= 1000 ? _sf(dayTotal / 1000, 1) + "K" : _sf(dayTotal, 0)}</span>}
+                      </div>
+                      {/* Ticker badges */}
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
+                        {realEntries.slice(0, 4).map((e, ei) => (
+                          <span key={ei} style={{ fontSize: 7, padding: "1px 3px", borderRadius: 3, background: "rgba(200,164,78,.15)", color: "var(--gold)", fontWeight: 600, fontFamily: "var(--fm)", lineHeight: 1.2 }}>{e.ticker}</span>
+                        ))}
+                        {projEntries.slice(0, 3).map((e, ei) => (
+                          <span key={`p${ei}`} style={{ fontSize: 7, padding: "1px 3px", borderRadius: 3, background: "rgba(100,210,255,.1)", color: "#64d2ff", fontWeight: 600, fontFamily: "var(--fm)", lineHeight: 1.2, fontStyle: "italic" }}>{e.ticker}</span>
+                        ))}
+                        {entries.length > 5 && <span style={{ fontSize: 7, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>+{entries.length - 5}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+
+          {/* Legend */}
+          <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 10, fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: "rgba(200,164,78,.3)" }} /> Cobrado</span>
+            {showProjected && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: "rgba(100,210,255,.2)" }} /> Estimado</span>}
+            <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--gold)" }} /> Hoy</span>
+          </div>
+        </div>
+      )}
+
+      {/* Selected day detail */}
+      {selectedDay && selectedEntries.length > 0 && (
+        <div style={{ background: "var(--card)", border: "1px solid var(--gold-dim)", borderRadius: 14, padding: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--gold)", fontFamily: "var(--fd)", marginBottom: 10 }}>
+            💰 {selectedDay} {MNAMES[month]} {year} — {selectedEntries.length} cobro{selectedEntries.length > 1 ? "s" : ""}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {selectedEntries.sort((a, b) => (b.gross || 0) - (a.gross || 0)).map((e, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: e.projected ? "rgba(100,210,255,.04)" : "rgba(200,164,78,.04)", borderRadius: 8, border: `1px solid ${e.projected ? "rgba(100,210,255,.12)" : "rgba(200,164,78,.12)"}` }}>
+                <div style={{ width: 42, height: 24, borderRadius: 6, background: e.projected ? "rgba(100,210,255,.1)" : "rgba(200,164,78,.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800, color: e.projected ? "#64d2ff" : "var(--gold)", fontFamily: "var(--fm)" }}>{e.ticker?.slice(0, 5)}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-primary)", fontFamily: "var(--fm)" }}>${_sf(e.gross || 0, 2)}</div>
+                  {e.net && !e.projected && <div style={{ fontSize: 9, color: "var(--green)", fontFamily: "var(--fm)" }}>Net: ${_sf(e.net, 2)} · Tax: {e.gross > 0 ? _sf((1 - e.net / e.gross) * 100, 0) : 0}%</div>}
+                </div>
+                {e.projected && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 4, background: "rgba(100,210,255,.1)", color: "#64d2ff", fontFamily: "var(--fm)", fontWeight: 600 }}>ESTIMADO</span>}
+                {e.shares && !e.projected && <span style={{ fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>{e.shares} sh · ${_sf((e.gross || 0) / e.shares, 4)}/sh</span>}
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 8, padding: "8px 12px", background: "rgba(200,164,78,.04)", borderRadius: 8, display: "flex", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-secondary)", fontFamily: "var(--fm)" }}>Total del día</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: "var(--gold)", fontFamily: "var(--fm)" }}>${selectedEntries.reduce((s, e) => s + (e.gross || 0), 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Upcoming dividends timeline */}
+      {showProjected && (() => {
+        const today = new Date().toISOString().slice(0, 10);
+        const upcoming = [];
+        for (const [date, entries] of Object.entries(projectedDivs)) {
+          if (date <= today) continue;
+          entries.forEach(e => upcoming.push({ ...e, date }));
+        }
+        upcoming.sort((a, b) => a.date.localeCompare(b.date));
+        if (upcoming.length === 0) return null;
+        const next30 = upcoming.filter(u => u.date <= new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10));
+        const next30total = next30.reduce((s, e) => s + (e.gross || 0), 0);
+        return (
+          <div style={{ background: "var(--card)", border: "1px solid rgba(100,210,255,.15)", borderRadius: 14, padding: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#64d2ff", fontFamily: "var(--fd)" }}>🔮 Próximos Dividendos Estimados</div>
+              <div style={{ fontSize: 10, color: "#64d2ff", fontFamily: "var(--fm)", opacity: .7 }}>30d: ~${next30total.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {upcoming.slice(0, 20).map((u, i) => {
+                const daysAway = Math.round((new Date(u.date) - new Date()) / 864e5);
+                return (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderRadius: 6, background: "rgba(100,210,255,.02)" }}>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: daysAway <= 7 ? "var(--green)" : "#64d2ff", fontFamily: "var(--fm)", minWidth: 75 }}>{u.date}</span>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: "var(--gold)", fontFamily: "var(--fm)", minWidth: 40 }}>{u.ticker}</span>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: "var(--text-primary)", fontFamily: "var(--fm)" }}>~${_sf(u.gross, 2)}</span>
+                    <span style={{ fontSize: 8, color: "var(--text-tertiary)", fontFamily: "var(--fm)", marginLeft: "auto" }}>en {daysAway}d</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* iCal subscribe */}
+      <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--gold)", fontFamily: "var(--fd)", marginBottom: 8 }}>🗓 Suscribirse al Calendario</div>
+        <div style={{ fontSize: 10, color: "var(--text-tertiary)", fontFamily: "var(--fm)", marginBottom: 12, lineHeight: 1.5 }}>
+          Añade tus dividendos (cobrados + estimados) a Apple Calendar, Google Calendar o Outlook.
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={() => { window.open(`webcal://${icsUrl.replace(/^https?:\/\//, '')}`, '_blank'); }}
+            style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--gold)", background: "var(--gold-dim)", color: "var(--gold)", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "var(--fm)", display: "flex", alignItems: "center", gap: 6 }}>
+            🍎 Apple Calendar
+          </button>
+          <button onClick={() => { window.open(`https://calendar.google.com/calendar/r?cid=${encodeURIComponent(icsUrl)}`, '_blank'); }}
+            style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--border)", background: "transparent", color: "var(--text-secondary)", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "var(--fm)", display: "flex", alignItems: "center", gap: 6 }}>
+            📅 Google Calendar
+          </button>
+          <button onClick={() => { navigator.clipboard.writeText(icsUrl); alert('URL copiada: ' + icsUrl); }}
+            style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid var(--border)", background: "transparent", color: "var(--text-tertiary)", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "var(--fm)", display: "flex", alignItems: "center", gap: 6 }}>
+            📋 Copiar URL
+          </button>
+        </div>
+        <div style={{ marginTop: 8, fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)", opacity: .6, wordBreak: "break-all" }}>{icsUrl}</div>
+      </div>
+    </div>
+  );
+}
 
 export default function DividendosTab() {
   const {
@@ -11,9 +390,22 @@ export default function DividendosTab() {
     DIV_BY_YEAR, DIV_BY_MONTH,
   } = useHome();
 
+  const [section, setSection] = useState("dashboard");
+
   return (
 <div style={{display:"flex",flexDirection:"column",gap:12}}>
-  {(() => {
+  {/* Sub-tab toggle */}
+  <div style={{display:"flex",gap:6}}>
+    {[{id:"dashboard",lbl:"📊 Dashboard"},{id:"calendario",lbl:"📅 Calendario"}].map(t=>(
+      <button key={t.id} onClick={()=>setSection(t.id)} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${section===t.id?"var(--gold)":"transparent"}`,background:section===t.id?"var(--gold-dim)":"transparent",color:section===t.id?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:section===t.id?700:500,cursor:"pointer",fontFamily:"var(--fb)",transition:"all .15s"}}>{t.lbl}</button>
+    ))}
+  </div>
+
+  {/* Calendario Section */}
+  {section === "calendario" && <CalendarioSection divLog={divLog} POS_STATIC={POS_STATIC} />}
+
+  {/* Dashboard Section */}
+  {section === "dashboard" && (() => {
     if (divLoading) return <div style={{padding:40,textAlign:"center",color:"var(--text-tertiary)"}}>⏳ Cargando dividendos...</div>;
     if (divLog.length === 0) return <div style={{padding:40,textAlign:"center",color:"var(--text-tertiary)"}}><div style={{fontSize:36,marginBottom:12}}>💰</div>Sin datos de dividendos. Espera un momento o importa tu historial.</div>;
     const filtered = divLog.filter(d => {

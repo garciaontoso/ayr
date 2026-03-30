@@ -14,7 +14,7 @@ import HomeContext from './context/HomeContext';
 import CostBasisContext from './context/CostBasisContext';
 
 // ─── Lazy-loaded views ───
-const HomeView = lazy(() => import('./components/views/HomeView'));
+import HomeView from './components/views/HomeView';
 const CostBasisView = lazy(() => import('./components/views/CostBasisView'));
 
 // ─── Lazy-loaded analysis tabs ───
@@ -38,6 +38,7 @@ const ChecklistTab = lazy(() => import('./components/analysis/ChecklistTab'));
 const PaybackTab = lazy(() => import('./components/analysis/PaybackTab'));
 const ReportTab = lazy(() => import('./components/analysis/ReportTab'));
 const DSTTab = lazy(() => import('./components/analysis/DSTTab'));
+const OptionsChainTab = lazy(() => import('./components/analysis/OptionsChainTab'));
 
 // ─── Loading fallback ───
 const Loading = () => <div style={{padding:"24px",display:"flex",flexDirection:"column",gap:12}}>
@@ -215,6 +216,71 @@ export default function ARApp() {
   const [fmpExtra, setFmpExtra] = useState({ rating: {}, dcf: {}, estimates: [], priceTarget: {}, keyMetrics: [], finGrowth: [], grades: {}, ownerEarnings: [], revSegments: [], geoSegments: [], peers: [], earnings: [], ptSummary: {}, profile: {} });
   const [showSettings, setShowSettings] = useState(false);
   const [privacyMode, setPrivacyMode] = useState(false);
+
+  // ── IB Integration state ──
+  const [ibData, setIbData] = useState({ positions: [], ledger: {}, summary: {}, trades: [], loaded: false, loading: false, lastSync: null, errors: {} });
+  // ibDiscrepancies computed separately (not useState — derived from portfolioComputed)
+
+  const loadIBData = useCallback(async () => {
+    setIbData(prev => ({ ...prev, loading: true, errors: {} }));
+    const errors = {};
+    let positions = [], ledger = {}, summary = {}, trades = [];
+
+    const results = await Promise.allSettled([
+      fetch(`${API_URL}/api/ib-portfolio`).then(r => r.json()),
+      fetch(`${API_URL}/api/ib-ledger`).then(r => r.json()),
+      fetch(`${API_URL}/api/ib-summary`).then(r => r.json()),
+      fetch(`${API_URL}/api/ib-trades`).then(r => r.json()),
+    ]);
+
+    if (results[0].status === "fulfilled" && results[0].value?.positions) {
+      positions = results[0].value.positions;
+    } else { errors.portfolio = results[0].reason?.message || results[0].value?.error || "Failed"; }
+
+    if (results[1].status === "fulfilled" && results[1].value?.ledger) {
+      ledger = results[1].value.ledger;
+    } else { errors.ledger = results[1].reason?.message || "Failed"; }
+
+    if (results[2].status === "fulfilled" && results[2].value?.nlv) {
+      summary = results[2].value;
+    } else { errors.summary = results[2].reason?.message || "Failed"; }
+
+    if (results[3].status === "fulfilled" && results[3].value?.trades) {
+      trades = results[3].value.trades;
+    } else { errors.trades = results[3].reason?.message || "Failed"; }
+
+    const data = { positions, ledger, summary, trades, loaded: true, loading: false, lastSync: new Date().toISOString(), errors };
+    setIbData(data);
+
+    // Auto-save NLV snapshot (once per day)
+    if (summary?.nlv?.amount > 0) {
+      const today = new Date().toISOString().slice(0, 10);
+      const nlvKey = 'nlv-saved-' + today;
+      if (!sessionStorage.getItem(nlvKey)) {
+        sessionStorage.setItem(nlvKey, '1');
+        fetch(`${API_URL}/api/ib-nlv-save`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fecha: today, nlv: summary.nlv.amount, cash: summary.totalCash?.amount || 0,
+            positionsValue: summary.grossPosition?.amount || 0, marginUsed: summary.initMargin?.amount || 0,
+            accounts: (summary.accounts || []).length || 4, positionsCount: positions.length,
+          }),
+        }).catch(() => {});
+      }
+    }
+
+    return data;
+  }, []);
+
+  // Auto-sync IB data once per session (must be after loadIBData declaration)
+  useEffect(() => {
+    if (!dataLoaded) return;
+    const syncKey = 'ib-sync-' + new Date().toISOString().slice(0, 10);
+    if (sessionStorage.getItem(syncKey)) return;
+    sessionStorage.setItem(syncKey, '1');
+    loadIBData();
+  }, [dataLoaded, loadIBData]);
+
   const [uiZoom, setUiZoom] = useState(() => {
     const saved = localStorage.getItem("ayr_zoom");
     return saved ? parseInt(saved) : 100;
@@ -332,7 +398,7 @@ const POS_STATIC = {
 "RAND":{n:"Rand Capital Corp",lp:11.36,ap:29.4303,cb:29.4303,sh:400,tg:"YO",cat:"CEF",pnl:-0.614003,pnlAbs:-7228.12,mv:4544,uv:4544,ti:11772.12,d2f:0.84,apc:-0.0207,mc:0.03},
 "REXR":{n:"Rexford Industrial Realty Inc",lp:34.47,ap:42.3575,cb:40.9202,sh:400,tg:"LANDLORD",cat:"COMPANY",divTTM:1.72,dy:0.0499,yoc:0.040607,yf:0.0505,pnl:-0.157629,pnlAbs:-3155,mv:13788,uv:13788,ti:16368.08,roe:0.182582,d2f:31.18,apc:-0.1168,adt:19.96,mc:7.99},
 "RHI":{n:"Robert Half Inc",lp:22.37,ap:26.8864,cb:26.8864,sh:700,tg:"YO",cat:"COMPANY",dy:0.1055,yoc:0.003924,pnl:-0.167982,pnlAbs:-3161.5,mv:15659,uv:15659,ti:18820.5,roe:0.100943,apc:-0.1818,adt:73.85,mc:2.26},
-"RICK":{n:"RCI Hospitality Holdings Inc",lp:21.42,ap:38.0607,cb:36.8872,sh:1550,tg:"LANDLORD",cat:"REIT",divTTM:0.28,dy:0.013,yoc:0.007357,pnl:-0.419311,pnlAbs:-25793.01,mv:33201,uv:33201,ti:57175.22,roe:0.202987,d2f:6.59,apc:-0.0858,adt:20.15,f2d:0.0739,mc:0.17},
+"RICK":{n:"RCI Hospitality Holdings Inc",lp:21.42,ap:38.0607,cb:36.8872,sh:1550,tg:"LANDLORD",cat:"COMPANY",divTTM:0.28,dy:0.013,yoc:0.007357,pnl:-0.419311,pnlAbs:-25793.01,mv:33201,uv:33201,ti:57175.22,roe:0.202987,d2f:6.59,apc:-0.0858,adt:20.15,f2d:0.0739,mc:0.17},
 "RYN":{n:"Rayonier Inc",lp:20.18,ap:23.3451,cb:22.6445,sh:400,tg:"LANDLORD",cat:"REIT",divTTM:1.09,dy:0.054,yoc:0.046691,pnl:-0.108836,pnlAbs:-1266.02,mv:8072,uv:8072,ti:9057.82,roe:0.04512,apc:-0.0662,adt:21.6,mc:6.1},
 "SAFE":{n:"Safehold Inc",lp:14.52,ap:18.2113,cb:17.4047,sh:600,tg:"LANDLORD",cat:"REIT",divTTM:0.71,dy:0.0488,yoc:0.038987,pnl:-0.165744,pnlAbs:-2214.81,mv:8712,uv:8712,ti:10442.84,d2f:111.46,apc:0.0653,adt:29.28,mc:1.04},
 "SCHD":{n:"Schwab US Dividend Equity ETF",lp:30.8,ap:30.3294,cb:29.5598,sh:6000,tg:"YO",cat:"ETF",dy:0.0341,pnl:0.041955,pnlAbs:2823.72,mv:184800,uv:184800,ti:177358.88,apc:0.1107,adt:204.6},
@@ -849,6 +915,18 @@ function buildPositionsFromCB() {
     if ((homeTab === "dividendos" || homeTab === "fire") && divLog.length === 0) loadDivLog();
   }, [homeTab, divLog.length, loadDivLog]);
   
+  // Auto-sync dividendos → cost_basis (background, once per session)
+  useEffect(() => {
+    if (!dataLoaded || divLog.length === 0) return;
+    const syncKey = 'div-sync-' + new Date().toISOString().slice(0, 10);
+    if (sessionStorage.getItem(syncKey)) return; // Already synced today
+    sessionStorage.setItem(syncKey, '1');
+    fetch(`${API_URL}/api/costbasis/sync-dividends`, { method: 'POST' })
+      .then(r => r.json())
+      .then(d => { if (d.inserted > 0) console.log(`[Sync] ${d.inserted} dividendos → cost_basis`); })
+      .catch(() => {});
+  }, [dataLoaded, divLog.length]);
+
   // ── Gastos Log (replaces GASTOS Google Sheets) ──
   const [gastosLog, setGastosLog] = useState([]);
   const [gastosLoading, setGastosLoading] = useState(false);
@@ -1005,32 +1083,122 @@ function buildPositionsFromCB() {
     return amountUSD * (fxRates.EUR || 0.92);
   }, [fxRates]);
 
+  // Build IB position lookup
+  // IB ticker → App ticker mapping (IB uses different symbols for some)
+  const IB_TICKER_MAP = {
+    "VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA",
+    "9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HGK:9616",
+    "CMCSA":"CMCSA","ITRK":"ITRK","ENG":"ENG",
+  };
+  const ibPositionMap = useMemo(() => {
+    const map = {};
+    if (ibData.loaded && ibData.positions.length) {
+      ibData.positions.forEach(p => {
+        if (!p.ticker) return;
+        const appTicker = IB_TICKER_MAP[p.ticker] || p.ticker;
+        // Merge positions with same ticker across accounts
+        if (map[appTicker]) {
+          map[appTicker] = {
+            ...map[appTicker],
+            shares: (map[appTicker].shares || 0) + (p.shares || 0),
+            mktValue: (map[appTicker].mktValue || 0) + (p.mktValue || 0),
+            unrealizedPnl: (map[appTicker].unrealizedPnl || 0) + (p.unrealizedPnl || 0),
+            mktPrice: p.mktPrice || map[appTicker].mktPrice,
+          };
+        } else {
+          map[appTicker] = { ...p, ticker: appTicker };
+        }
+      });
+    }
+    return map;
+  }, [ibData.positions, ibData.loaded]);
+
+  // Auto-add IB positions > $500 that aren't in portfolio (stocks only, not options/dead positions)
+  useEffect(() => {
+    if (!ibData.loaded || !ibData.positions.length || !portfolioList.length) return;
+    const appTickers = new Set(portfolioList.map(p => p.ticker));
+    const newPositions = ibData.positions
+      .filter(p => p.assetClass === "STK" && Math.abs(p.mktValue) > 500 && p.mktPrice > 0)
+      .map(p => ({ ...p, ticker: IB_TICKER_MAP[p.ticker] || p.ticker }))
+      .filter(p => !appTickers.has(p.ticker));
+
+    // Deduplicate by ticker (same stock in multiple accounts)
+    const unique = {};
+    newPositions.forEach(p => {
+      if (!unique[p.ticker]) unique[p.ticker] = p;
+      else unique[p.ticker].shares = (unique[p.ticker].shares||0) + (p.shares||0);
+    });
+
+    Object.values(unique).forEach(p => {
+      if (!appTickers.has(p.ticker)) {
+        updatePosition(p.ticker, { list: "portfolio", shares: p.shares||0, avgCost: p.avgCost||0, name: p.name||p.ticker, lastPrice: p.mktPrice||0 });
+        appTickers.add(p.ticker);
+      }
+    });
+  }, [ibData.loaded, ibData.positions.length, portfolioList.length]);
+
   const portfolioComputed = useMemo(() => {
     return portfolioList.map(p => {
-      // Use pre-computed USD values from CARTERA sheet (already FX-correct)
-      const valueUSD = p.usdValue || 0;
-      const costTotalUSD = p.totalInvertido || 0;
-      const pnlUSD = valueUSD - costTotalUSD;
-      const pnlPct = p.pnlPct || (costTotalUSD !== 0 ? pnlUSD / Math.abs(costTotalUSD) : 0);
-      const divAnnualUSD = p.annualDivTotal || ((p.divTTM || 0) * (p.shares || 0)) || 0;
-      
-      // EUR equivalents
+      const ib = ibPositionMap[p.ticker];
+      let valueUSD, costTotalUSD, pnlUSD, pnlPct, divAnnualUSD, dataSource;
+
+      if (ib && ib.mktPrice > 0) {
+        // IB returns values in local currency — convert to USD
+        const ibCcy = ib.currency || "USD";
+        const ibFx = ibCcy === "USD" ? 1 : (fxRates?.[ibCcy] ? 1 / fxRates[ibCcy] : (p.fx || 1));
+        valueUSD = (ib.mktValue || 0) * (ibCcy === "USD" ? 1 : ibFx);
+        costTotalUSD = (ib.avgCost || 0) * (ib.shares || 0) * (ibCcy === "USD" ? 1 : ibFx);
+        pnlUSD = (ib.unrealizedPnl || 0) * (ibCcy === "USD" ? 1 : ibFx);
+        pnlPct = costTotalUSD !== 0 ? pnlUSD / Math.abs(costTotalUSD) : 0;
+        divAnnualUSD = (p.divTTM || 0) * (ib.shares || p.shares || 0);
+        dataSource = "IB";
+      } else {
+        // FMP fallback
+        valueUSD = p.usdValue || 0;
+        costTotalUSD = p.totalInvertido || 0;
+        pnlUSD = valueUSD - costTotalUSD;
+        pnlPct = p.pnlPct || (costTotalUSD !== 0 ? pnlUSD / Math.abs(costTotalUSD) : 0);
+        divAnnualUSD = (p.divTTM || 0) * (p.shares || 0);
+        dataSource = "FMP";
+      }
+
       const valueEUR = toEUR(valueUSD);
       const costTotalEUR = toEUR(costTotalUSD);
       const divAnnualEUR = toEUR(divAnnualUSD);
-      
       const ccy = p.currency || "USD";
-      
-      return { 
-        ...p, ccy,
-        priceUSD: ccy === "USD" ? (p.lastPrice||0) : (valueUSD / (p.shares||1)),
-        costUSD: costTotalUSD / (p.shares||1),
+      const shares = ib?.shares || p.shares || 0;
+      const lastPrice = ib?.mktPrice || p.lastPrice || 0;
+
+      return {
+        ...p, ccy, dataSource,
+        shares, lastPrice,
+        priceUSD: ccy === "USD" ? lastPrice : (valueUSD / (shares || 1)),
+        costUSD: costTotalUSD / (shares || 1),
         valueUSD, costTotalUSD, divAnnualUSD,
         pnlUSD, pnlPct,
         valueEUR, costTotalEUR, divAnnualEUR,
+        ibPnl: ib?.unrealizedPnl ?? null,
+        ibAvgCost: ib?.avgCost ?? null,
       };
     });
-  }, [portfolioList, toEUR]);
+  }, [portfolioList, toEUR, ibPositionMap, fxRates]);
+
+  // Compute discrepancies separately (not inside useMemo with setState)
+  const ibDiscrepancies = useMemo(() => {
+    if (!ibPositionMap || !Object.keys(ibPositionMap).length) return [];
+    const disc = [];
+    portfolioComputed.forEach(p => {
+      const ib = ibPositionMap[p.ticker];
+      if (ib && ib.mktPrice > 0 && p.lastPrice > 0) {
+        const fmpPrice = p.lastPrice;
+        const ibPrice = ib.mktPrice;
+        if (Math.abs(ibPrice - fmpPrice) / fmpPrice > 0.02) {
+          disc.push({ ticker: p.ticker, ibPrice, fmpPrice, diff: ((ibPrice - fmpPrice) / fmpPrice * 100).toFixed(1) });
+        }
+      }
+    });
+    return disc;
+  }, [portfolioComputed, ibPositionMap]);
 
   const portfolioTotals = useMemo(() => {
     let totalValueUSD = 0, totalCostUSD = 0, totalDivUSD = 0;
@@ -1400,6 +1568,7 @@ function buildPositionsFromCB() {
     score:() => <ScoreTab />,
     report:() => <ReportTab />,
     dst:() => <DSTTab />,
+    options:() => <OptionsChainTab />,
   };
 
 
@@ -1424,7 +1593,7 @@ function buildPositionsFromCB() {
     const weight = p.weight ?? 0;
     const pnlPct = p.pnlPct ?? 0;
     const pnlUSD = p.pnlUSD ?? 0;
-    const dpsUSD = p.dpsUSD ?? 0;
+    const dpsUSD = p.divAnnualUSD || ((p.divTTM || p.dps || 0) * (p.shares || 0));
     const showUSD = displayCcy === "USD";
     const valShow = showUSD ? valueUSD : valueEUR;
     const valSym = showUSD ? "$" : "€";
@@ -1444,8 +1613,11 @@ function buildPositionsFromCB() {
         {/* Name + Cap badge */}
         <div onClick={()=>onOpen(p.ticker)} style={{cursor:"pointer",minWidth:0,paddingRight:4}}>
           <div style={{fontSize:14,fontWeight:600,color:"var(--text-primary)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",lineHeight:1.3}}>{p.name||p.ticker}</div>
-          <div style={{fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"flex",alignItems:"center",gap:4,marginTop:1}}>
+          <div style={{fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"flex",alignItems:"center",gap:4,marginTop:1,flexWrap:"wrap"}}>
+            <span style={{fontSize:16}}>{FLAGS[getCountry(p.ticker, ccy)]||""}</span>
             {p.ticker}
+            {p.sector && <span style={{fontSize:8,color:"var(--text-tertiary)",opacity:.6,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.sector}</span>}
+            {p.dataSource === "IB" && <span style={{fontSize:7,fontWeight:700,padding:"1px 4px",borderRadius:3,background:"rgba(100,210,255,.1)",color:"#64d2ff",letterSpacing:.3}}>IB</span>}
             {(() => {
               const mc = (p.mc || 0) * 1e9;
               const cat = p.cat || "";
@@ -1504,7 +1676,7 @@ function buildPositionsFromCB() {
           {/* Div/Year */}
           <div style={{textAlign:"right"}}>
             <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.3}}>DIV/AÑO</div>
-            <div style={{fontSize:14,fontWeight:700,color:dpsUSD>0?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",lineHeight:1.3}}>{privacyMode?"•••":(dpsUSD>0?"$"+_sf(p.divAnnualUSD||0,0):"—")}</div>
+            <div style={{fontSize:14,fontWeight:700,color:dpsUSD>0?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",lineHeight:1.3}}>{privacyMode?"•••":(dpsUSD>0?"$"+_sf(dpsUSD,0):"—")}</div>
           </div>
         </>}
         {!showPos && <>
@@ -1613,6 +1785,8 @@ function buildPositionsFromCB() {
     CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, DIV_BY_MONTH, GASTOS_MONTH,
     FIRE_PROJ, FIRE_PARAMS, ANNUAL_PL, FI_TRACK, HIST_INIT, GASTO_CATS,
     GASTOS_CAT, CASH_DATA, MARGIN_INTEREST_DATA,
+    // IB Integration
+    ibData, ibDiscrepancies, loadIBData,
   }), [homeTab, portfolioList, watchlistList, historialList, portfolioTotals, portfolioComputed,
     positions, portfolio, searchTicker, countryFilter, portSort, showCapTable,
     pricesLoading, pricesLastUpdate, displayCcy, fxRates, fxLoading, fxLastUpdate,
@@ -1625,7 +1799,8 @@ function buildPositionsFromCB() {
     ctrlLog, ctrlShowForm, ctrlForm,
     researchOpenList, researchAdvanced, researchHide, researchCapFilter,
     reportData, reportLoading, reportSymbol,
-    fmpLoading, fmpError, hide, hideN, uiZoom, apiData]);
+    fmpLoading, fmpError, hide, hideN, uiZoom, apiData,
+    ibData, ibDiscrepancies, loadIBData]);
 
   // renderCostBasis and renderHome have been extracted to:
   // - components/views/CostBasisView.jsx (via CostBasisContext)
@@ -1677,11 +1852,7 @@ function buildPositionsFromCB() {
       {viewMode==="home" ? (
         <main style={{flex:1,padding:"32px 36px",overflowY:"auto"}}>
           <HomeContext.Provider value={homeContextValue}>
-            <ErrorBoundary>
-              <Suspense fallback={<Loading />}>
-                <HomeView />
-              </Suspense>
-            </ErrorBoundary>
+            <HomeView />
           </HomeContext.Provider>
         </main>
       ) : viewMode==="costbasis" ? (

@@ -57,11 +57,12 @@ const SECTIONS = [
   {id:"calls",lbl:"📊 Covered Calls"},
   {id:"rolls",lbl:"🔄 Roll Advisor"},
   {id:"puts",lbl:"💰 Sell Puts"},
+  {id:"live",lbl:"📡 Posiciones IB"},
   {id:"wheel",lbl:"🎡 Wheel Tracker"},
 ];
 
 export default function CoveredCallsTab() {
-  const { portfolioTotals, positions, openAnalysis, hide, privacyMode } = useHome();
+  const { portfolioTotals, positions, openAnalysis, hide, privacyMode, ibData } = useHome();
 
   const [loading, setLoading] = useState(true);
   const [loadingMsg, setLoadingMsg] = useState("");
@@ -77,7 +78,9 @@ export default function CoveredCallsTab() {
   const [calcTicker, setCalcTicker] = useState(null);
   const [calcStrike, setCalcStrike] = useState(0);
   const [calcDte, setCalcDte] = useState(30);
-  const [dataSource, setDataSource] = useState("loading"); // "real" | "bs" | "mixed"
+  const [dataSource, setDataSource] = useState("loading"); // "massive" | "yahoo" | "mixed" | "bs"
+  const [massiveCount, setMassiveCount] = useState(0);
+  const [yahooCount, setYahooCount] = useState(0);
   const [section, setSection] = useState("calls");
 
   // Wheel tracker state (localStorage)
@@ -119,23 +122,53 @@ export default function CoveredCallsTab() {
       .then(data => { setEarningsData(data || {}); checkDone(); })
       .catch(() => checkDone());
 
-    // 2. Real options data from Yahoo Finance (US tickers only)
-    setLoadingMsg("Cargando opciones reales de Yahoo Finance...");
+    // 2. Real options data — Massive (greeks!) first, Yahoo fallback
+    setLoadingMsg("Cargando opciones desde Massive (greeks + IV)...");
     if (usTickers.length > 0) {
       const fetchOptions = async () => {
         const results = {};
-        // Batch in groups of 20
-        for (let i = 0; i < usTickers.length; i += 20) {
-          const batch = usTickers.slice(i, i + 20);
-          try {
-            const r = await fetch(`${API_URL}/api/options-batch?symbols=${batch.join(",")}&dte=${dte}&otm=${otmPct}`);
-            const data = await r.json();
-            Object.assign(results, data);
-          } catch(e) { console.warn("Options batch error:", e); }
+        let massiveOK = 0, yahooOK = 0;
+
+        // Step A: Try Massive for all tickers (rate-limited server-side)
+        try {
+          setLoadingMsg(`Massive: cargando ${usTickers.length} tickers (5/min)...`);
+          // Send all — server handles rate limiting with 12.5s delays
+          const r = await fetch(`${API_URL}/api/options-massive?symbols=${usTickers.join(",")}&dte=${dte}&otm=${otmPct}`, { signal: AbortSignal.timeout(usTickers.length * 14000 + 30000) });
+          const data = await r.json();
+          for (const [sym, val] of Object.entries(data)) {
+            if (val && val.bid !== undefined && !val.error) {
+              results[sym] = val;
+              massiveOK++;
+            }
+          }
+        } catch (e) { console.warn("Massive options error:", e); }
+
+        // Step B: Yahoo fallback for tickers Massive missed
+        const missing = usTickers.filter(t => !results[t] || results[t].error);
+        if (missing.length > 0) {
+          setLoadingMsg(`Yahoo fallback: ${missing.length} tickers...`);
+          for (let i = 0; i < missing.length; i += 20) {
+            const batch = missing.slice(i, i + 20);
+            try {
+              const r = await fetch(`${API_URL}/api/options-batch?symbols=${batch.join(",")}&dte=${dte}&otm=${otmPct}`);
+              const data = await r.json();
+              for (const [sym, val] of Object.entries(data)) {
+                if (val && val.bid !== undefined && !val.error) {
+                  results[sym] = { ...val, source: "YAHOO" };
+                  yahooOK++;
+                }
+              }
+            } catch(e) { console.warn("Yahoo batch error:", e); }
+          }
         }
+
         setOptionsData(results);
-        const realCount = Object.values(results).filter(v => v.bid !== undefined && !v.error).length;
-        setDataSource(realCount > 0 ? (realCount === usTickers.length ? "real" : "mixed") : "bs");
+        const src = massiveOK > 0 && yahooOK > 0 ? "mixed"
+          : massiveOK > 0 ? "massive"
+          : yahooOK > 0 ? "yahoo" : "bs";
+        setDataSource(src);
+        setMassiveCount(massiveOK);
+        setYahooCount(yahooOK);
         checkDone();
       };
       fetchOptions();
@@ -186,10 +219,10 @@ export default function CoveredCallsTab() {
       const opt = optionsData[p.ticker];
       const hasRealData = opt && opt.bid !== undefined && !opt.error;
 
-      let K, iv, premium, bid, ask, oi, volume, expiration, realDTE, source;
+      let K, iv, premium, bid, ask, oi, volume, expiration, realDTE, source, delta, gamma, theta, vega;
 
       if (hasRealData) {
-        // ✅ Real market data from Yahoo Finance
+        // ✅ Real market data (Massive or Yahoo)
         K = opt.strike;
         iv = opt.iv || 0;
         bid = opt.bid || 0;
@@ -197,9 +230,14 @@ export default function CoveredCallsTab() {
         premium = bid; // Use bid (what you'd actually get when selling)
         oi = opt.oi || 0;
         volume = opt.volume || 0;
+        // Greeks from Massive
+        delta = opt.delta || null;
+        gamma = opt.gamma || null;
+        theta = opt.theta || null;
+        vega = opt.vega || null;
         expiration = opt.expiration;
         realDTE = opt.dte || dte;
-        source = "REAL";
+        source = opt.source === "MASSIVE" ? "MASSIVE" : opt.source === "YAHOO" ? "YAHOO" : opt.source === "IB" ? "IB" : "REAL";
       } else {
         // 🔄 Black-Scholes fallback
         K = Math.round(S * (1 + otm));
@@ -212,6 +250,7 @@ export default function CoveredCallsTab() {
         expiration = null;
         realDTE = dte;
         source = "B-S";
+        delta = null; gamma = null; theta = null; vega = null;
       }
 
       const totalPremium = premium * 100 * contracts;
@@ -236,10 +275,10 @@ export default function CoveredCallsTab() {
         signal = "⚫"; signalColor = "#48484a"; signalOrder = 4; timing = "<100 acciones";
       } else if (daysToEarnings < 14) {
         signal = "🔴"; signalColor = "#ff453a"; signalOrder = 3; timing = `Earnings ${earn?.nextDate || "pronto"} — EVITAR`;
-      } else if (iv < 0.15 || (!liquidityOK && source === "REAL")) {
+      } else if (iv < 0.15 || (!liquidityOK && source !== "B-S")) {
         signal = "🔴"; signalColor = "#ff453a"; signalOrder = 3;
         timing = !liquidityOK ? `Sin liquidez (OI: ${oi})` : `IV muy baja (${_sf(iv*100,0)}%)`;
-      } else if (daysToEarnings < 45 || iv < 0.20 || (spreadPct > 0.25 && source === "REAL")) {
+      } else if (daysToEarnings < 45 || iv < 0.20 || (spreadPct > 0.25 && source !== "B-S")) {
         signal = "🟡"; signalColor = "#ffd60a"; signalOrder = 2;
         timing = daysToEarnings < 45 ? `Earnings en ${daysToEarnings}d` : spreadPct > 0.25 ? `Spread amplio (${_sf(spreadPct*100,0)}%)` : `IV baja (${_sf(iv*100,0)}%)`;
       } else {
@@ -263,6 +302,7 @@ export default function CoveredCallsTab() {
 
       return {
         ...p, contracts, K, iv, premium, bid, ask, oi, volume, totalPremium, yieldCC,
+        delta, gamma, theta, vega,
         pOTM, pITM, distancePct, assignRisk, assignColor, source, arorc, arorcPeriod,
         arorcStaticPeriod, arorcCalledPeriod, arorcStatic, arorcCalled,
         signal, signalColor, signalOrder, timing, daysToEarnings,
@@ -287,7 +327,7 @@ export default function CoveredCallsTab() {
   const totalPremiumAnnual = totalPremiumAll * (365 / dte);
   const eligibleCount = ccData.filter(x => x.contracts > 0).length;
   const greenCount = ccData.filter(x => x.signalOrder === 1).length;
-  const realCount = ccData.filter(x => x.source === "REAL").length;
+  const realCount = ccData.filter(x => x.source !== "B-S").length;
 
   // Calculator
   const calcPos = calcTicker ? ccData.find(x => x.ticker === calcTicker) : null;
@@ -360,7 +400,7 @@ export default function CoveredCallsTab() {
   }, [eligible, priceData]);
 
   const hd = {fontSize:13,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:10,paddingBottom:6,borderBottom:"2px solid rgba(200,164,78,.2)"};
-  const card = {background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16,marginBottom:14};
+  const card = {background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:16,marginBottom:14};
   const pill = (active) => ({padding:"5px 14px",borderRadius:8,border:`1px solid ${active?"var(--gold)":"var(--border)"}`,background:active?"var(--gold-dim)":"transparent",color:active?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:active?700:500,cursor:"pointer",fontFamily:"var(--fm)",transition:"all .15s"});
 
   if (loading) return <div style={{padding:40,textAlign:"center",color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>
@@ -373,10 +413,13 @@ export default function CoveredCallsTab() {
       {/* ── DATA SOURCE BADGE + REFRESH ── */}
       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
         <span style={{fontSize:9,padding:"3px 8px",borderRadius:6,fontFamily:"var(--fm)",fontWeight:600,
-          background: dataSource === "real" ? "rgba(48,209,88,.1)" : dataSource === "mixed" ? "rgba(255,214,10,.1)" : "rgba(255,255,255,.05)",
-          color: dataSource === "real" ? "#30d158" : dataSource === "mixed" ? "#ffd60a" : "var(--text-tertiary)",
-          border: `1px solid ${dataSource === "real" ? "rgba(48,209,88,.3)" : dataSource === "mixed" ? "rgba(255,214,10,.3)" : "var(--border)"}`}}>
-          {dataSource === "real" ? "📡 Yahoo Finance" : dataSource === "mixed" ? `📡 ${realCount} reales · ${ccData.length - realCount} B-S` : "📐 Black-Scholes"}
+          background: dataSource === "massive" ? "rgba(100,210,255,.1)" : dataSource === "yahoo" ? "rgba(48,209,88,.1)" : dataSource === "mixed" ? "rgba(255,214,10,.1)" : "rgba(255,255,255,.05)",
+          color: dataSource === "massive" ? "#64d2ff" : dataSource === "yahoo" ? "#30d158" : dataSource === "mixed" ? "#ffd60a" : "var(--text-tertiary)",
+          border: `1px solid ${dataSource === "massive" ? "rgba(100,210,255,.3)" : dataSource === "yahoo" ? "rgba(48,209,88,.3)" : dataSource === "mixed" ? "rgba(255,214,10,.3)" : "var(--border)"}`}}>
+          {dataSource === "massive" ? `📡 Massive · ${massiveCount} tickers (greeks)` :
+           dataSource === "yahoo" ? `📡 Yahoo · ${yahooCount} tickers` :
+           dataSource === "mixed" ? `📡 ${massiveCount} Massive + ${yahooCount} Yahoo · ${ccData.length - massiveCount - yahooCount > 0 ? (ccData.length - massiveCount - yahooCount) + " B-S" : ""}` :
+           "📐 Black-Scholes"}
         </span>
         <button onClick={()=>{setLoading(true); setRefreshKey(k=>k+1);}} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",cursor:"pointer",fontFamily:"var(--fm)",fontWeight:600,transition:"all .15s"}}
           onMouseEnter={e=>e.target.style.borderColor="var(--gold)"} onMouseLeave={e=>e.target.style.borderColor="var(--border)"}>
@@ -397,16 +440,16 @@ export default function CoveredCallsTab() {
       {/* ══════ CALLS SECTION ══════ */}
       {section === "calls" && <>
       {/* ── HEADER: Income Summary ── */}
-      <div className="ar-cc-summary" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+      <div className="ar-cc-summary" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
         {[
-          {l:"PREMIUM MENSUAL EST.",v:privacyMode?"•••":"$"+fDol(totalPremiumAll),c:"var(--gold)"},
-          {l:"PREMIUM ANUAL EST.",v:privacyMode?"•••":"$"+fDol(totalPremiumAnnual),c:"var(--gold)"},
-          {l:"POSICIONES ELEGIBLES",v:`${eligibleCount} de ${ccData.length}`,c:"var(--text-primary)"},
-          {l:"SEÑAL VERDE",v:`${greenCount} posiciones`,c:"var(--green)"},
+          {l:"PREMIUM MENSUAL",v:privacyMode?"•••":"$"+fDol(totalPremiumAll),c:"var(--gold)"},
+          {l:"PREMIUM ANUAL",v:privacyMode?"•••":"$"+fDol(totalPremiumAnnual),c:"var(--gold)"},
+          {l:"ELEGIBLES",v:`${eligibleCount} de ${ccData.length}`,c:"var(--text-primary)"},
+          {l:"SEÑAL VERDE",v:`${greenCount} pos.`,c:"var(--green)"},
         ].map((m,i)=>(
-          <div key={i} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"14px 16px"}}>
+          <div key={i} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"10px 14px"}}>
             <div style={{fontSize:9,color:"var(--text-tertiary)",fontWeight:600,textTransform:"uppercase",fontFamily:"var(--fm)",letterSpacing:.5}}>{m.l}</div>
-            <div style={{fontSize:22,fontWeight:700,color:m.c,fontFamily:"var(--fm)",marginTop:4}}>{m.v}</div>
+            <div style={{fontSize:18,fontWeight:700,color:m.c,fontFamily:"var(--fm)",marginTop:3}}>{m.v}</div>
           </div>
         ))}
       </div>
@@ -437,10 +480,10 @@ export default function CoveredCallsTab() {
 
       {/* ── MAIN TABLE ── */}
       <div style={{overflowX:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:1100}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:1200}}>
           <thead>
             <tr style={{borderBottom:"2px solid var(--border)"}}>
-              {["","Ticker","Precio","Ctrts","Strike","Dist.","Bid","Ask","IV","OI","Total","Estático","Asignado","Exp.","Señal",""].map(h=>(
+              {["","Ticker","Precio","Ctrts","Strike","Dist.","Bid","Ask","IV","Δ","θ","OI","Total","Estático","Asignado","Exp.","Señal",""].map(h=>(
                 <th key={h} style={{padding:"6px 8px",textAlign:h==="Ticker"?"left":"right",color:"var(--text-tertiary)",fontSize:9,fontWeight:700,fontFamily:"var(--fm)",letterSpacing:.3,whiteSpace:"nowrap"}}>{h}</th>
               ))}
             </tr>
@@ -465,10 +508,18 @@ export default function CoveredCallsTab() {
                 <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--green)",fontWeight:600}}>${_sf(p.bid,2)}</td>
                 <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)"}}>${_sf(p.ask,2)}</td>
                 <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:p.iv>0.35?"var(--green)":p.iv>0.20?"var(--text-primary)":"var(--text-tertiary)"}}>{_sf(p.iv*100,0)}%</td>
+                {/* Delta */}
+                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",fontSize:10,color:p.delta!=null?(Math.abs(p.delta)<0.3?"var(--green)":Math.abs(p.delta)<0.5?"var(--gold)":"var(--red)"):"var(--text-tertiary)"}}>
+                  {p.delta != null ? _sf(p.delta, 2) : "—"}
+                </td>
+                {/* Theta */}
+                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",fontSize:10,color:p.theta!=null?"#bf5af2":"var(--text-tertiary)"}}>
+                  {p.theta != null ? _sf(p.theta, 2) : "—"}
+                </td>
                 {/* Open Interest — liquidity indicator */}
                 <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",fontSize:9,
                   color:p.oi>500?"var(--green)":p.oi>100?"var(--text-secondary)":p.oi>0?"var(--text-tertiary)":"var(--text-tertiary)"}}>
-                  {p.source === "REAL" ? (p.oi > 1000 ? _sf(p.oi/1000,1)+"K" : p.oi) : "—"}
+                  {p.source !== "B-S" ? (p.oi > 1000 ? _sf(p.oi/1000,1)+"K" : p.oi) : "—"}
                 </td>
                 <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",fontWeight:600}}>{privacyMode?"•••":"$"+_sf(p.totalPremium,0)}</td>
                 {/* ARORC Estático: solo prima */}
@@ -493,10 +544,10 @@ export default function CoveredCallsTab() {
                 {/* Source badge */}
                 <td style={{padding:"6px 4px",textAlign:"center"}}>
                   <span style={{fontSize:7,padding:"1px 4px",borderRadius:3,fontFamily:"var(--fm)",fontWeight:600,
-                    background:p.source==="REAL"?"rgba(48,209,88,.1)":"rgba(255,255,255,.05)",
-                    color:p.source==="REAL"?"#30d158":"var(--text-tertiary)",
-                    border:`1px solid ${p.source==="REAL"?"rgba(48,209,88,.2)":"rgba(255,255,255,.06)"}`}}>
-                    {p.source}
+                    background:p.source==="MASSIVE"?"rgba(100,210,255,.1)":p.source==="YAHOO"?"rgba(48,209,88,.1)":"rgba(255,255,255,.05)",
+                    color:p.source==="MASSIVE"?"#64d2ff":p.source==="YAHOO"?"#30d158":"var(--text-tertiary)",
+                    border:`1px solid ${p.source==="MASSIVE"?"rgba(100,210,255,.2)":p.source==="YAHOO"?"rgba(48,209,88,.2)":"rgba(255,255,255,.06)"}`}}>
+                    {p.source === "MASSIVE" ? "MSV" : p.source}
                   </span>
                 </td>
               </tr>
@@ -555,7 +606,7 @@ export default function CoveredCallsTab() {
         {calcPos && (
           <div style={{marginTop:12,padding:"10px 14px",background:"rgba(200,164,78,.04)",borderRadius:8,borderLeft:"3px solid var(--gold)",fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>
             <strong style={{color:"var(--gold)"}}>{calcPos.ticker}</strong> · Precio: ${_sf(calcPos.lastPrice,2)} · IV: {_sf(calcPos.iv*100,0)}%
-            {calcPos.source === "REAL" && <> · Bid: ${_sf(calcPos.bid,2)} · Ask: ${_sf(calcPos.ask,2)} · OI: {calcPos.oi}</>}
+            {calcPos.source !== "B-S" && <> · Bid: ${_sf(calcPos.bid,2)} · Ask: ${_sf(calcPos.ask,2)} · OI: {calcPos.oi}</>}
             {" · "}{calcPos.timing}
           </div>
         )}
@@ -567,7 +618,8 @@ export default function CoveredCallsTab() {
         <span>🟡 IV moderada, earnings cerca, o spread amplio</span>
         <span>🔴 Earnings inminentes, IV baja, o sin liquidez</span>
         <span>⚫ &lt;100 acciones</span>
-        <span>📡 REAL = Yahoo Finance · B-S = Black-Scholes estimado</span>
+        <span>MSV = Massive (greeks) · YAHOO = Yahoo Finance · B-S = Black-Scholes</span>
+        <span>Δ = Delta (prob. ITM) · θ = Theta (decay/día)</span>
       </div>
       </>}
 
@@ -688,6 +740,82 @@ export default function CoveredCallsTab() {
         </div>
       </>}
 
+      {/* ══════ LIVE IB POSITIONS SECTION ══════ */}
+      {section === "live" && <>
+        <div style={card}>
+          <div style={hd}>Posiciones de Opciones — Interactive Brokers (Live)</div>
+          {(() => {
+            const ibOpts = (ibData?.positions || []).filter(p => p.assetClass === "OPT");
+            const ibStocks = (ibData?.positions || []).filter(p => p.assetClass === "STK" && p.shares > 0);
+            if (!ibData?.loaded) return <div style={{padding:20,textAlign:"center",color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontSize:12}}>
+              Haz click en "📡 IB" en la barra superior para cargar datos del broker.
+            </div>;
+
+            return <>
+              {ibOpts.length > 0 ? (
+                <div style={{overflowX:"auto",marginBottom:16}}>
+                  <div style={{fontSize:11,color:"var(--green)",fontFamily:"var(--fm)",fontWeight:600,marginBottom:8}}>📞 {ibOpts.length} opciones abiertas en IB</div>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                    <thead>
+                      <tr style={{borderBottom:"2px solid var(--border)"}}>
+                        {["Subyacente","Tipo","Strike","Exp.","Contratos","Precio","Valor","P&L"].map(h=>(
+                          <th key={h} style={{padding:"6px 8px",textAlign:h==="Subyacente"?"left":"right",color:"var(--text-tertiary)",fontSize:9,fontWeight:700,fontFamily:"var(--fm)"}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ibOpts.map((p,i) => (
+                        <tr key={i} style={{borderBottom:"1px solid rgba(255,255,255,.04)"}}>
+                          <td style={{padding:"6px 8px",fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{p.undSym || p.ticker}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:p.putOrCall==="C"?"var(--green)":"var(--gold)"}}>{p.putOrCall==="C"?"CALL":"PUT"}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)"}}>${_sf(p.strike,0)}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",fontSize:9}}>{p.expiry||"—"}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",fontWeight:600,color:p.shares<0?"var(--red)":"var(--green)"}}>{p.shares<0?"Short ":""}{Math.abs(p.shares)}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)"}}>${_sf(p.mktPrice,2)}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-primary)"}}>{privacyMode?"•••":"$"+Math.abs(p.mktValue).toLocaleString()}</td>
+                          <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",fontWeight:600,color:p.unrealizedPnl>=0?"var(--green)":"var(--red)"}}>{privacyMode?"•••":(p.unrealizedPnl>=0?"+":"")+"$"+Math.round(p.unrealizedPnl).toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div style={{padding:16,textAlign:"center",color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontSize:11,background:"rgba(255,255,255,.02)",borderRadius:8,marginBottom:12}}>
+                  Sin opciones abiertas en IB. Cuando vendas covered calls o puts, aparecerán aquí automáticamente.
+                </div>
+              )}
+
+              {/* IB Stock positions summary */}
+              <div style={{fontSize:11,color:"#64d2ff",fontFamily:"var(--fm)",fontWeight:600,marginBottom:8}}>📊 {ibStocks.length} posiciones de acciones en IB</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:8}}>
+                {ibStocks.map(p => {
+                  const contracts = Math.floor(p.shares / 100);
+                  return <div key={p.ticker} style={{padding:"10px 12px",background:"rgba(255,255,255,.02)",borderRadius:8,border:"1px solid var(--border)"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span style={{fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{p.ticker}</span>
+                      <span style={{fontSize:9,color:contracts>0?"var(--green)":"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600}}>{contracts>0?`${contracts} ctrts`:"<100 sh"}</span>
+                    </div>
+                    <div style={{fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginTop:4}}>
+                      {p.shares} acciones · ${_sf(p.mktPrice,2)} · {privacyMode?"•••":"P&L "+(p.unrealizedPnl>=0?"+":"")+"$"+Math.round(p.unrealizedPnl).toLocaleString()}
+                    </div>
+                  </div>;
+                })}
+              </div>
+
+              {/* Account summary */}
+              {ibData.summary?.nlv && (
+                <div style={{marginTop:12,padding:"10px 14px",background:"rgba(200,164,78,.04)",borderRadius:8,borderLeft:"3px solid var(--gold)",fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)",display:"flex",gap:20}}>
+                  <span>NLV: <b style={{color:"var(--gold)"}}>{privacyMode?"•••":"$"+Math.round(ibData.summary.nlv.amount).toLocaleString()}</b></span>
+                  <span>Buying Power: <b style={{color:"#64d2ff"}}>{privacyMode?"•••":"$"+Math.round(ibData.summary.buyingPower?.amount||0).toLocaleString()}</b></span>
+                  <span>Margen: <b style={{color:((ibData.summary.initMargin?.amount||0)/(ibData.summary.nlv?.amount||1))>0.5?"var(--red)":"var(--green)"}}>{privacyMode?"•••":"$"+Math.round(ibData.summary.initMargin?.amount||0).toLocaleString()}</b></span>
+                  <span>Cash: <b style={{color:(ibData.summary.totalCash?.amount||0)<0?"var(--red)":"var(--text-primary)"}}>{privacyMode?"•••":"$"+Math.round(ibData.summary.totalCash?.amount||0).toLocaleString()}</b></span>
+                </div>
+              )}
+            </>;
+          })()}
+        </div>
+      </>}
+
       {/* ══════ WHEEL TRACKER SECTION ══════ */}
       {section === "wheel" && <>
         {/* Summary cards */}
@@ -698,7 +826,7 @@ export default function CoveredCallsTab() {
             {l:"FASE PUT",v:`${wheelEntries.filter(e=>e.phase==="put").length}`,c:"var(--gold)"},
             {l:"PREMIUM TOTAL",v:privacyMode?"•••":"$"+fDol(wheelEntries.reduce((s,e)=>s+(parseFloat(e.premium)||0)*100,0)),c:"var(--gold)"},
           ].map((m,i)=>(
-            <div key={i} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"14px 16px"}}>
+            <div key={i} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"10px 14px"}}>
               <div style={{fontSize:9,color:"var(--text-tertiary)",fontWeight:600,textTransform:"uppercase",fontFamily:"var(--fm)",letterSpacing:.5}}>{m.l}</div>
               <div style={{fontSize:22,fontWeight:700,color:m.c,fontFamily:"var(--fm)",marginTop:4}}>{m.v}</div>
             </div>

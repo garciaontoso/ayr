@@ -4,9 +4,10 @@ import { _CURRENT_YEAR } from '../../constants/index.js';
 
 export default function DashboardTab() {
   const {
-    portfolioTotals, privacyMode, hide, hideN,
-    openAnalysis, POS_STATIC,
+    portfolioTotals, portfolioList, privacyMode, hide, hideN,
+    openAnalysis, POS_STATIC, getCountry, FLAGS,
     CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_CAT, CASH_DATA, MARGIN_INTEREST_DATA, FI_TRACK, FIRE_PROJ, FIRE_PARAMS, ANNUAL_PL,
+    ibData, ibDiscrepancies,
   } = useHome();
 
   const ctrlWithData = CTRL_DATA.filter(c => c.pu > 0).sort((a,b) => (a.d||"").localeCompare(b.d||""));
@@ -70,6 +71,59 @@ const card = {background:"var(--card)",border:"1px solid var(--border)",borderRa
 
 return (
 <div style={{display:"flex",flexDirection:"column",gap:16}}>
+  {/* ── IB Live Status ── */}
+  {ibData?.loaded && ibData?.summary?.nlv?.amount > 0 && (
+    <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:10}}>
+      {[
+        {l:"NLV (IB)",v:hide(`$${fDol(ibData.summary.nlv.amount)}`),c:"#64d2ff"},
+        {l:"BUYING POWER",v:hide(`$${fDol(ibData.summary.buyingPower?.amount||0)}`),c:"var(--green)"},
+        {l:"CASH",v:hide(`$${fDol(ibData.summary.totalCash?.amount||0)}`),c:(ibData.summary.totalCash?.amount||0)<0?"var(--red)":"var(--text-primary)"},
+        {l:"MARGEN",v:hide(`$${fDol(ibData.summary.initMargin?.amount||0)}`),c:((ibData.summary.initMargin?.amount||0)/(ibData.summary.nlv?.amount||1))>0.5?"var(--red)":"var(--text-secondary)"},
+        {l:"POSICIONES",v:`${(ibData.positions||[]).filter(p=>p.assetClass==="STK"&&p.shares>0).length}`,c:"var(--text-primary)",sub:`${(ibData.positions||[]).filter(p=>p.assetClass==="OPT").length} opciones`},
+        {l:"CUENTAS",v:`${(ibData.summary.accounts||[]).length||4}`,c:"var(--gold)",sub:ibData.lastSync?new Date(ibData.lastSync).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}):""},
+      ].map((k,i)=>(
+        <div key={i} style={{padding:"10px 14px",background:"rgba(100,210,255,.03)",border:"1px solid rgba(100,210,255,.12)",borderRadius:12}}>
+          <div style={{fontSize:9,color:"#64d2ff",fontFamily:"var(--fm)",fontWeight:600,letterSpacing:.5}}>{k.l}</div>
+          <div style={{fontSize:18,fontWeight:700,color:k.c,fontFamily:"var(--fm)",marginTop:2}}>{k.v}</div>
+          {k.sub && <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:1}}>{k.sub}</div>}
+        </div>
+      ))}
+    </div>
+  )}
+
+  {/* ── Conciliación IB vs App ── */}
+  {ibData?.loaded && ibDiscrepancies?.length > 0 && (
+    <div style={{padding:12,background:"rgba(255,214,10,.04)",border:"1px solid rgba(255,214,10,.15)",borderRadius:12}}>
+      <div style={{fontSize:11,fontWeight:700,color:"#ffd60a",fontFamily:"var(--fm)",marginBottom:6}}>⚠ Discrepancias IB vs FMP ({ibDiscrepancies.length})</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {ibDiscrepancies.map(d=>(
+          <div key={d.ticker} style={{padding:"4px 10px",background:"rgba(255,255,255,.03)",borderRadius:6,fontSize:10,fontFamily:"var(--fm)"}}>
+            <b style={{color:"var(--gold)"}}>{d.ticker}</b> IB:${_sf(d.ibPrice,2)} FMP:${_sf(d.fmpPrice,2)} <span style={{color:parseFloat(d.diff)>0?"var(--green)":"var(--red)"}}>{d.diff}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )}
+
+  {/* ── IB Positions not in App ── */}
+  {ibData?.loaded && (() => {
+    const appTickers = new Set(portfolioList.map(p => p.ticker));
+    const ibOnly = (ibData.positions||[]).filter(p => p.assetClass==="STK" && p.shares>0 && Math.abs(p.mktValue)>100 && !appTickers.has(p.ticker));
+    if (!ibOnly.length) return null;
+    return (
+      <div style={{padding:12,background:"rgba(191,90,242,.04)",border:"1px solid rgba(191,90,242,.12)",borderRadius:12}}>
+        <div style={{fontSize:11,fontWeight:700,color:"#bf5af2",fontFamily:"var(--fm)",marginBottom:6}}>🔍 {ibOnly.length} posiciones en IB no en la app</div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {ibOnly.map(p=>(
+            <div key={p.ticker+p.accountId} style={{padding:"4px 10px",background:"rgba(255,255,255,.03)",borderRadius:6,fontSize:10,fontFamily:"var(--fm)"}}>
+              <b style={{color:"var(--text-primary)"}}>{p.ticker}</b> {p.shares}sh ${_sf(p.mktPrice,2)} <span style={{color:"var(--text-tertiary)"}}>[{p.accountId}]</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  })()}
+
   {/* ── Summary Cards (Enhanced) ── */}
   {(() => {
     // Calculate live portfolio value from POS_STATIC for more current data
@@ -87,7 +141,7 @@ return (
       {l:"INGRESOS BOLSA",v:hide(`$${fDol(prevTotal)}`),sub:privacyMode?"•••":`${curYear} YTD: $${fDol(ytdTotal)}`,c:"var(--green)"},
       {l:"YIELD",v:`${_sf(latestDivYear?.[1]?.g>0&&bestPatUsd>0?(latestDivYear[1].g/bestPatUsd*100):0,1)}%`,sub:privacyMode?"•••":`YOC ${_sf(latestDivYear?.[1]?.g>0&&(latest.br||0)>0?(latestDivYear[1].g/(latest.br)*100):0,1)}%`,c:"var(--gold)"},
     ].map((k,i)=>(
-      <div key={i} style={{flex:"1 1 140px",padding:"14px 16px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:14}}>
+      <div key={i} style={{flex:"1 1 140px",padding:"10px 14px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:12}}>
         <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.6,fontWeight:600,marginBottom:4}}>{k.l}</div>
         <div style={{fontSize:20,fontWeight:700,color:k.c,fontFamily:"var(--fm)",lineHeight:1.2}}>{k.v}</div>
         {k.sub&&<div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:3}}>{k.sub}</div>}
