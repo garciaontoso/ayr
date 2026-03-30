@@ -79,6 +79,19 @@ async function ensureMigrations(env) {
       last_price REAL DEFAULT 0
     )`).run();
 
+    // alerts table
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS alerts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      fecha TEXT NOT NULL,
+      tipo TEXT NOT NULL,
+      titulo TEXT NOT NULL,
+      detalle TEXT DEFAULT '',
+      ticker TEXT DEFAULT '',
+      valor REAL DEFAULT 0,
+      leida INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+
     // nlv_history table (daily NLV snapshots from IB)
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS nlv_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1800,6 +1813,132 @@ export default {
         } catch (e) {
           return json({ error: "Flex import error: " + e.message }, corsHeaders, 500);
         }
+      }
+
+      // POST /api/alerts-check — run all alert checks and store results
+      if (path === "/api/alerts-check" && request.method === "POST") {
+        try {
+          const body = await request.json().catch(() => ({}));
+          const today = new Date().toISOString().slice(0, 10);
+          const alerts = [];
+
+          // 1. DIVIDEND EX-DATES — check earnings-batch for upcoming ex-dates
+          if (body.positions?.length) {
+            const tickers = body.positions.map(p => p.ticker).filter(t => !t.includes(":")).join(",");
+            if (tickers) {
+              try {
+                const resp = await fetch(`${FMP_BASE}/stock-dividend-calendar?apikey=${FMP_KEY}`);
+                const divCal = await resp.json();
+                if (Array.isArray(divCal)) {
+                  const posSet = new Set(body.positions.map(p => p.ticker));
+                  divCal.forEach(d => {
+                    if (posSet.has(d.symbol) && d.date) {
+                      const daysTo = Math.ceil((new Date(d.date) - new Date()) / 86400000);
+                      if (daysTo >= 0 && daysTo <= 3) {
+                        const pos = body.positions.find(p => p.ticker === d.symbol);
+                        const estDiv = (d.dividend || 0) * (pos?.shares || 0);
+                        alerts.push({ tipo: "DIVIDEND", titulo: `💰 ${d.symbol} ex-dividend ${daysTo === 0 ? "hoy" : `en ${daysTo}d`}`, detalle: `$${(d.dividend||0).toFixed(2)}/sh · Est. $${estDiv.toFixed(0)}`, ticker: d.symbol, valor: estDiv });
+                      }
+                    }
+                  });
+                }
+              } catch {}
+            }
+          }
+
+          // 2. EARNINGS — positions with earnings in next 7 days
+          if (body.earnings) {
+            for (const [ticker, data] of Object.entries(body.earnings)) {
+              if (data?.nextDate) {
+                const daysTo = Math.ceil((new Date(data.nextDate) - new Date()) / 86400000);
+                if (daysTo >= 0 && daysTo <= 7) {
+                  alerts.push({ tipo: "EARNINGS", titulo: `📊 ${ticker} reporta ${daysTo === 0 ? "hoy" : `en ${daysTo}d`}`, detalle: `Earnings: ${data.nextDate}`, ticker, valor: daysTo });
+                }
+              }
+            }
+          }
+
+          // 3. BIG DROPS — positions that dropped > 3% today
+          if (body.positions?.length) {
+            body.positions.forEach(p => {
+              if ((p.dayChange || 0) < -3) {
+                alerts.push({ tipo: "DROP", titulo: `📉 ${p.ticker} cayó ${p.dayChange.toFixed(1)}% hoy`, detalle: `Precio: $${(p.lastPrice||0).toFixed(2)}`, ticker: p.ticker, valor: p.dayChange });
+              }
+            });
+          }
+
+          // 4. OPTIONS EXPIRING — IB options expiring in < 7 days
+          if (body.ibOptions?.length) {
+            body.ibOptions.forEach(o => {
+              if (o.expiry) {
+                const exp = o.expiry.length === 8 ? `${o.expiry.slice(0,4)}-${o.expiry.slice(4,6)}-${o.expiry.slice(6,8)}` : o.expiry;
+                const daysTo = Math.ceil((new Date(exp) - new Date()) / 86400000);
+                if (daysTo >= 0 && daysTo <= 7) {
+                  alerts.push({ tipo: "OPTION_EXP", titulo: `⏰ ${o.undSym||o.ticker} ${o.putOrCall==="C"?"Call":"Put"} $${o.strike} expira ${daysTo===0?"hoy":`en ${daysTo}d`}`, detalle: `${o.shares>0?"Long":"Short"} · MV: $${Math.abs(o.mktValue||0).toFixed(0)}`, ticker: o.undSym||o.ticker, valor: daysTo });
+                }
+              }
+            });
+          }
+
+          // 5. MARGIN — if margin > 40% NLV
+          if (body.margin && body.nlv && body.nlv > 0) {
+            const marginPct = body.margin / body.nlv;
+            if (marginPct > 0.4) {
+              alerts.push({ tipo: "MARGIN", titulo: `⚠️ Margen al ${(marginPct*100).toFixed(0)}% del NLV`, detalle: `Margen: $${Math.round(body.margin).toLocaleString()} / NLV: $${Math.round(body.nlv).toLocaleString()}`, valor: marginPct });
+            }
+          }
+
+          // 6. MILESTONE — check if NLV crossed a round number
+          if (body.nlv > 0) {
+            const milestones = [500000, 750000, 1000000, 1250000, 1500000, 2000000];
+            const prevNlv = await env.DB.prepare("SELECT nlv FROM nlv_history ORDER BY fecha DESC LIMIT 1 OFFSET 1").first();
+            if (prevNlv?.nlv) {
+              milestones.forEach(m => {
+                if (body.nlv >= m && prevNlv.nlv < m) {
+                  alerts.push({ tipo: "MILESTONE", titulo: `🎉 Portfolio cruzó $${(m/1000).toFixed(0)}K!`, detalle: `NLV: $${Math.round(body.nlv).toLocaleString()}`, valor: body.nlv });
+                }
+              });
+            }
+          }
+
+          // Store new alerts (dedup by fecha+tipo+ticker)
+          let inserted = 0;
+          for (const a of alerts) {
+            try {
+              const exists = await env.DB.prepare(
+                "SELECT id FROM alerts WHERE fecha=? AND tipo=? AND ticker=? LIMIT 1"
+              ).bind(today, a.tipo, a.ticker || "").first();
+              if (!exists) {
+                await env.DB.prepare(
+                  "INSERT INTO alerts (fecha, tipo, titulo, detalle, ticker, valor) VALUES (?,?,?,?,?,?)"
+                ).bind(today, a.tipo, a.titulo, a.detalle || "", a.ticker || "", a.valor || 0).run();
+                inserted++;
+              }
+            } catch {}
+          }
+
+          return json({ date: today, alertsFound: alerts.length, inserted, alerts }, corsHeaders);
+        } catch (e) {
+          return json({ error: "Alerts check error: " + e.message }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/alerts — get recent alerts
+      if (path === "/api/alerts" && request.method === "GET") {
+        try {
+          const limit = parseInt(url.searchParams.get("limit") || "50");
+          const { results } = await env.DB.prepare("SELECT * FROM alerts ORDER BY created_at DESC LIMIT ?").bind(limit).all();
+          const unread = await env.DB.prepare("SELECT COUNT(*) as c FROM alerts WHERE leida=0").first();
+          return json({ alerts: results || [], unread: unread?.c || 0 }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // POST /api/alerts/read — mark alerts as read
+      if (path === "/api/alerts/read" && request.method === "POST") {
+        try {
+          await env.DB.prepare("UPDATE alerts SET leida=1 WHERE leida=0").run();
+          return json({ ok: true }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
       }
 
       // GET /api/tax-report?year=2025 — tax summary from cost_basis + dividendos

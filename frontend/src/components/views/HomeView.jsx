@@ -33,6 +33,7 @@ export default function HomeView() {
     uiZoom, changeZoom,
     HOME_TABS,
     ibData, ibDiscrepancies, loadIBData,
+    alerts, alertsUnread, showAlertPanel, setShowAlertPanel, markAlertsRead,
   } = useHome();
 
   // IB badge logic
@@ -98,6 +99,12 @@ export default function HomeView() {
           {ibLoading ? "⏳" : ibLoaded ? `📡${ibAlerts.length?" ⚠":""}` : "IB"}
         </button>
 
+        {/* Alerts bell */}
+        <button onClick={()=>{setShowAlertPanel(!showAlertPanel);if(alertsUnread>0)markAlertsRead();}}
+          style={{padding:"4px 7px",borderRadius:6,border:`1px solid ${alertsUnread>0?"rgba(255,214,10,.5)":"var(--border)"}`,background:alertsUnread>0?"rgba(255,214,10,.08)":"transparent",color:alertsUnread>0?"#ffd60a":"var(--text-tertiary)",fontSize:10,cursor:"pointer",transition:"all .15s",position:"relative"}}>
+          🔔{alertsUnread>0 && <span style={{position:"absolute",top:-4,right:-4,background:"var(--red)",color:"#fff",fontSize:7,fontWeight:700,borderRadius:6,padding:"1px 4px",minWidth:12,textAlign:"center"}}>{alertsUnread}</span>}
+        </button>
+
         {/* Privacy */}
         <button onClick={()=>setPrivacyMode(!privacyMode)}
           style={{padding:"4px 7px",borderRadius:6,border:`1px solid ${privacyMode?"var(--gold)":"var(--border)"}`,background:privacyMode?"var(--gold-dim)":"transparent",color:privacyMode?"var(--gold)":"var(--text-tertiary)",fontSize:10,cursor:"pointer",transition:"all .15s"}}>
@@ -117,6 +124,36 @@ export default function HomeView() {
     </div>
 
     {/* Tab Content */}
+    {/* Alert Panel */}
+    {showAlertPanel && (
+      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:14,marginBottom:8,maxHeight:300,overflowY:"auto"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div style={{fontSize:12,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>🔔 Alertas</div>
+          <button onClick={()=>setShowAlertPanel(false)} style={{border:"none",background:"transparent",color:"var(--text-tertiary)",cursor:"pointer",fontSize:12}}>✕</button>
+        </div>
+        {(!alerts || alerts.length === 0) ? (
+          <div style={{textAlign:"center",padding:20,color:"var(--text-tertiary)",fontSize:11,fontFamily:"var(--fm)"}}>Sin alertas recientes</div>
+        ) : (
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            {alerts.slice(0, 20).map((a, i) => {
+              const icons = { DIVIDEND: "💰", EARNINGS: "📊", DROP: "📉", OPTION_EXP: "⏰", MARGIN: "⚠️", MILESTONE: "🎉" };
+              const colors = { DIVIDEND: "var(--gold)", EARNINGS: "#64d2ff", DROP: "var(--red)", OPTION_EXP: "#bf5af2", MARGIN: "#ffd60a", MILESTONE: "var(--green)" };
+              return (
+                <div key={a.id || i} style={{padding:"6px 10px",borderRadius:8,background:a.leida?"transparent":"rgba(255,214,10,.03)",border:`1px solid ${a.leida?"rgba(255,255,255,.03)":"rgba(255,214,10,.1)"}`,display:"flex",gap:8,alignItems:"center"}}>
+                  <span style={{fontSize:14}}>{icons[a.tipo] || "🔔"}</span>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:11,fontWeight:600,color:colors[a.tipo] || "var(--text-primary)",fontFamily:"var(--fm)"}}>{a.titulo}</div>
+                    {a.detalle && <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{a.detalle}</div>}
+                  </div>
+                  <span style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",flexShrink:0}}>{a.fecha}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    )}
+
     {homeTab==="portfolio" && <PortfolioTab />}
     <Suspense fallback={<Loading />}>
       {homeTab==="screener" && <ScreenerTab />}

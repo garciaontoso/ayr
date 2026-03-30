@@ -281,6 +281,46 @@ export default function ARApp() {
     loadIBData();
   }, [dataLoaded, loadIBData]);
 
+  // Load alerts on startup
+  useEffect(() => {
+    if (!dataLoaded) return;
+    fetch(`${API_URL}/api/alerts`).then(r => r.json()).then(d => {
+      setAlerts(d.alerts || []);
+      setAlertsUnread(d.unread || 0);
+    }).catch(() => {});
+  }, [dataLoaded]);
+
+  // Auto-run alert checks after IB data + prices are loaded
+  useEffect(() => {
+    if (!ibData.loaded || !portfolioList.length) return;
+    const alertKey = 'alerts-check-' + new Date().toISOString().slice(0, 10);
+    if (sessionStorage.getItem(alertKey)) return;
+    sessionStorage.setItem(alertKey, '1');
+
+    const positions = (portfolioTotals.positions || []).map(p => ({
+      ticker: p.ticker, shares: p.shares, lastPrice: p.lastPrice, dayChange: p.dayChange || 0,
+    }));
+    const ibOptions = (ibData.positions || []).filter(p => p.assetClass === "OPT");
+
+    fetch(`${API_URL}/api/alerts-check`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        positions, ibOptions,
+        nlv: ibData.summary?.nlv?.amount || 0,
+        margin: ibData.summary?.initMargin?.amount || 0,
+      }),
+    }).then(r => r.json()).then(d => {
+      if (d.alerts?.length) {
+        setAlerts(prev => [...d.alerts.map(a => ({ ...a, fecha: new Date().toISOString().slice(0,10), leida: 0 })), ...prev]);
+        setAlertsUnread(prev => prev + (d.inserted || 0));
+        // Browser notification for important alerts
+        if ("Notification" in window && Notification.permission === "granted" && d.inserted > 0) {
+          new Notification(`🔔 A&R: ${d.inserted} nuevas alertas`, { body: d.alerts.slice(0, 3).map(a => a.titulo).join("\n") });
+        }
+      }
+    }).catch(() => {});
+  }, [ibData.loaded, portfolioList.length]);
+
   const [uiZoom, setUiZoom] = useState(() => {
     const saved = localStorage.getItem("ayr_zoom");
     return saved ? parseInt(saved) : 100;
@@ -293,6 +333,9 @@ export default function ARApp() {
   const [viewMode, setViewMode] = useState("home");
   const [globalSearch, setGlobalSearch] = useState(false);
   const [globalQuery, setGlobalQuery] = useState("");
+  const [alerts, setAlerts] = useState([]);
+  const [alertsUnread, setAlertsUnread] = useState(0);
+  const [showAlertPanel, setShowAlertPanel] = useState(false);
   const [homeTab, setHomeTab] = useState("portfolio");
   const [searchTicker, setSearchTicker] = useState("");
   const [cbTicker, setCbTicker] = useState(null); // cost basis active ticker
@@ -1779,6 +1822,8 @@ function buildPositionsFromCB() {
     GASTOS_CAT, CASH_DATA, MARGIN_INTEREST_DATA,
     // IB Integration
     ibData, ibDiscrepancies, loadIBData,
+    alerts, alertsUnread, showAlertPanel, setShowAlertPanel,
+    markAlertsRead: () => { fetch(`${API_URL}/api/alerts/read`, { method: "POST" }).catch(() => {}); setAlertsUnread(0); setAlerts(a => a.map(x => ({ ...x, leida: 1 }))); },
   }), [homeTab, portfolioList, watchlistList, historialList, portfolioTotals, portfolioComputed,
     positions, portfolio, searchTicker, countryFilter, portSort, showCapTable,
     pricesLoading, pricesLastUpdate, displayCcy, fxRates, fxLoading, fxLastUpdate,
@@ -1792,7 +1837,8 @@ function buildPositionsFromCB() {
     researchOpenList, researchAdvanced, researchHide, researchCapFilter,
     reportData, reportLoading, reportSymbol,
     fmpLoading, fmpError, hide, hideN, uiZoom, apiData,
-    ibData, ibDiscrepancies, loadIBData]);
+    ibData, ibDiscrepancies, loadIBData,
+    alerts, alertsUnread, showAlertPanel]);
 
   // renderCostBasis and renderHome have been extracted to:
   // - components/views/CostBasisView.jsx (via CostBasisContext)
