@@ -672,6 +672,165 @@ export default {
         }
       }
 
+      // GET /api/options-chain?symbol=AAPL — Yahoo Finance options chain (free, no API key)
+      // Optional: &dte=30 (target days to expiration, picks closest expiration)
+      if (path === "/api/options-chain" && request.method === "GET") {
+        const symbol = (url.searchParams.get("symbol") || "").toUpperCase().trim();
+        const targetDTE = parseInt(url.searchParams.get("dte") || "30");
+        if (!symbol) return json({ error: "Missing ?symbol=" }, corsHeaders, 400);
+
+        try {
+          // Step 1: Get available expirations
+          const baseUrl = `https://query2.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol)}`;
+          const headers = { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)" };
+          const resp1 = await fetch(baseUrl, { headers });
+          if (!resp1.ok) return json({ error: `Yahoo returned ${resp1.status}` }, corsHeaders, 502);
+          const data1 = await resp1.json();
+          const result = data1?.optionChain?.result?.[0];
+          if (!result) return json({ error: "No options data for " + symbol }, corsHeaders, 404);
+
+          const expirations = result.expirationDates || [];
+          const quote = result.quote || {};
+          const currentPrice = quote.regularMarketPrice || 0;
+
+          // Step 2: Pick closest expiration to target DTE
+          const now = Math.floor(Date.now() / 1000);
+          const targetTs = now + targetDTE * 86400;
+          let bestExp = expirations[0];
+          let bestDiff = Infinity;
+          for (const exp of expirations) {
+            const diff = Math.abs(exp - targetTs);
+            if (diff < bestDiff) { bestDiff = diff; bestExp = exp; }
+          }
+
+          // Step 3: Fetch chain for that expiration
+          let options = result.options?.[0] || {};
+          if (bestExp && bestExp !== expirations[0]) {
+            const resp2 = await fetch(`${baseUrl}?date=${bestExp}`, { headers });
+            if (resp2.ok) {
+              const data2 = await resp2.json();
+              options = data2?.optionChain?.result?.[0]?.options?.[0] || options;
+            }
+          }
+
+          const calls = (options.calls || []).map(c => ({
+            strike: c.strike,
+            bid: c.bid || 0,
+            ask: c.ask || 0,
+            last: c.lastPrice || 0,
+            volume: c.volume || 0,
+            oi: c.openInterest || 0,
+            iv: c.impliedVolatility || 0,
+            itm: c.inTheMoney || false,
+            expiration: c.expiration,
+            contractSymbol: c.contractSymbol,
+          }));
+
+          const expDate = new Date(bestExp * 1000).toISOString().split("T")[0];
+          const dte = Math.round((bestExp - now) / 86400);
+
+          return json({
+            symbol,
+            price: currentPrice,
+            expiration: expDate,
+            dte,
+            expirations: expirations.map(e => ({ ts: e, date: new Date(e*1000).toISOString().split("T")[0], dte: Math.round((e - now) / 86400) })),
+            calls,
+            callsCount: calls.length,
+          }, corsHeaders);
+        } catch(e) {
+          return json({ error: "Options fetch failed: " + e.message }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/options-batch?symbols=AAPL,MSFT&dte=30 — batch options for multiple symbols
+      if (path === "/api/options-batch" && request.method === "GET") {
+        const symbols = (url.searchParams.get("symbols") || "").split(",").filter(Boolean).map(s=>s.trim().toUpperCase()).slice(0, 20);
+        const targetDTE = parseInt(url.searchParams.get("dte") || "30");
+        const otmPct = parseFloat(url.searchParams.get("otm") || "5") / 100;
+        if (!symbols.length) return json({ error: "Missing ?symbols=" }, corsHeaders, 400);
+
+        const results = {};
+        const headers = { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)" };
+
+        // Process in batches of 5 to avoid rate limits
+        for (let i = 0; i < symbols.length; i += 5) {
+          const batch = symbols.slice(i, i + 5);
+          const fetches = batch.map(async sym => {
+            try {
+              const baseUrl = `https://query2.finance.yahoo.com/v7/finance/options/${encodeURIComponent(sym)}`;
+              const resp1 = await fetch(baseUrl, { headers });
+              if (!resp1.ok) { results[sym] = { error: resp1.status }; return; }
+              const data1 = await resp1.json();
+              const result = data1?.optionChain?.result?.[0];
+              if (!result) { results[sym] = { error: "no data" }; return; }
+
+              const expirations = result.expirationDates || [];
+              const price = result.quote?.regularMarketPrice || 0;
+              const now = Math.floor(Date.now() / 1000);
+              const targetTs = now + targetDTE * 86400;
+
+              // Pick closest expiration
+              let bestExp = expirations[0];
+              let bestDiff = Infinity;
+              for (const exp of expirations) {
+                const diff = Math.abs(exp - targetTs);
+                if (diff < bestDiff) { bestDiff = diff; bestExp = exp; }
+              }
+
+              // Fetch chain for that expiration
+              let options = result.options?.[0] || {};
+              if (bestExp && bestExp !== expirations[0]) {
+                const resp2 = await fetch(`${baseUrl}?date=${bestExp}`, { headers });
+                if (resp2.ok) {
+                  const data2 = await resp2.json();
+                  options = data2?.optionChain?.result?.[0]?.options?.[0] || options;
+                }
+              }
+
+              const calls = (options.calls || []);
+              const targetStrike = price * (1 + otmPct);
+              // Find the call closest to target OTM%
+              let bestCall = null;
+              let bestSD = Infinity;
+              for (const c of calls) {
+                if (c.strike < price) continue; // skip ITM
+                const sd = Math.abs(c.strike - targetStrike);
+                if (sd < bestSD) { bestSD = sd; bestCall = c; }
+              }
+
+              const dte = Math.round((bestExp - now) / 86400);
+              if (bestCall) {
+                results[sym] = {
+                  price,
+                  strike: bestCall.strike,
+                  bid: bestCall.bid || 0,
+                  ask: bestCall.ask || 0,
+                  last: bestCall.lastPrice || 0,
+                  iv: bestCall.impliedVolatility || 0,
+                  volume: bestCall.volume || 0,
+                  oi: bestCall.openInterest || 0,
+                  dte,
+                  expiration: new Date(bestExp * 1000).toISOString().split("T")[0],
+                  distPct: ((bestCall.strike - price) / price * 100).toFixed(1),
+                  premiumPct: (((bestCall.bid || 0) / price) * 100).toFixed(2),
+                  annualizedPct: (((bestCall.bid || 0) / price) * (365 / Math.max(dte, 1)) * 100).toFixed(1),
+                };
+              } else {
+                results[sym] = { price, error: "no OTM calls" };
+              }
+            } catch(e) {
+              results[sym] = { error: e.message };
+            }
+          });
+          await Promise.all(fetches);
+          // Small delay between batches to be polite to Yahoo
+          if (i + 5 < symbols.length) await new Promise(r => setTimeout(r, 500));
+        }
+
+        return json(results, corsHeaders);
+      }
+
       // GET /api/earnings-batch?symbols=AAPL,MSFT,GOOG — batch earnings dates
       if (path === "/api/earnings-batch" && request.method === "GET") {
         const symbols = (url.searchParams.get("symbols") || "").split(",").filter(Boolean).slice(0, 50);

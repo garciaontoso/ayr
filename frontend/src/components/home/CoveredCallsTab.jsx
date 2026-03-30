@@ -3,7 +3,7 @@ import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { API_URL } from '../../constants/index.js';
 
-// ── Black-Scholes Normal CDF approximation ──
+// ── Black-Scholes fallback ──
 const normCDF = (x) => {
   const a1=0.254829592, a2=-0.284496736, a3=1.421413741, a4=-1.453152027, a5=1.061405429, p=0.3275911;
   const sign = x < 0 ? -1 : 1;
@@ -12,25 +12,19 @@ const normCDF = (x) => {
   const y = 1 - ((((a5*t+a4)*t+a3)*t+a2)*t+a1)*t*Math.exp(-x*x);
   return 0.5 * (1 + sign * y);
 };
-
-// Black-Scholes Call Price
 const bsCall = (S, K, T, r, sigma) => {
   if (T <= 0 || sigma <= 0 || S <= 0 || K <= 0) return 0;
   const d1 = (Math.log(S / K) + (r + sigma * sigma / 2) * T) / (sigma * Math.sqrt(T));
   const d2 = d1 - sigma * Math.sqrt(T);
   return S * normCDF(d1) - K * Math.exp(-r * T) * normCDF(d2);
 };
-
-// Probability of expiring OTM (for calls: prob price < strike)
 const probOTM = (S, K, T, r, sigma) => {
   if (T <= 0 || sigma <= 0) return 0;
   const d2 = (Math.log(S / K) + (r - sigma * sigma / 2) * T) / (sigma * Math.sqrt(T));
-  return normCDF(-d2); // prob S < K at expiry
+  return normCDF(-d2);
 };
-
-// Calculate historical volatility from daily prices
-const calcIV = (prices) => {
-  if (!prices || prices.length < 10) return 0.30; // default 30%
+const calcHV = (prices) => {
+  if (!prices || prices.length < 10) return 0.30;
   const returns = [];
   for (let i = 1; i < prices.length; i++) {
     if (prices[i-1] > 0) returns.push(Math.log(prices[i] / prices[i-1]));
@@ -38,7 +32,7 @@ const calcIV = (prices) => {
   if (!returns.length) return 0.30;
   const mean = returns.reduce((s,r) => s+r, 0) / returns.length;
   const variance = returns.reduce((s,r) => s + (r-mean)*(r-mean), 0) / returns.length;
-  return Math.sqrt(variance) * Math.sqrt(252); // annualized
+  return Math.sqrt(variance) * Math.sqrt(252);
 };
 
 const SORT_OPTIONS = [
@@ -47,18 +41,20 @@ const SORT_OPTIONS = [
   {id:"signal",lbl:"Señal",fn:(a,b)=>(a.signalOrder||9)-(b.signalOrder||9)},
   {id:"ticker",lbl:"Ticker",fn:(a,b)=>a.ticker.localeCompare(b.ticker)},
   {id:"iv",lbl:"IV",fn:(a,b)=>(b.iv||0)-(a.iv||0)},
+  {id:"oi",lbl:"Liquidez",fn:(a,b)=>(b.oi||0)-(a.oi||0)},
 ];
 
 const DTE_OPTIONS = [15, 30, 45, 60];
-const OTM_PCT = 0.05; // 5% out of the money default
-const RISK_FREE = 0.045; // ~4.5% risk free rate
+const RISK_FREE = 0.045;
 
 export default function CoveredCallsTab() {
   const { portfolioTotals, positions, openAnalysis, hide, privacyMode } = useHome();
 
   const [loading, setLoading] = useState(true);
+  const [loadingMsg, setLoadingMsg] = useState("");
   const [earningsData, setEarningsData] = useState({});
   const [priceData, setPriceData] = useState({});
+  const [optionsData, setOptionsData] = useState({});
   const [dte, setDte] = useState(30);
   const [otmPct, setOtmPct] = useState(5);
   const [sortBy, setSortBy] = useState("yield");
@@ -66,26 +62,62 @@ export default function CoveredCallsTab() {
   const [calcTicker, setCalcTicker] = useState(null);
   const [calcStrike, setCalcStrike] = useState(0);
   const [calcDte, setCalcDte] = useState(30);
+  const [dataSource, setDataSource] = useState("loading"); // "real" | "bs" | "mixed"
 
-  // Get eligible positions (≥100 shares in portfolio)
+  // Get eligible positions (≥100 shares, US-traded only for options)
   const eligible = useMemo(() => {
     return (portfolioTotals.positions || []).filter(p =>
       (p.shares || 0) >= 100 && p.lastPrice > 0
     );
   }, [portfolioTotals.positions]);
 
-  // Fetch earnings dates + price history for eligible tickers
+  // US tickers only (options only trade on US exchanges)
+  const usTickers = useMemo(() => {
+    return eligible.filter(p => !p.ticker.includes(":")).map(p => p.ticker);
+  }, [eligible]);
+
+  // Fetch all data
   useEffect(() => {
     if (!eligible.length) { setLoading(false); return; }
     const tickers = eligible.map(p => p.ticker);
+    let completed = 0;
+    const total = 3;
+    const checkDone = () => { completed++; if (completed >= total) setLoading(false); };
 
-    // Batch earnings
+    // 1. Earnings dates
+    setLoadingMsg("Cargando earnings...");
     fetch(`${API_URL}/api/earnings-batch?symbols=${tickers.join(",")}`)
       .then(r => r.json())
-      .then(data => setEarningsData(data || {}))
-      .catch(() => {});
+      .then(data => { setEarningsData(data || {}); checkDone(); })
+      .catch(() => checkDone());
 
-    // Fetch 60-day price history for IV calculation (batch in groups of 5)
+    // 2. Real options data from Yahoo Finance (US tickers only)
+    setLoadingMsg("Cargando opciones reales de Yahoo Finance...");
+    if (usTickers.length > 0) {
+      const fetchOptions = async () => {
+        const results = {};
+        // Batch in groups of 20
+        for (let i = 0; i < usTickers.length; i += 20) {
+          const batch = usTickers.slice(i, i + 20);
+          try {
+            const r = await fetch(`${API_URL}/api/options-batch?symbols=${batch.join(",")}&dte=${dte}&otm=${otmPct}`);
+            const data = await r.json();
+            Object.assign(results, data);
+          } catch(e) { console.warn("Options batch error:", e); }
+        }
+        setOptionsData(results);
+        const realCount = Object.values(results).filter(v => v.bid !== undefined && !v.error).length;
+        setDataSource(realCount > 0 ? (realCount === usTickers.length ? "real" : "mixed") : "bs");
+        checkDone();
+      };
+      fetchOptions();
+    } else {
+      setDataSource("bs");
+      checkDone();
+    }
+
+    // 3. Price history for HV (fallback IV calculation)
+    setLoadingMsg("Calculando volatilidad histórica...");
     const fetchPrices = async () => {
       const from = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
       const results = {};
@@ -95,16 +127,15 @@ export default function CoveredCallsTab() {
           try {
             const r = await fetch(`${API_URL}/api/price-history?symbol=${t}&from=${from}`);
             const d = await r.json();
-            const prices = (d.historical || d || []).map(p => p.close).reverse();
-            results[t] = prices;
+            results[t] = (d.historical || d || []).map(p => p.close).reverse();
           } catch { results[t] = []; }
         }));
       }
       setPriceData(results);
-      setLoading(false);
+      checkDone();
     };
     fetchPrices();
-  }, [eligible]);
+  }, [eligible, dte, otmPct]);
 
   // Calculate CC data for each position
   const ccData = useMemo(() => {
@@ -116,23 +147,52 @@ export default function CoveredCallsTab() {
       const S = p.lastPrice || 0;
       const shares = p.shares || 0;
       const contracts = Math.floor(shares / 100);
-      const K = Math.round(S * (1 + otm)); // strike rounded to nearest integer
-      const iv = calcIV(priceData[p.ticker]);
-      const premium = bsCall(S, K, T, RISK_FREE, iv);
-      const totalPremium = premium * 100 * contracts;
-      const yieldCC = S > 0 ? (premium / S) * (365 / dte) : 0; // annualized
-      const yieldCCMonthly = S > 0 ? premium / S : 0;
-      const pOTM = probOTM(S, K, T, RISK_FREE, iv);
-      const distancePct = S > 0 ? (K - S) / S : 0; // % distance to strike
-      const pITM = 1 - pOTM; // probability of assignment
+      const opt = optionsData[p.ticker];
+      const hasRealData = opt && opt.bid !== undefined && !opt.error;
 
-      // Earnings/dividend timing
+      let K, iv, premium, bid, ask, oi, volume, expiration, realDTE, source;
+
+      if (hasRealData) {
+        // ✅ Real market data from Yahoo Finance
+        K = opt.strike;
+        iv = opt.iv || 0;
+        bid = opt.bid || 0;
+        ask = opt.ask || 0;
+        premium = bid; // Use bid (what you'd actually get when selling)
+        oi = opt.oi || 0;
+        volume = opt.volume || 0;
+        expiration = opt.expiration;
+        realDTE = opt.dte || dte;
+        source = "REAL";
+      } else {
+        // 🔄 Black-Scholes fallback
+        K = Math.round(S * (1 + otm));
+        iv = calcHV(priceData[p.ticker]);
+        premium = bsCall(S, K, T, RISK_FREE, iv);
+        bid = premium * 0.95; // estimate bid ~5% below theoretical
+        ask = premium * 1.05;
+        oi = 0;
+        volume = 0;
+        expiration = null;
+        realDTE = dte;
+        source = "B-S";
+      }
+
+      const totalPremium = premium * 100 * contracts;
+      const yieldCC = S > 0 ? (premium / S) * (365 / Math.max(realDTE, 1)) : 0;
+      const pOTM = probOTM(S, K, T, RISK_FREE, iv || calcHV(priceData[p.ticker]) || 0.30);
+      const pITM = 1 - pOTM;
+      const distancePct = S > 0 ? (K - S) / S : 0;
+
+      // Liquidity score
+      const liquidityOK = oi > 50 || source === "B-S";
+      const spreadPct = ask > 0 ? (ask - bid) / ask : 1;
+      const liquidityGood = spreadPct < 0.20 && oi > 100;
+
+      // Earnings timing
       const earn = earningsData[p.ticker];
       const nextEarnings = earn?.nextDate ? new Date(earn.nextDate) : null;
       const daysToEarnings = nextEarnings ? Math.ceil((nextEarnings - now) / 86400000) : 999;
-
-      // Dividend ex-date approximation (if DPS > 0, assume quarterly)
-      const hasDividend = (p.dpsUSD || 0) > 0;
 
       // Signal logic
       let signal, signalColor, signalOrder, timing;
@@ -140,29 +200,30 @@ export default function CoveredCallsTab() {
         signal = "⚫"; signalColor = "#48484a"; signalOrder = 4; timing = "<100 acciones";
       } else if (daysToEarnings < 14) {
         signal = "🔴"; signalColor = "#ff453a"; signalOrder = 3; timing = `Earnings ${earn?.nextDate || "pronto"} — EVITAR`;
-      } else if (iv < 0.15) {
-        signal = "🔴"; signalColor = "#ff453a"; signalOrder = 3; timing = `IV muy baja (${_sf(iv*100,0)}%)`;
-      } else if (daysToEarnings < 45 || iv < 0.20) {
+      } else if (iv < 0.15 || (!liquidityOK && source === "REAL")) {
+        signal = "🔴"; signalColor = "#ff453a"; signalOrder = 3;
+        timing = !liquidityOK ? `Sin liquidez (OI: ${oi})` : `IV muy baja (${_sf(iv*100,0)}%)`;
+      } else if (daysToEarnings < 45 || iv < 0.20 || (spreadPct > 0.25 && source === "REAL")) {
         signal = "🟡"; signalColor = "#ffd60a"; signalOrder = 2;
-        timing = daysToEarnings < 45 ? `Earnings en ${daysToEarnings}d` : `IV baja (${_sf(iv*100,0)}%)`;
+        timing = daysToEarnings < 45 ? `Earnings en ${daysToEarnings}d` : spreadPct > 0.25 ? `Spread amplio (${_sf(spreadPct*100,0)}%)` : `IV baja (${_sf(iv*100,0)}%)`;
       } else {
         signal = "🟢"; signalColor = "#30d158"; signalOrder = 1;
         timing = nextEarnings ? `OK — earnings ${_sf(daysToEarnings,0)}d` : "OK — sin eventos";
       }
 
-      // Assignment risk label
       const assignRisk = pITM > 0.4 ? "ALTO" : pITM > 0.2 ? "MEDIO" : "BAJO";
       const assignColor = pITM > 0.4 ? "#ff453a" : pITM > 0.2 ? "#ffd60a" : "#30d158";
 
       return {
-        ...p, contracts, K, iv, premium, totalPremium, yieldCC, yieldCCMonthly, pOTM, pITM,
-        distancePct, assignRisk, assignColor,
-        signal, signalColor, signalOrder, timing, daysToEarnings, hasDividend,
+        ...p, contracts, K, iv, premium, bid, ask, oi, volume, totalPremium, yieldCC,
+        pOTM, pITM, distancePct, assignRisk, assignColor, source,
+        signal, signalColor, signalOrder, timing, daysToEarnings,
+        expiration, realDTE, liquidityGood, spreadPct,
         breakeven: S + premium,
         maxProfit: (K - S + premium) * 100 * contracts,
       };
     });
-  }, [eligible, priceData, earningsData, dte, otmPct]);
+  }, [eligible, priceData, optionsData, earningsData, dte, otmPct]);
 
   // Filtered and sorted
   const filtered = useMemo(() => {
@@ -178,8 +239,9 @@ export default function CoveredCallsTab() {
   const totalPremiumAnnual = totalPremiumAll * (365 / dte);
   const eligibleCount = ccData.filter(x => x.contracts > 0).length;
   const greenCount = ccData.filter(x => x.signalOrder === 1).length;
+  const realCount = ccData.filter(x => x.source === "REAL").length;
 
-  // Calculator selected position
+  // Calculator
   const calcPos = calcTicker ? ccData.find(x => x.ticker === calcTicker) : null;
   const calcPremium = calcPos ? bsCall(calcPos.lastPrice, calcStrike || calcPos.K, calcDte / 365, RISK_FREE, calcPos.iv) : 0;
   const calcPOTM = calcPos ? probOTM(calcPos.lastPrice, calcStrike || calcPos.K, calcDte / 365, RISK_FREE, calcPos.iv) : 0;
@@ -187,10 +249,26 @@ export default function CoveredCallsTab() {
   const hd = {fontSize:13,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:10,paddingBottom:6,borderBottom:"2px solid rgba(200,164,78,.2)"};
   const card = {background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16,marginBottom:14};
 
-  if (loading) return <div style={{padding:40,textAlign:"center",color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Cargando datos de opciones para {eligible.length} posiciones...</div>;
+  if (loading) return <div style={{padding:40,textAlign:"center",color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>
+    <div style={{fontSize:14,marginBottom:8}}>Cargando datos de opciones para {eligible.length} posiciones...</div>
+    <div style={{fontSize:11,color:"var(--gold)"}}>{loadingMsg}</div>
+  </div>;
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      {/* ── DATA SOURCE BADGE ── */}
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        <span style={{fontSize:9,padding:"3px 8px",borderRadius:6,fontFamily:"var(--fm)",fontWeight:600,
+          background: dataSource === "real" ? "rgba(48,209,88,.1)" : dataSource === "mixed" ? "rgba(255,214,10,.1)" : "rgba(255,255,255,.05)",
+          color: dataSource === "real" ? "#30d158" : dataSource === "mixed" ? "#ffd60a" : "var(--text-tertiary)",
+          border: `1px solid ${dataSource === "real" ? "rgba(48,209,88,.3)" : dataSource === "mixed" ? "rgba(255,214,10,.3)" : "var(--border)"}`}}>
+          {dataSource === "real" ? "📡 Datos reales Yahoo Finance" : dataSource === "mixed" ? `📡 ${realCount} reales · ${ccData.length - realCount} B-S estimados` : "📐 Black-Scholes estimado"}
+        </span>
+        <span style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>
+          {dataSource !== "bs" && "Bid = precio real al vender · "}IV = implied volatility del mercado
+        </span>
+      </div>
+
       {/* ── HEADER: Income Summary ── */}
       <div className="ar-cc-summary" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
         {[
@@ -232,10 +310,10 @@ export default function CoveredCallsTab() {
 
       {/* ── MAIN TABLE ── */}
       <div style={{overflowX:"auto"}}>
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:1050}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:1100}}>
           <thead>
             <tr style={{borderBottom:"2px solid var(--border)"}}>
-              {["","Ticker","Precio","Acciones","Ctrts","Strike","Dist.","IV","Prima","Total","Yield CC","P(OTM)","Riesgo","Señal","Timing"].map(h=>(
+              {["","Ticker","Precio","Ctrts","Strike","Dist.","Bid","Ask","IV","OI","Total","Yield CC","Señal","Timing",""].map(h=>(
                 <th key={h} style={{padding:"6px 8px",textAlign:h==="Ticker"?"left":"right",color:"var(--text-tertiary)",fontSize:9,fontWeight:700,fontFamily:"var(--fm)",letterSpacing:.3,whiteSpace:"nowrap"}}>{h}</th>
               ))}
             </tr>
@@ -245,30 +323,39 @@ export default function CoveredCallsTab() {
               <tr key={p.ticker} onClick={()=>openAnalysis(p.ticker)} style={{borderBottom:"1px solid rgba(255,255,255,.04)",cursor:"pointer",transition:"background .15s"}}
                 onMouseEnter={e=>e.currentTarget.style.background="var(--card-hover)"}
                 onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-                {/* Logo */}
                 <td style={{padding:"6px 4px",width:28}}>
                   <img src={`https://images.financialmodelingprep.com/symbol/${p.ticker}.png`} alt="" style={{width:24,height:24,borderRadius:5,background:"#161b22"}} onError={e=>{e.target.style.display="none";}}/>
                 </td>
-                {/* Ticker */}
                 <td style={{padding:"6px 8px",fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",textAlign:"left"}}>
                   {p.ticker}
                   <div style={{fontSize:8,color:"var(--text-tertiary)",fontWeight:400}}>{(p.name||"").slice(0,20)}</div>
                 </td>
                 <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-primary)"}}>${_sf(p.lastPrice,2)}</td>
-                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)"}}>{privacyMode?"•••":p.shares}</td>
                 <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:p.contracts>0?"var(--text-primary)":"var(--text-tertiary)",fontWeight:p.contracts>0?700:400}}>{p.contracts}</td>
                 <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)"}}>${_sf(p.K,0)}</td>
                 <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:p.distancePct>0.07?"var(--green)":p.distancePct>0.03?"var(--text-primary)":"var(--red)"}}>{_sf(p.distancePct*100,1)}%</td>
+                {/* Bid/Ask with color coding */}
+                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--green)",fontWeight:600}}>${_sf(p.bid,2)}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)"}}>${_sf(p.ask,2)}</td>
                 <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:p.iv>0.35?"var(--green)":p.iv>0.20?"var(--text-primary)":"var(--text-tertiary)"}}>{_sf(p.iv*100,0)}%</td>
-                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-primary)"}}>${_sf(p.premium,2)}</td>
+                {/* Open Interest — liquidity indicator */}
+                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",fontSize:9,
+                  color:p.oi>500?"var(--green)":p.oi>100?"var(--text-secondary)":p.oi>0?"var(--text-tertiary)":"var(--text-tertiary)"}}>
+                  {p.source === "REAL" ? (p.oi > 1000 ? _sf(p.oi/1000,1)+"K" : p.oi) : "—"}
+                </td>
                 <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",fontWeight:600}}>{privacyMode?"•••":"$"+_sf(p.totalPremium,0)}</td>
                 <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:p.yieldCC>0.12?"var(--green)":p.yieldCC>0.06?"var(--gold)":"var(--text-tertiary)",fontWeight:700}}>{_sf(p.yieldCC*100,1)}%</td>
-                <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:p.pOTM>0.7?"var(--green)":"var(--text-secondary)"}}>{_sf(p.pOTM*100,0)}%</td>
-                <td style={{padding:"6px 8px",textAlign:"center",fontFamily:"var(--fm)",fontSize:9,fontWeight:700,color:p.assignColor}}>
-                  <div style={{padding:"2px 6px",borderRadius:4,background:`${p.assignColor}15`,display:"inline-block"}}>{p.assignRisk}</div>
-                </td>
                 <td style={{padding:"6px 8px",textAlign:"center",fontSize:14}}>{p.signal}</td>
                 <td style={{padding:"6px 8px",textAlign:"right",fontSize:9,color:p.signalColor,fontFamily:"var(--fm)",maxWidth:160,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.timing}</td>
+                {/* Source badge */}
+                <td style={{padding:"6px 4px",textAlign:"center"}}>
+                  <span style={{fontSize:7,padding:"1px 4px",borderRadius:3,fontFamily:"var(--fm)",fontWeight:600,
+                    background:p.source==="REAL"?"rgba(48,209,88,.1)":"rgba(255,255,255,.05)",
+                    color:p.source==="REAL"?"#30d158":"var(--text-tertiary)",
+                    border:`1px solid ${p.source==="REAL"?"rgba(48,209,88,.2)":"rgba(255,255,255,.06)"}`}}>
+                    {p.source}
+                  </span>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -284,7 +371,7 @@ export default function CoveredCallsTab() {
             <select value={calcTicker||""} onChange={e=>{setCalcTicker(e.target.value); const pos = ccData.find(x=>x.ticker===e.target.value); if(pos) setCalcStrike(pos.K);}}
               style={{padding:"6px 10px",borderRadius:8,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text-primary)",fontSize:12,fontFamily:"var(--fm)",outline:"none",minWidth:120}}>
               <option value="">Seleccionar...</option>
-              {ccData.filter(x=>x.contracts>0).map(p=><option key={p.ticker} value={p.ticker}>{p.ticker} ({p.contracts} ctrts)</option>)}
+              {ccData.filter(x=>x.contracts>0).map(p=><option key={p.ticker} value={p.ticker}>{p.ticker} ({p.contracts} ctrts) {p.source==="REAL"?"📡":""}</option>)}
             </select>
           </div>
           {calcPos && <>
@@ -320,17 +407,20 @@ export default function CoveredCallsTab() {
         </div>
         {calcPos && (
           <div style={{marginTop:12,padding:"10px 14px",background:"rgba(200,164,78,.04)",borderRadius:8,borderLeft:"3px solid var(--gold)",fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>
-            <strong style={{color:"var(--gold)"}}>{calcPos.ticker}</strong> · Precio: ${_sf(calcPos.lastPrice,2)} · IV: {_sf(calcPos.iv*100,0)}% · {calcPos.timing}
+            <strong style={{color:"var(--gold)"}}>{calcPos.ticker}</strong> · Precio: ${_sf(calcPos.lastPrice,2)} · IV: {_sf(calcPos.iv*100,0)}%
+            {calcPos.source === "REAL" && <> · Bid: ${_sf(calcPos.bid,2)} · Ask: ${_sf(calcPos.ask,2)} · OI: {calcPos.oi}</>}
+            {" · "}{calcPos.timing}
           </div>
         )}
       </div>
 
       {/* ── LEGEND ── */}
-      <div style={{display:"flex",gap:20,fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",padding:"0 4px"}}>
-        <span>🟢 IV alta + sin eventos = buena oportunidad</span>
-        <span>🟡 IV moderada o earnings cerca</span>
-        <span>🔴 Earnings inminentes o IV muy baja</span>
-        <span>⚫ Menos de 100 acciones</span>
+      <div style={{display:"flex",gap:20,fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",padding:"0 4px",flexWrap:"wrap"}}>
+        <span>🟢 IV alta + sin eventos + liquidez</span>
+        <span>🟡 IV moderada, earnings cerca, o spread amplio</span>
+        <span>🔴 Earnings inminentes, IV baja, o sin liquidez</span>
+        <span>⚫ &lt;100 acciones</span>
+        <span>📡 REAL = Yahoo Finance · B-S = Black-Scholes estimado</span>
       </div>
     </div>
   );
