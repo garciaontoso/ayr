@@ -291,6 +291,8 @@ export default function ARApp() {
 
   // ── Navigation: "home" (portfolio/watchlist/research) vs "analysis" (15 tabs) vs "costbasis" ──
   const [viewMode, setViewMode] = useState("home");
+  const [globalSearch, setGlobalSearch] = useState(false);
+  const [globalQuery, setGlobalQuery] = useState("");
   const [homeTab, setHomeTab] = useState("portfolio");
   const [searchTicker, setSearchTicker] = useState("");
   const [cbTicker, setCbTicker] = useState(null); // cost basis active ticker
@@ -1796,6 +1798,41 @@ function buildPositionsFromCB() {
   // - components/views/CostBasisView.jsx (via CostBasisContext)
   // - components/views/HomeView.jsx (via HomeContext)
 
+  // Global Cmd+K search
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setGlobalSearch(s => !s);
+        setGlobalQuery("");
+      }
+      if (e.key === 'Escape' && globalSearch) setGlobalSearch(false);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [globalSearch]);
+
+  const globalSearchResults = useMemo(() => {
+    if (!globalQuery || globalQuery.length < 2) return [];
+    const q = globalQuery.toLowerCase();
+    const results = [];
+    // Search positions
+    portfolioList.forEach(p => {
+      if (p.ticker.toLowerCase().includes(q) || (p.name||"").toLowerCase().includes(q))
+        results.push({ type: "portfolio", ticker: p.ticker, name: p.name, price: p.lastPrice });
+    });
+    watchlistList.forEach(p => {
+      if (p.ticker.toLowerCase().includes(q) || (p.name||"").toLowerCase().includes(q))
+        results.push({ type: "watchlist", ticker: p.ticker, name: p.name });
+    });
+    // Search tabs
+    HOME_TABS.forEach(t => {
+      if (t.lbl.toLowerCase().includes(q))
+        results.push({ type: "tab", id: t.id, name: t.lbl, ico: t.ico });
+    });
+    return results.slice(0, 10);
+  }, [globalQuery, portfolioList, watchlistList]);
+
   return !dataLoaded ? (
     <div style={{display:"flex",flexDirection:"column",minHeight:"100vh",background:"#000",fontFamily:"'DM Sans',sans-serif"}}>
       {/* Skeleton header */}
@@ -1940,6 +1977,46 @@ function buildPositionsFromCB() {
       </footer>
       {toast && <Toast message={toast.message} type={toast.type} onClose={()=>setToast(null)}/>}
       <ScrollToTop/>
+      {/* Global Search Overlay (Cmd+K) */}
+      {globalSearch && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",backdropFilter:"blur(4px)",zIndex:9999,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:120}}
+          onClick={()=>setGlobalSearch(false)}>
+          <div style={{background:"#1c1c1e",border:"1px solid var(--border)",borderRadius:14,width:"100%",maxWidth:500,overflow:"hidden",boxShadow:"0 20px 60px rgba(0,0,0,.5)"}}
+            onClick={e=>e.stopPropagation()}>
+            <input autoFocus value={globalQuery} onChange={e=>setGlobalQuery(e.target.value)}
+              placeholder="Buscar ticker, empresa, o pestaña..."
+              style={{width:"100%",padding:"14px 18px",border:"none",borderBottom:"1px solid var(--border)",background:"transparent",color:"var(--text-primary)",fontSize:16,fontFamily:"var(--fm)",outline:"none",boxSizing:"border-box"}}/>
+            {globalSearchResults.length > 0 && (
+              <div style={{maxHeight:300,overflowY:"auto"}}>
+                {globalSearchResults.map((r,i) => (
+                  <div key={i} onClick={()=>{
+                    if(r.type==="tab"){setHomeTab(r.id);setViewMode("home");}
+                    else openAnalysis(r.ticker);
+                    setGlobalSearch(false);
+                  }}
+                    style={{padding:"10px 18px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,borderBottom:"1px solid rgba(255,255,255,.03)"}}
+                    onMouseEnter={e=>e.currentTarget.style.background="var(--card-hover)"}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                    <span style={{fontSize:9,padding:"2px 6px",borderRadius:4,fontFamily:"var(--fm)",fontWeight:600,
+                      background:r.type==="portfolio"?"var(--gold-dim)":r.type==="watchlist"?"rgba(255,214,10,.08)":"rgba(100,210,255,.08)",
+                      color:r.type==="portfolio"?"var(--gold)":r.type==="watchlist"?"#ffd60a":"#64d2ff"
+                    }}>{r.type==="tab"?r.ico:r.type==="portfolio"?"💼":"👁"}</span>
+                    <span style={{fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fm)",fontSize:14}}>{r.ticker||r.name}</span>
+                    {r.name && r.ticker && <span style={{color:"var(--text-tertiary)",fontSize:12,fontFamily:"var(--fm)"}}>{r.name}</span>}
+                    {r.price && <span style={{marginLeft:"auto",color:"var(--text-secondary)",fontFamily:"var(--fm)",fontSize:12}}>${_sf(r.price,2)}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {globalQuery.length >= 2 && globalSearchResults.length === 0 && (
+              <div style={{padding:"20px 18px",textAlign:"center",color:"var(--text-tertiary)",fontSize:13,fontFamily:"var(--fm)"}}>Sin resultados para "{globalQuery}"</div>
+            )}
+            <div style={{padding:"6px 18px",fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",borderTop:"1px solid var(--border)"}}>
+              ⌘K para abrir · ESC para cerrar · Enter para seleccionar
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

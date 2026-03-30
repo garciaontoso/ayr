@@ -428,7 +428,7 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
 // Main PatrimonioTab
 // ═══════════════════════════════════════
 export default function PatrimonioTab() {
-  const { CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, fxRates } = useHome();
+  const { CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, fxRates, ibData } = useHome();
   const [section, setSection] = useState('historial');
 
   const data = CTRL_DATA.filter(c => c.pu > 0).sort((a,b) => (a.d||"").localeCompare(b.d||"")).map((c, i, arr) => {

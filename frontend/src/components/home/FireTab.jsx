@@ -326,6 +326,7 @@ export default function FireTab() {
     fireCcy, setFireCcy, fireGastosYear, setFireGastosYear,
     gastosLog,
     CTRL_DATA, INCOME_DATA, GASTOS_MONTH,
+    ibData,
   } = useHome();
 
   // === FX RATES ===
@@ -403,9 +404,11 @@ const divNetMUSD = divNet12mUSD / 12;
 const divNetM = isUSD ? divNetMUSD : divNetMUSD / fxEurUsd;
 const divNetA = divNetM * 12;
 
-// === PATRIMONIO ===
+// === PATRIMONIO (use IB NLV if available, fallback to CTRL snapshot) ===
 const latestCtrl = CTRL_DATA.filter(c => c.pu>0).sort((a,b) => (a.d||"").localeCompare(b.d||"")).slice(-1)[0] || {};
-const pat = isUSD ? (latestCtrl.pu||0) : (latestCtrl.pe||0);
+const ibNlv = ibData?.summary?.nlv?.amount || 0;
+const patUSD = ibNlv > 0 ? ibNlv : (latestCtrl.pu || 0);
+const pat = isUSD ? patUSD : patUSD / fxEurUsd;
 
 // === SUELDO ===
 const sueldos = INCOME_DATA.filter(d => d.sl>0).map(d => d.sl);
