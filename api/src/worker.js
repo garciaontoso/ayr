@@ -665,12 +665,16 @@ export default {
                 const data = await resp.json();
                 const meta = data?.chart?.result?.[0]?.meta;
                 if (meta) {
+                  // Extract 5-day close prices for sparkline
+                  const closes = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close || [];
+                  const spark = closes.filter(v => v != null).slice(-5);
                   return {
                     ticker,
                     price: meta.regularMarketPrice,
                     prevClose: meta.previousClose || meta.chartPreviousClose,
                     currency: meta.currency,
                     exchange: meta.exchangeName,
+                    spark,
                     change: meta.regularMarketPrice - (meta.previousClose || meta.chartPreviousClose || meta.regularMarketPrice),
                     changePct: meta.previousClose ? ((meta.regularMarketPrice - meta.previousClose) / meta.previousClose * 100) : 0,
                     dayHigh: meta.regularMarketDayHigh,

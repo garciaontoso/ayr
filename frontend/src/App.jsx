@@ -496,6 +496,7 @@ function buildPositionsFromCB() {
                 dayChangeAbs: priceData.change || 0,
                 fiftyTwoWeekHigh: priceData.fiftyTwoWeekHigh,
                 fiftyTwoWeekLow: priceData.fiftyTwoWeekLow,
+                spark: priceData.spark || [],
                 priceUpdated: true,
               };
             }
@@ -1172,6 +1173,8 @@ function buildPositionsFromCB() {
       return {
         ...p, ccy, dataSource,
         shares, lastPrice,
+        adjustedBasis: ib?.avgCost || p.adjustedBasis || p.avgCost || 0,
+        avgCost: ib?.avgCost || p.avgCost || 0,
         priceUSD: ccy === "USD" ? lastPrice : (valueUSD / (shares || 1)),
         costUSD: costTotalUSD / (shares || 1),
         valueUSD, costTotalUSD, divAnnualUSD,
@@ -1584,7 +1587,6 @@ function buildPositionsFromCB() {
   const CompanyRow = ({p, showPos, onOpen}) => {
     const ccy = p.ccy || p.currency || "USD";
     const origSym = CURRENCIES[ccy]?.symbol || "$";
-    const ccyFlag = CURRENCIES[ccy]?.flag || "";
     const isForeign = ccy !== "USD";
     const priceUSD = p.priceUSD ?? 0;
     const costUSD = p.costUSD ?? 0;
@@ -1592,105 +1594,90 @@ function buildPositionsFromCB() {
     const valueEUR = p.valueEUR ?? 0;
     const weight = p.weight ?? 0;
     const pnlPct = p.pnlPct ?? 0;
-    const pnlUSD = p.pnlUSD ?? 0;
     const dpsUSD = p.divAnnualUSD || ((p.divTTM || p.dps || 0) * (p.shares || 0));
     const showUSD = displayCcy === "USD";
     const valShow = showUSD ? valueUSD : valueEUR;
     const valSym = showUSD ? "$" : "€";
-    const valOther = showUSD ? valueEUR : valueUSD;
-    const valOtherSym = showUSD ? "€" : "$";
+    const cc = getCountry(p.ticker, ccy);
+    const capBadge = (() => {
+      const mc = (p.mc||0)*1e9; const cat = p.cat||"";
+      if (cat==="ETF") return {l:"ETF",bg:"rgba(191,90,242,.15)",c:"#bf5af2"};
+      if (cat==="REIT") return {l:"REIT",bg:"rgba(100,210,255,.12)",c:"#64d2ff"};
+      if (mc>=200e9) return {l:"MEGA",bg:"rgba(100,210,255,.1)",c:"rgba(100,210,255,.6)"};
+      if (mc>=10e9) return {l:"LC",bg:"rgba(48,209,88,.08)",c:"rgba(48,209,88,.5)"};
+      if (mc>=2e9) return {l:"MC",bg:"rgba(255,214,10,.08)",c:"rgba(255,214,10,.5)"};
+      if (mc>=300e6) return {l:"SC",bg:"rgba(255,159,10,.1)",c:"rgba(255,159,10,.5)"};
+      if (mc>0) return {l:"μC",bg:"rgba(255,69,58,.08)",c:"rgba(255,69,58,.5)"};
+      return null;
+    })();
+    const badge = capBadge ? <span style={{fontSize:7,fontWeight:700,padding:"1px 4px",borderRadius:3,background:capBadge.bg,color:capBadge.c,letterSpacing:.3}}>{capBadge.l}</span> : null;
     return (
-      <div style={{display:"grid",gridTemplateColumns:showPos?"52px 1.4fr 90px 80px 80px 75px 68px 90px 75px 48px":"52px 1fr 90px 90px 48px",gap:6,alignItems:"center",padding:"10px 16px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:16,cursor:"pointer",transition:"all .2s",minHeight:54}}
+      <div onClick={()=>onOpen(p.ticker)} style={{display:"grid",gridTemplateColumns:showPos?"28px 1fr 40px 70px 55px 55px 50px 50px 65px 55px 28px":"28px 1fr 40px 70px 70px 28px",gap:4,alignItems:"center",padding:"5px 10px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,cursor:"pointer",transition:"all .15s"}}
         onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--border-hover)";e.currentTarget.style.background="var(--card-hover)";}}
         onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";e.currentTarget.style.background="var(--card)";}}>
-        {/* Logo — FMP company logo with fallback to initials */}
-        <div onClick={()=>onOpen(p.ticker)} style={{width:42,height:42,borderRadius:10,overflow:"hidden",cursor:"pointer",flexShrink:0,background:"#161b22",display:"flex",alignItems:"center",justifyContent:"center"}}>
+        {/* Logo */}
+        <div style={{width:24,height:24,borderRadius:6,overflow:"hidden",background:"#161b22",display:"flex",alignItems:"center",justifyContent:"center"}}>
           <img src={`https://images.financialmodelingprep.com/symbol/${p.ticker.replace(':','.')}.png`} alt=""
-            style={{width:42,height:42,objectFit:"contain",borderRadius:10}}
+            style={{width:24,height:24,objectFit:"contain",borderRadius:6}}
             onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}/>
-          <div style={{display:"none",width:42,height:42,borderRadius:10,background:"linear-gradient(135deg,#d69e2e,#8B6914)",alignItems:"center",justifyContent:"center",fontSize:p.ticker.length>3?8:11,fontWeight:800,color:"#000",fontFamily:"var(--fm)"}}>{p.ticker.slice(0,4)}</div>
+          <div style={{display:"none",width:24,height:24,borderRadius:6,background:"linear-gradient(135deg,#d69e2e,#8B6914)",alignItems:"center",justifyContent:"center",fontSize:7,fontWeight:800,color:"#000",fontFamily:"var(--fm)"}}>{p.ticker.slice(0,3)}</div>
         </div>
-        {/* Name + Cap badge */}
-        <div onClick={()=>onOpen(p.ticker)} style={{cursor:"pointer",minWidth:0,paddingRight:4}}>
-          <div style={{fontSize:14,fontWeight:600,color:"var(--text-primary)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",lineHeight:1.3}}>{p.name||p.ticker}</div>
-          <div style={{fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"flex",alignItems:"center",gap:4,marginTop:1,flexWrap:"wrap"}}>
-            <span style={{fontSize:16}}>{FLAGS[getCountry(p.ticker, ccy)]||""}</span>
-            {p.ticker}
-            {p.sector && <span style={{fontSize:8,color:"var(--text-tertiary)",opacity:.6,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.sector}</span>}
-            {p.dataSource === "IB" && <span style={{fontSize:7,fontWeight:700,padding:"1px 4px",borderRadius:3,background:"rgba(100,210,255,.1)",color:"#64d2ff",letterSpacing:.3}}>IB</span>}
-            {(() => {
-              const mc = (p.mc || 0) * 1e9;
-              const cat = p.cat || "";
-              if (cat === "ETF") return <span style={{fontSize:7,fontWeight:700,padding:"1px 4px",borderRadius:3,background:"rgba(191,90,242,.15)",color:"#bf5af2",letterSpacing:.3}}>ETF</span>;
-              if (cat === "REIT") return <span style={{fontSize:7,fontWeight:700,padding:"1px 4px",borderRadius:3,background:"rgba(100,210,255,.12)",color:"#64d2ff",letterSpacing:.3}}>REIT</span>;
-              if (mc >= 200e9) return <span style={{fontSize:7,fontWeight:700,padding:"1px 4px",borderRadius:3,background:"rgba(100,210,255,.1)",color:"rgba(100,210,255,.6)",letterSpacing:.3}}>MEGA</span>;
-              if (mc >= 10e9) return <span style={{fontSize:7,fontWeight:700,padding:"1px 4px",borderRadius:3,background:"rgba(48,209,88,.08)",color:"rgba(48,209,88,.5)",letterSpacing:.3}}>LC</span>;
-              if (mc >= 2e9) return <span style={{fontSize:7,fontWeight:700,padding:"1px 4px",borderRadius:3,background:"rgba(255,214,10,.08)",color:"rgba(255,214,10,.5)",letterSpacing:.3}}>MC</span>;
-              if (mc >= 300e6) return <span style={{fontSize:7,fontWeight:700,padding:"1px 4px",borderRadius:3,background:"rgba(255,159,10,.1)",color:"rgba(255,159,10,.5)",letterSpacing:.3}}>SC</span>;
-              if (mc > 0) return <span style={{fontSize:7,fontWeight:700,padding:"1px 4px",borderRadius:3,background:"rgba(255,69,58,.08)",color:"rgba(255,69,58,.5)",letterSpacing:.3}}>μC</span>;
-              return null;
-            })()}
-          </div>
+        {/* Name: flag + name + ticker + badge inline */}
+        <div style={{minWidth:0,display:"flex",alignItems:"center",gap:4,overflow:"hidden"}}>
+          <span style={{fontSize:14,flexShrink:0}}>{FLAGS[cc]||""}</span>
+          <span style={{fontSize:12,fontWeight:600,color:"var(--text-primary)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name||p.ticker}</span>
+          <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",flexShrink:0}}>{p.ticker}</span>
+          {badge}
+          {p.dataSource==="IB" && <span style={{fontSize:6,fontWeight:700,padding:"1px 3px",borderRadius:3,background:"rgba(100,210,255,.1)",color:"#64d2ff",flexShrink:0}}>IB</span>}
         </div>
-        {/* Price — shows in original currency with flag, USD equivalent below for foreign */}
-        <div style={{textAlign:"right"}}>
-          <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.3}}>PRECIO</div>
-          <div style={{fontSize:15,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",lineHeight:1.3,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:3}}>
-            <span style={{fontSize:10,opacity:.45}}>{ccyFlag}</span>{origSym}{(p.lastPrice||0).toFixed(ccy==="HKD"?1:2)}
-          </div>
-          {isForeign && <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",opacity:.5}}>${_sf(priceUSD,2)}</div>}
+        {/* Sparkline */}
+        <div style={{width:36,height:16}}>
+          {(p.spark||[]).length >= 2 && (() => {
+            const s = p.spark;
+            const mn = Math.min(...s), mx = Math.max(...s);
+            const r = mx-mn || 1;
+            const pts = s.map((v,i)=>`${(i/(s.length-1))*36},${16-((v-mn)/r)*14}`).join(" ");
+            const up = s[s.length-1] >= s[0];
+            return <svg viewBox="0 0 36 16" style={{width:36,height:16}}><polyline points={pts} fill="none" stroke={up?"#30d158":"#ff453a"} strokeWidth="1.2" strokeLinejoin="round"/></svg>;
+          })()}
+        </div>
+        {/* Price */}
+        <div style={{textAlign:"right",fontFamily:"var(--fm)"}}>
+          <div style={{fontSize:12,fontWeight:700,color:"var(--text-primary)"}}>{origSym}{(p.lastPrice||0).toFixed(ccy==="HKD"?1:2)}</div>
+          {isForeign && <div style={{fontSize:8,color:"var(--text-tertiary)",opacity:.6}}>${_sf(priceUSD,2)}</div>}
         </div>
         {showPos && <>
           {/* Shares */}
-          <div style={{textAlign:"right"}}>
-            <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.3}}>ACCIONES</div>
-            <div style={{fontSize:15,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",lineHeight:1.3}}>{privacyMode?"•••":p.shares?(p.shares||0).toLocaleString():"—"}</div>
-          </div>
-          {/* Cost — shows in original currency with flag, USD equivalent below for foreign */}
-          <div style={{textAlign:"right"}}>
-            <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.3}}>COSTE</div>
-            <div style={{fontSize:15,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",lineHeight:1.3,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:3}}>
-              {privacyMode?"•••••":<><span style={{fontSize:10,opacity:.45}}>{ccyFlag}</span>{origSym}{_sf(p.adjustedBasis||p.avgCost||0,2)}</>}
-            </div>
-            {!privacyMode && isForeign && <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",opacity:.5}}>${_sf(costUSD,2)}</div>}
+          <div style={{textAlign:"right",fontSize:11,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":p.shares?(p.shares||0).toLocaleString():"—"}</div>
+          {/* Cost */}
+          <div style={{textAlign:"right",fontFamily:"var(--fm)"}}>
+            <div style={{fontSize:11,fontWeight:600,color:"var(--text-secondary)"}}>{privacyMode?"•••":origSym+_sf(p.adjustedBasis||p.avgCost||0,2)}</div>
           </div>
           {/* P&L */}
-          <div style={{textAlign:"right"}}>
-            <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.3}}>P&L</div>
-            <div style={{fontSize:15,fontWeight:700,color:pnlPct>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)",lineHeight:1.3}}>{privacyMode?"•••":(pnlPct>=0?"+":"")+_sf(pnlPct*100,0)+"%"}</div>
-          </div>
-          {/* Weight */}
-          <div style={{textAlign:"right"}}>
-            <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.3}}>PESO</div>
-            <div style={{fontSize:14,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fm)",lineHeight:1.3}}>{_sf(weight*100,1)}%</div>
-            <div style={{height:3,background:"rgba(255,255,255,.06)",borderRadius:2,marginTop:2,overflow:"hidden"}}>
-              <div style={{width:`${Math.min(weight*100*4,100)}%`,height:"100%",background:"var(--gold)",borderRadius:2}}/>
+          <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:pnlPct>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":(pnlPct>=0?"+":"")+_sf(pnlPct*100,0)+"%"}</div>
+          {/* Weight bar */}
+          <div style={{textAlign:"right",fontFamily:"var(--fm)"}}>
+            <div style={{fontSize:10,fontWeight:600,color:"var(--gold)"}}>{_sf(weight*100,1)}%</div>
+            <div style={{height:2,background:"rgba(255,255,255,.06)",borderRadius:1,marginTop:1,overflow:"hidden"}}>
+              <div style={{width:`${Math.min(weight*100*4,100)}%`,height:"100%",background:"var(--gold)",borderRadius:1}}/>
             </div>
           </div>
-          {/* Value USD/EUR */}
-          <div style={{textAlign:"right"}}>
-            <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.3}}>{showUSD?"USD VAL":"EUR VAL"}</div>
-            <div style={{fontSize:14,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",lineHeight:1.3}}>{privacyMode?"•••••":valSym+(valShow>=1e3?_sf(valShow/1e3,1)+"K":_sf(valShow,0))}</div>
-            {!privacyMode && <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",opacity:.45}}>{valOtherSym}{valOther>=1e3?_sf(valOther/1e3,1)+"K":_sf(valOther,0)}</div>}
+          {/* Value */}
+          <div style={{textAlign:"right",fontFamily:"var(--fm)"}}>
+            <div style={{fontSize:12,fontWeight:700,color:"var(--text-primary)"}}>{privacyMode?"•••":valSym+(valShow>=1e3?_sf(valShow/1e3,1)+"K":_sf(valShow,0))}</div>
           </div>
-          {/* Div/Year */}
-          <div style={{textAlign:"right"}}>
-            <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.3}}>DIV/AÑO</div>
-            <div style={{fontSize:14,fontWeight:700,color:dpsUSD>0?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",lineHeight:1.3}}>{privacyMode?"•••":(dpsUSD>0?"$"+_sf(dpsUSD,0):"—")}</div>
-          </div>
+          {/* Div */}
+          <div style={{textAlign:"right",fontSize:11,fontWeight:600,color:dpsUSD>0?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":(dpsUSD>0?"$"+_sf(dpsUSD,0):"—")}</div>
         </>}
         {!showPos && <>
-          <div style={{textAlign:"right"}}>
-            <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>TARGET</div>
-            <div style={{fontSize:15,fontWeight:700,color:p.targetPrice&&p.lastPrice&&p.lastPrice<=p.targetPrice?"var(--green)":"var(--text-secondary)",fontFamily:"var(--fm)"}}>{p.targetPrice?"$"+(toUSD(p.targetPrice,ccy)||0).toFixed(2):"—"}</div>
-          </div>
+          <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:p.targetPrice&&p.lastPrice<=p.targetPrice?"var(--green)":"var(--text-secondary)",fontFamily:"var(--fm)"}}>{p.targetPrice?"$"+_sf(toUSD(p.targetPrice,ccy)||0,2):"—"}</div>
         </>}
         {/* Actions */}
-        <div style={{display:"flex",gap:3,justifyContent:"flex-end"}}>
-          <button onClick={(e)=>{e.stopPropagation();openCostBasis(p.ticker);}} title="Cost Basis" style={{width:32,height:32,borderRadius:8,border:"1px solid rgba(200,164,78,.25)",background:"rgba(200,164,78,.06)",color:"var(--gold)",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>📋</button>
-          <button onClick={(e)=>{e.stopPropagation();if(confirm(`¿Eliminar ${p.ticker} del portfolio?`))removePosition(p.ticker);}} title="Eliminar" style={{width:32,height:32,borderRadius:8,border:"1px solid rgba(255,69,58,.2)",background:"transparent",color:"var(--text-tertiary)",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:.4,transition:"all .15s"}}
-            onMouseEnter={e=>{e.target.style.opacity="1";e.target.style.background="rgba(255,69,58,.08)";e.target.style.color="var(--red)";}}
-            onMouseLeave={e=>{e.target.style.opacity=".4";e.target.style.background="transparent";e.target.style.color="var(--text-tertiary)";}}>✕</button>
+        <div style={{display:"flex",gap:2,justifyContent:"flex-end"}} onClick={e=>e.stopPropagation()}>
+          <button onClick={(e)=>{e.stopPropagation();openCostBasis(p.ticker);}} title="Cost Basis" style={{width:22,height:22,borderRadius:5,border:"1px solid rgba(200,164,78,.2)",background:"transparent",color:"var(--gold)",fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:.5}} onMouseEnter={e=>e.target.style.opacity="1"} onMouseLeave={e=>e.target.style.opacity=".5"}>📋</button>
+          <button onClick={(e)=>{e.stopPropagation();if(confirm(`¿Eliminar ${p.ticker}?`))removePosition(p.ticker);}} title="Eliminar" style={{width:22,height:22,borderRadius:5,border:"1px solid rgba(255,69,58,.15)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:.3}}
+            onMouseEnter={e=>{e.target.style.opacity="1";e.target.style.color="var(--red)";}}
+            onMouseLeave={e=>{e.target.style.opacity=".3";e.target.style.color="var(--text-tertiary)";}}>✕</button>
         </div>
       </div>
     );

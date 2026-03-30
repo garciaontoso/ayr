@@ -1,6 +1,8 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
+
+const ALERTS_KEY = "ayr_price_alerts";
 
 const SORT_OPTIONS = [
   {id:"name",lbl:"A-Z",fn:(a,b)=>(a.name||a.ticker).localeCompare(b.name||b.ticker)},
@@ -15,6 +17,13 @@ export default function PortfolioTab() {
   const [quickFilter, setQuickFilter] = useState("");
   const [listSort, setListSort] = useState("value");
   const searchRef = useRef(null);
+  const [showRebalance, setShowRebalance] = useState(false);
+  const [showAlerts, setShowAlerts] = useState(false);
+  const [alertForm, setAlertForm] = useState({ ticker: "", price: "", direction: "below" });
+  const [alerts, setAlerts] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(ALERTS_KEY)) || []; } catch { return []; }
+  });
+  const saveAlerts = useCallback((a) => { setAlerts(a); localStorage.setItem(ALERTS_KEY, JSON.stringify(a)); }, []);
 
   // Cmd+K / Ctrl+K to focus search
   useEffect(() => {
@@ -31,6 +40,24 @@ export default function PortfolioTab() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [quickFilter]);
+
+  // Check price alerts on price update
+  useEffect(() => {
+    if (!alerts.length) return;
+    const pos = portfolioTotals?.positions || [];
+    alerts.forEach(a => {
+      const p = pos.find(x => x.ticker === a.ticker);
+      if (!p) return;
+      const triggered = a.direction === "below" ? p.lastPrice <= a.price : p.lastPrice >= a.price;
+      if (triggered && !a.fired) {
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification(`🔔 ${a.ticker} ${a.direction === "below" ? "bajó a" : "subió a"} $${p.lastPrice.toFixed(2)}`, { body: `Alerta: ${a.direction === "below" ? "≤" : "≥"} $${a.price}` });
+        }
+        saveAlerts(alerts.map(x => x === a ? { ...x, fired: true } : x));
+      }
+    });
+  }, [portfolioTotals?.positions]);
+
   const {
     portfolioList, portfolioTotals, portfolioComputed,
     searchTicker, setSearchTicker, updatePosition,
@@ -41,23 +68,20 @@ export default function PortfolioTab() {
   } = useHome();
 
   return (
-      <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        {/* Summary Cards */}
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {/* Summary — inline compact */}
         {portfolioList.length>0 && (
-          <div className="ar-summary-cards" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:8}}>
+          <div style={{display:"flex",gap:16,padding:"6px 0",flexWrap:"wrap",alignItems:"baseline"}}>
             {[
-              {l:"VALOR",vUSD:hide("$"+fDol(portfolioTotals.totalValueUSD)),vEUR:hide("€"+fDol(portfolioTotals.totalValueEUR)),c:"var(--text-primary)"},
-              {l:"COSTE",vUSD:hide("$"+fDol(portfolioTotals.totalCostUSD)),vEUR:hide("€"+fDol(portfolioTotals.totalCostEUR)),c:"var(--text-secondary)"},
-              {l:"P&L",vUSD:hide((portfolioTotals.pnlUSD>=0?"+$":"-$")+fDol(Math.abs(portfolioTotals.pnlUSD))),vEUR:hide((portfolioTotals.pnlEUR>=0?"+€":"-€")+fDol(Math.abs(portfolioTotals.pnlEUR))),c:portfolioTotals.pnlUSD>=0?"var(--green)":"var(--red)",sub:privacyMode?"•••":_sf(portfolioTotals.pnlPctUSD*100,1)+"%"},
-              {l:"DIVIDENDO",vUSD:hide("$"+fDol(portfolioTotals.totalDivUSD)),vEUR:hide("€"+fDol(portfolioTotals.totalDivEUR)),c:"var(--gold)",sub:privacyMode?"•••":"YOC "+_sf(portfolioTotals.yocUSD*100,1)+"%"},
+              {l:"Valor",v:hide(displayCcy==="EUR"?"€"+fDol(portfolioTotals.totalValueEUR):"$"+fDol(portfolioTotals.totalValueUSD)),c:"var(--text-primary)"},
+              {l:"Coste",v:hide(displayCcy==="EUR"?"€"+fDol(portfolioTotals.totalCostEUR):"$"+fDol(portfolioTotals.totalCostUSD)),c:"var(--text-tertiary)"},
+              {l:"P&L",v:hide((portfolioTotals.pnlUSD>=0?"+":"-")+(displayCcy==="EUR"?"€":"$")+fDol(Math.abs(displayCcy==="EUR"?portfolioTotals.pnlEUR:portfolioTotals.pnlUSD))),c:portfolioTotals.pnlUSD>=0?"var(--green)":"var(--red)",sub:privacyMode?"":_sf(portfolioTotals.pnlPctUSD*100,1)+"%"},
+              {l:"Div",v:hide(displayCcy==="EUR"?"€"+fDol(portfolioTotals.totalDivEUR):"$"+fDol(portfolioTotals.totalDivUSD)),c:"var(--gold)",sub:privacyMode?"":"YOC "+_sf(portfolioTotals.yocUSD*100,1)+"%"},
             ].map((m,i)=>(
-              <div key={i} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"10px 14px"}}>
-                <div style={{fontSize:9,color:"var(--text-tertiary)",fontWeight:600,textTransform:"uppercase",fontFamily:"var(--fm)",letterSpacing:.5}}>{m.l}</div>
-                <div style={{fontSize:18,fontWeight:700,color:m.c,fontFamily:"var(--fm)",marginTop:3}}>{displayCcy==="EUR"?m.vEUR:m.vUSD}</div>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:2}}>
-                  <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{displayCcy==="EUR"?m.vUSD:m.vEUR}</span>
-                  {m.sub && <span style={{fontSize:10,fontWeight:600,color:m.c,fontFamily:"var(--fm)",opacity:.7}}>{m.sub}</span>}
-                </div>
+              <div key={i} style={{fontFamily:"var(--fm)"}}>
+                <span style={{fontSize:9,color:"var(--text-tertiary)",marginRight:4}}>{m.l}</span>
+                <span style={{fontSize:16,fontWeight:700,color:m.c}}>{m.v}</span>
+                {m.sub && <span style={{fontSize:9,color:m.c,marginLeft:4,opacity:.6}}>{m.sub}</span>}
               </div>
             ))}
           </div>
@@ -66,27 +90,16 @@ export default function PortfolioTab() {
         {portfolioList.length>0 && (() => {
           const pos = portfolioTotals.positions || [];
           if (!pos.length) return null;
-          const countries = new Set(pos.map(p => getCountry(p.ticker, p.currency))).size;
+          const greenCount = pos.filter(p=>(p.pnlPct||0)>=0).length;
           const best = pos.reduce((a,b) => (b.pnlPct||0) > (a.pnlPct||0) ? b : a, pos[0]);
           const worst = pos.reduce((a,b) => (b.pnlPct||0) < (a.pnlPct||0) ? b : a, pos[0]);
-          const top3Weight = [...pos].sort((a,b)=>(b.weight||0)-(a.weight||0)).slice(0,3).reduce((s,p)=>s+(p.weight||0),0);
-          const greenCount = pos.filter(p=>(p.pnlPct||0)>=0).length;
           return (
-          <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:8}}>
-            {[
-              {l:"Posiciones",v:pos.length,c:"var(--text-primary)"},
-              {l:"Países",v:countries,c:"#64d2ff"},
-              {l:"Yield",v:_sf(portfolioTotals.yieldUSD*100,1)+"%",c:"var(--gold)"},
-              {l:"Verdes",v:`${greenCount}/${pos.length}`,c:"var(--green)"},
-              {l:"Top 3",v:_sf(top3Weight*100,0)+"%",c:"var(--text-secondary)"},
-              {l:"Mejor",v:`${best.ticker} +${_sf((best.pnlPct||0)*100,0)}%`,c:"var(--green)"},
-              {l:"Peor",v:`${worst.ticker} ${_sf((worst.pnlPct||0)*100,0)}%`,c:"var(--red)"},
-            ].map((s,i)=>(
-              <div key={i} style={{fontSize:10,fontFamily:"var(--fm)"}}>
-                <span style={{color:"var(--text-tertiary)"}}>{s.l}: </span>
-                <span style={{color:s.c,fontWeight:600}}>{s.v}</span>
-              </div>
-            ))}
+          <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:10,fontFamily:"var(--fm)",marginBottom:2}}>
+            <span><span style={{color:"var(--text-tertiary)"}}>Pos:</span> <b>{pos.length}</b></span>
+            <span><span style={{color:"var(--text-tertiary)"}}>Yield:</span> <b style={{color:"var(--gold)"}}>{_sf(portfolioTotals.yieldUSD*100,1)}%</b></span>
+            <span><span style={{color:"var(--text-tertiary)"}}>Verdes:</span> <b style={{color:"var(--green)"}}>{greenCount}/{pos.length}</b></span>
+            <span style={{color:"var(--green)"}}>{best.ticker} +{_sf((best.pnlPct||0)*100,0)}%</span>
+            <span style={{color:"var(--red)"}}>{worst.ticker} {_sf((worst.pnlPct||0)*100,0)}%</span>
           </div>);
         })()}
         {/* Allocation mini donut + Export */}
@@ -115,9 +128,9 @@ export default function PortfolioTab() {
             URL.revokeObjectURL(url);
           };
           return (
-          <div style={{display:"flex",gap:16,alignItems:"center",marginBottom:8,flexWrap:"wrap"}}>
+          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:4,flexWrap:"wrap"}}>
             {/* Mini donut */}
-            <svg viewBox="0 0 100 100" width="64" height="64" style={{flexShrink:0}}>
+            <svg viewBox="0 0 100 100" width="36" height="36" style={{flexShrink:0,cursor:"pointer"}} title="Distribución por país">
               {slices.map(([cc, val], i) => {
                 const pct = val / total;
                 const startAngle = cumPct * 360;
@@ -131,39 +144,30 @@ export default function PortfolioTab() {
                 return <path key={cc} d={`M${CX},${CY} L${x1},${y1} A${R},${R} 0 ${large},1 ${x2},${y2} Z`} fill={colors[i%colors.length]} opacity=".85"/>;
               })}
               <circle cx={CX} cy={CY} r="22" fill="var(--bg)"/>
-              <text x={CX} y={CY+4} textAnchor="middle" fontSize="10" fontWeight="700" fill="var(--text-primary)" fontFamily="var(--fm)">{slices.length}</text>
             </svg>
-            {/* Legend */}
-            <div style={{display:"flex",gap:8,flexWrap:"wrap",flex:1}}>
+            {/* Compact legend — flags only */}
+            <div style={{display:"flex",gap:4,flexWrap:"wrap",flex:1}}>
               {slices.map(([cc,val],i) => (
-                <div key={cc} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>
-                  <div style={{width:8,height:8,borderRadius:2,background:colors[i%colors.length],flexShrink:0}}/>
-                  <span style={{fontSize:16}}>{FLAGS[cc]||"🏳️"}</span> {_sf((val/total)*100,0)}%
-                </div>
+                <span key={cc} title={`${cc}: ${_sf((val/total)*100,0)}%`} style={{fontSize:9,fontFamily:"var(--fm)",color:"var(--text-tertiary)"}}>
+                  <span style={{display:"inline-block",width:6,height:6,borderRadius:1,background:colors[i%colors.length],marginRight:2,verticalAlign:"middle"}}/>
+                  {FLAGS[cc]||cc} {_sf((val/total)*100,0)}%
+                </span>
               ))}
             </div>
-            {/* Export CSV */}
-            <button onClick={exportCSV} style={{padding:"6px 12px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)",flexShrink:0,transition:"all .15s"}}
-              onMouseEnter={e=>{e.target.style.borderColor="var(--gold)";e.target.style.color="var(--gold)";}}
-              onMouseLeave={e=>{e.target.style.borderColor="var(--border)";e.target.style.color="var(--text-tertiary)";}}>
-              📥 CSV
+            {/* Add ticker + Refresh + CSV — all in one */}
+            <input type="text" placeholder="+ Ticker" value={searchTicker} onChange={e=>setSearchTicker(e.target.value.toUpperCase())}
+              onKeyDown={e=>{if(e.key==="Enter"&&searchTicker){updatePosition(searchTicker,{list:"portfolio",shares:0,avgCost:0,dps:0,name:searchTicker,lastPrice:0});setSearchTicker("");}}}
+              style={{padding:"5px 10px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:11,outline:"none",fontFamily:"var(--fm)",width:90}}
+              onFocus={e=>e.target.style.borderColor="var(--gold)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/>
+            <button onClick={()=>refreshPrices(true)} disabled={pricesLoading}
+              style={{padding:"5px 10px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:pricesLoading?"var(--gold)":"var(--text-tertiary)",fontSize:10,fontWeight:600,cursor:pricesLoading?"wait":"pointer",fontFamily:"var(--fm)"}}>
+              {pricesLoading?"⏳":"🔄"}
             </button>
+            <button onClick={exportCSV} title="Exportar CSV"
+              style={{padding:"5px 8px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer",fontFamily:"var(--fm)"}}
+              onMouseEnter={e=>e.target.style.color="var(--gold)"} onMouseLeave={e=>e.target.style.color="var(--text-tertiary)"}>📥</button>
           </div>);
         })()}
-        {/* Add company + Refresh prices */}
-        <div className="ar-actions-bar" style={{display:"flex",gap:10,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
-          <input type="text" placeholder="Ticker (ej: AAPL)" value={searchTicker} onChange={e=>setSearchTicker(e.target.value.toUpperCase())}
-            onKeyDown={e=>{if(e.key==="Enter"&&searchTicker){updatePosition(searchTicker,{list:"portfolio",shares:0,avgCost:0,dps:0,name:searchTicker,lastPrice:0});setSearchTicker("");}}}
-            style={{padding:"10px 14px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:12,color:"var(--text-primary)",fontSize:14,outline:"none",fontFamily:"var(--fm)",width:160}}
-            onFocus={e=>e.target.style.borderColor="var(--gold)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/>
-          <button onClick={()=>{if(searchTicker){updatePosition(searchTicker,{list:"portfolio",shares:0,avgCost:0,dps:0,name:searchTicker,lastPrice:0});setSearchTicker("");}}}
-            style={{padding:"10px 20px",borderRadius:12,border:"1px solid var(--gold)",background:"var(--gold-dim)",color:"var(--gold)",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>+ Añadir</button>
-          <button onClick={()=>refreshPrices(true)} disabled={pricesLoading}
-            style={{padding:"10px 16px",borderRadius:12,border:"1px solid var(--border)",background:pricesLoading?"rgba(201,169,80,.1)":"transparent",color:pricesLoading?"var(--gold)":"var(--text-tertiary)",fontSize:12,fontWeight:600,cursor:pricesLoading?"wait":"pointer",fontFamily:"var(--fm)",marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
-            <span style={{display:"inline-block",animation:pricesLoading?"spin 1s linear infinite":"none"}}>🔄</span> {pricesLoading?"Actualizando...":"Refresh Precios"}
-          </button>
-          {pricesLastUpdate && <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Precios: {new Date(pricesLastUpdate).toLocaleString()}</span>}
-        </div>
         {/* Country Flag Filter */}
         {portfolioList.length>0 && (() => {
           const countryCounts = {};
@@ -173,32 +177,32 @@ export default function PortfolioTab() {
           });
           const sorted = Object.entries(countryCounts).sort((a,b) => b[1] - a[1]);
           return (
-          <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
-            <button onClick={()=>setCountryFilter("")} style={{padding:"5px 10px",borderRadius:8,border:countryFilter===""?"2px solid var(--gold)":"1px solid var(--border)",background:countryFilter===""?"var(--gold-dim)":"transparent",color:countryFilter===""?"var(--gold)":"var(--text-tertiary)",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>🌍 {portfolioList.length}</button>
+          <div style={{display:"flex",gap:4,alignItems:"center",marginBottom:4,flexWrap:"wrap"}}>
+            <button onClick={()=>setCountryFilter("")} style={{padding:"3px 8px",borderRadius:6,border:countryFilter===""?"2px solid var(--gold)":"1px solid var(--border)",background:countryFilter===""?"var(--gold-dim)":"transparent",color:countryFilter===""?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>🌍 {portfolioList.length}</button>
             {sorted.map(([cc, count]) => (
-              <button key={cc} onClick={()=>setCountryFilter(countryFilter===cc?"":cc)} style={{padding:"5px 10px",borderRadius:8,border:countryFilter===cc?"2px solid var(--gold)":"1px solid var(--border)",background:countryFilter===cc?"var(--gold-dim)":"transparent",color:countryFilter===cc?"var(--gold)":"var(--text-secondary)",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}><span style={{fontSize:18,lineHeight:1,verticalAlign:"middle"}}>{FLAGS[cc]||"🏳️"}</span> <span style={{fontSize:11}}>{count}</span></button>
+              <button key={cc} onClick={()=>setCountryFilter(countryFilter===cc?"":cc)} style={{padding:"3px 7px",borderRadius:6,border:countryFilter===cc?"2px solid var(--gold)":"1px solid var(--border)",background:countryFilter===cc?"var(--gold-dim)":"transparent",color:countryFilter===cc?"var(--gold)":"var(--text-secondary)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>{FLAGS[cc]||"🏳️"} {count}</button>
             ))}
           </div>);
         })()}
-        {/* Quick filter + Company List */}
-        {portfolioList.length>5 && (
-          <div style={{position:"relative",marginBottom:4}}>
-            <input ref={searchRef} type="text" placeholder="🔍 Buscar ticker o empresa... (⌘K)" value={quickFilter} onChange={e=>setQuickFilter(e.target.value)}
-              style={{width:"100%",padding:"8px 14px 8px 14px",background:"rgba(255,255,255,.03)",border:"1px solid var(--border)",borderRadius:10,color:"var(--text-primary)",fontSize:12,outline:"none",fontFamily:"var(--fm)",transition:"border-color .2s"}}
-              onFocus={e=>e.target.style.borderColor="rgba(200,164,78,.3)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/>
-            {quickFilter && <button onClick={()=>setQuickFilter("")} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"var(--text-tertiary)",cursor:"pointer",fontSize:14}}>×</button>}
-          </div>
-        )}
-        {/* Sort buttons */}
+        {/* Search + Sort — one row */}
         {portfolioList.length>1 && (
-          <div style={{display:"flex",gap:4,alignItems:"center",marginBottom:6}}>
-            <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginRight:4}}>Ordenar:</span>
-            {SORT_OPTIONS.map(s=>(
-              <button key={s.id} onClick={()=>setListSort(s.id)}
-                style={{padding:"3px 8px",borderRadius:6,border:`1px solid ${listSort===s.id?"var(--gold)":"var(--border)"}`,background:listSort===s.id?"var(--gold-dim)":"transparent",color:listSort===s.id?"var(--gold)":"var(--text-tertiary)",fontSize:9,fontWeight:listSort===s.id?700:500,cursor:"pointer",fontFamily:"var(--fm)",transition:"all .15s"}}>
-                {s.lbl}
-              </button>
-            ))}
+          <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:2}}>
+            {portfolioList.length>5 && (
+              <div style={{position:"relative",flex:1,maxWidth:220}}>
+                <input ref={searchRef} type="text" placeholder="🔍 Buscar... (⌘K)" value={quickFilter} onChange={e=>setQuickFilter(e.target.value)}
+                  style={{width:"100%",padding:"5px 10px",background:"rgba(255,255,255,.03)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,outline:"none",fontFamily:"var(--fm)"}}
+                  onFocus={e=>e.target.style.borderColor="rgba(200,164,78,.3)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/>
+                {quickFilter && <button onClick={()=>setQuickFilter("")} style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"var(--text-tertiary)",cursor:"pointer",fontSize:12}}>×</button>}
+              </div>
+            )}
+            <div style={{display:"flex",gap:3,marginLeft:"auto"}}>
+              {SORT_OPTIONS.map(s=>(
+                <button key={s.id} onClick={()=>setListSort(s.id)}
+                  style={{padding:"3px 7px",borderRadius:5,border:`1px solid ${listSort===s.id?"var(--gold)":"var(--border)"}`,background:listSort===s.id?"var(--gold-dim)":"transparent",color:listSort===s.id?"var(--gold)":"var(--text-tertiary)",fontSize:9,fontWeight:listSort===s.id?700:500,cursor:"pointer",fontFamily:"var(--fm)"}}>
+                  {s.lbl}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {portfolioList.length===0 && <div style={{textAlign:"center",padding:60,color:"var(--text-tertiary)"}}><div style={{fontSize:48,marginBottom:16}}>💼</div>Portfolio vacío. Añade tu primera empresa arriba.</div>}
@@ -221,19 +225,121 @@ export default function PortfolioTab() {
                 {!filtered.length && quickFilter && <span style={{marginLeft:8}}>— sin resultados para "{quickFilter}"</span>}
               </div>
             )}
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <div style={{display:"flex",flexDirection:"column",gap:3}}>
               {sorted.map(p=><CompanyRow key={p.ticker} p={p} showPos={true} onOpen={openAnalysis}/>)}
             </div>
           </>;
         })()}
 
-        {/* Market Cap Index — Sortable Table */}
+        {/* Heatmap */}
+        {portfolioTotals.positions?.length > 0 && (() => {
+          const pos = portfolioTotals.positions;
+          const totalVal = pos.reduce((s,p)=>s+(p.valueUSD||0),0) || 1;
+          return (
+          <div style={{marginTop:8}}>
+            <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:4}}>📊 Heatmap — tamaño = peso, color = P&L</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:2,borderRadius:10,overflow:"hidden"}}>
+              {[...pos].sort((a,b)=>(b.valueUSD||0)-(a.valueUSD||0)).map(p => {
+                const w = Math.max((p.valueUSD||0)/totalVal*100, 1.5);
+                const pnl = (p.pnlPct||0)*100;
+                const bg = pnl > 20 ? "#1a5c2a" : pnl > 5 ? "#1e4d2a" : pnl > 0 ? "#1a3d24" : pnl > -5 ? "#3d2020" : pnl > -20 ? "#4d2020" : "#5c1a1a";
+                return (
+                  <div key={p.ticker} onClick={()=>openAnalysis(p.ticker)} title={`${p.ticker}: ${_sf(pnl,1)}% · $${_sf(p.valueUSD||0,0)}`}
+                    style={{width:`calc(${w}% - 2px)`,minWidth:40,padding:"4px 3px",background:bg,cursor:"pointer",textAlign:"center",transition:"all .15s",borderRadius:3}}
+                    onMouseEnter={e=>e.currentTarget.style.opacity=".8"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+                    <div style={{fontSize:8,fontWeight:700,color:"#fff",fontFamily:"var(--fm)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.ticker}</div>
+                    <div style={{fontSize:9,fontWeight:600,color:pnl>=0?"#4ade80":"#f87171",fontFamily:"var(--fm)"}}>{pnl>=0?"+":""}{_sf(pnl,0)}%</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>);
+        })()}
+
+        {/* Tools row */}
         {portfolioTotals.positions?.length > 0 && (
-          <div style={{marginTop:16}}>
-            <button onClick={()=>setShowCapTable(!showCapTable)} style={{display:"flex",alignItems:"center",gap:6,padding:"8px 16px",borderRadius:10,border:"1px solid var(--border)",background:showCapTable?"var(--gold-dim)":"transparent",color:showCapTable?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)",marginBottom:showCapTable?12:0}}>
-              📊 {showCapTable?"Ocultar":"Mostrar"} Índice Market Cap
-            </button>
-            {showCapTable && (() => {
+          <div style={{display:"flex",gap:6,marginTop:8,flexWrap:"wrap"}}>
+            <button onClick={()=>setShowCapTable(!showCapTable)} style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${showCapTable?"var(--gold)":"var(--border)"}`,background:showCapTable?"var(--gold-dim)":"transparent",color:showCapTable?"var(--gold)":"var(--text-tertiary)",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>📊 Market Cap</button>
+            <button onClick={()=>setShowRebalance(!showRebalance)} style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${showRebalance?"var(--gold)":"var(--border)"}`,background:showRebalance?"var(--gold-dim)":"transparent",color:showRebalance?"var(--gold)":"var(--text-tertiary)",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>⚖️ Rebalanceo</button>
+            <button onClick={()=>{setShowAlerts(!showAlerts);if(!showAlerts&&"Notification"in window)Notification.requestPermission();}} style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${showAlerts?"var(--gold)":"var(--border)"}`,background:showAlerts?"var(--gold-dim)":"transparent",color:showAlerts?"var(--gold)":"var(--text-tertiary)",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>🔔 Alertas {alerts.length>0?`(${alerts.filter(a=>!a.fired).length})`:""}</button>
+          </div>
+        )}
+
+        {/* Rebalance Tool */}
+        {showRebalance && portfolioTotals.positions?.length > 0 && (
+          <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:14,marginTop:8}}>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)",marginBottom:8}}>⚖️ Rebalanceo — Top 10 por desviación del peso ideal</div>
+            <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:8}}>Peso ideal = 100% / {portfolioTotals.positions.length} posiciones = {_sf(100/portfolioTotals.positions.length,1)}% cada una</div>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                <thead><tr style={{borderBottom:"1px solid var(--border)"}}>
+                  {["Ticker","Peso actual","Peso ideal","Desviación","Acción","Importe"].map(h=>(
+                    <th key={h} style={{padding:"4px 8px",textAlign:h==="Ticker"?"left":"right",color:"var(--text-tertiary)",fontSize:9,fontWeight:700,fontFamily:"var(--fm)"}}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {(() => {
+                    const idealWeight = 1 / portfolioTotals.positions.length;
+                    const totalVal = portfolioTotals.totalValueUSD;
+                    return [...portfolioTotals.positions]
+                      .map(p => ({...p, deviation: (p.weight||0) - idealWeight}))
+                      .sort((a,b) => Math.abs(b.deviation) - Math.abs(a.deviation))
+                      .slice(0,10)
+                      .map(p => (
+                        <tr key={p.ticker} style={{borderBottom:"1px solid rgba(255,255,255,.03)"}}>
+                          <td style={{padding:"4px 8px",fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{p.ticker}</td>
+                          <td style={{padding:"4px 8px",textAlign:"right",fontFamily:"var(--fm)"}}>{_sf((p.weight||0)*100,1)}%</td>
+                          <td style={{padding:"4px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)"}}>{_sf(idealWeight*100,1)}%</td>
+                          <td style={{padding:"4px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:p.deviation>0?"var(--red)":"var(--green)"}}>{p.deviation>0?"+":""}{_sf(p.deviation*100,1)}%</td>
+                          <td style={{padding:"4px 8px",textAlign:"right",fontFamily:"var(--fm)",color:p.deviation>0?"var(--red)":"var(--green)",fontSize:10}}>{p.deviation>0?"VENDER":"COMPRAR"}</td>
+                          <td style={{padding:"4px 8px",textAlign:"right",fontFamily:"var(--fm)",fontWeight:600}}>{privacyMode?"•••":"$"+_sf(Math.abs(p.deviation)*totalVal,0)}</td>
+                        </tr>
+                      ));
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Price Alerts */}
+        {showAlerts && (
+          <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:14,marginTop:8}}>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)",marginBottom:8}}>🔔 Alertas de Precio</div>
+            <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:8}}>
+              <select value={alertForm.ticker} onChange={e=>setAlertForm({...alertForm,ticker:e.target.value})}
+                style={{padding:"5px 8px",borderRadius:6,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)",outline:"none"}}>
+                <option value="">Ticker...</option>
+                {(portfolioTotals.positions||[]).map(p=><option key={p.ticker} value={p.ticker}>{p.ticker} (${_sf(p.lastPrice,2)})</option>)}
+              </select>
+              <select value={alertForm.direction} onChange={e=>setAlertForm({...alertForm,direction:e.target.value})}
+                style={{padding:"5px 8px",borderRadius:6,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)",outline:"none"}}>
+                <option value="below">≤ Baja a</option>
+                <option value="above">≥ Sube a</option>
+              </select>
+              <input type="number" placeholder="$" value={alertForm.price} onChange={e=>setAlertForm({...alertForm,price:e.target.value})}
+                style={{padding:"5px 8px",borderRadius:6,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)",outline:"none",width:70}}/>
+              <button onClick={()=>{if(alertForm.ticker&&alertForm.price){saveAlerts([...alerts,{...alertForm,price:parseFloat(alertForm.price),fired:false,created:new Date().toISOString()}]);setAlertForm({ticker:"",price:"",direction:"below"});}}}
+                style={{padding:"5px 12px",borderRadius:6,border:"1px solid var(--gold)",background:"var(--gold-dim)",color:"var(--gold)",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>+ Crear</button>
+            </div>
+            {alerts.length > 0 && (
+              <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                {alerts.map((a,i) => (
+                  <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 8px",background:a.fired?"rgba(48,209,88,.06)":"rgba(255,255,255,.02)",borderRadius:6,fontSize:10,fontFamily:"var(--fm)"}}>
+                    <span><b style={{color:"var(--gold)"}}>{a.ticker}</b> {a.direction==="below"?"≤":"≥"} <b>${a.price}</b></span>
+                    <span>{a.fired ? <span style={{color:"var(--green)"}}>✅ Disparada</span> : <span style={{color:"var(--text-tertiary)"}}>Pendiente</span>}</span>
+                    <button onClick={()=>saveAlerts(alerts.filter((_,j)=>j!==i))} style={{border:"none",background:"transparent",color:"var(--text-tertiary)",cursor:"pointer",fontSize:10}}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Market Cap Index — Sortable Table */}
+        {portfolioTotals.positions?.length > 0 && showCapTable && (
+          <div style={{marginTop:8}}>
+            {(() => {
               const capLabel = mc => {
                 const v = (mc||0)*1e9;
                 return v>=200e9?"MEGA":v>=10e9?"LC":v>=2e9?"MC":v>=300e6?"SC":v>0?"μC":"—";

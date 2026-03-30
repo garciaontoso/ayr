@@ -78,9 +78,9 @@ export default function CoveredCallsTab() {
   const [calcTicker, setCalcTicker] = useState(null);
   const [calcStrike, setCalcStrike] = useState(0);
   const [calcDte, setCalcDte] = useState(30);
-  const [dataSource, setDataSource] = useState("loading"); // "massive" | "yahoo" | "mixed" | "bs"
-  const [massiveCount, setMassiveCount] = useState(0);
+  const [dataSource, setDataSource] = useState("loading"); // "yahoo" | "bs"
   const [yahooCount, setYahooCount] = useState(0);
+  const [marketCtx, setMarketCtx] = useState({ vix: 0, spy: 0, spyChg: 0, spyChgPct: 0 });
   const [section, setSection] = useState("calls");
 
   // Wheel tracker state (localStorage)
@@ -107,83 +107,40 @@ export default function CoveredCallsTab() {
     return eligible.filter(p => !p.ticker.includes(":")).map(p => p.ticker);
   }, [eligible]);
 
-  // Fetch all data
+  // Progressive loading: show B-S estimates instantly, then load real data in background
+  const [yahooProgress, setYahooProgress] = useState(0);
+
   useEffect(() => {
     if (!eligible.length) { setLoading(false); return; }
     const tickers = eligible.map(p => p.ticker);
-    let completed = 0;
-    const total = 3;
-    const checkDone = () => { completed++; if (completed >= total) { setLoading(false); setLastUpdate(new Date()); } };
 
-    // 1. Earnings dates
-    setLoadingMsg("Cargando earnings...");
+    // 0. Market context (VIX + SPY) — fast
+    fetch(`${API_URL}/api/prices?tickers=^VIX,SPY`)
+      .then(r => r.json())
+      .then(data => {
+        const vix = data?.["^VIX"];
+        const spy = data?.SPY;
+        setMarketCtx({
+          vix: vix?.price || 0,
+          spy: spy?.price || 0,
+          spyChg: spy?.change || 0,
+          spyChgPct: spy?.changePct || 0,
+        });
+      })
+      .catch(() => {});
+
+    // 1. Earnings (fast, parallel)
     fetch(`${API_URL}/api/earnings-batch?symbols=${tickers.join(",")}`)
       .then(r => r.json())
-      .then(data => { setEarningsData(data || {}); checkDone(); })
-      .catch(() => checkDone());
+      .then(data => setEarningsData(data || {}))
+      .catch(() => {});
 
-    // 2. Real options data — Massive (greeks!) first, Yahoo fallback
-    setLoadingMsg("Cargando opciones desde Massive (greeks + IV)...");
-    if (usTickers.length > 0) {
-      const fetchOptions = async () => {
-        const results = {};
-        let massiveOK = 0, yahooOK = 0;
-
-        // Step A: Try Massive for all tickers (rate-limited server-side)
-        try {
-          setLoadingMsg(`Massive: cargando ${usTickers.length} tickers (5/min)...`);
-          // Send all — server handles rate limiting with 12.5s delays
-          const r = await fetch(`${API_URL}/api/options-massive?symbols=${usTickers.join(",")}&dte=${dte}&otm=${otmPct}`, { signal: AbortSignal.timeout(usTickers.length * 14000 + 30000) });
-          const data = await r.json();
-          for (const [sym, val] of Object.entries(data)) {
-            if (val && val.bid !== undefined && !val.error) {
-              results[sym] = val;
-              massiveOK++;
-            }
-          }
-        } catch (e) { console.warn("Massive options error:", e); }
-
-        // Step B: Yahoo fallback for tickers Massive missed
-        const missing = usTickers.filter(t => !results[t] || results[t].error);
-        if (missing.length > 0) {
-          setLoadingMsg(`Yahoo fallback: ${missing.length} tickers...`);
-          for (let i = 0; i < missing.length; i += 20) {
-            const batch = missing.slice(i, i + 20);
-            try {
-              const r = await fetch(`${API_URL}/api/options-batch?symbols=${batch.join(",")}&dte=${dte}&otm=${otmPct}`);
-              const data = await r.json();
-              for (const [sym, val] of Object.entries(data)) {
-                if (val && val.bid !== undefined && !val.error) {
-                  results[sym] = { ...val, source: "YAHOO" };
-                  yahooOK++;
-                }
-              }
-            } catch(e) { console.warn("Yahoo batch error:", e); }
-          }
-        }
-
-        setOptionsData(results);
-        const src = massiveOK > 0 && yahooOK > 0 ? "mixed"
-          : massiveOK > 0 ? "massive"
-          : yahooOK > 0 ? "yahoo" : "bs";
-        setDataSource(src);
-        setMassiveCount(massiveOK);
-        setYahooCount(yahooOK);
-        checkDone();
-      };
-      fetchOptions();
-    } else {
-      setDataSource("bs");
-      checkDone();
-    }
-
-    // 3. Price history for HV (fallback IV calculation)
-    setLoadingMsg("Calculando volatilidad histórica...");
+    // 2. Price history for HV/B-S (show table immediately after this)
     const fetchPrices = async () => {
       const from = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
       const results = {};
-      for (let i = 0; i < tickers.length; i += 3) {
-        const batch = tickers.slice(i, i + 3);
+      for (let i = 0; i < tickers.length; i += 5) {
+        const batch = tickers.slice(i, i + 5);
         await Promise.all(batch.map(async t => {
           try {
             const r = await fetch(`${API_URL}/api/price-history?symbol=${t}&from=${from}`);
@@ -193,7 +150,38 @@ export default function CoveredCallsTab() {
         }));
       }
       setPriceData(results);
-      checkDone();
+      // Table now shows with B-S estimates — loading done
+      setLoading(false);
+      setDataSource("bs");
+      setLastUpdate(new Date());
+
+      // 3. Background: load real Yahoo data progressively in batches of 5
+      if (usTickers.length > 0) {
+        let loaded = 0;
+        for (let i = 0; i < usTickers.length; i += 5) {
+          const batch = usTickers.slice(i, i + 5);
+          try {
+            const r = await fetch(`${API_URL}/api/options-batch?symbols=${batch.join(",")}&dte=${dte}&otm=${otmPct}`);
+            const data = await r.json();
+            // Update incrementally — each batch replaces B-S with real data
+            setOptionsData(prev => {
+              const updated = { ...prev };
+              for (const [sym, val] of Object.entries(data)) {
+                if (val && val.bid !== undefined && !val.error) {
+                  updated[sym] = { ...val, source: "YAHOO" };
+                  loaded++;
+                }
+              }
+              return updated;
+            });
+            setYahooProgress(Math.round((i + batch.length) / usTickers.length * 100));
+            setYahooCount(loaded);
+            setDataSource(loaded > 0 ? "yahoo" : "bs");
+          } catch(e) { console.warn("Yahoo batch error:", e); }
+        }
+        setYahooProgress(100);
+        setLastUpdate(new Date());
+      }
     };
     fetchPrices();
   }, [eligible, dte, otmPct, refreshKey]);
@@ -413,14 +401,18 @@ export default function CoveredCallsTab() {
       {/* ── DATA SOURCE BADGE + REFRESH ── */}
       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
         <span style={{fontSize:9,padding:"3px 8px",borderRadius:6,fontFamily:"var(--fm)",fontWeight:600,
-          background: dataSource === "massive" ? "rgba(100,210,255,.1)" : dataSource === "yahoo" ? "rgba(48,209,88,.1)" : dataSource === "mixed" ? "rgba(255,214,10,.1)" : "rgba(255,255,255,.05)",
-          color: dataSource === "massive" ? "#64d2ff" : dataSource === "yahoo" ? "#30d158" : dataSource === "mixed" ? "#ffd60a" : "var(--text-tertiary)",
-          border: `1px solid ${dataSource === "massive" ? "rgba(100,210,255,.3)" : dataSource === "yahoo" ? "rgba(48,209,88,.3)" : dataSource === "mixed" ? "rgba(255,214,10,.3)" : "var(--border)"}`}}>
-          {dataSource === "massive" ? `📡 Massive · ${massiveCount} tickers (greeks)` :
-           dataSource === "yahoo" ? `📡 Yahoo · ${yahooCount} tickers` :
-           dataSource === "mixed" ? `📡 ${massiveCount} Massive + ${yahooCount} Yahoo · ${ccData.length - massiveCount - yahooCount > 0 ? (ccData.length - massiveCount - yahooCount) + " B-S" : ""}` :
-           "📐 Black-Scholes"}
+          background: dataSource === "yahoo" ? "rgba(48,209,88,.1)" : "rgba(255,255,255,.05)",
+          color: dataSource === "yahoo" ? "#30d158" : "var(--text-tertiary)",
+          border: `1px solid ${dataSource === "yahoo" ? "rgba(48,209,88,.3)" : "var(--border)"}`}}>
+          {dataSource === "yahoo"
+            ? (yahooProgress < 100 ? `📡 Yahoo ${yahooCount}/${usTickers.length} (${yahooProgress}%)` : `📡 Yahoo · ${yahooCount} tickers`)
+            : (yahooProgress > 0 && yahooProgress < 100 ? `📐 B-S → Yahoo ${yahooProgress}%` : "📐 Black-Scholes")}
         </span>
+        {yahooProgress > 0 && yahooProgress < 100 && (
+          <div style={{width:80,height:4,background:"rgba(255,255,255,.06)",borderRadius:2,overflow:"hidden"}}>
+            <div style={{width:`${yahooProgress}%`,height:"100%",background:"#30d158",borderRadius:2,transition:"width .3s"}}/>
+          </div>
+        )}
         <button onClick={()=>{setLoading(true); setRefreshKey(k=>k+1);}} style={{fontSize:9,padding:"3px 10px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",cursor:"pointer",fontFamily:"var(--fm)",fontWeight:600,transition:"all .15s"}}
           onMouseEnter={e=>e.target.style.borderColor="var(--gold)"} onMouseLeave={e=>e.target.style.borderColor="var(--border)"}>
           🔄 Refresh
@@ -429,6 +421,41 @@ export default function CoveredCallsTab() {
           Actualizado: {lastUpdate.toLocaleTimeString("es-ES")} · Auto-refresh: 15min
         </span>}
       </div>
+
+      {/* ── MARKET CONTEXT PANEL ── */}
+      {(marketCtx.vix > 0 || marketCtx.spy > 0) && (
+        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+          {/* VIX */}
+          <div style={{padding:"8px 14px",borderRadius:10,border:`1px solid ${marketCtx.vix>25?"rgba(48,209,88,.3)":marketCtx.vix>18?"rgba(255,214,10,.2)":"rgba(255,69,58,.2)"}`,background:marketCtx.vix>25?"rgba(48,209,88,.04)":marketCtx.vix>18?"rgba(255,214,10,.04)":"rgba(255,69,58,.04)",flex:"0 0 auto"}}>
+            <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,letterSpacing:.5}}>VIX</div>
+            <div style={{fontSize:18,fontWeight:700,fontFamily:"var(--fm)",color:marketCtx.vix>25?"var(--green)":marketCtx.vix>18?"#ffd60a":"var(--red)"}}>{_sf(marketCtx.vix,1)}</div>
+            <div style={{fontSize:8,fontFamily:"var(--fm)",color:marketCtx.vix>25?"var(--green)":marketCtx.vix>18?"#ffd60a":"var(--red)"}}>
+              {marketCtx.vix>30?"🟢 Primas altas":marketCtx.vix>25?"🟢 Buen momento":marketCtx.vix>18?"🟡 Moderado":"🔴 Primas bajas"}
+            </div>
+          </div>
+          {/* SPY */}
+          <div style={{padding:"8px 14px",borderRadius:10,border:"1px solid var(--border)",background:"var(--card)",flex:"0 0 auto"}}>
+            <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,letterSpacing:.5}}>S&P 500</div>
+            <div style={{fontSize:18,fontWeight:700,fontFamily:"var(--fm)",color:"var(--text-primary)"}}>${_sf(marketCtx.spy,0)}</div>
+            <div style={{fontSize:9,fontFamily:"var(--fm)",color:marketCtx.spyChgPct>=0?"var(--green)":"var(--red)",fontWeight:600}}>
+              {marketCtx.spyChgPct>=0?"+":""}{_sf(marketCtx.spyChgPct,2)}% hoy
+            </div>
+          </div>
+          {/* Guidance */}
+          <div style={{padding:"8px 14px",borderRadius:10,border:"1px solid var(--border)",background:"rgba(200,164,78,.03)",flex:1,minWidth:200}}>
+            <div style={{fontSize:8,color:"var(--gold)",fontFamily:"var(--fm)",fontWeight:600,letterSpacing:.5}}>RECOMENDACIÓN</div>
+            <div style={{fontSize:11,fontFamily:"var(--fm)",color:"var(--text-secondary)",marginTop:2}}>
+              {marketCtx.vix > 25
+                ? "✅ VIX alto — buen momento para vender opciones. Las primas están infladas."
+                : marketCtx.vix > 18
+                ? "⚡ VIX normal — selecciona strikes conservadores (7-10% OTM)."
+                : "⚠️ VIX bajo — las primas son pequeñas. Considera esperar a más volatilidad o vender más cerca del dinero."}
+              {marketCtx.spyChgPct < -1 && " 📉 Mercado bajista hoy — cuidado con puts."}
+              {marketCtx.spyChgPct > 1 && " 📈 Mercado alcista hoy — buen momento para covered calls."}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── SECTION TOGGLE ── */}
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>

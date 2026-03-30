@@ -1,8 +1,16 @@
+import { useState, useEffect } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
-import { _CURRENT_YEAR } from '../../constants/index.js';
+import { _CURRENT_YEAR, API_URL } from '../../constants/index.js';
 
 export default function DashboardTab() {
+  const [nlvHistory, setNlvHistory] = useState([]);
+  useEffect(() => {
+    fetch(`${API_URL}/api/ib-nlv-history?limit=90`)
+      .then(r => r.json())
+      .then(d => setNlvHistory(d.results || []))
+      .catch(() => {});
+  }, []);
   const {
     portfolioTotals, portfolioList, privacyMode, hide, hideN,
     openAnalysis, POS_STATIC, getCountry, FLAGS,
@@ -123,6 +131,43 @@ return (
       </div>
     );
   })()}
+
+  {/* ── NLV History Mini-Chart ── */}
+  {nlvHistory.length > 1 && (
+    <div style={{padding:"12px 16px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:12}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>📈 Evolución NLV (IB)</div>
+        <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{nlvHistory.length} días · {nlvHistory[0]?.fecha} → {nlvHistory[nlvHistory.length-1]?.fecha}</div>
+      </div>
+      <svg viewBox={`0 0 ${Math.max(nlvHistory.length*4,100)} 50`} style={{width:"100%",height:60}}>
+        {(() => {
+          const values = nlvHistory.map(d => d.nlv);
+          const min = Math.min(...values) * 0.998;
+          const max = Math.max(...values) * 1.002;
+          const range = max - min || 1;
+          const w = Math.max(nlvHistory.length * 4, 100);
+          const points = values.map((v, i) => `${(i / (values.length - 1)) * w},${50 - ((v - min) / range) * 46}`).join(" ");
+          const fillPoints = points + ` ${w},50 0,50`;
+          const isUp = values[values.length - 1] >= values[0];
+          return <>
+            <defs><linearGradient id="nlvGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={isUp?"#30d158":"#ff453a"} stopOpacity=".15"/><stop offset="100%" stopColor={isUp?"#30d158":"#ff453a"} stopOpacity="0"/></linearGradient></defs>
+            <polygon points={fillPoints} fill="url(#nlvGrad)"/>
+            <polyline points={points} fill="none" stroke={isUp?"#30d158":"#ff453a"} strokeWidth="1.5" strokeLinejoin="round"/>
+          </>;
+        })()}
+      </svg>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:10,fontFamily:"var(--fm)",marginTop:4}}>
+        <span style={{color:"var(--text-tertiary)"}}>{hide("$"+fDol(nlvHistory[0]?.nlv||0))}</span>
+        {(() => {
+          const first = nlvHistory[0]?.nlv || 0;
+          const last = nlvHistory[nlvHistory.length-1]?.nlv || 0;
+          const chg = first > 0 ? ((last - first) / first * 100) : 0;
+          return <span style={{fontWeight:700,color:chg>=0?"var(--green)":"var(--red)"}}>{chg>=0?"+":""}{_sf(chg,1)}%</span>;
+        })()}
+        <span style={{color:"var(--text-tertiary)"}}>{hide("$"+fDol(nlvHistory[nlvHistory.length-1]?.nlv||0))}</span>
+      </div>
+    </div>
+  )}
 
   {/* ── Summary Cards (Enhanced) ── */}
   {(() => {

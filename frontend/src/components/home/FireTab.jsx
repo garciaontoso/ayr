@@ -1,5 +1,324 @@
+import { useState, useMemo } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
+
+// ─── Your Number Calculator ───
+function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, fxEurUsd, fireCcy }) {
+  const isUSD = fireCcy === "USD";
+  const sym = isUSD ? "$" : "€";
+  const toD = v => isUSD ? v : v / fxEurUsd;
+
+  // Editable scenario params — pre-filled with user's real data
+  const [scenarios, setScenarios] = useState([
+    {
+      name: "🏠 Vida Actual",
+      lifestyleCost: Math.round(gastosAnnual > 0 ? (isUSD ? gastosAnnual : gastosAnnual) : 50000),
+      guaranteedIncome: Math.round(isUSD ? 23000 * fxEurUsd : 23000), // estimated guaranteed
+      inflation: 3.6,
+      yearsBefore: 10,
+      yearsIn: 40,
+      capitalToday: Math.round(pat > 0 ? pat : 600000),
+      savePerYear: 12000,
+      returnWorking: 7,
+      returnRetired: 5,
+      inflationRetired: 3.6,
+    },
+    {
+      name: "🚀 Agresivo",
+      lifestyleCost: Math.round(gastosAnnual > 0 ? (isUSD ? gastosAnnual : gastosAnnual) : 50000),
+      guaranteedIncome: Math.round(divNetA > 0 ? divNetA : 6000),
+      inflation: 3.6,
+      yearsBefore: 10,
+      yearsIn: 40,
+      capitalToday: Math.round(pat > 0 ? pat : 600000),
+      savePerYear: 24000,
+      returnWorking: 12,
+      returnRetired: 8,
+      inflationRetired: 3.6,
+    },
+    {
+      name: "🇪🇸 Solo España",
+      lifestyleCost: Math.round(espRealistaA > 0 ? espRealistaA : 45000),
+      guaranteedIncome: Math.round(divNetA > 0 ? divNetA : 6000),
+      inflation: 3.6,
+      yearsBefore: 15,
+      yearsIn: 35,
+      capitalToday: Math.round(pat > 0 ? pat : 600000),
+      savePerYear: 18000,
+      returnWorking: 7,
+      returnRetired: 5,
+      inflationRetired: 3.6,
+    },
+  ]);
+
+  const [activeScenario, setActiveScenario] = useState(0);
+
+  const updateField = (idx, field, value) => {
+    setScenarios(prev => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s));
+  };
+
+  // Calculate Your Number for a scenario
+  const calcYourNumber = (s) => {
+    const requiredIncome = s.lifestyleCost - s.guaranteedIncome;
+    const retirementYear = new Date().getFullYear() + s.yearsBefore;
+
+    // Capital at retirement (FV of current + annual contributions)
+    let capital = s.capitalToday;
+    for (let y = 0; y < s.yearsBefore; y++) {
+      capital = capital * (1 + s.returnWorking / 100) + s.savePerYear;
+    }
+
+    // Cost of living at retirement year (inflated)
+    const costAtRetirement = s.lifestyleCost * Math.pow(1 + s.inflation / 100, s.yearsBefore);
+    const guaranteedAtRetirement = s.guaranteedIncome * Math.pow(1 + s.inflation / 100, s.yearsBefore);
+    const requiredAtRetirement = costAtRetirement - guaranteedAtRetirement;
+
+    // Net real return during retirement
+    const netReturnRetired = (s.returnRetired - s.inflationRetired) / 100;
+
+    // Your Number = PV of annuity of required income during retirement
+    let yourNumber;
+    if (Math.abs(netReturnRetired) < 0.001) {
+      yourNumber = requiredAtRetirement * s.yearsIn;
+    } else {
+      yourNumber = requiredAtRetirement * (1 - Math.pow(1 + netReturnRetired, -s.yearsIn)) / netReturnRetired;
+    }
+
+    // Years until money runs out in retirement
+    let bal = capital;
+    let yearsLast = 0;
+    let annualCost = costAtRetirement;
+    let annualGuaranteed = guaranteedAtRetirement;
+    for (let y = 1; y <= s.yearsIn + 30; y++) {
+      bal = bal * (1 + s.returnRetired / 100) - (annualCost - annualGuaranteed);
+      annualCost *= (1 + s.inflationRetired / 100);
+      annualGuaranteed *= (1 + s.inflationRetired / 100);
+      if (bal <= 0) { yearsLast = y; break; }
+      yearsLast = y;
+      if (y >= s.yearsIn + 30) break;
+    }
+    const runsOut = bal > 0 ? false : true;
+
+    // Build trajectory
+    const trajectory = [];
+    let tBal = capital;
+    let tCost = costAtRetirement;
+    let tInc = guaranteedAtRetirement;
+    for (let y = 0; y <= Math.min(s.yearsIn, 50); y++) {
+      trajectory.push({ year: retirementYear + y, balance: tBal, cost: tCost, income: tInc });
+      tBal = tBal * (1 + s.returnRetired / 100) - (tCost - tInc);
+      tCost *= (1 + s.inflationRetired / 100);
+      tInc *= (1 + s.inflationRetired / 100);
+      if (tBal < 0) tBal = 0;
+    }
+
+    const overUnder = capital - yourNumber;
+
+    return {
+      requiredIncome, retirementYear, capital, costAtRetirement,
+      requiredAtRetirement, netReturnRetired, yourNumber, yearsLast,
+      runsOut, overUnder, trajectory, guaranteedAtRetirement,
+    };
+  };
+
+  const results = scenarios.map(calcYourNumber);
+  const s = scenarios[activeScenario];
+  const r = results[activeScenario];
+
+  const fN = v => `${sym}${Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  const fNs = v => `${v >= 0 ? '' : '-'}${sym}${Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+
+  const card = { background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 14, padding: 16 };
+  const inp = (val, onChange, step = 1) => ({
+    value: val, onChange: e => onChange(parseFloat(e.target.value) || 0),
+    type: 'number', step,
+    style: { width: 90, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 12, fontFamily: 'var(--fm)', textAlign: 'right' },
+  });
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Scenario tabs */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {scenarios.map((sc, i) => (
+          <button key={i} onClick={() => setActiveScenario(i)}
+            style={{ padding: '6px 14px', borderRadius: 8, border: `1px solid ${activeScenario === i ? 'var(--gold)' : 'var(--border)'}`, background: activeScenario === i ? 'var(--gold-dim)' : 'transparent', color: activeScenario === i ? 'var(--gold)' : 'var(--text-tertiary)', fontSize: 11, fontWeight: activeScenario === i ? 700 : 500, cursor: 'pointer', fontFamily: 'var(--fb)' }}>
+            {sc.name}
+          </button>
+        ))}
+      </div>
+
+      {/* Comparison cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+        {scenarios.map((sc, i) => {
+          const rc = results[i];
+          const ok = rc.overUnder >= 0;
+          return (
+            <div key={i} onClick={() => setActiveScenario(i)}
+              style={{ ...card, cursor: 'pointer', borderColor: activeScenario === i ? 'var(--gold)' : 'var(--border)', transition: 'all .15s', textAlign: 'center' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: activeScenario === i ? 'var(--gold)' : 'var(--text-secondary)', marginBottom: 8 }}>{sc.name}</div>
+              <div style={{ fontSize: 9, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>YOUR NUMBER</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--gold)', fontFamily: 'var(--fm)', margin: '4px 0' }}>{fN(rc.yourNumber)}</div>
+              <div style={{ fontSize: 9, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>CAPITAL JUBILACIÓN</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--fm)', marginBottom: 4 }}>{fN(rc.capital)}</div>
+              <div style={{ fontSize: 14, fontWeight: 800, fontFamily: 'var(--fm)', color: ok ? 'var(--green)' : 'var(--red)', padding: '6px 0', borderTop: '1px solid var(--border)', marginTop: 6 }}>
+                {ok ? '✅' : '❌'} {fNs(rc.overUnder)}
+              </div>
+              <div style={{ fontSize: 9, color: ok ? 'var(--green)' : 'var(--red)', fontFamily: 'var(--fm)' }}>
+                {ok ? `Sobran ${fN(rc.overUnder)}` : `Faltan ${fN(Math.abs(rc.overUnder))}`}
+              </div>
+              {rc.runsOut && <div style={{ fontSize: 9, color: 'var(--red)', fontFamily: 'var(--fm)', marginTop: 4 }}>⚠️ Se acaba en {rc.yearsLast} años</div>}
+              {!rc.runsOut && <div style={{ fontSize: 9, color: 'var(--green)', fontFamily: 'var(--fm)', marginTop: 4 }}>💎 Dinero para {rc.yearsLast}+ años</div>}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Active scenario detail */}
+      <div style={card}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--gold)', fontFamily: 'var(--fd)', marginBottom: 14 }}>
+          🔢 {s.name} — Parámetros
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+          {/* Working phase */}
+          <div style={{ padding: 12, background: 'rgba(255,255,255,.02)', borderRadius: 10, border: '1px solid rgba(255,255,255,.04)' }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#64d2ff', marginBottom: 8, fontFamily: 'var(--fm)' }}>📊 FASE TRABAJO</div>
+            {[
+              ['Coste de vida/año', 'lifestyleCost', 1000],
+              ['Ingresos garantizados/año', 'guaranteedIncome', 1000],
+              ['Capital hoy', 'capitalToday', 1000],
+              ['Ahorro adicional/año', 'savePerYear', 1000],
+              ['Años hasta jubilación', 'yearsBefore', 1],
+              ['Retorno inversión (%)', 'returnWorking', 0.5],
+              ['Inflación (%)', 'inflation', 0.1],
+            ].map(([label, field, step]) => (
+              <div key={field} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <span style={{ fontSize: 10, color: 'var(--text-secondary)', fontFamily: 'var(--fm)' }}>{label}</span>
+                <input {...inp(s[field], v => updateField(activeScenario, field, v), step)} />
+              </div>
+            ))}
+          </div>
+          {/* Retirement phase */}
+          <div style={{ padding: 12, background: 'rgba(255,255,255,.02)', borderRadius: 10, border: '1px solid rgba(255,255,255,.04)' }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#ff9f43', marginBottom: 8, fontFamily: 'var(--fm)' }}>🏖️ FASE JUBILACIÓN</div>
+            {[
+              ['Años en jubilación', 'yearsIn', 1],
+              ['Retorno inversión (%)', 'returnRetired', 0.5],
+              ['Inflación jubilación (%)', 'inflationRetired', 0.1],
+            ].map(([label, field, step]) => (
+              <div key={field} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <span style={{ fontSize: 10, color: 'var(--text-secondary)', fontFamily: 'var(--fm)' }}>{label}</span>
+                <input {...inp(s[field], v => updateField(activeScenario, field, v), step)} />
+              </div>
+            ))}
+            <div style={{ marginTop: 8, padding: '8px', background: 'rgba(214,158,46,.06)', borderRadius: 6 }}>
+              <div style={{ fontSize: 9, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>Retorno real neto</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: r.netReturnRetired * 100 > 2 ? 'var(--green)' : r.netReturnRetired * 100 > 0 ? 'var(--gold)' : 'var(--red)', fontFamily: 'var(--fm)' }}>
+                {(r.netReturnRetired * 100).toFixed(1)}%
+              </div>
+            </div>
+          </div>
+          {/* Results */}
+          <div style={{ padding: 12, background: 'rgba(214,158,46,.04)', borderRadius: 10, border: '1px solid rgba(214,158,46,.15)' }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--gold)', marginBottom: 8, fontFamily: 'var(--fm)' }}>📋 RESULTADOS</div>
+            {[
+              ['Año jubilación', r.retirementYear, 'var(--text-primary)'],
+              ['Capital acumulado', fN(r.capital), 'var(--text-primary)'],
+              ['Coste vida jubilación/año', fN(r.costAtRetirement), 'var(--red)'],
+              ['Ingreso garantizado/año', fN(r.guaranteedAtRetirement), 'var(--green)'],
+              ['Necesitas generar/año', fN(r.requiredAtRetirement), 'var(--orange)'],
+              ['YOUR NUMBER', fN(r.yourNumber), 'var(--gold)'],
+              ['OVER / (UNDER)', fNs(r.overUnder), r.overUnder >= 0 ? 'var(--green)' : 'var(--red)'],
+              [r.runsOut ? 'Se acaba en' : 'Dura al menos', `${r.yearsLast} años`, r.runsOut ? 'var(--red)' : 'var(--green)'],
+            ].map(([label, val, color], i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, padding: i >= 5 ? '4px 0' : 0, borderTop: i === 5 ? '1px solid var(--border)' : 'none' }}>
+                <span style={{ fontSize: 10, color: 'var(--text-secondary)', fontFamily: 'var(--fm)' }}>{label}</span>
+                <span style={{ fontSize: i >= 5 ? 14 : 11, fontWeight: i >= 5 ? 800 : 600, color, fontFamily: 'var(--fm)' }}>{val}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Trajectory chart */}
+      <div style={card}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--gold)', fontFamily: 'var(--fd)', marginBottom: 12 }}>
+          📈 Proyección de Capital en Jubilación — {s.name}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 160, padding: '0 4px' }}>
+          {r.trajectory.map((t, i) => {
+            const maxBal = Math.max(...r.trajectory.map(x => x.balance), 1);
+            const h = Math.max((t.balance / maxBal) * 100, 0);
+            const isNeg = t.balance <= 0;
+            const show = i === 0 || i === r.trajectory.length - 1 || i % Math.max(1, Math.floor(r.trajectory.length / 8)) === 0;
+            return (
+              <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
+                {show && <div style={{ fontSize: 7, fontWeight: 600, color: isNeg ? 'var(--red)' : 'var(--green)', fontFamily: 'var(--fm)', marginBottom: 2, whiteSpace: 'nowrap' }}>
+                  {t.balance >= 1000 ? `${(t.balance / 1000).toFixed(0)}K` : '0'}
+                </div>}
+                <div style={{ width: '100%', maxWidth: 20, height: `${Math.max(h, 2)}%`, background: isNeg ? 'var(--red)' : t.balance > r.yourNumber ? 'var(--green)' : 'var(--gold)', borderRadius: '2px 2px 0 0', opacity: 0.6 }} />
+                {show && <div style={{ fontSize: 7, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', marginTop: 2 }}>{t.year}</div>}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 8 }}>
+          <span style={{ fontSize: 9, color: 'var(--green)', fontFamily: 'var(--fm)' }}>● Por encima de Your Number</span>
+          <span style={{ fontSize: 9, color: 'var(--gold)', fontFamily: 'var(--fm)' }}>● Por debajo</span>
+          <span style={{ fontSize: 9, color: 'var(--red)', fontFamily: 'var(--fm)' }}>● Sin dinero</span>
+        </div>
+      </div>
+
+      {/* Sensitivity table */}
+      <div style={card}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--gold)', fontFamily: 'var(--fd)', marginBottom: 12 }}>
+          🎯 Sensibilidad — ¿Cuántos años dura tu dinero?
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10, minWidth: 400 }}>
+            <thead>
+              <tr>
+                <th style={{ padding: '6px 8px', textAlign: 'left', color: 'var(--text-tertiary)', fontSize: 8, fontWeight: 600, fontFamily: 'var(--fm)', borderBottom: '1px solid var(--border)' }}>
+                  Retorno ↓ / Ahorro →
+                </th>
+                {[0, 6000, 12000, 24000, 36000, 48000].map(sv => (
+                  <th key={sv} style={{ padding: '6px 8px', textAlign: 'center', color: s.savePerYear === sv ? 'var(--gold)' : 'var(--text-tertiary)', fontSize: 8, fontWeight: 600, fontFamily: 'var(--fm)', borderBottom: '1px solid var(--border)' }}>
+                    {sym}{sv >= 1000 ? `${sv / 1000}K` : sv}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {[4, 5, 6, 7, 8, 10, 12].map(ret => (
+                <tr key={ret}>
+                  <td style={{ padding: '5px 8px', fontWeight: 600, fontFamily: 'var(--fm)', color: s.returnWorking === ret ? 'var(--gold)' : 'var(--text-secondary)', borderBottom: '1px solid rgba(255,255,255,.03)' }}>{ret}%</td>
+                  {[0, 6000, 12000, 24000, 36000, 48000].map(sv => {
+                    const testS = { ...s, returnWorking: ret, savePerYear: sv };
+                    const testR = calcYourNumber(testS);
+                    const yrs = testR.runsOut ? testR.yearsLast : 99;
+                    const isActive = s.returnWorking === ret && s.savePerYear === sv;
+                    return (
+                      <td key={sv} style={{
+                        padding: '5px 8px', textAlign: 'center', fontWeight: isActive ? 800 : 600,
+                        fontFamily: 'var(--fm)', borderBottom: '1px solid rgba(255,255,255,.03)',
+                        color: yrs >= s.yearsIn ? 'var(--green)' : yrs >= s.yearsIn * 0.7 ? 'var(--gold)' : 'var(--red)',
+                        background: isActive ? 'rgba(214,158,46,.1)' : 'transparent',
+                      }}>
+                        {yrs >= 99 ? '∞' : yrs}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ fontSize: 9, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', marginTop: 6, textAlign: 'center' }}>
+          🟢 ≥ {s.yearsIn} años (cubres jubilación completa) · 🟡 ≥ {Math.round(s.yearsIn * 0.7)} años · 🔴 menos
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function FireTab() {
   const {
@@ -111,14 +430,24 @@ const divYK=Object.keys(divByYear).sort();
 const retCol = v => v>0?"var(--green)":v<0?"var(--red)":"var(--text-secondary)";
 const fK = v => Math.abs(v)>=1000?`${_sf(v/1000,1)}K`:_sf(Math.abs(v),0);
 
+const [fireSection, setFireSection] = useState("dashboard");
+
 return (
 <div style={{display:"flex",flexDirection:"column",gap:14}}>
-  {/* Toggle */}
-  <div style={{display:"flex",justifyContent:"flex-end"}}>
+  {/* Toggle row: sections + currency */}
+  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+    <div style={{display:"flex",gap:4}}>
+      {[{id:"dashboard",lbl:"📊 Dashboard"},{id:"yournumber",lbl:"🔢 Your Number"}].map(t=>(
+        <button key={t.id} onClick={()=>setFireSection(t.id)} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${fireSection===t.id?"var(--gold)":"var(--border)"}`,background:fireSection===t.id?"var(--gold-dim)":"transparent",color:fireSection===t.id?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:fireSection===t.id?700:500,cursor:"pointer",fontFamily:"var(--fb)"}}>{t.lbl}</button>
+      ))}
+    </div>
     <div style={{display:"flex",borderRadius:8,border:"1px solid var(--border)",overflow:"hidden"}}>
       {["EUR","USD"].map(c=><button key={c} onClick={()=>setFireCcy(c)} style={{padding:"6px 16px",border:"none",background:fireCcy===c?"var(--gold-dim)":"transparent",color:fireCcy===c?"var(--gold)":"var(--text-tertiary)",fontSize:12,fontWeight:fireCcy===c?700:500,cursor:"pointer",fontFamily:"var(--fm)"}}>{c==="EUR"?"€ EUR":"$ USD"}</button>)}
     </div>
   </div>
+
+  {fireSection === "yournumber" && <YourNumberSection pat={pat} divNetA={divNetA} gastosAnnual={gastosAnnual} espRealistaA={espRealistaA} fxEurUsd={fxEurUsd} fireCcy={fireCcy} />}
+  {fireSection === "dashboard" && <>
 
   {/* GASTOS MENSUALES POR DIVISA — con filtro año */}
   {(() => {
@@ -320,6 +649,7 @@ return (
       <div style={{marginTop:4,fontSize:10,color:"var(--text-tertiary)",fontStyle:"italic"}}>FX: €1 = ${_sf(fxEurUsd,2)} · ¥1 = €{_sf(fxCnyEur,4)} · Gastos en divisa nativa, solo se convierten para el total.</div>
     </div>
   </div>
+  </>}
 </div>
 );
 }

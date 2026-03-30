@@ -1,1 +1,19 @@
+/* Mobile responsive overrides */
+@media (max-width: 768px) {
+  main { padding: 12px 10px !important; }
+  .ar-home-tabs { gap: 2px !important; }
+  .ar-home-tabs button { padding: 4px 7px !important; font-size: 10px !important; }
+  .ar-summary-cards { grid-template-columns: repeat(2, 1fr) !important; }
+  .ar-cc-summary { grid-template-columns: repeat(2, 1fr) !important; }
+  .ar-cc-controls { flex-direction: column !important; }
+  .ar-actions-bar { flex-direction: column !important; }
+}
 
+/* Scrollbar styling */
+.ar-home-tabs::-webkit-scrollbar { display: none; }
+
+/* Spin animation for refresh button */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
