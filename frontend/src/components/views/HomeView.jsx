@@ -29,11 +29,12 @@ export default function HomeView() {
     displayCcy, switchDisplayCcy, fxLoading, fxLastUpdate, refreshFxRates,
     privacyMode, setPrivacyMode,
     showSettings, setShowSettings,
+    uiZoom, changeZoom,
     HOME_TABS,
   } = useHome();
 
   return (
-  <div style={{maxWidth:1400,margin:"0 auto"}}>
+  <div style={{maxWidth:1800,margin:"0 auto"}}>
     {/* Row 1: Logo + Currency/FX/Settings */}
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
       <svg width="28" height="28" viewBox="0 0 40 40" style={{flexShrink:0,cursor:"pointer"}} onClick={()=>setHomeTab("portfolio")}>
@@ -61,6 +62,12 @@ export default function HomeView() {
           {fxLoading?"⏳":"FX"}
         </button>
         <button onClick={()=>setPrivacyMode(!privacyMode)} title={privacyMode?"Mostrar datos":"Ocultar datos sensibles"} style={{padding:"4px 8px",borderRadius:6,border:`1px solid ${privacyMode?"var(--gold)":"var(--border)"}`,background:privacyMode?"var(--gold-dim)":"transparent",color:privacyMode?"var(--gold)":"var(--text-tertiary)",fontSize:10,cursor:"pointer",transition:"all .15s"}}>{privacyMode?"🙈":"👁"}</button>
+        {/* Zoom control */}
+        <div style={{display:"flex",alignItems:"center",gap:2,border:"1px solid var(--border)",borderRadius:6,padding:"2px 4px"}}>
+          <button onClick={()=>changeZoom(uiZoom-10)} title="Reducir texto" style={{padding:"2px 6px",border:"none",background:"transparent",color:"var(--text-tertiary)",fontSize:12,cursor:"pointer",fontWeight:700,lineHeight:1}}>−</button>
+          <span style={{fontSize:9,color:uiZoom!==100?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",minWidth:28,textAlign:"center",fontWeight:600,cursor:"pointer"}} onClick={()=>changeZoom(100)} title="Reset zoom">{uiZoom}%</span>
+          <button onClick={()=>changeZoom(uiZoom+10)} title="Ampliar texto" style={{padding:"2px 6px",border:"none",background:"transparent",color:"var(--text-tertiary)",fontSize:12,cursor:"pointer",fontWeight:700,lineHeight:1}}>+</button>
+        </div>
         <button onClick={()=>setShowSettings(!showSettings)} style={{padding:"4px 8px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer"}}>⚙</button>
       </div>
     </div>

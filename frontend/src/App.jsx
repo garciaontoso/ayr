@@ -215,6 +215,11 @@ export default function ARApp() {
   const [fmpExtra, setFmpExtra] = useState({ rating: {}, dcf: {}, estimates: [], priceTarget: {}, keyMetrics: [], finGrowth: [], grades: {}, ownerEarnings: [], revSegments: [], geoSegments: [], peers: [], earnings: [], ptSummary: {}, profile: {} });
   const [showSettings, setShowSettings] = useState(false);
   const [privacyMode, setPrivacyMode] = useState(false);
+  const [uiZoom, setUiZoom] = useState(() => {
+    const saved = localStorage.getItem("ayr_zoom");
+    return saved ? parseInt(saved) : 100;
+  });
+  const changeZoom = (z) => { const v = Math.max(70, Math.min(150, z)); setUiZoom(v); localStorage.setItem("ayr_zoom", v); };
   const hide = v => privacyMode ? "•••••" : v; // Hide sensitive values
   const hideN = v => privacyMode ? "•••" : v; // Hide shorter numbers
 
@@ -1599,6 +1604,8 @@ function buildPositionsFromCB() {
     openAnalysis, goHome, openCostBasis,
     getCountry, FLAGS, POS_STATIC,
     HOME_TABS, CompanyRow,
+    // UI Zoom
+    uiZoom, changeZoom,
     // Settings/analysis bridge
     loadFromAPI, fmpLoading, fmpError, setTab, setCfg,
     removePosition, deleteCompany,
@@ -1618,7 +1625,7 @@ function buildPositionsFromCB() {
     ctrlLog, ctrlShowForm, ctrlForm,
     researchOpenList, researchAdvanced, researchHide, researchCapFilter,
     reportData, reportLoading, reportSymbol,
-    fmpLoading, fmpError, hide, hideN, apiData]);
+    fmpLoading, fmpError, hide, hideN, uiZoom, apiData]);
 
   // renderCostBasis and renderHome have been extracted to:
   // - components/views/CostBasisView.jsx (via CostBasisContext)
@@ -1659,7 +1666,7 @@ function buildPositionsFromCB() {
       </div>
     </div>
   ) : (
-    <div style={{display:"flex",flexDirection:"column",minHeight:"100vh",background:"var(--bg)",color:"var(--text-primary)",fontFamily:"var(--fb)"}}>
+    <div style={{display:"flex",flexDirection:"column",minHeight:"100vh",background:"var(--bg)",color:"var(--text-primary)",fontFamily:"var(--fb)",fontSize:`${uiZoom}%`}}>
       {dataError && (
         <div style={{margin:"0 24px",padding:"10px 16px",background:"rgba(255,69,58,.1)",border:"1px solid rgba(255,69,58,.25)",borderRadius:10,display:"flex",alignItems:"center",gap:10,marginTop:8}}>
           <span style={{fontSize:13,color:"var(--red)",fontFamily:"var(--fm)"}}>{dataError}</span>
