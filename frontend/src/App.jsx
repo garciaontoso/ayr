@@ -1,14 +1,14 @@
 import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } from "react";
-import { _sf, _sl, n, f0, f1, f2, fP, fX, fC, fM, fDol, clamp, cagrFn } from './utils/formatters.js';
-import { CURRENCIES, DISPLAY_CCYS, DEFAULT_FX, YEARS, PROJ_YEARS, _CURRENT_YEAR, TABS, TABS_OLD, API_URL, HOME_TABS } from './constants/index.js';
-import { convertCcy, fCcy, fetchFxRates } from './utils/currency.js';
+import { _sf, _sl, n, fDol } from './utils/formatters.js';
+import { CURRENCIES, DISPLAY_CCYS, DEFAULT_FX, YEARS, _CURRENT_YEAR, TABS, API_URL, HOME_TABS } from './constants/index.js';
+import { convertCcy, fetchFxRates } from './utils/currency.js';
 import { storageAvailable, saveCompanyToStorage, loadCompanyFromStorage, loadPortfolioIndex, removeCompanyFromStorage } from './utils/storage.js';
-import { fetchViaFMP, fetchViaClaudeAPI } from './api/fmp.js';
+import { fetchViaFMP } from './api/fmp.js';
 import { generateReport } from './api/claude.js';
 import { fetchAllData } from './api/data.js';
 import { useAnalysisMetrics } from './hooks/useAnalysisMetrics.js';
 import './App.css';
-import { Badge, BarChart, AreaSparkline, DonutChart, GaugeVerdict, Tooltip, Inp, Card, SensitivityTable, generatePDF, ErrorBoundary, Toast } from './components/ui';
+import { Inp, ErrorBoundary, Toast } from './components/ui';
 import AnalysisContext from './context/AnalysisContext';
 import HomeContext from './context/HomeContext';
 import CostBasisContext from './context/CostBasisContext';
@@ -175,8 +175,6 @@ export default function ARApp() {
   const [fgGrowth, setFgGrowth] = useState(8);
   const [fgProjYears, setFgProjYears] = useState(5);
   const [showDiv, setShowDiv] = useState(true);
-  const [pdfState, setPdfState] = useState("idle");
-  const [guideStep, setGuideStep] = useState(0);
   const [comps, setComps] = useState([]);
 
   // SSD — Auto-calculated from financial data + FMP endpoints (no more hardcoded Diageo data)
@@ -203,7 +201,6 @@ export default function ARApp() {
   };
   const [ssd, setSsd] = useState({...BLANK_SSD});
 
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const tabsRef = useRef(null);
   const [fmpLoading, setFmpLoading] = useState(false);
   const [fmpError, setFmpError] = useState(null);
@@ -212,7 +209,6 @@ export default function ARApp() {
   const [recentTickers, setRecentTickers] = useState(() => {
     try { return JSON.parse(localStorage.getItem('ayr_recent') || '[]'); } catch { return []; }
   });
-  const [fmpApiKey, setFmpApiKey] = useState("");
   // v10.2: New FMP data (rating, DCF, estimates, price targets, key metrics, financial growth)
   const [fmpExtra, setFmpExtra] = useState({ rating: {}, dcf: {}, estimates: [], priceTarget: {}, keyMetrics: [], finGrowth: [], grades: {}, ownerEarnings: [], revSegments: [], geoSegments: [], peers: [], earnings: [], ptSummary: {}, profile: {} });
   const [showSettings, setShowSettings] = useState(false);
