@@ -356,11 +356,8 @@ export default function ARApp() {
     return "US";
   };
   const FLAGS = {"US":"\u{1F1FA}\u{1F1F8}","HK":"\u{1F1ED}\u{1F1F0}","CA":"\u{1F1E8}\u{1F1E6}","AU":"\u{1F1E6}\u{1F1FA}","GB":"\u{1F1EC}\u{1F1E7}","ES":"\u{1F1EA}\u{1F1F8}","NL":"\u{1F1F3}\u{1F1F1}","DE":"\u{1F1E9}\u{1F1EA}","FR":"\u{1F1EB}\u{1F1F7}","EU":"\u{1F1EA}\u{1F1FA}"};
-// Positions: loaded from D1 database. Empty fallback if D1 unavailable.
-const POS_STATIC = Object.keys(D1_POSITIONS).length > 0 ? { ...D1_POSITIONS } : {
-// D1 is the source of truth — 89 positions stored in Cloudflare D1
-// If D1 fails, app shows empty portfolio with "Cargando..." message
-};
+// Positions: loaded from D1 database
+const POS_STATIC = D1_POSITIONS;
 
 // Build positions from POS_STATIC / D1_POSITIONS — the source of truth for shares, prices, USD values
 function buildPositionsFromCB() {
@@ -395,6 +392,12 @@ function buildPositionsFromCB() {
 }
 
   const [positions, setPositions] = useState(() => buildPositionsFromCB());
+  // Re-build positions when D1 data loads (POS_STATIC changes from {} to 89 positions)
+  useEffect(() => {
+    if (Object.keys(POS_STATIC).length > 0) {
+      setPositions(buildPositionsFromCB());
+    }
+  }, [D1_POSITIONS]);
   const [editingPos, setEditingPos] = useState(null); // ticker being edited
   const [pricesLoading, setPricesLoading] = useState(false);
   const [pricesLastUpdate, setPricesLastUpdate] = useState(null);
