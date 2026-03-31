@@ -2113,6 +2113,51 @@ export default {
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
       }
 
+      // GET /api/dividend-calendar?symbols=AAPL,MSFT — upcoming ex-dates from FMP
+      if (path === "/api/dividend-calendar" && request.method === "GET") {
+        const symbols = (url.searchParams.get("symbols") || "").split(",").filter(Boolean).map(s => s.trim().toUpperCase());
+        try {
+          // FMP dividend calendar returns ALL upcoming ex-dates
+          const resp = await fetch(`${FMP_BASE}/stock-dividend-calendar?apikey=${FMP_KEY}`);
+          const data = await resp.json();
+          if (!Array.isArray(data)) return json({ error: "No calendar data" }, corsHeaders, 502);
+
+          // Filter to user's symbols if provided
+          const symbolSet = symbols.length > 0 ? new Set(symbols) : null;
+          const filtered = data.filter(d => !symbolSet || symbolSet.has(d.symbol));
+
+          // Also get historical dividends for each symbol (for past ex-dates in calendar)
+          const results = filtered.map(d => ({
+            symbol: d.symbol,
+            exDate: d.date,
+            payDate: d.paymentDate || "",
+            recordDate: d.recordDate || "",
+            dividend: d.dividend || d.adjDividend || 0,
+            yield: d.yield || 0,
+          }));
+
+          // Also fetch individual dividend history for user's top symbols
+          const history = {};
+          const topSymbols = symbols.slice(0, 20);
+          for (let i = 0; i < topSymbols.length; i += 5) {
+            const batch = topSymbols.slice(i, i + 5);
+            await Promise.all(batch.map(async sym => {
+              try {
+                const r = await fetch(`${FMP_BASE}/dividends?symbol=${sym}&apikey=${FMP_KEY}`);
+                const d = await r.json();
+                if (Array.isArray(d)) {
+                  history[sym] = d.slice(0, 8).map(x => ({
+                    exDate: x.date, payDate: x.paymentDate || "", dividend: x.dividend || x.adjDividend || 0,
+                  }));
+                }
+              } catch {}
+            }));
+          }
+
+          return json({ upcoming: results, history, count: results.length }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
       // GET /api/dividend-streak?symbols=AAPL,MSFT — dividend growth streak from FMP
       if (path === "/api/dividend-streak" && request.method === "GET") {
         const symbols = (url.searchParams.get("symbols") || "").split(",").filter(Boolean).slice(0, 50);

@@ -12,6 +12,34 @@ function CalendarioSection({ divLog, POS_STATIC }) {
   const [selectedDay, setSelectedDay] = useState(null);
   const [showProjected, setShowProjected] = useState(true);
   const [viewMode, setViewMode] = useState("month"); // month | year
+  const [realExDates, setRealExDates] = useState({});
+
+  // Load real ex-dates from FMP
+  useEffect(() => {
+    const tickers = Object.keys(POS_STATIC).filter(t => !t.includes(":")).join(",");
+    if (!tickers) return;
+    fetch(`${API_URL}/api/dividend-calendar?symbols=${tickers}`)
+      .then(r => r.json())
+      .then(d => {
+        const byDate = {};
+        // Upcoming ex-dates
+        (d.upcoming || []).forEach(x => {
+          if (!x.exDate) return;
+          if (!byDate[x.exDate]) byDate[x.exDate] = [];
+          byDate[x.exDate].push({ ticker: x.symbol, type: "exdate", dividend: x.dividend, payDate: x.payDate });
+        });
+        // Historical ex-dates from last 12 months
+        for (const [sym, hist] of Object.entries(d.history || {})) {
+          (hist || []).forEach(h => {
+            if (!h.exDate) return;
+            if (!byDate[h.exDate]) byDate[h.exDate] = [];
+            byDate[h.exDate].push({ ticker: sym, type: "exdate_past", dividend: h.dividend, payDate: h.payDate });
+          });
+        }
+        setRealExDates(byDate);
+      })
+      .catch(() => {});
+  }, []);
 
   const DOW = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
   const MNAMES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -72,8 +100,23 @@ function CalendarioSection({ divLog, POS_STATIC }) {
         merged[date] = [...merged[date], ...entries];
       }
     }
+    // Add real ex-dates from FMP
+    for (const [date, entries] of Object.entries(realExDates)) {
+      if (!merged[date]) merged[date] = [];
+      entries.forEach(e => {
+        // Don't add if we already have a real dividend entry for this ticker+date
+        const exists = merged[date].some(x => x.ticker === e.ticker && !x.projected);
+        if (!exists) {
+          merged[date].push({
+            ticker: e.ticker, gross: e.dividend || 0, net: (e.dividend || 0) * 0.75,
+            projected: e.type === "exdate", exDate: true,
+            payDate: e.payDate,
+          });
+        }
+      });
+    }
     return merged;
-  }, [divByDate, projectedDivs, showProjected]);
+  }, [divByDate, projectedDivs, showProjected, realExDates]);
 
   // Calendar grid
   const { year, month } = calMonth;
@@ -267,15 +310,18 @@ function CalendarioSection({ divLog, POS_STATIC }) {
                         }}>{day}</span>
                         {dayTotal > 0 && <span style={{ fontSize: 8, fontWeight: 700, color: projEntries.length > 0 && realEntries.length === 0 ? "#64d2ff" : "var(--gold)", fontFamily: "var(--fm)" }}>${dayTotal >= 1000 ? _sf(dayTotal / 1000, 1) + "K" : _sf(dayTotal, 0)}</span>}
                       </div>
-                      {/* Ticker badges */}
+                      {/* Ticker badges: gold=cobrado, green=ex-date real, blue=proyectado */}
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
-                        {realEntries.slice(0, 4).map((e, ei) => (
+                        {realEntries.filter(e=>!e.exDate).slice(0, 3).map((e, ei) => (
                           <span key={ei} style={{ fontSize: 7, padding: "1px 3px", borderRadius: 3, background: "rgba(200,164,78,.15)", color: "var(--gold)", fontWeight: 600, fontFamily: "var(--fm)", lineHeight: 1.2 }}>{e.ticker}</span>
                         ))}
-                        {projEntries.slice(0, 3).map((e, ei) => (
+                        {entries.filter(e=>e.exDate&&!e.projected).slice(0, 3).map((e, ei) => (
+                          <span key={`ex${ei}`} style={{ fontSize: 7, padding: "1px 3px", borderRadius: 3, background: "rgba(48,209,88,.12)", color: "var(--green)", fontWeight: 600, fontFamily: "var(--fm)", lineHeight: 1.2 }} title={`Ex-date real · Pay: ${e.payDate||"?"}`}>📅{e.ticker}</span>
+                        ))}
+                        {projEntries.filter(e=>!e.exDate).slice(0, 3).map((e, ei) => (
                           <span key={`p${ei}`} style={{ fontSize: 7, padding: "1px 3px", borderRadius: 3, background: "rgba(100,210,255,.1)", color: "#64d2ff", fontWeight: 600, fontFamily: "var(--fm)", lineHeight: 1.2, fontStyle: "italic" }}>{e.ticker}</span>
                         ))}
-                        {entries.length > 5 && <span style={{ fontSize: 7, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>+{entries.length - 5}</span>}
+                        {entries.length > 6 && <span style={{ fontSize: 7, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>+{entries.length - 6}</span>}
                       </div>
                     </div>
                   );
