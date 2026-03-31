@@ -1122,9 +1122,12 @@ function buildPositionsFromCB() {
     return map;
   }, [ibData.positions, ibData.loaded]);
 
-  // Auto-add IB positions > $500 that aren't in portfolio (stocks only, not options/dead positions)
+  // Auto-add IB positions > $500 that aren't in portfolio (once per day)
   useEffect(() => {
     if (!ibData.loaded || !ibData.positions.length || !portfolioList.length) return;
+    const addKey = 'ib-auto-add-' + new Date().toISOString().slice(0, 10);
+    if (sessionStorage.getItem(addKey)) return;
+    sessionStorage.setItem(addKey, '1');
     const appTickers = new Set(portfolioList.map(p => p.ticker));
     const newPositions = ibData.positions
       .filter(p => p.assetClass === "STK" && Math.abs(p.mktValue) > 500 && p.mktPrice > 0)
@@ -1685,7 +1688,7 @@ function buildPositionsFromCB() {
     })();
     const badge = capBadge ? <span style={{fontSize:7,fontWeight:700,padding:"1px 4px",borderRadius:3,background:capBadge.bg,color:capBadge.c,letterSpacing:.3}}>{capBadge.l}</span> : null;
     return (
-      <div onClick={()=>onOpen(p.ticker)} style={{display:"grid",gridTemplateColumns:showPos?"28px 1fr 40px 70px 55px 55px 50px 50px 65px 55px 28px":"28px 1fr 40px 70px 70px 28px",gap:4,alignItems:"center",padding:"5px 10px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,cursor:"pointer",transition:"all .15s"}}
+      <div className="ar-company-row" onClick={()=>onOpen(p.ticker)} style={{display:"grid",gridTemplateColumns:showPos?"28px 1fr 70px 55px 55px 50px 50px 65px 55px 28px":"28px 1fr 70px 70px 28px",gap:4,alignItems:"center",padding:"5px 10px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,cursor:"pointer",transition:"all .15s"}}
         onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--border-hover)";e.currentTarget.style.background="var(--card-hover)";}}
         onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";e.currentTarget.style.background="var(--card)";}}>
         {/* Logo */}
@@ -1722,9 +1725,9 @@ function buildPositionsFromCB() {
         </div>
         {showPos && <>
           {/* Shares */}
-          <div style={{textAlign:"right",fontSize:11,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":p.shares?(p.shares||0).toLocaleString():"—"}</div>
+          <div className="ar-hide-mobile" style={{textAlign:"right",fontSize:11,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":p.shares?(p.shares||0).toLocaleString():"—"}</div>
           {/* Cost */}
-          <div style={{textAlign:"right",fontFamily:"var(--fm)"}}>
+          <div className="ar-hide-mobile" style={{textAlign:"right",fontFamily:"var(--fm)"}}>
             <div style={{fontSize:11,fontWeight:600,color:"var(--text-secondary)"}}>{privacyMode?"•••":origSym+_sf(p.adjustedBasis||p.avgCost||0,2)}</div>
           </div>
           {/* P&L */}
@@ -1732,8 +1735,8 @@ function buildPositionsFromCB() {
             <div style={{fontSize:12,fontWeight:700,color:pnlPct>=0?"var(--green)":"var(--red)"}}>{privacyMode?"•••":(pnlPct>=0?"+":"")+_sf(pnlPct*100,0)+"%"}</div>
             {(p.dayChange||0)!==0 && <div style={{fontSize:8,color:(p.dayChange||0)>=0?"var(--green)":"var(--red)",opacity:.7}}>{(p.dayChange||0)>=0?"+":""}{_sf(p.dayChange||0,1)}%hoy</div>}
           </div>
-          {/* Weight bar */}
-          <div style={{textAlign:"right",fontFamily:"var(--fm)"}}>
+          {/* Weight */}
+          <div className="ar-hide-mobile" style={{textAlign:"right",fontFamily:"var(--fm)"}}>
             <div style={{fontSize:10,fontWeight:600,color:"var(--gold)"}}>{_sf(weight*100,1)}%</div>
             <div style={{height:2,background:"rgba(255,255,255,.06)",borderRadius:1,marginTop:1,overflow:"hidden"}}>
               <div style={{width:`${Math.min(weight*100*4,100)}%`,height:"100%",background:"var(--gold)",borderRadius:1}}/>
@@ -1744,7 +1747,7 @@ function buildPositionsFromCB() {
             <div style={{fontSize:12,fontWeight:700,color:"var(--text-primary)"}}>{privacyMode?"•••":valSym+(valShow>=1e3?_sf(valShow/1e3,1)+"K":_sf(valShow,0))}</div>
           </div>
           {/* Div */}
-          <div style={{textAlign:"right",fontSize:11,fontWeight:600,color:dpsUSD>0?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":(dpsUSD>0?"$"+_sf(dpsUSD,0):"—")}</div>
+          <div className="ar-hide-mobile" style={{textAlign:"right",fontSize:11,fontWeight:600,color:dpsUSD>0?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":(dpsUSD>0?"$"+_sf(dpsUSD,0):"—")}</div>
         </>}
         {!showPos && <>
           <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:p.targetPrice&&p.lastPrice<=p.targetPrice?"var(--green)":"var(--text-secondary)",fontFamily:"var(--fm)"}}>{p.targetPrice?"$"+_sf(toUSD(p.targetPrice,ccy)||0,2):"—"}</div>

@@ -57,21 +57,26 @@ input[type=number] { -moz-appearance: textfield; }
 
 /* ═══ Mobile Responsive ═══ */
 @media (max-width: 768px) {
-  /* Reduce main padding */
-  main { padding: 16px 12px !important; }
+  main { padding: 12px 8px !important; }
 
-  /* Home tabs: horizontal scroll instead of wrapping */
+  /* Home tabs: horizontal scroll */
   .ar-home-tabs {
     display: flex !important;
     flex-wrap: nowrap !important;
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
-    gap: 6px !important;
-    padding-bottom: 8px;
+    gap: 4px !important;
   }
   .ar-home-tabs::-webkit-scrollbar { display: none; }
-  .ar-home-tabs > button { flex-shrink: 0 !important; }
+  .ar-home-tabs > button { flex-shrink: 0 !important; font-size: 10px !important; padding: 4px 7px !important; }
+
+  /* Company rows: simplify grid for mobile */
+  .ar-company-row {
+    grid-template-columns: 24px 1fr 60px 45px 28px !important;
+    padding: 4px 6px !important;
+  }
+  .ar-hide-mobile { display: none !important; }
 
   /* Summary cards: horizontal scroll */
   .ar-summary-cards {
@@ -80,48 +85,34 @@ input[type=number] { -moz-appearance: textfield; }
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
-    gap: 10px !important;
-  }
-  .ar-summary-cards::-webkit-scrollbar { display: none; }
-  .ar-summary-cards > div { flex-shrink: 0 !important; min-width: 140px !important; }
-
-  /* Actions bar: stack vertically */
-  .ar-actions-bar {
-    flex-wrap: wrap !important;
     gap: 8px !important;
   }
+  .ar-summary-cards::-webkit-scrollbar { display: none; }
+  .ar-summary-cards > div { flex-shrink: 0 !important; min-width: 130px !important; }
 
-  /* Analysis header: compact on mobile */
-  .ar-analysis-header {
-    padding: 6px 12px 4px !important;
-    gap: 6px !important;
-  }
+  /* Actions bar */
+  .ar-actions-bar { flex-wrap: wrap !important; gap: 6px !important; }
 
-  /* Analysis tabs: smaller on mobile */
-  .ar-tabs-scroll {
-    gap: 2px !important;
-    padding: 0 12px !important;
-  }
-  .ar-tab-btn { padding: 6px 10px !important; font-size: 10px !important; }
+  /* Analysis */
+  .ar-analysis-header { padding: 6px 8px 4px !important; gap: 4px !important; }
+  .ar-tabs-scroll { gap: 2px !important; padding: 0 8px !important; }
+  .ar-tab-btn { padding: 5px 8px !important; font-size: 10px !important; }
+  .ar-analysis-main { padding: 8px !important; }
 
-  /* Hide non-essential elements on mobile */
-  .ar-hide-mobile { display: none !important; }
-
-  /* Analysis main content */
-  .ar-analysis-main { padding: 12px !important; }
-
-  /* CC tab: stack summary cards 2x2 */
+  /* CC tab */
   .ar-cc-summary { grid-template-columns: repeat(2, 1fr) !important; }
-  .ar-cc-controls { gap: 6px !important; }
-  .ar-cc-controls > div { margin: 0 !important; }
+  .ar-cc-controls { gap: 4px !important; }
 
-  /* Footer compact */
-  footer { padding: 6px 12px !important; }
+  /* Tables: smaller fonts */
+  table { font-size: 10px !important; }
+  th, td { padding: 3px 5px !important; }
+
+  footer { padding: 4px 8px !important; }
 }
 
 @media (max-width: 480px) {
-  main { padding: 10px 8px !important; }
-  .ar-summary-cards > div { min-width: 120px !important; }
+  main { padding: 8px 4px !important; }
+  .ar-home-tabs > button { font-size: 9px !important; padding: 3px 5px !important; }
 }
 
 /* ═══ Tab transitions ═══ */
