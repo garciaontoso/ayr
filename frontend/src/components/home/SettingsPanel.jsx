@@ -3,9 +3,9 @@ import { CURRENCIES, DISPLAY_CCYS } from '../../constants/index.js';
 
 export default function SettingsPanel() {
   const {
-    displayCcy, switchDisplayCcy, fxRates, fxLastUpdate,
+    displayCcy, switchDisplayCcy, fxRates, fxLastUpdate, fxError,
     portfolio,
-    removePosition, deleteCompany,
+    removePosition, deleteCompany, importTransactions,
   } = useHome();
 
   return (

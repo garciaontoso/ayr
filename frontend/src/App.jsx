@@ -1766,7 +1766,7 @@ function buildPositionsFromCB() {
     countryFilter, setCountryFilter, portSort, setPortSort, showCapTable, setShowCapTable,
     pricesLoading, pricesLastUpdate, refreshPrices,
     // Display & FX
-    displayCcy, switchDisplayCcy, fxRates, fxLoading, fxLastUpdate, refreshFxRates,
+    displayCcy, switchDisplayCcy, fxRates, fxLoading, fxLastUpdate, fxError, refreshFxRates,
     privacyMode, setPrivacyMode, hide, hideN,
     showSettings, setShowSettings,
     // Screener
@@ -1803,7 +1803,7 @@ function buildPositionsFromCB() {
     uiZoom, changeZoom,
     // Settings/analysis bridge
     loadFromAPI, fmpLoading, fmpError, setTab, setCfg,
-    removePosition, deleteCompany,
+    removePosition, deleteCompany, importTransactions,
     // API data (passed through context so components don't import from data.js)
     CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, DIV_BY_MONTH, GASTOS_MONTH,
     FIRE_PROJ, FIRE_PARAMS, ANNUAL_PL, FI_TRACK, HIST_INIT, GASTO_CATS,
