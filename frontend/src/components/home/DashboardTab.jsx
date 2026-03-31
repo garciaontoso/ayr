@@ -120,20 +120,84 @@ return (
     </div>
   )}
 
-  {/* ── IB Positions not in App ── */}
+  {/* ── Conciliación: App vs IB ── */}
   {ibData?.loaded && (() => {
-    const appTickers = new Set(portfolioList.map(p => p.ticker));
-    const ibOnly = (ibData.positions||[]).filter(p => p.assetClass==="STK" && p.shares>0 && Math.abs(p.mktValue)>100 && !appTickers.has(p.ticker));
-    if (!ibOnly.length) return null;
+    const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HGK:9616"};
+    // Build IB merged map
+    const ibMerged = {};
+    (ibData.positions||[]).filter(p=>p.assetClass==="STK"&&p.shares>0).forEach(p => {
+      const t = IB_MAP[p.ticker] || p.ticker;
+      if (ibMerged[t]) { ibMerged[t].shares += p.shares; ibMerged[t].mktValue += p.mktValue||0; }
+      else ibMerged[t] = { ...p, ticker: t, shares: p.shares, mktValue: p.mktValue||0 };
+    });
+    const appMap = {};
+    portfolioList.forEach(p => { appMap[p.ticker] = p; });
+
+    const allTickers = new Set([...Object.keys(ibMerged), ...Object.keys(appMap)]);
+    const rows = [];
+    let matchCount = 0, diffCount = 0, ibOnlyCount = 0, appOnlyCount = 0;
+
+    for (const t of allTickers) {
+      const ib = ibMerged[t];
+      const app = appMap[t];
+      const ibSh = ib?.shares || 0;
+      const appSh = app?.shares || 0;
+      const ibPrice = ib?.mktPrice || 0;
+      const appPrice = app?.lastPrice || 0;
+      const shMatch = Math.abs(ibSh - appSh) < 1;
+      const status = !ib ? "APP_ONLY" : !app ? "IB_ONLY" : shMatch ? "MATCH" : "DIFF";
+      if (status === "MATCH") matchCount++;
+      else if (status === "DIFF") diffCount++;
+      else if (status === "IB_ONLY") ibOnlyCount++;
+      else appOnlyCount++;
+      if (status !== "MATCH") rows.push({ ticker: t, status, ibSh, appSh, ibPrice, appPrice, ibVal: ib?.mktValue||0, appVal: app?.valueUSD||0 });
+    }
+    rows.sort((a, b) => { const ord = { DIFF: 0, IB_ONLY: 1, APP_ONLY: 2 }; return (ord[a.status]||3) - (ord[b.status]||3); });
+
+    if (!rows.length) return (
+      <div style={{padding:10,background:"rgba(48,209,88,.04)",border:"1px solid rgba(48,209,88,.12)",borderRadius:12,fontSize:11,fontFamily:"var(--fm)",color:"var(--green)",fontWeight:600}}>
+        ✅ Conciliación perfecta — {matchCount} posiciones coinciden entre App e IB
+      </div>
+    );
+
     return (
-      <div style={{padding:12,background:"rgba(191,90,242,.04)",border:"1px solid rgba(191,90,242,.12)",borderRadius:12}}>
-        <div style={{fontSize:11,fontWeight:700,color:"#bf5af2",fontFamily:"var(--fm)",marginBottom:6}}>🔍 {ibOnly.length} posiciones en IB no en la app</div>
-        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-          {ibOnly.map(p=>(
-            <div key={p.ticker+p.accountId} style={{padding:"4px 10px",background:"rgba(255,255,255,.03)",borderRadius:6,fontSize:10,fontFamily:"var(--fm)"}}>
-              <b style={{color:"var(--text-primary)"}}>{p.ticker}</b> {p.shares}sh ${_sf(p.mktPrice,2)} <span style={{color:"var(--text-tertiary)"}}>[{p.accountId}]</span>
-            </div>
-          ))}
+      <div style={{padding:12,background:"var(--card)",border:"1px solid var(--border)",borderRadius:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div style={{fontSize:11,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>🔍 Conciliación App vs IB</div>
+          <div style={{display:"flex",gap:8,fontSize:9,fontFamily:"var(--fm)"}}>
+            <span style={{color:"var(--green)"}}>✓ {matchCount}</span>
+            {diffCount > 0 && <span style={{color:"#ffd60a"}}>⚠ {diffCount} dif.</span>}
+            {ibOnlyCount > 0 && <span style={{color:"#bf5af2"}}>+{ibOnlyCount} solo IB</span>}
+            {appOnlyCount > 0 && <span style={{color:"var(--text-tertiary)"}}>+{appOnlyCount} solo App</span>}
+          </div>
+        </div>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:10}}>
+            <thead><tr style={{borderBottom:"2px solid var(--border)"}}>
+              {["Estado","Ticker","Shares App","Shares IB","Precio App","Precio IB","Valor App","Valor IB"].map(h=>(
+                <th key={h} style={{padding:"4px 6px",textAlign:h==="Ticker"||h==="Estado"?"left":"right",color:"var(--text-tertiary)",fontSize:8,fontWeight:700,fontFamily:"var(--fm)"}}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {rows.map(r=>(
+                <tr key={r.ticker} style={{borderBottom:"1px solid rgba(255,255,255,.03)"}}>
+                  <td style={{padding:"3px 6px",fontFamily:"var(--fm)"}}>
+                    <span style={{fontSize:8,padding:"1px 5px",borderRadius:3,fontWeight:600,
+                      background:r.status==="DIFF"?"rgba(255,214,10,.1)":r.status==="IB_ONLY"?"rgba(191,90,242,.1)":"rgba(255,255,255,.05)",
+                      color:r.status==="DIFF"?"#ffd60a":r.status==="IB_ONLY"?"#bf5af2":"var(--text-tertiary)"
+                    }}>{r.status==="DIFF"?"⚠ DIF":r.status==="IB_ONLY"?"+ IB":"- APP"}</span>
+                  </td>
+                  <td style={{padding:"3px 6px",fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>{r.ticker}</td>
+                  <td style={{padding:"3px 6px",textAlign:"right",fontFamily:"var(--fm)",color:r.status==="IB_ONLY"?"var(--text-tertiary)":"var(--text-primary)"}}>{r.appSh||"—"}</td>
+                  <td style={{padding:"3px 6px",textAlign:"right",fontFamily:"var(--fm)",color:r.status==="APP_ONLY"?"var(--text-tertiary)":"var(--text-primary)",fontWeight:r.status==="DIFF"?700:400}}>{r.ibSh||"—"}</td>
+                  <td style={{padding:"3px 6px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)"}}>{r.appPrice?`$${_sf(r.appPrice,2)}`:"—"}</td>
+                  <td style={{padding:"3px 6px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)"}}>{r.ibPrice?`$${_sf(r.ibPrice,2)}`:"—"}</td>
+                  <td style={{padding:"3px 6px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)"}}>{r.appVal?hide(`$${_sf(r.appVal,0)}`):"—"}</td>
+                  <td style={{padding:"3px 6px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-primary)"}}>{r.ibVal?hide(`$${_sf(r.ibVal,0)}`):"—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     );
