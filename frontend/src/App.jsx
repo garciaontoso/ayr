@@ -344,6 +344,13 @@ export default function ARApp() {
 const POS_STATIC = {
 "ACN":{n:"Accenture Plc",lp:196.65,ap:204.1867,cb:204.1867,sh:60,tg:"GORKA",cat:"COMPANY",pnl:-0.036911,pnlAbs:-452.2,mv:11799,uv:11799,ti:12251.2,d2f:1.03,apc:-0.2435,mc:121.0},
 "AMCR":{n:"Amcor PLC",lp:40.57,ap:48.57,cb:48.57,sh:10,tg:"YO",cat:"COMPANY",pnl:-0.164711,pnlAbs:-80,mv:405.7,uv:405.7,ti:485.7,d2f:18.47,apc:-0.0352,mc:18.75},
+"AHRT":{n:"Ahart Capital",lp:5.27,ap:5.15,sh:3300,tg:"GORKA",cat:"COMPANY",mv:17389,uv:17389,ti:17000},
+"BX":{n:"Blackstone Inc",lp:111.30,ap:104.30,sh:150,tg:"GORKA",cat:"COMPANY",divTTM:4.44,dy:0.04,mv:16695,uv:16695,ti:15645,mc:165},
+"ITRK":{n:"Intertek Group Plc",c:"GBP",fx:1.32,lp:36.50,ap:36.00,sh:300,tg:"GORKA",cat:"COMPANY",mv:10949,uv:10949,ti:10800,mc:7.5},
+"KMB":{n:"Kimberly-Clark Corp",lp:96.55,ap:99.53,sh:100,tg:"GORKA",cat:"COMPANY",divTTM:5.12,dy:0.053,mv:9655,uv:9655,ti:9953,mc:44},
+"DIVO":{n:"Amplify CWP Enhanced Div ETF",lp:44.02,ap:44.03,sh:200,tg:"GORKA",cat:"ETF",divTTM:1.76,dy:0.04,mv:8805,uv:8805,ti:8806},
+"ADP":{n:"Automatic Data Processing",lp:205.45,ap:210.08,sh:40,tg:"GORKA",cat:"COMPANY",divTTM:6.16,dy:0.03,mv:8218,uv:8218,ti:8403,mc:96},
+"SPY":{n:"SPDR S&P 500 ETF",lp:630.57,ap:633.00,sh:2,tg:"GORKA",cat:"ETF",mv:1261,uv:1261,ti:1266,mc:570},
 "AMT":{n:"American Tower Corp",lp:184.41,ap:185.3,cb:185.3,sh:100,tg:"LANDLORD",cat:"REIT",pnl:-0.004803,pnlAbs:-89,mv:18441,uv:18441,ti:18530,d2f:8.39,apc:0.055,mc:85.95},
 "ARE":{n:"Alexandria Real Estate Equities Inc",lp:48.41,ap:81.8643,cb:75.8972,sh:650,tg:"LANDLORD",cat:"REIT",divTTM:4.68,dy:0.0967,yoc:0.057168,pnl:-0.362163,pnlAbs:-21745.32,mv:31466.5,uv:31466.5,ti:49333.16,d2f:1.11,apc:-0.0114,adt:62.855,f2d:0.577,mc:8.39},
 "AZJ":{n:"Aurizon Holdings Ltd",c:"AUD",fx:0.6989,lp:4,ap:3.2825,cb:3.2825,sh:6000,tg:"GORKA",cat:"COMPANY",pnl:0.218583,pnlAbs:4305,mv:24000,uv:16773.6,ti:13764.84,apc:0.1111,mc:4.79},
