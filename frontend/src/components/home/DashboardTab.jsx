@@ -1,14 +1,21 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { _CURRENT_YEAR, API_URL } from '../../constants/index.js';
 
 export default function DashboardTab() {
   const [nlvHistory, setNlvHistory] = useState([]);
+  const [spyHistory, setSpyHistory] = useState([]);
   useEffect(() => {
     fetch(`${API_URL}/api/ib-nlv-history?limit=90`)
       .then(r => r.json())
       .then(d => setNlvHistory(d.results || []))
+      .catch(() => {});
+    // SPY price history for comparison
+    const from = new Date(Date.now() - 3 * 365.25 * 86400000).toISOString().slice(0, 10);
+    fetch(`${API_URL}/api/price-history?symbol=SPY&from=${from}`)
+      .then(r => r.json())
+      .then(d => setSpyHistory((d.historical || d || []).reverse()))
       .catch(() => {});
   }, []);
   const {
@@ -206,6 +213,71 @@ return (
             <span style={{fontSize:7,color:i===curMonth?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:i===curMonth?700:400}}>{m}</span>
           </div>
         ))}
+      </div>
+    </div>);
+  })()}
+
+  {/* ── Performance Chart: Portfolio vs S&P 500 ── */}
+  {ctrlWithData.length > 3 && spyHistory.length > 0 && (() => {
+    // Build monthly return series for portfolio (from CTRL_DATA) and SPY
+    const portReturns = ctrlWithData.map((c, i) => {
+      if (i === 0) return { date: c.d, portCum: 0, spyCum: 0 };
+      const portRet = ctrlWithData[0].pu > 0 ? ((c.pu - ctrlWithData[0].pu) / ctrlWithData[0].pu * 100) : 0;
+      // Find SPY price on same date
+      const spyOnDate = spyHistory.find(s => s.date >= c.d) || spyHistory.find(s => s.date <= c.d);
+      const spyFirst = spyHistory.find(s => s.date >= ctrlWithData[0].d) || spyHistory[0];
+      const spyRet = spyFirst?.close > 0 && spyOnDate?.close > 0 ? ((spyOnDate.close - spyFirst.close) / spyFirst.close * 100) : 0;
+      return { date: c.d, portCum: portRet, spyCum: spyRet };
+    });
+
+    if (portReturns.length < 3) return null;
+
+    const allVals = portReturns.flatMap(r => [r.portCum, r.spyCum]);
+    const min = Math.min(...allVals) - 2;
+    const max = Math.max(...allVals) + 2;
+    const range = max - min || 1;
+    const w = 400;
+    const h = 80;
+
+    const portPoints = portReturns.map((r, i) => `${(i / (portReturns.length - 1)) * w},${h - ((r.portCum - min) / range) * h}`).join(" ");
+    const spyPoints = portReturns.map((r, i) => `${(i / (portReturns.length - 1)) * w},${h - ((r.spyCum - min) / range) * h}`).join(" ");
+    const zeroY = h - ((0 - min) / range) * h;
+
+    const lastPort = portReturns[portReturns.length - 1];
+    const outperform = lastPort.portCum - lastPort.spyCum;
+
+    return (
+    <div style={{padding:"12px 16px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:12}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>📈 Performance: Portfolio vs S&P 500</div>
+        <div style={{display:"flex",gap:12,fontSize:10,fontFamily:"var(--fm)"}}>
+          <span><span style={{color:"var(--gold)"}}>■</span> Portfolio: <b style={{color:lastPort.portCum>=0?"var(--green)":"var(--red)"}}>{lastPort.portCum>=0?"+":""}{_sf(lastPort.portCum,1)}%</b></span>
+          <span><span style={{color:"#64d2ff"}}>■</span> SPY: <b style={{color:lastPort.spyCum>=0?"var(--green)":"var(--red)"}}>{lastPort.spyCum>=0?"+":""}{_sf(lastPort.spyCum,1)}%</b></span>
+          <span style={{color:outperform>=0?"var(--green)":"var(--red)",fontWeight:700}}>{outperform>=0?"▲":"▼"} {_sf(Math.abs(outperform),1)}%</span>
+        </div>
+      </div>
+      <svg viewBox={`0 0 ${w} ${h}`} style={{width:"100%",height:80}}>
+        {/* Zero line */}
+        <line x1="0" y1={zeroY} x2={w} y2={zeroY} stroke="rgba(255,255,255,.1)" strokeWidth="0.5" strokeDasharray="4"/>
+        {/* SPY line */}
+        <polyline points={spyPoints} fill="none" stroke="#64d2ff" strokeWidth="1.5" strokeLinejoin="round" opacity=".6"/>
+        {/* Portfolio line */}
+        <polyline points={portPoints} fill="none" stroke="var(--gold)" strokeWidth="2" strokeLinejoin="round"/>
+        {/* Dots at end */}
+        {(() => {
+          const lastX = w;
+          const portY = h - ((lastPort.portCum - min) / range) * h;
+          const spyY = h - ((lastPort.spyCum - min) / range) * h;
+          return <>
+            <circle cx={lastX} cy={portY} r="3" fill="var(--gold)"/>
+            <circle cx={lastX} cy={spyY} r="2.5" fill="#64d2ff"/>
+          </>;
+        })()}
+      </svg>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:9,fontFamily:"var(--fm)",color:"var(--text-tertiary)",marginTop:2}}>
+        <span>{portReturns[0].date?.slice(0,7)}</span>
+        <span>{outperform >= 0 ? "✅ Superando al S&P 500" : "📉 Por debajo del S&P 500"}</span>
+        <span>{lastPort.date?.slice(0,7)}</span>
       </div>
     </div>);
   })()}
