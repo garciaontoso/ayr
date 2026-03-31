@@ -15,6 +15,6 @@ createRoot(document.getElementById('root')).render(
 // Register service worker for PWA (cache-bust with version)
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js?v=2.3').catch(() => {});
+    navigator.serviceWorker.register('/sw.js?v=3.1').catch(() => {});
   });
 }

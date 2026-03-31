@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ayr-v2.3';
+const CACHE_NAME = 'ayr-v3.1';
 const STATIC_ASSETS = ['/', '/index.html', '/favicon.svg', '/apple-touch-icon.png'];
 
 // Install: cache shell
@@ -14,7 +14,7 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+      Promise.all(keys.filter(k => k !== CACHE_NAME && k !== 'ayr-offline-data').map(k => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
 });
@@ -51,9 +51,14 @@ self.addEventListener('fetch', e => {
   // Skip non-GET and chrome-extension requests
   if (e.request.method !== 'GET' || url.protocol === 'chrome-extension:') return;
 
-  // API calls: network-first with timeout
+  // API calls: network-first, fallback to offline cache
   if (url.pathname.startsWith('/api/') || url.hostname.includes('garciaontoso.workers.dev')) {
-    return; // Let API calls go through normally — worker has its own cache
+    e.respondWith(
+      fetch(e.request).catch(() =>
+        caches.open('ayr-offline-data').then(cache => cache.match(e.request))
+      ).then(r => r || new Response(JSON.stringify({error:"offline"}), {headers:{"Content-Type":"application/json"}}))
+    );
+    return;
   }
 
   // Static assets: stale-while-revalidate

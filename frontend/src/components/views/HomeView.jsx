@@ -152,6 +152,68 @@ export default function HomeView() {
           title="Health Check"
           style={{padding:"4px 7px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer"}}>🩺</button>
 
+        {/* Offline mode — download all data for airplane */}
+        {(() => {
+          const [dlOpen, setDlOpen] = React.useState(false);
+          const [dlProgress, setDlProgress] = React.useState("");
+          const [dlDone, setDlDone] = React.useState(false);
+          const download = async () => {
+            setDlOpen(true); setDlDone(false);
+            const API = "https://aar-api.garciaontoso.workers.dev";
+            const tickers = portfolioList.map(p => p.ticker).filter(t => !t.includes(":"));
+            const cache = await caches.open("ayr-offline-data");
+
+            // 1. Cache main data endpoints
+            setDlProgress("Cargando datos generales...");
+            const mainUrls = ["/api/positions","/api/patrimonio","/api/ingresos","/api/dividendos","/api/dividendos/resumen","/api/dividendos/mensual","/api/gastos/mensual","/api/gastos","/api/holdings","/api/fire","/api/pl","/api/categorias","/api/fx","/api/cash/latest","/api/margin-interest","/api/alerts","/api/ib-nlv-history?limit=365","/api/costbasis/all?limit=500"];
+            for (const url of mainUrls) {
+              try { const r = await fetch(API + url); await cache.put(API + url, r.clone()); } catch {}
+            }
+
+            // 2. Cache fundamentals for each ticker
+            let done = 0;
+            for (let i = 0; i < tickers.length; i += 5) {
+              const batch = tickers.slice(i, i + 5);
+              setDlProgress(`Fundamentales: ${done}/${tickers.length} (${batch.join(", ")})`);
+              await Promise.all(batch.map(async t => {
+                try {
+                  const url = `${API}/api/fundamentals?symbol=${t}`;
+                  const r = await fetch(url);
+                  await cache.put(url, r.clone());
+                } catch {}
+                done++;
+              }));
+            }
+
+            // 3. Cache price history for sparklines
+            setDlProgress("Historial de precios...");
+            const from = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+            for (let i = 0; i < tickers.length; i += 10) {
+              const batch = tickers.slice(i, i + 10);
+              await Promise.all(batch.map(async t => {
+                try {
+                  const url = `${API}/api/price-history?symbol=${t}&from=${from}`;
+                  const r = await fetch(url);
+                  await cache.put(url, r.clone());
+                } catch {}
+              }));
+            }
+
+            setDlProgress(`✅ ${tickers.length} empresas descargadas · ${mainUrls.length} endpoints · Listo para offline`);
+            setDlDone(true);
+          };
+          return <>
+            <button onClick={()=>dlOpen?setDlOpen(false):download()} title="Modo Avión — descargar todo para offline"
+              style={{padding:"4px 7px",borderRadius:6,border:`1px solid ${dlDone?"rgba(48,209,88,.4)":"var(--border)"}`,background:dlDone?"rgba(48,209,88,.06)":"transparent",color:dlDone?"var(--green)":"var(--text-tertiary)",fontSize:10,cursor:"pointer"}}>✈️</button>
+            {dlOpen && dlProgress && (
+              <div style={{position:"fixed",bottom:20,left:"50%",transform:"translateX(-50%)",background:"var(--surface, #1c1c1e)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 20px",fontSize:11,fontFamily:"var(--fm)",color:dlDone?"var(--green)":"var(--text-primary)",zIndex:9999,boxShadow:"0 8px 30px rgba(0,0,0,.4)",maxWidth:400}}>
+                {dlProgress}
+                {dlDone && <button onClick={()=>setDlOpen(false)} style={{marginLeft:10,border:"none",background:"transparent",color:"var(--text-tertiary)",cursor:"pointer",fontSize:10}}>✕</button>}
+              </div>
+            )}
+          </>;
+        })()}
+
         <button onClick={()=>setShowSettings(!showSettings)} style={{padding:"4px 7px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer"}}>⚙</button>
       </div>
     </div>
