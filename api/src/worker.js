@@ -2086,6 +2086,34 @@ export default {
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
       }
 
+      // GET /api/data-status — last update date for each data source
+      if (path === "/api/data-status" && request.method === "GET") {
+        try {
+          const queries = await Promise.all([
+            env.DB.prepare("SELECT MAX(fecha) as last FROM patrimonio").first(),
+            env.DB.prepare("SELECT MAX(fecha) as last FROM dividendos").first(),
+            env.DB.prepare("SELECT MAX(fecha) as last FROM gastos").first(),
+            env.DB.prepare("SELECT MAX(fecha) as last FROM cost_basis").first(),
+            env.DB.prepare("SELECT MAX(fecha) as last FROM nlv_history").first(),
+            env.DB.prepare("SELECT MAX(created_at) as last FROM alerts").first(),
+            env.DB.prepare("SELECT updated_at as last FROM positions ORDER BY updated_at DESC LIMIT 1").first(),
+            env.DB.prepare("SELECT COUNT(*) as c FROM positions").first(),
+            env.DB.prepare("SELECT COUNT(*) as c FROM dividendos").first(),
+            env.DB.prepare("SELECT COUNT(*) as c FROM cost_basis").first(),
+            env.DB.prepare("SELECT COUNT(*) as c FROM gastos").first(),
+          ]);
+          return json({
+            patrimonio: { lastUpdate: queries[0]?.last || "—" },
+            dividendos: { lastUpdate: queries[1]?.last || "—", count: queries[8]?.c || 0 },
+            gastos: { lastUpdate: queries[2]?.last || "—", count: queries[10]?.c || 0 },
+            trades: { lastUpdate: queries[3]?.last || "—", count: queries[9]?.c || 0 },
+            nlv: { lastUpdate: queries[4]?.last || "—" },
+            alerts: { lastUpdate: queries[5]?.last || "—" },
+            positions: { lastUpdate: queries[6]?.last || "—", count: queries[7]?.c || 0 },
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
       // GET /api/tax-report?year=2025 — tax summary from cost_basis + dividendos
       if (path === "/api/tax-report" && request.method === "GET") {
         const year = url.searchParams.get("year") || String(new Date().getFullYear());

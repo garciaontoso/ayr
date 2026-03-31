@@ -140,12 +140,26 @@ export default function HomeView() {
           t("IB Portfolio", async()=>{const r=await fetch(API+"/api/ib-portfolio");const d=await r.json();if(!d.count)throw Error("0 positions")});
           t("IB Ledger", async()=>{const r=await fetch(API+"/api/ib-ledger");const d=await r.json();if(!d.ledger)throw Error("no ledger")});
           t("NLV History", async()=>{const r=await fetch(API+"/api/ib-nlv-history?limit=1");if(!r.ok)throw Error(r.status)});
-          t("Flex Token", async()=>{/* just check endpoint exists */const r=await fetch(API+"/api/costbasis/all?limit=1");if(!r.ok)throw Error(r.status)});
+          t("Cost Basis", async()=>{const r=await fetch(API+"/api/costbasis/all?limit=1");if(!r.ok)throw Error(r.status)});
           const results = await Promise.all(checks);
+          // Also fetch data status (last update dates)
+          let statusMsg = "";
+          try {
+            const sr = await fetch(API+"/api/data-status");
+            const st = await sr.json();
+            statusMsg = "\n\n📅 Última actualización:\n" +
+              `  Patrimonio: ${st.patrimonio?.lastUpdate || "—"}\n` +
+              `  Dividendos: ${st.dividendos?.lastUpdate || "—"} (${st.dividendos?.count || 0} registros)\n` +
+              `  Gastos: ${st.gastos?.lastUpdate || "—"} (${st.gastos?.count || 0} registros)\n` +
+              `  Trades: ${st.trades?.lastUpdate || "—"} (${st.trades?.count || 0} registros)\n` +
+              `  NLV: ${st.nlv?.lastUpdate || "—"}\n` +
+              `  Posiciones D1: ${st.positions?.lastUpdate || "—"} (${st.positions?.count || 0})\n` +
+              `  Alertas: ${st.alerts?.lastUpdate || "—"}`;
+          } catch {}
           const ok = results.filter(r=>r.ok).length;
-          const fail = results.filter(r=>!r.ok);
-          const msg = `Health Check: ${ok}/${results.length} OK\n\n` +
-            results.map(r=>`${r.ok?"✅":"❌"} ${r.name}${r.err?" — "+r.err:""}`).join("\n");
+          const msg = `🩺 Health Check: ${ok}/${results.length} OK\n\n` +
+            results.map(r=>`${r.ok?"✅":"❌"} ${r.name}${r.err?" — "+r.err:""}`).join("\n") +
+            statusMsg;
           alert(msg);
         }}
           title="Health Check — verificar todos los sistemas"
