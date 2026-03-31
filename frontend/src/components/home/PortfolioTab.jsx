@@ -193,17 +193,19 @@ export default function PortfolioTab() {
           return (
           <div style={{marginTop:8}}>
             <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:4}}>📊 Heatmap — tamaño = peso, color = P&L</div>
-            <div style={{display:"flex",flexWrap:"wrap",gap:2,borderRadius:10,overflow:"hidden"}}>
+            <div style={{display:"flex",flexWrap:"wrap",gap:3,borderRadius:12,overflow:"hidden"}}>
               {[...pos].sort((a,b)=>(b.valueUSD||0)-(a.valueUSD||0)).map(p => {
-                const w = Math.max((p.valueUSD||0)/totalVal*100, 1.5);
+                const w = Math.max((p.valueUSD||0)/totalVal*100, 2.5);
                 const pnl = (p.pnlPct||0)*100;
                 const bg = pnl > 20 ? "#1a5c2a" : pnl > 5 ? "#1e4d2a" : pnl > 0 ? "#1a3d24" : pnl > -5 ? "#3d2020" : pnl > -20 ? "#4d2020" : "#5c1a1a";
+                const isLarge = w > 5;
                 return (
                   <div key={p.ticker} onClick={()=>openAnalysis(p.ticker)} title={`${p.ticker}: ${_sf(pnl,1)}% · $${_sf(p.valueUSD||0,0)}`}
-                    style={{width:`calc(${w}% - 2px)`,minWidth:40,padding:"4px 3px",background:bg,cursor:"pointer",textAlign:"center",transition:"all .15s",borderRadius:3}}
-                    onMouseEnter={e=>e.currentTarget.style.opacity=".8"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
-                    <div style={{fontSize:8,fontWeight:700,color:"#fff",fontFamily:"var(--fm)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.ticker}</div>
-                    <div style={{fontSize:9,fontWeight:600,color:pnl>=0?"#4ade80":"#f87171",fontFamily:"var(--fm)"}}>{pnl>=0?"+":""}{_sf(pnl,0)}%</div>
+                    style={{width:`calc(${w}% - 3px)`,minWidth:55,minHeight:isLarge?70:50,padding:"8px 6px",background:bg,cursor:"pointer",textAlign:"center",transition:"all .15s",borderRadius:6,display:"flex",flexDirection:"column",justifyContent:"center",gap:2}}
+                    onMouseEnter={e=>{e.currentTarget.style.opacity=".8";e.currentTarget.style.transform="scale(1.02)";}} onMouseLeave={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.transform="scale(1)";}}>
+                    <div style={{fontSize:isLarge?13:10,fontWeight:700,color:"#fff",fontFamily:"var(--fm)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.ticker}</div>
+                    <div style={{fontSize:isLarge?14:11,fontWeight:700,color:pnl>=0?"#4ade80":"#f87171",fontFamily:"var(--fm)"}}>{pnl>=0?"+":""}{_sf(pnl,0)}%</div>
+                    {isLarge && <div style={{fontSize:9,color:"rgba(255,255,255,.5)",fontFamily:"var(--fm)"}}>${_sf((p.valueUSD||0)/1000,1)}K</div>}
                   </div>
                 );
               })}
