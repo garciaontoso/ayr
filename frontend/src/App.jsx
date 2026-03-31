@@ -277,33 +277,7 @@ export default function ARApp() {
     return data;
   }, []);
 
-  // Light refresh: fetch live prices from Yahoo (fast, no OAuth)
-  const refreshLivePrices = useCallback(async () => {
-    try {
-      const tickers = portfolioList.map(p => p.ticker).filter(t => !t.includes(":")).join(",");
-      if (!tickers) return;
-      const r = await fetch(`${API_URL}/api/prices?tickers=${tickers}&live=1`);
-      const d = await r.json();
-      if (d.prices) {
-        // Update positions with live price data
-        setPositions(prev => {
-          const updated = { ...prev };
-          for (const [ticker, priceInfo] of Object.entries(d.prices)) {
-            if (updated[ticker] && priceInfo?.price) {
-              updated[ticker] = {
-                ...updated[ticker],
-                lastPrice: priceInfo.price,
-                dayChange: priceInfo.changePct || 0,
-                dayChangeAbs: priceInfo.change || 0,
-                priceUpdated: true,
-              };
-            }
-          }
-          return updated;
-        });
-      }
-    } catch {}
-  }, [portfolioList]);
+  // refreshLivePrices defined after portfolioList (see deferred effects section)
 
   // Auto-sync IB data once per session (must be after loadIBData declaration)
   useEffect(() => {
@@ -1199,15 +1173,34 @@ function buildPositionsFromCB() {
     };
   }, [portfolioComputed, portfolioList.length]);
 
-  // ── Deferred effects (need portfolioList + portfolioTotals + ibData) ──
+  // ── Deferred code (needs portfolioList + portfolioTotals + ibData) ──
 
-  // Auto-refresh live prices every 10 seconds (when tab visible)
+  // Live price refresh (uses portfolioList — must be after its declaration)
+  const refreshLivePrices = useCallback(async () => {
+    try {
+      const tickers = portfolioList.map(p => p.ticker).filter(t => !t.includes(":")).join(",");
+      if (!tickers) return;
+      const r = await fetch(`${API_URL}/api/prices?tickers=${tickers}&live=1`);
+      const d = await r.json();
+      if (d.prices) {
+        setPositions(prev => {
+          const updated = { ...prev };
+          for (const [ticker, priceInfo] of Object.entries(d.prices)) {
+            if (updated[ticker] && priceInfo?.price) {
+              updated[ticker] = { ...updated[ticker], lastPrice: priceInfo.price, dayChange: priceInfo.changePct || 0, dayChangeAbs: priceInfo.change || 0, priceUpdated: true };
+            }
+          }
+          return updated;
+        });
+      }
+    } catch {}
+  }, [portfolioList]);
+
+  // Auto-refresh live prices every 10 seconds
   useEffect(() => {
     if (!dataLoaded || !portfolioList.length) return;
     const interval = setInterval(() => {
-      if (document.visibilityState === "visible") {
-        refreshLivePrices();
-      }
+      if (document.visibilityState === "visible") refreshLivePrices();
     }, 10000);
     return () => clearInterval(interval);
   }, [dataLoaded, portfolioList.length, refreshLivePrices]);
