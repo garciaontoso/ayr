@@ -665,9 +665,10 @@ export default {
       // GET /api/prices — get cached prices or refresh
       if (path === "/api/prices" && request.method === "GET") {
         const forceRefresh = url.searchParams.get("refresh") === "1";
-        
-        // Check cache (stored in D1)
-        if (!forceRefresh) {
+        const liveMode = url.searchParams.get("live") === "1";
+
+        // Check cache (stored in D1) — skip for live mode
+        if (!forceRefresh && !liveMode) {
           try {
             const cached = await env.DB.prepare(
               "SELECT data, updated_at FROM price_cache WHERE id = 'latest'"
