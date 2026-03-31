@@ -281,74 +281,11 @@ export default function ARApp() {
     loadIBData();
   }, [dataLoaded, loadIBData]);
 
-  // Load alerts on startup
-  useEffect(() => {
-    if (!dataLoaded) return;
-    fetch(`${API_URL}/api/alerts`).then(r => r.json()).then(d => {
-      setAlerts(d.alerts || []);
-      setAlertsUnread(d.unread || 0);
-    }).catch(() => {});
-  }, [dataLoaded]);
-
-  // Dividend streak data (loaded once)
+  // Alerts + divStreaks state (useEffects that use these are placed after portfolioTotals)
+  const [alerts, setAlerts] = useState([]);
+  const [alertsUnread, setAlertsUnread] = useState(0);
+  const [showAlertPanel, setShowAlertPanel] = useState(false);
   const [divStreaks, setDivStreaks] = useState({});
-  useEffect(() => {
-    if (!portfolioList.length) return;
-    const streakKey = 'div-streak-' + new Date().toISOString().slice(0, 10);
-    if (sessionStorage.getItem(streakKey)) {
-      try { setDivStreaks(JSON.parse(sessionStorage.getItem(streakKey + '-data')) || {}); } catch {}
-      return;
-    }
-    const usTickers = portfolioList.filter(p => !p.ticker.includes(":")).map(p => p.ticker);
-    if (!usTickers.length) return;
-    // Load in batches to avoid URL length limits
-    const loadBatch = async () => {
-      const all = {};
-      for (let i = 0; i < usTickers.length; i += 30) {
-        const batch = usTickers.slice(i, i + 30);
-        try {
-          const r = await fetch(`${API_URL}/api/dividend-streak?symbols=${batch.join(",")}`);
-          const d = await r.json();
-          Object.assign(all, d);
-        } catch {}
-      }
-      setDivStreaks(all);
-      sessionStorage.setItem(streakKey, '1');
-      try { sessionStorage.setItem(streakKey + '-data', JSON.stringify(all)); } catch {}
-    };
-    loadBatch();
-  }, [portfolioList.length]);
-
-  // Auto-run alert checks after IB data + prices are loaded
-  useEffect(() => {
-    if (!ibData.loaded || !portfolioList.length) return;
-    const alertKey = 'alerts-check-' + new Date().toISOString().slice(0, 10);
-    if (sessionStorage.getItem(alertKey)) return;
-    sessionStorage.setItem(alertKey, '1');
-
-    const positions = (portfolioTotals.positions || []).map(p => ({
-      ticker: p.ticker, shares: p.shares, lastPrice: p.lastPrice, dayChange: p.dayChange || 0,
-    }));
-    const ibOptions = (ibData.positions || []).filter(p => p.assetClass === "OPT");
-
-    fetch(`${API_URL}/api/alerts-check`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        positions, ibOptions,
-        nlv: ibData.summary?.nlv?.amount || 0,
-        margin: ibData.summary?.initMargin?.amount || 0,
-      }),
-    }).then(r => r.json()).then(d => {
-      if (d.alerts?.length) {
-        setAlerts(prev => [...d.alerts.map(a => ({ ...a, fecha: new Date().toISOString().slice(0,10), leida: 0 })), ...prev]);
-        setAlertsUnread(prev => prev + (d.inserted || 0));
-        // Browser notification for important alerts
-        if ("Notification" in window && Notification.permission === "granted" && d.inserted > 0) {
-          new Notification(`🔔 A&R: ${d.inserted} nuevas alertas`, { body: d.alerts.slice(0, 3).map(a => a.titulo).join("\n") });
-        }
-      }
-    }).catch(() => {});
-  }, [ibData.loaded, portfolioList.length]);
 
   const [uiZoom, setUiZoom] = useState(() => {
     const saved = localStorage.getItem("ayr_zoom");
@@ -362,9 +299,6 @@ export default function ARApp() {
   const [viewMode, setViewMode] = useState("home");
   const [globalSearch, setGlobalSearch] = useState(false);
   const [globalQuery, setGlobalQuery] = useState("");
-  const [alerts, setAlerts] = useState([]);
-  const [alertsUnread, setAlertsUnread] = useState(0);
-  const [showAlertPanel, setShowAlertPanel] = useState(false);
   const [homeTab, setHomeTab] = useState("portfolio");
   const [searchTicker, setSearchTicker] = useState("");
   const [cbTicker, setCbTicker] = useState(null); // cost basis active ticker
@@ -1305,6 +1239,68 @@ function buildPositionsFromCB() {
       count: portfolioList.length,
     };
   }, [portfolioComputed, portfolioList.length]);
+
+  // ── Deferred effects (need portfolioList + portfolioTotals + ibData) ──
+
+  // Load alerts on startup
+  useEffect(() => {
+    if (!dataLoaded) return;
+    fetch(`${API_URL}/api/alerts`).then(r => r.json()).then(d => {
+      setAlerts(d.alerts || []);
+      setAlertsUnread(d.unread || 0);
+    }).catch(() => {});
+  }, [dataLoaded]);
+
+  // Dividend streak data (loaded once per day)
+  useEffect(() => {
+    if (!portfolioList.length) return;
+    const streakKey = 'div-streak-' + new Date().toISOString().slice(0, 10);
+    if (sessionStorage.getItem(streakKey)) {
+      try { setDivStreaks(JSON.parse(sessionStorage.getItem(streakKey + '-data')) || {}); } catch {}
+      return;
+    }
+    const usTickers = portfolioList.filter(p => !p.ticker.includes(":")).map(p => p.ticker);
+    if (!usTickers.length) return;
+    const loadBatch = async () => {
+      const all = {};
+      for (let i = 0; i < usTickers.length; i += 30) {
+        const batch = usTickers.slice(i, i + 30);
+        try {
+          const r = await fetch(`${API_URL}/api/dividend-streak?symbols=${batch.join(",")}`);
+          const d = await r.json();
+          Object.assign(all, d);
+        } catch {}
+      }
+      setDivStreaks(all);
+      sessionStorage.setItem(streakKey, '1');
+      try { sessionStorage.setItem(streakKey + '-data', JSON.stringify(all)); } catch {}
+    };
+    loadBatch();
+  }, [portfolioList.length]);
+
+  // Auto-run alert checks after IB data + prices loaded
+  useEffect(() => {
+    if (!ibData.loaded || !portfolioList.length) return;
+    const alertKey = 'alerts-check-' + new Date().toISOString().slice(0, 10);
+    if (sessionStorage.getItem(alertKey)) return;
+    sessionStorage.setItem(alertKey, '1');
+    const pos = (portfolioTotals.positions || []).map(p => ({
+      ticker: p.ticker, shares: p.shares, lastPrice: p.lastPrice, dayChange: p.dayChange || 0,
+    }));
+    const ibOptions = (ibData.positions || []).filter(p => p.assetClass === "OPT");
+    fetch(`${API_URL}/api/alerts-check`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ positions: pos, ibOptions, nlv: ibData.summary?.nlv?.amount || 0, margin: ibData.summary?.initMargin?.amount || 0 }),
+    }).then(r => r.json()).then(d => {
+      if (d.alerts?.length) {
+        setAlerts(prev => [...d.alerts.map(a => ({ ...a, fecha: new Date().toISOString().slice(0,10), leida: 0 })), ...prev]);
+        setAlertsUnread(prev => prev + (d.inserted || 0));
+        if ("Notification" in window && Notification.permission === "granted" && d.inserted > 0) {
+          new Notification(`A&R: ${d.inserted} alertas`, { body: d.alerts.slice(0, 3).map(a => a.titulo).join("\n") });
+        }
+      }
+    }).catch(() => {});
+  }, [ibData.loaded, portfolioList.length]);
 
   // ── Load cached settings on mount (non-blocking) ──
   useEffect(() => {

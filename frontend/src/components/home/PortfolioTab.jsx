@@ -14,6 +14,15 @@ const SORT_OPTIONS = [
 ];
 
 export default function PortfolioTab() {
+  const {
+    portfolioList, portfolioTotals, portfolioComputed,
+    searchTicker, setSearchTicker, updatePosition,
+    countryFilter, setCountryFilter, portSort, setPortSort, showCapTable, setShowCapTable,
+    pricesLoading, pricesLastUpdate, refreshPrices,
+    displayCcy, privacyMode, hide,
+    openAnalysis, getCountry, FLAGS, POS_STATIC, CompanyRow,
+  } = useHome();
+
   const [quickFilter, setQuickFilter] = useState("");
   const [listSort, setListSort] = useState("value");
   const searchRef = useRef(null);
@@ -58,15 +67,6 @@ export default function PortfolioTab() {
       }
     });
   }, [portfolioTotals?.positions]);
-
-  const {
-    portfolioList, portfolioTotals, portfolioComputed,
-    searchTicker, setSearchTicker, updatePosition,
-    countryFilter, setCountryFilter, portSort, setPortSort, showCapTable, setShowCapTable,
-    pricesLoading, pricesLastUpdate, refreshPrices,
-    displayCcy, privacyMode, hide,
-    openAnalysis, getCountry, FLAGS, POS_STATIC, CompanyRow,
-  } = useHome();
 
   return (
       <div style={{display:"flex",flexDirection:"column",gap:6}}>
