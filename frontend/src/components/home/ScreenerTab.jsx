@@ -132,6 +132,7 @@ export default function ScreenerTab() {
               {k:"pe",l:"P/E",a:"right"},
               {k:"fmpRatingScore",l:"FMP RATING",a:"center"},
               {k:"ibPrice",l:"IB PRECIO",a:"right"},
+              {k:"ibPnl",l:"IB P&L",a:"right"},
             ].map((c,i)=>(
               <th key={i} onClick={()=>c.k&&sortBy(c.k)} style={{padding:"8px 10px",textAlign:c.a,color:screenerSort.col===c.k?"var(--gold)":"var(--text-tertiary)",fontSize:9,fontWeight:600,fontFamily:"var(--fm)",letterSpacing:.4,borderBottom:"2px solid var(--border)",cursor:c.k?"pointer":"default",userSelect:"none",whiteSpace:"nowrap",position:"sticky",top:0,background:"var(--card)"}}>{c.l}{sortArrow(c.k)}</th>
             ))}
@@ -162,9 +163,24 @@ export default function ScreenerTab() {
                 </td>
                 <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>
                   {(() => {
-                    const ibPos = (ibData?.positions||[]).find(p => p.ticker === item.symbol && p.assetClass === "STK");
+                    const IB_MAP = {"BME:VIS":"VIS","BME:AMS":"AMS","IIPR-PRA":"IIPR PRA","HKG:9618":"9618","HKG:1052":"1052","HKG:2219":"2219","HKG:1910":"1910","HGK:9616":"9616"};
+                    const ibTicker = IB_MAP[item.symbol] || item.symbol;
+                    const ibPos = (ibData?.positions||[]).find(p => (p.ticker === ibTicker || p.ticker === item.symbol) && p.assetClass === "STK");
                     if (!ibPos) return <span style={{color:"var(--text-tertiary)",fontSize:9}}>—</span>;
-                    return <span style={{color:"#64d2ff",fontWeight:600,fontSize:11}}>${_sf(ibPos.mktPrice,2)}</span>;
+                    return <div>
+                      <div style={{color:"#64d2ff",fontWeight:600,fontSize:11}}>${_sf(ibPos.mktPrice,2)}</div>
+                      <div style={{fontSize:8,color:"var(--text-tertiary)"}}>{ibPos.shares}sh</div>
+                    </div>;
+                  })()}
+                </td>
+                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>
+                  {(() => {
+                    const IB_MAP = {"BME:VIS":"VIS","BME:AMS":"AMS","IIPR-PRA":"IIPR PRA","HKG:9618":"9618"};
+                    const ibTicker = IB_MAP[item.symbol] || item.symbol;
+                    const ibPos = (ibData?.positions||[]).find(p => (p.ticker === ibTicker || p.ticker === item.symbol) && p.assetClass === "STK");
+                    if (!ibPos || !ibPos.unrealizedPnl) return <span style={{color:"var(--text-tertiary)",fontSize:9}}>—</span>;
+                    const pnl = ibPos.unrealizedPnl;
+                    return <span style={{fontWeight:600,fontSize:10,color:pnl>=0?"var(--green)":"var(--red)"}}>{pnl>=0?"+":""}${_sf(pnl,0)}</span>;
                   })()}
                 </td>
               </tr>;

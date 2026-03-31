@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ayr-v1.0';
+const CACHE_NAME = 'ayr-v2.3';
 const STATIC_ASSETS = ['/', '/index.html', '/favicon.svg', '/apple-touch-icon.png'];
 
 // Install: cache shell
@@ -16,6 +16,31 @@ self.addEventListener('activate', e => {
     caches.keys().then(keys =>
       Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
     ).then(() => self.clients.claim())
+  );
+});
+
+// Push notifications
+self.addEventListener('push', e => {
+  const data = e.data ? e.data.json() : { title: 'A&R', body: 'Nueva notificación' };
+  e.waitUntil(
+    self.registration.showNotification(data.title || 'A&R Alertas', {
+      body: data.body || '',
+      icon: '/apple-touch-icon.png',
+      badge: '/favicon.svg',
+      tag: data.tag || 'ayr-alert',
+      data: { url: data.url || '/' },
+    })
+  );
+});
+
+// Click on notification → open app
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(
+    clients.matchAll({ type: 'window' }).then(list => {
+      if (list.length) { list[0].focus(); return; }
+      clients.openWindow(e.notification.data?.url || '/');
+    })
   );
 });
 

@@ -1174,6 +1174,13 @@ function buildPositionsFromCB() {
 
   // ── Deferred effects (need portfolioList + portfolioTotals + ibData) ──
 
+  // Request notification permission (for push on iPhone/desktop)
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      setTimeout(() => Notification.requestPermission(), 3000);
+    }
+  }, []);
+
   // Load alerts on startup
   useEffect(() => {
     if (!dataLoaded) return;
