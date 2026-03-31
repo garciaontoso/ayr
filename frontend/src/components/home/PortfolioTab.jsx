@@ -188,7 +188,7 @@ export default function PortfolioTab() {
           const isFiltered = quickFilter || countryFilter;
           return <>
             {/* Column headers */}
-            <div className="ar-company-row" style={{display:"grid",gridTemplateColumns:"28px 1fr 70px 50px 45px 55px 55px 50px 45px 60px 50px 28px",gap:3,padding:"0 8px",marginBottom:1}}>
+            <div className="ar-company-row" style={{display:"grid",gridTemplateColumns:"24px 1fr 65px 48px 45px 50px 50px 45px 40px 58px 45px 24px",gap:2,padding:"0 6px",marginBottom:1}}>
               <div/><div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>EMPRESA</div>
               <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"right"}}>PRECIO</div>
               <div className="ar-hide-mobile" style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"right"}}>CHG$</div>

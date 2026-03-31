@@ -1662,34 +1662,29 @@ function buildPositionsFromCB() {
     })();
     const badge = capBadge ? <span style={{fontSize:7,fontWeight:700,padding:"1px 4px",borderRadius:3,background:capBadge.bg,color:capBadge.c,letterSpacing:.3}}>{capBadge.l}</span> : null;
     return (
-      <div className="ar-company-row" onClick={()=>onOpen(p.ticker)} style={{display:"grid",gridTemplateColumns:showPos?"28px 1fr 70px 50px 45px 55px 55px 50px 45px 60px 50px 28px":"28px 1fr 70px 70px 28px",gap:3,alignItems:"center",padding:"4px 8px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:8,cursor:"pointer",transition:"all .15s"}}
+      <div className="ar-company-row" onClick={()=>onOpen(p.ticker)} style={{display:"grid",gridTemplateColumns:showPos?"24px 1fr 65px 48px 45px 50px 50px 45px 40px 58px 45px 24px":"24px 1fr 65px 65px 24px",gap:2,alignItems:"center",padding:"3px 6px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:7,cursor:"pointer",transition:"all .12s"}}
         onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--border-hover)";e.currentTarget.style.background="var(--card-hover)";}}
         onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";e.currentTarget.style.background="var(--card)";}}>
         {/* Logo */}
-        <div style={{width:24,height:24,borderRadius:6,overflow:"hidden",background:"var(--card)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{width:20,height:20,borderRadius:5,overflow:"hidden",background:"var(--card)",display:"flex",alignItems:"center",justifyContent:"center"}}>
           <img src={`https://images.financialmodelingprep.com/symbol/${p.ticker.replace(':','.')}.png`} alt=""
-            style={{width:24,height:24,objectFit:"contain",borderRadius:6}}
+            style={{width:20,height:20,objectFit:"contain",borderRadius:5}}
             onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}/>
-          <div style={{display:"none",width:24,height:24,borderRadius:6,background:"linear-gradient(135deg,#d69e2e,#8B6914)",alignItems:"center",justifyContent:"center",fontSize:7,fontWeight:800,color:"#000",fontFamily:"var(--fm)"}}>{p.ticker.slice(0,3)}</div>
+          <div style={{display:"none",width:20,height:20,borderRadius:5,background:"linear-gradient(135deg,#d69e2e,#8B6914)",alignItems:"center",justifyContent:"center",fontSize:6,fontWeight:800,color:"#000",fontFamily:"var(--fm)"}}>{p.ticker.slice(0,3)}</div>
         </div>
-        {/* Name: flag + name + ticker + badge inline */}
-        <div style={{minWidth:0,display:"flex",alignItems:"center",gap:4,overflow:"hidden"}}>
-          <span style={{fontSize:14,flexShrink:0}}>{FLAGS[cc]||""}</span>
-          <span style={{fontSize:12,fontWeight:600,color:"var(--text-primary)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name||p.ticker}</span>
-          <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",flexShrink:0}}>{p.ticker}</span>
+        {/* Name: flag + name + ticker + badge + sparkline — all inline */}
+        <div style={{minWidth:0,display:"flex",alignItems:"center",gap:3,overflow:"hidden"}}>
+          <span style={{fontSize:13,flexShrink:0}}>{FLAGS[cc]||""}</span>
+          <span style={{fontSize:11,fontWeight:600,color:"var(--text-primary)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name||p.ticker}</span>
+          <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",flexShrink:0}}>{p.ticker}</span>
           {badge}
           {p.dataSource==="IB" && <span style={{fontSize:6,fontWeight:700,padding:"1px 3px",borderRadius:3,background:"rgba(100,210,255,.1)",color:"#64d2ff",flexShrink:0}}>IB</span>}
           {divStreaks[p.ticker]?.streak >= 5 && <span style={{fontSize:6,fontWeight:700,padding:"1px 3px",borderRadius:3,background:divStreaks[p.ticker].streak>=25?"rgba(200,164,78,.15)":divStreaks[p.ticker].streak>=10?"rgba(48,209,88,.1)":"rgba(255,214,10,.08)",color:divStreaks[p.ticker].streak>=25?"var(--gold)":divStreaks[p.ticker].streak>=10?"var(--green)":"#ffd60a",flexShrink:0}} title={`${divStreaks[p.ticker].streak} años subiendo dividendo`}>{divStreaks[p.ticker].streak}y</span>}
-        </div>
-        {/* Sparkline */}
-        <div style={{width:36,height:16}}>
+          {/* Sparkline inline */}
           {(p.spark||[]).length >= 2 && (() => {
-            const s = p.spark;
-            const mn = Math.min(...s), mx = Math.max(...s);
-            const r = mx-mn || 1;
-            const pts = s.map((v,i)=>`${(i/(s.length-1))*36},${16-((v-mn)/r)*14}`).join(" ");
-            const up = s[s.length-1] >= s[0];
-            return <svg viewBox="0 0 36 16" style={{width:36,height:16}}><polyline points={pts} fill="none" stroke={up?"#30d158":"#ff453a"} strokeWidth="1.2" strokeLinejoin="round"/></svg>;
+            const s = p.spark, mn = Math.min(...s), mx = Math.max(...s), r = mx-mn||1;
+            const pts = s.map((v,i)=>`${(i/(s.length-1))*30},${12-((v-mn)/r)*10}`).join(" ");
+            return <svg viewBox="0 0 30 12" style={{width:30,height:12,flexShrink:0,marginLeft:"auto"}}><polyline points={pts} fill="none" stroke={s[s.length-1]>=s[0]?"#30d158":"#ff453a"} strokeWidth="1.2" strokeLinejoin="round"/></svg>;
           })()}
         </div>
         {/* Price */}
