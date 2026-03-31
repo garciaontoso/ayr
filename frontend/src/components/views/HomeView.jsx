@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { CURRENCIES, DISPLAY_CCYS, APP_VERSION } from '../../constants/index.js';
 import { PortfolioTab } from '../home';
@@ -24,6 +24,8 @@ const SettingsPanel = lazy(() => import('../home/SettingsPanel'));
 const Loading = () => <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:'50vh',color:'var(--text-secondary)'}}>Cargando...</div>;
 
 export default function HomeView() {
+  const [showHealthCheck, setShowHealthCheck] = useState(false);
+  const [healthData, setHealthData] = useState({loading:false,results:[],status:null});
   const {
     homeTab, setHomeTab,
     portfolioList, watchlistList, historialList,
@@ -127,42 +129,27 @@ export default function HomeView() {
         {/* Settings */}
         {/* Health Check */}
         <button onClick={async ()=>{
+          setShowHealthCheck(true); setHealthData({loading:true,results:[],status:null});
           const checks = [];
           const t = (name, fn) => checks.push(fn().then(()=>({name,ok:true})).catch(e=>({name,ok:false,err:e.message})));
           const API = "https://aar-api.garciaontoso.workers.dev";
-          t("D1 Positions", async()=>{const r=await fetch(API+"/api/positions");const d=await r.json();if(!d.count)throw Error("0 positions")});
+          t("D1 Positions", async()=>{const r=await fetch(API+"/api/positions");const d=await r.json();if(!d.count)throw Error("0")});
           t("D1 Patrimonio", async()=>{const r=await fetch(API+"/api/patrimonio");if(!r.ok)throw Error(r.status)});
           t("D1 Dividendos", async()=>{const r=await fetch(API+"/api/dividendos");if(!r.ok)throw Error(r.status)});
           t("D1 Alerts", async()=>{const r=await fetch(API+"/api/alerts");if(!r.ok)throw Error(r.status)});
           t("FX Rates", async()=>{const r=await fetch(API+"/api/fx");const d=await r.json();if(!d.EUR)throw Error("no EUR")});
           t("Yahoo Prices", async()=>{const r=await fetch(API+"/api/prices?tickers=SPY&live=1");const d=await r.json();if(!d.prices?.SPY)throw Error("no SPY")});
           t("IB Session", async()=>{const r=await fetch(API+"/api/ib-session");const d=await r.json();if(!d.ok)throw Error(d.error||"failed")});
-          t("IB Portfolio", async()=>{const r=await fetch(API+"/api/ib-portfolio");const d=await r.json();if(!d.count)throw Error("0 positions")});
+          t("IB Portfolio", async()=>{const r=await fetch(API+"/api/ib-portfolio");const d=await r.json();if(!d.count)throw Error("0")});
           t("IB Ledger", async()=>{const r=await fetch(API+"/api/ib-ledger");const d=await r.json();if(!d.ledger)throw Error("no ledger")});
           t("NLV History", async()=>{const r=await fetch(API+"/api/ib-nlv-history?limit=1");if(!r.ok)throw Error(r.status)});
           t("Cost Basis", async()=>{const r=await fetch(API+"/api/costbasis/all?limit=1");if(!r.ok)throw Error(r.status)});
           const results = await Promise.all(checks);
-          // Also fetch data status (last update dates)
-          let statusMsg = "";
-          try {
-            const sr = await fetch(API+"/api/data-status");
-            const st = await sr.json();
-            statusMsg = "\n\n📅 Última actualización:\n" +
-              `  Patrimonio: ${st.patrimonio?.lastUpdate || "—"}\n` +
-              `  Dividendos: ${st.dividendos?.lastUpdate || "—"} (${st.dividendos?.count || 0} registros)\n` +
-              `  Gastos: ${st.gastos?.lastUpdate || "—"} (${st.gastos?.count || 0} registros)\n` +
-              `  Trades: ${st.trades?.lastUpdate || "—"} (${st.trades?.count || 0} registros)\n` +
-              `  NLV: ${st.nlv?.lastUpdate || "—"}\n` +
-              `  Posiciones D1: ${st.positions?.lastUpdate || "—"} (${st.positions?.count || 0})\n` +
-              `  Alertas: ${st.alerts?.lastUpdate || "—"}`;
-          } catch {}
-          const ok = results.filter(r=>r.ok).length;
-          const msg = `🩺 Health Check: ${ok}/${results.length} OK\n\n` +
-            results.map(r=>`${r.ok?"✅":"❌"} ${r.name}${r.err?" — "+r.err:""}`).join("\n") +
-            statusMsg;
-          alert(msg);
+          let status = null;
+          try { const sr=await fetch(API+"/api/data-status"); status=await sr.json(); } catch{}
+          setHealthData({loading:false,results,status});
         }}
-          title="Health Check — verificar todos los sistemas"
+          title="Health Check"
           style={{padding:"4px 7px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer"}}>🩺</button>
 
         <button onClick={()=>setShowSettings(!showSettings)} style={{padding:"4px 7px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer"}}>⚙</button>
@@ -195,6 +182,65 @@ export default function HomeView() {
                 </div>
               );
             })}
+          </div>
+        )}
+      </div>
+    )}
+
+    {/* Health Check Panel */}
+    {showHealthCheck && (
+      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:16,marginBottom:8}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={{fontSize:13,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>
+            🩺 Health Check
+            {!healthData.loading && <span style={{marginLeft:8,fontSize:11,color:healthData.results.every(r=>r.ok)?"var(--green)":"var(--red)"}}>
+              {healthData.results.filter(r=>r.ok).length}/{healthData.results.length} OK
+            </span>}
+          </div>
+          <button onClick={()=>setShowHealthCheck(false)} style={{border:"none",background:"transparent",color:"var(--text-tertiary)",cursor:"pointer",fontSize:14}}>✕</button>
+        </div>
+        {healthData.loading ? (
+          <div style={{textAlign:"center",padding:20,color:"var(--text-tertiary)",fontSize:12,fontFamily:"var(--fm)"}}>Verificando sistemas...</div>
+        ) : (
+          <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+            {/* Systems grid */}
+            <div style={{flex:"1 1 300px"}}>
+              <div style={{fontSize:10,fontWeight:600,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:6,letterSpacing:.5}}>SISTEMAS</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:4}}>
+                {healthData.results.map((r,i) => (
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 8px",borderRadius:6,background:r.ok?"rgba(48,209,88,.04)":"rgba(255,69,58,.06)",border:`1px solid ${r.ok?"rgba(48,209,88,.12)":"rgba(255,69,58,.15)"}`}}>
+                    <span style={{fontSize:12}}>{r.ok?"✅":"❌"}</span>
+                    <div>
+                      <div style={{fontSize:10,fontWeight:600,color:r.ok?"var(--green)":"var(--red)",fontFamily:"var(--fm)"}}>{r.name}</div>
+                      {r.err && <div style={{fontSize:8,color:"var(--red)",fontFamily:"var(--fm)"}}>{r.err}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* Data status */}
+            {healthData.status && (
+              <div style={{flex:"1 1 250px"}}>
+                <div style={{fontSize:10,fontWeight:600,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:6,letterSpacing:.5}}>📅 ÚLTIMA ACTUALIZACIÓN</div>
+                <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                  {[
+                    {l:"Patrimonio",v:healthData.status.patrimonio?.lastUpdate},
+                    {l:"Dividendos",v:healthData.status.dividendos?.lastUpdate,n:healthData.status.dividendos?.count},
+                    {l:"Gastos",v:healthData.status.gastos?.lastUpdate,n:healthData.status.gastos?.count},
+                    {l:"Trades",v:healthData.status.trades?.lastUpdate,n:healthData.status.trades?.count},
+                    {l:"NLV",v:healthData.status.nlv?.lastUpdate},
+                    {l:"Posiciones",v:healthData.status.positions?.lastUpdate,n:healthData.status.positions?.count},
+                  ].map((d,i) => {
+                    const isOld = d.v && d.v !== "—" && (Date.now() - new Date(d.v).getTime()) > 7*86400000;
+                    return (
+                    <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"4px 8px",borderRadius:5,background:isOld?"rgba(255,214,10,.04)":"rgba(255,255,255,.02)",border:`1px solid ${isOld?"rgba(255,214,10,.12)":"rgba(255,255,255,.03)"}`}}>
+                      <span style={{fontSize:10,color:isOld?"#ffd60a":"var(--text-secondary)",fontFamily:"var(--fm)",fontWeight:600}}>{isOld?"⚠ ":""}{d.l}</span>
+                      <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{d.v||"—"}{d.n?` (${d.n})`:""}</span>
+                    </div>);
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
