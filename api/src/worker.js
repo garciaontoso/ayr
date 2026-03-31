@@ -79,6 +79,33 @@ async function ensureMigrations(env) {
       last_price REAL DEFAULT 0
     )`).run();
 
+    // positions table (replaces hardcoded POS_STATIC)
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS positions (
+      ticker TEXT PRIMARY KEY,
+      name TEXT NOT NULL DEFAULT '',
+      last_price REAL DEFAULT 0,
+      avg_price REAL DEFAULT 0,
+      cost_basis REAL DEFAULT 0,
+      shares REAL DEFAULT 0,
+      currency TEXT DEFAULT 'USD',
+      fx REAL DEFAULT 1,
+      strategy TEXT DEFAULT 'YO',
+      category TEXT DEFAULT 'COMPANY',
+      list TEXT DEFAULT 'portfolio',
+      market_value REAL DEFAULT 0,
+      usd_value REAL DEFAULT 0,
+      total_invested REAL DEFAULT 0,
+      pnl_pct REAL DEFAULT 0,
+      pnl_abs REAL DEFAULT 0,
+      div_ttm REAL DEFAULT 0,
+      div_yield REAL DEFAULT 0,
+      yoc REAL DEFAULT 0,
+      market_cap REAL DEFAULT 0,
+      sector TEXT DEFAULT '',
+      extra TEXT DEFAULT '{}',
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+
     // alerts table
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS alerts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1938,6 +1965,113 @@ export default {
         try {
           await env.DB.prepare("UPDATE alerts SET leida=1 WHERE leida=0").run();
           return json({ ok: true }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // ─── POSITIONS (D1 — replaces POS_STATIC) ───
+
+      // GET /api/positions — all positions
+      if (path === "/api/positions" && request.method === "GET") {
+        try {
+          const list = url.searchParams.get("list") || "";
+          let query = "SELECT * FROM positions";
+          const params = [];
+          if (list) { query += " WHERE list = ?"; params.push(list); }
+          query += " ORDER BY usd_value DESC";
+          const { results } = params.length
+            ? await env.DB.prepare(query).bind(...params).all()
+            : await env.DB.prepare(query).all();
+          return json({ positions: results || [], count: (results||[]).length }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // POST /api/positions/import — bulk import positions (from POS_STATIC migration or IB sync)
+      if (path === "/api/positions/import" && request.method === "POST") {
+        try {
+          const body = await request.json();
+          const positions = body.positions || [];
+          if (!positions.length) return json({ error: "No positions" }, corsHeaders, 400);
+
+          let inserted = 0, updated = 0;
+          for (let i = 0; i < positions.length; i += 50) {
+            const batch = positions.slice(i, i + 50);
+            const stmts = batch.map(p => env.DB.prepare(
+              `INSERT OR REPLACE INTO positions (ticker, name, last_price, avg_price, cost_basis, shares, currency, fx, strategy, category, list, market_value, usd_value, total_invested, pnl_pct, pnl_abs, div_ttm, div_yield, yoc, market_cap, sector, extra, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))`
+            ).bind(
+              p.ticker, p.name||"", p.lastPrice||p.last_price||0, p.avgPrice||p.avg_price||0, p.costBasis||p.cost_basis||0,
+              p.shares||0, p.currency||"USD", p.fx||1, p.strategy||"YO", p.category||"COMPANY", p.list||"portfolio",
+              p.marketValue||p.market_value||0, p.usdValue||p.usd_value||0, p.totalInvested||p.total_invested||0,
+              p.pnlPct||p.pnl_pct||0, p.pnlAbs||p.pnl_abs||0, p.divTTM||p.div_ttm||0, p.divYield||p.div_yield||0,
+              p.yoc||0, p.marketCap||p.market_cap||0, p.sector||"", JSON.stringify(p.extra||{})
+            ));
+            try { await env.DB.batch(stmts); inserted += batch.length; } catch { updated += batch.length; }
+          }
+
+          return json({ ok: true, inserted, updated, total: positions.length }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // POST /api/positions/sync-ib — update positions from IB data
+      if (path === "/api/positions/sync-ib" && request.method === "POST") {
+        try {
+          const { lst, consumerKey, accessToken } = await getIBSession();
+          const ib = (m, e, b) => ibAuthFetch(lst, consumerKey, accessToken, m, e, b);
+
+          const accounts = await ib("GET", "/portfolio/accounts");
+          const accountIds = (Array.isArray(accounts) ? accounts : []).map(a => a.accountId || a.id).filter(Boolean);
+
+          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HGK:9616"};
+
+          // Collect all positions across accounts
+          const merged = {};
+          for (const accountId of accountIds) {
+            for (let page = 0; page < 5; page++) {
+              const positions = await ib("GET", `/portfolio/${accountId}/positions/${page}`);
+              if (!positions || !Array.isArray(positions) || !positions.length) break;
+              for (const p of positions) {
+                if (!p.position || p.position === 0 || p.assetClass !== "STK") continue;
+                const ticker = IB_MAP[p.ticker] || p.ticker || "";
+                if (!ticker) continue;
+                if (merged[ticker]) {
+                  merged[ticker].shares += p.position || 0;
+                  merged[ticker].mktValue += p.mktValue || 0;
+                  merged[ticker].unrealizedPnl += p.unrealizedPnl || 0;
+                } else {
+                  merged[ticker] = {
+                    ticker, name: p.name || p.fullName || "", shares: p.position || 0,
+                    mktPrice: p.mktPrice || 0, mktValue: p.mktValue || 0,
+                    avgCost: p.avgCost || 0, unrealizedPnl: p.unrealizedPnl || 0,
+                    currency: p.currency || "USD", sector: p.sector || "",
+                  };
+                }
+              }
+            }
+          }
+
+          // Upsert into positions table (only stocks > $100 value)
+          let synced = 0;
+          const stmts = [];
+          for (const [ticker, p] of Object.entries(merged)) {
+            if (Math.abs(p.mktValue) < 100 || p.mktPrice <= 0) continue;
+            const ccy = p.currency || "USD";
+            stmts.push(env.DB.prepare(
+              `INSERT INTO positions (ticker, name, last_price, avg_price, cost_basis, shares, currency, category, list, market_value, usd_value, total_invested, pnl_pct, pnl_abs, sector, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+               ON CONFLICT(ticker) DO UPDATE SET last_price=excluded.last_price, shares=excluded.shares, market_value=excluded.market_value, usd_value=excluded.usd_value, pnl_abs=excluded.pnl_abs, updated_at=datetime('now')`
+            ).bind(
+              ticker, p.name, p.mktPrice, p.avgCost, p.avgCost, p.shares, ccy, "COMPANY", "portfolio",
+              p.mktValue, p.mktValue, p.avgCost * p.shares, p.shares > 0 && p.avgCost > 0 ? p.unrealizedPnl / (p.avgCost * p.shares) : 0,
+              p.unrealizedPnl, p.sector
+            ));
+            synced++;
+          }
+
+          // Execute in batches
+          for (let i = 0; i < stmts.length; i += 50) {
+            await env.DB.batch(stmts.slice(i, i + 50));
+          }
+
+          return json({ ok: true, accounts: accountIds.length, synced, total: Object.keys(merged).length }, corsHeaders);
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
       }
 

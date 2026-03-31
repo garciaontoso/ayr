@@ -138,6 +138,7 @@ export default function ARApp() {
   const GASTOS_CAT = apiData?.GASTOS_CAT || {};
   const CASH_DATA = apiData?.CASH_DATA || [];
   const MARGIN_INTEREST_DATA = apiData?.MARGIN_INTEREST_DATA || [];
+  const D1_POSITIONS = apiData?.D1_POSITIONS || {};
 
   // ═══ Pre-loaded: Diageo PLC (DEO) — GuruFocus Feb 2026 ═══
   const DEO_DATA = {
@@ -432,6 +433,23 @@ const POS_STATIC = {
 "YYY":{n:"Amplify CEF High Income ETF",lp:11.15,ap:15.5439,cb:10.8321,sh:192,tg:"CEF",cat:"ETF",pnl:0.029345,pnlAbs:-843.62,mv:2140.8,uv:2140.8,ti:2079.77,apc:-0.0346},
 "ZTS":{n:"Zoetis Inc",lp:115.62,ap:118.4,cb:118.4,sh:100,tg:"GORKA",cat:"COMPANY",dy:0.0176,yoc:0.000149,pnl:-0.02348,pnlAbs:-278,mv:11562,uv:11562,ti:11840,roe:0.666726,apc:-0.0818,adt:1.76,mc:48.81},
 };
+
+// Merge D1 positions into POS_STATIC (D1 overrides hardcoded when available)
+if (Object.keys(D1_POSITIONS).length > 0) {
+  for (const [ticker, d1] of Object.entries(D1_POSITIONS)) {
+    if (POS_STATIC[ticker]) {
+      // Update existing — D1 fields override if non-zero
+      if (d1.lp > 0) POS_STATIC[ticker].lp = d1.lp;
+      if (d1.sh > 0) POS_STATIC[ticker].sh = d1.sh;
+      if (d1.mv > 0) POS_STATIC[ticker].mv = d1.mv;
+      if (d1.uv > 0) POS_STATIC[ticker].uv = d1.uv;
+      if (d1.sec) POS_STATIC[ticker].sec = d1.sec;
+    } else {
+      // New position from D1 not in hardcoded
+      POS_STATIC[ticker] = d1;
+    }
+  }
+}
 
 // Build positions from POS_STATIC (CARTERA sheet) — the source of truth for shares, prices, USD values
 function buildPositionsFromCB() {

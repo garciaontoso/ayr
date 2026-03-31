@@ -30,11 +30,12 @@ export async function fetchAllData() {
       safeFetch("/api/categorias", []),
       safeFetch("/api/cash/latest", []),
       safeFetch("/api/margin-interest", []),
+      safeFetch("/api/positions", {positions:[]}),
     ];
 
     const results = await Promise.all(endpoints);
     const errors = results.map(r => r.error).filter(Boolean);
-    const [patrimonio, ingresos, divResumen, divMensual, divAll, gastosMensual, gastosAll, holdings, fire, pl, config, categorias, cashData, marginInterest] = results.map(r => r.data);
+    const [patrimonio, ingresos, divResumen, divMensual, divAll, gastosMensual, gastosAll, holdings, fire, pl, config, categorias, cashData, marginInterest, positionsData] = results.map(r => r.data);
 
     // Map API responses to expected formats
     const CTRL_DATA = patrimonio.map(p => ({
@@ -112,12 +113,25 @@ export async function fetchAllData() {
     const CASH_DATA = cashData || [];
     const MARGIN_INTEREST_DATA = marginInterest || [];
 
+    // D1 positions (dynamic, replaces hardcoded POS_STATIC over time)
+    const D1_POSITIONS = (positionsData?.positions || []).reduce((acc, p) => {
+      acc[p.ticker] = {
+        n: p.name, lp: p.last_price, ap: p.avg_price, cb: p.cost_basis,
+        sh: p.shares, c: p.currency, fx: p.fx, tg: p.strategy, cat: p.category,
+        ls: p.list, mv: p.market_value, uv: p.usd_value, ti: p.total_invested,
+        pnl: p.pnl_pct, pnlAbs: p.pnl_abs, divTTM: p.div_ttm, dy: p.div_yield,
+        yoc: p.yoc, mc: p.market_cap, sec: p.sector,
+      };
+      return acc;
+    }, {});
+
     return {
       ok: true,
       errors,
       CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, DIV_BY_MONTH, GASTOS_MONTH,
       FIRE_PROJ, FIRE_PARAMS, ANNUAL_PL, FI_TRACK, HIST_INIT, GASTO_CATS,
       _DIV_ENTRIES, _GASTO_ENTRIES, GASTOS_CAT, CASH_DATA, MARGIN_INTEREST_DATA,
+      D1_POSITIONS,
     };
   } catch(e) {
     console.error("Failed to fetch data from API:", e);
