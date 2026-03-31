@@ -210,6 +210,56 @@ input[type=number] { -moz-appearance: textfield; }
   background: var(--gold-dim);
 }
 
+/* ═══ Portfolio row hover ═══ */
+.ar-company-row {
+  transition: background .15s ease, border-color .15s ease;
+}
+.ar-company-row:hover {
+  background: var(--card-hover) !important;
+  border-color: var(--border-hover) !important;
+}
+
+/* ═══ Card hover effects ═══ */
+.ar-stat-card {
+  transition: border-color .2s ease, box-shadow .2s ease;
+}
+.ar-stat-card:hover {
+  border-color: var(--border-hover);
+  box-shadow: 0 2px 12px rgba(0,0,0,.2);
+}
+
+/* ═══ Smooth tab transitions ═══ */
+.ar-home-tabs button {
+  transition: all .2s ease !important;
+}
+.ar-home-tabs button:hover {
+  color: var(--gold) !important;
+  border-color: rgba(200,164,78,.2) !important;
+}
+
+/* ═══ Better focus styles ═══ */
+button:focus-visible, select:focus-visible, input:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* ═══ Subtle row alternation ═══ */
+.ar-company-row:nth-child(even) {
+  background: rgba(255,255,255,.01);
+}
+[data-theme="light"] .ar-company-row:nth-child(even) {
+  background: rgba(0,0,0,.015);
+}
+
+/* ═══ Smooth number transitions ═══ */
+.ar-price-cell {
+  transition: color .3s ease;
+}
+
+/* ═══ Better scrollbar on hover ═══ */
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.2); }
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,.25); }
+
 @media print {
   @page { size: A4 landscape; margin: 8mm; }
   header, footer, .ar-no-print, .ar-tabs-scroll { display: none !important; }
