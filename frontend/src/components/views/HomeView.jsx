@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState } from 'react';
 import { useHome } from '../../context/HomeContext';
-import { CURRENCIES, DISPLAY_CCYS, APP_VERSION } from '../../constants/index.js';
+import { CURRENCIES, DISPLAY_CCYS, APP_VERSION, API_URL } from '../../constants/index.js';
 import { PortfolioTab } from '../home';
 import { ErrorBoundary } from '../ui';
 
@@ -30,7 +30,7 @@ function AirplaneMode({ portfolioList }) {
   const [dlDone, setDlDone] = useState(false);
   const download = async () => {
     setDlOpen(true); setDlDone(false);
-    const API = "https://aar-api.garciaontoso.workers.dev";
+    const API = API_URL;
     const tickers = portfolioList.map(p => p.ticker).filter(t => !t.includes(":"));
     const cache = await caches.open("ayr-offline-data");
 
@@ -191,7 +191,7 @@ export default function HomeView() {
           setShowHealthCheck(true); setHealthData({loading:true,results:[],status:null});
           const checks = [];
           const t = (name, fn) => checks.push(fn().then(()=>({name,ok:true})).catch(e=>({name,ok:false,err:e.message})));
-          const API = "https://aar-api.garciaontoso.workers.dev";
+          const API = API_URL;
           t("D1 Positions", async()=>{const r=await fetch(API+"/api/positions");const d=await r.json();if(!d.count)throw Error("0")});
           t("D1 Patrimonio", async()=>{const r=await fetch(API+"/api/patrimonio");if(!r.ok)throw Error(r.status)});
           t("D1 Dividendos", async()=>{const r=await fetch(API+"/api/dividendos");if(!r.ok)throw Error(r.status)});

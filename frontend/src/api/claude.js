@@ -1,3 +1,5 @@
+import { API_URL } from '../constants/index.js';
+
 export async function generateReport(ticker, fin, cfg, profile) {
   const years = Object.keys(fin).sort().reverse();
   const latestYear = years[0];
@@ -32,7 +34,7 @@ Provide your analysis in this exact JSON format (no markdown, no backticks, pure
 }`;
 
   try {
-    const response = await fetch("https://aar-api.garciaontoso.workers.dev/api/claude", {
+    const response = await fetch(`${API_URL}/api/claude`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

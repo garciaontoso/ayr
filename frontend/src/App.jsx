@@ -1418,8 +1418,7 @@ function buildPositionsFromCB() {
         const peerSymbols = peersList.slice(0, 6).map(p => p.symbol || p).filter(Boolean);
         if (peerSymbols.length > 0) {
           try {
-            const _API = "https://aar-api.garciaontoso.workers.dev";
-            const prResp = await fetch(`${_API}/api/peer-ratios?symbols=${peerSymbols.join(",")}`);
+            const prResp = await fetch(`${API_URL}/api/peer-ratios?symbols=${peerSymbols.join(",")}`);
             if (prResp.ok) {
               const peerRatios = await prResp.json();
               const autoComps = peerRatios.filter(p => p.name && (p.pe > 0 || p.evEbitda > 0)).map(p => ({
