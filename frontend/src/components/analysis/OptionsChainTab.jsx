@@ -9,18 +9,18 @@ export default function OptionsChainTab() {
 
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
   const [chainData, setChainData] = useState(null);
   const [chainLoading, setChainLoading] = useState(false);
   const [showPuts, setShowPuts] = useState(false);
 
   useEffect(() => {
     if (!ticker) return;
-    setLoading(true);
-    // Use Yahoo for the full chain (IB is slower and rate-limited)
+    setLoading(true); setError(null);
     fetch(`${API_URL}/api/options-chain?symbol=${ticker}&dte=30`)
       .then(r => r.json())
       .then(d => { setData(d); setChainData(d); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch(e => { setError(e.message || "Error cargando opciones"); setLoading(false); });
   }, [ticker]);
 
   const loadExpiration = (dte) => {
@@ -28,13 +28,14 @@ export default function OptionsChainTab() {
     fetch(`${API_URL}/api/options-chain?symbol=${ticker}&dte=${dte}`)
       .then(r => r.json())
       .then(d => { setChainData(d); setChainLoading(false); })
-      .catch(() => setChainLoading(false));
+      .catch(e => { setChainLoading(false); });
   };
 
   const hd = { fontSize: 13, fontWeight: 700, color: "var(--gold)", fontFamily: "var(--fd)", marginBottom: 10, paddingBottom: 6, borderBottom: "2px solid rgba(200,164,78,.2)" };
   const card = { background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 16, marginBottom: 14 };
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: "var(--text-tertiary)" }}>Cargando opciones para {ticker}...</div>;
+  if (error) return <div style={{ padding: 40, textAlign: "center", color: "var(--red)" }}>Error: {error}</div>;
   if (!data || data.error) return <div style={{ padding: 40, textAlign: "center", color: "var(--text-tertiary)" }}>{data?.error || "Sin datos de opciones para " + ticker}</div>;
 
   const options = showPuts ? (chainData?.puts || []) : (chainData?.calls || []);
