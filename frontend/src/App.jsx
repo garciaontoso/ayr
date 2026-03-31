@@ -341,8 +341,8 @@ export default function ARApp() {
     return "US";
   };
   const FLAGS = {"US":"\u{1F1FA}\u{1F1F8}","HK":"\u{1F1ED}\u{1F1F0}","CA":"\u{1F1E8}\u{1F1E6}","AU":"\u{1F1E6}\u{1F1FA}","GB":"\u{1F1EC}\u{1F1E7}","ES":"\u{1F1EA}\u{1F1F8}","NL":"\u{1F1F3}\u{1F1F1}","DE":"\u{1F1E9}\u{1F1EA}","FR":"\u{1F1EB}\u{1F1F7}","EU":"\u{1F1EA}\u{1F1FA}"};
-// Static position data (name, currency, tags, lastPrice) — editable fields
-const POS_STATIC = {
+// Positions: D1 is primary, hardcoded fallback for when D1 is empty
+const POS_STATIC = Object.keys(D1_POSITIONS).length > 0 ? { ...D1_POSITIONS } : {
 "ACN":{n:"Accenture Plc",lp:196.65,ap:204.1867,cb:204.1867,sh:60,tg:"GORKA",cat:"COMPANY",pnl:-0.036911,pnlAbs:-452.2,mv:11799,uv:11799,ti:12251.2,d2f:1.03,apc:-0.2435,mc:121.0},
 "AMCR":{n:"Amcor PLC",lp:40.57,ap:48.57,cb:48.57,sh:10,tg:"YO",cat:"COMPANY",pnl:-0.164711,pnlAbs:-80,mv:405.7,uv:405.7,ti:485.7,d2f:18.47,apc:-0.0352,mc:18.75},
 "AHRT":{n:"Ahart Capital",lp:5.27,ap:5.15,sh:3300,tg:"GORKA",cat:"COMPANY",mv:17389,uv:17389,ti:17000},
@@ -434,24 +434,7 @@ const POS_STATIC = {
 "ZTS":{n:"Zoetis Inc",lp:115.62,ap:118.4,cb:118.4,sh:100,tg:"GORKA",cat:"COMPANY",dy:0.0176,yoc:0.000149,pnl:-0.02348,pnlAbs:-278,mv:11562,uv:11562,ti:11840,roe:0.666726,apc:-0.0818,adt:1.76,mc:48.81},
 };
 
-// Merge D1 positions into POS_STATIC (D1 overrides hardcoded when available)
-if (Object.keys(D1_POSITIONS).length > 0) {
-  for (const [ticker, d1] of Object.entries(D1_POSITIONS)) {
-    if (POS_STATIC[ticker]) {
-      // Update existing — D1 fields override if non-zero
-      if (d1.lp > 0) POS_STATIC[ticker].lp = d1.lp;
-      if (d1.sh > 0) POS_STATIC[ticker].sh = d1.sh;
-      if (d1.mv > 0) POS_STATIC[ticker].mv = d1.mv;
-      if (d1.uv > 0) POS_STATIC[ticker].uv = d1.uv;
-      if (d1.sec) POS_STATIC[ticker].sec = d1.sec;
-    } else {
-      // New position from D1 not in hardcoded
-      POS_STATIC[ticker] = d1;
-    }
-  }
-}
-
-// Build positions from POS_STATIC (CARTERA sheet) — the source of truth for shares, prices, USD values
+// Build positions from POS_STATIC / D1_POSITIONS — the source of truth for shares, prices, USD values
 function buildPositionsFromCB() {
   const result = {};
   for (const [ticker, st] of Object.entries(POS_STATIC)) {
