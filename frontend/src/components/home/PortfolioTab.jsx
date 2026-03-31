@@ -87,114 +87,44 @@ export default function PortfolioTab() {
             ))}
           </div>
         )}
-        {/* Quick stats row */}
+        {/* Controls bar: country filter (clickable flags) + stats + actions — ONE line */}
         {portfolioList.length>0 && (() => {
           const pos = portfolioTotals.positions || [];
-          if (!pos.length) return null;
           const greenCount = pos.filter(p=>(p.pnlPct||0)>=0).length;
-          const best = pos.reduce((a,b) => (b.pnlPct||0) > (a.pnlPct||0) ? b : a, pos[0]);
-          const worst = pos.reduce((a,b) => (b.pnlPct||0) < (a.pnlPct||0) ? b : a, pos[0]);
-          return (
-          <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:10,fontFamily:"var(--fm)",marginBottom:2}}>
-            <span><span style={{color:"var(--text-tertiary)"}}>Pos:</span> <b>{pos.length}</b></span>
-            <span><span style={{color:"var(--text-tertiary)"}}>Yield:</span> <b style={{color:"var(--gold)"}}>{_sf(portfolioTotals.yieldUSD*100,1)}%</b></span>
-            <span><span style={{color:"var(--text-tertiary)"}}>Verdes:</span> <b style={{color:"var(--green)"}}>{greenCount}/{pos.length}</b></span>
-            <span style={{color:"var(--green)"}}>{best.ticker} +{_sf((best.pnlPct||0)*100,0)}%</span>
-            <span style={{color:"var(--red)"}}>{worst.ticker} {_sf((worst.pnlPct||0)*100,0)}%</span>
-          </div>);
-        })()}
-        {/* Allocation mini donut + Export */}
-        {portfolioList.length>0 && (() => {
-          const byCountry = {};
-          (portfolioTotals.positions||[]).forEach(p => {
-            const cc = getCountry(p.ticker, p.currency);
-            byCountry[cc] = (byCountry[cc]||0) + (p.valueUSD||0);
-          });
-          const total = Object.values(byCountry).reduce((s,v)=>s+v,0) || 1;
-          const slices = Object.entries(byCountry).sort((a,b)=>b[1]-a[1]).slice(0,8);
-          const colors = ["#c8a44e","#30d158","#64d2ff","#ff9f0a","#bf5af2","#ff453a","#ffd60a","#86868b"];
-          let cumPct = 0;
-          const R = 40, CX = 50, CY = 50;
+          const countryCounts = {};
+          pos.forEach(p => { const cc = getCountry(p.ticker, p.currency); countryCounts[cc] = (countryCounts[cc]||0) + 1; });
+          const sorted = Object.entries(countryCounts).sort((a,b) => b[1] - a[1]);
           const exportCSV = () => {
             const rows = [["Ticker","Nombre","Acciones","Precio","Coste","P&L%","Valor USD","Peso%","Div Anual"]];
-            (portfolioTotals.positions||[]).forEach(p => {
-              rows.push([p.ticker, p.name||"", p.shares||0, (p.lastPrice||0).toFixed(2),
-                (p.adjustedBasis||p.avgCost||0).toFixed(2), ((p.pnlPct||0)*100).toFixed(1),
-                (p.valueUSD||0).toFixed(0), ((p.weight||0)*100).toFixed(1), (p.divAnnualUSD||0).toFixed(0)]);
-            });
+            pos.forEach(p => { rows.push([p.ticker,p.name||"",p.shares||0,(p.lastPrice||0).toFixed(2),(p.adjustedBasis||p.avgCost||0).toFixed(2),((p.pnlPct||0)*100).toFixed(1),(p.valueUSD||0).toFixed(0),((p.weight||0)*100).toFixed(1),(p.divAnnualUSD||0).toFixed(0)]); });
             const csv = rows.map(r=>r.join(",")).join("\n");
-            const blob = new Blob([csv], {type:"text/csv"});
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a"); a.href = url; a.download = `ayr_portfolio_${new Date().toISOString().slice(0,10)}.csv`; a.click();
-            URL.revokeObjectURL(url);
+            const blob = new Blob([csv],{type:"text/csv"}); const url = URL.createObjectURL(blob);
+            const a = document.createElement("a"); a.href=url; a.download=`ayr_portfolio_${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(url);
           };
           return (
-          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:4,flexWrap:"wrap"}}>
-            {/* Mini donut */}
-            <svg viewBox="0 0 100 100" width="36" height="36" style={{flexShrink:0,cursor:"pointer"}} title="Distribución por país">
-              {slices.map(([cc, val], i) => {
-                const pct = val / total;
-                const startAngle = cumPct * 360;
-                const endAngle = (cumPct + pct) * 360;
-                cumPct += pct;
-                const s = (Math.PI/180) * (startAngle - 90);
-                const e = (Math.PI/180) * (endAngle - 90);
-                const large = pct > 0.5 ? 1 : 0;
-                const x1 = CX + R * Math.cos(s), y1 = CY + R * Math.sin(s);
-                const x2 = CX + R * Math.cos(e), y2 = CY + R * Math.sin(e);
-                return <path key={cc} d={`M${CX},${CY} L${x1},${y1} A${R},${R} 0 ${large},1 ${x2},${y2} Z`} fill={colors[i%colors.length]} opacity=".85"/>;
-              })}
-              <circle cx={CX} cy={CY} r="22" fill="var(--bg)"/>
-            </svg>
-            {/* Compact legend — flags only */}
-            <div style={{display:"flex",gap:4,flexWrap:"wrap",flex:1}}>
-              {slices.map(([cc,val],i) => (
-                <span key={cc} title={`${cc}: ${_sf((val/total)*100,0)}%`} style={{fontSize:9,fontFamily:"var(--fm)",color:"var(--text-tertiary)"}}>
-                  <span style={{display:"inline-block",width:6,height:6,borderRadius:1,background:colors[i%colors.length],marginRight:2,verticalAlign:"middle"}}/>
-                  {FLAGS[cc]||cc} {_sf((val/total)*100,0)}%
-                </span>
-              ))}
-            </div>
-            {/* Add ticker + Refresh + CSV — all in one */}
-            <input type="text" placeholder="+ Ticker" value={searchTicker} onChange={e=>setSearchTicker(e.target.value.toUpperCase())}
-              onKeyDown={e=>{if(e.key==="Enter"&&searchTicker){updatePosition(searchTicker,{list:"portfolio",shares:0,avgCost:0,dps:0,name:searchTicker,lastPrice:0});setSearchTicker("");}}}
-              style={{padding:"5px 10px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:11,outline:"none",fontFamily:"var(--fm)",width:90}}
-              onFocus={e=>e.target.style.borderColor="var(--gold)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/>
-            <button onClick={()=>refreshPrices(true)} disabled={pricesLoading}
-              style={{padding:"5px 10px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:pricesLoading?"var(--gold)":"var(--text-tertiary)",fontSize:10,fontWeight:600,cursor:pricesLoading?"wait":"pointer",fontFamily:"var(--fm)"}}>
-              {pricesLoading?"⏳":"🔄"}
-            </button>
-            <button onClick={exportCSV} title="Exportar CSV"
-              style={{padding:"5px 8px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer",fontFamily:"var(--fm)"}}
-              onMouseEnter={e=>e.target.style.color="var(--gold)"} onMouseLeave={e=>e.target.style.color="var(--text-tertiary)"}>📥</button>
-            <button onClick={()=>{
-              const printWin = window.open('','','width=900,height=700');
-              const rows = (portfolioTotals.positions||[]).map(p =>
-                `<tr><td>${p.ticker}</td><td>${p.name||""}</td><td style="text-align:right">${(p.shares||0).toLocaleString()}</td><td style="text-align:right">$${(p.lastPrice||0).toFixed(2)}</td><td style="text-align:right">$${(p.valueUSD||0).toFixed(0)}</td><td style="text-align:right;color:${(p.pnlPct||0)>=0?"green":"red"}">${((p.pnlPct||0)*100).toFixed(1)}%</td><td style="text-align:right">${((p.weight||0)*100).toFixed(1)}%</td></tr>`
-              ).join('');
-              printWin.document.write(`<html><head><title>A&R Portfolio ${new Date().toISOString().slice(0,10)}</title><style>body{font-family:system-ui;font-size:11px}table{width:100%;border-collapse:collapse}th,td{padding:4px 8px;border-bottom:1px solid #eee}th{text-align:left;font-size:9px;color:#666}h1{font-size:16px}h2{font-size:12px;color:#666}</style></head><body><h1>A&R Portfolio Report</h1><h2>${new Date().toLocaleDateString('es-ES')} · ${(portfolioTotals.positions||[]).length} posiciones</h2><table><thead><tr><th>Ticker</th><th>Empresa</th><th style="text-align:right">Shares</th><th style="text-align:right">Precio</th><th style="text-align:right">Valor</th><th style="text-align:right">P&L</th><th style="text-align:right">Peso</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
-              printWin.document.close();
-              printWin.focus();
-              setTimeout(()=>printWin.print(),300);
-            }} title="Imprimir/PDF"
-              style={{padding:"5px 8px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer",fontFamily:"var(--fm)"}}
-              onMouseEnter={e=>e.target.style.color="var(--gold)"} onMouseLeave={e=>e.target.style.color="var(--text-tertiary)"}>🖨</button>
-          </div>);
-        })()}
-        {/* Country Flag Filter */}
-        {portfolioList.length>0 && (() => {
-          const countryCounts = {};
-          portfolioTotals.positions?.forEach(p => {
-            const cc = getCountry(p.ticker, p.currency);
-            countryCounts[cc] = (countryCounts[cc] || 0) + 1;
-          });
-          const sorted = Object.entries(countryCounts).sort((a,b) => b[1] - a[1]);
-          return (
-          <div style={{display:"flex",gap:4,alignItems:"center",marginBottom:4,flexWrap:"wrap"}}>
-            <button onClick={()=>setCountryFilter("")} style={{padding:"3px 8px",borderRadius:6,border:countryFilter===""?"2px solid var(--gold)":"1px solid var(--border)",background:countryFilter===""?"var(--gold-dim)":"transparent",color:countryFilter===""?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>🌍 {portfolioList.length}</button>
+          <div style={{display:"flex",gap:4,alignItems:"center",marginBottom:3,flexWrap:"wrap"}}>
+            {/* Country filter buttons (replaces donut + separate filter row) */}
+            <button onClick={()=>setCountryFilter("")} style={{padding:"2px 6px",borderRadius:5,border:countryFilter===""?"1.5px solid var(--gold)":"1px solid var(--border)",background:countryFilter===""?"var(--gold-dim)":"transparent",color:countryFilter===""?"var(--gold)":"var(--text-tertiary)",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>{pos.length}</button>
             {sorted.map(([cc, count]) => (
-              <button key={cc} onClick={()=>setCountryFilter(countryFilter===cc?"":cc)} style={{padding:"3px 7px",borderRadius:6,border:countryFilter===cc?"2px solid var(--gold)":"1px solid var(--border)",background:countryFilter===cc?"var(--gold-dim)":"transparent",color:countryFilter===cc?"var(--gold)":"var(--text-secondary)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>{FLAGS[cc]||"🏳️"} {count}</button>
+              <button key={cc} onClick={()=>setCountryFilter(countryFilter===cc?"":cc)} style={{padding:"2px 5px",borderRadius:5,border:countryFilter===cc?"1.5px solid var(--gold)":"1px solid var(--border)",background:countryFilter===cc?"var(--gold-dim)":"transparent",color:countryFilter===cc?"var(--gold)":"var(--text-tertiary)",fontSize:10,cursor:"pointer",fontFamily:"var(--fm)"}}>{FLAGS[cc]||cc}{count}</button>
             ))}
+            {/* Quick stats inline */}
+            <span style={{fontSize:9,fontFamily:"var(--fm)",color:"var(--text-tertiary)",marginLeft:4}}>Yield <b style={{color:"var(--gold)"}}>{_sf(portfolioTotals.yieldUSD*100,1)}%</b></span>
+            <span style={{fontSize:9,fontFamily:"var(--fm)",color:"var(--green)"}}>{greenCount}✓</span>
+            {/* Spacer + actions */}
+            <div style={{marginLeft:"auto",display:"flex",gap:3,alignItems:"center"}}>
+              <input type="text" placeholder="+ Ticker" value={searchTicker} onChange={e=>setSearchTicker(e.target.value.toUpperCase())}
+                onKeyDown={e=>{if(e.key==="Enter"&&searchTicker){updatePosition(searchTicker,{list:"portfolio",shares:0,avgCost:0,dps:0,name:searchTicker,lastPrice:0});setSearchTicker("");}}}
+                style={{padding:"4px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:10,outline:"none",fontFamily:"var(--fm)",width:70}}/>
+              <button onClick={()=>refreshPrices(true)} disabled={pricesLoading} title="Refresh precios"
+                style={{padding:"4px 7px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:pricesLoading?"var(--gold)":"var(--text-tertiary)",fontSize:10,cursor:pricesLoading?"wait":"pointer"}}>{pricesLoading?"⏳":"🔄"}</button>
+              <button onClick={exportCSV} title="CSV" style={{padding:"4px 6px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer"}} onMouseEnter={e=>e.target.style.color="var(--gold)"} onMouseLeave={e=>e.target.style.color="var(--text-tertiary)"}>📥</button>
+              <button onClick={()=>{
+                const pw=window.open('','','width=900,height=700');const r=pos.map(p=>`<tr><td>${p.ticker}</td><td>${p.name||""}</td><td style="text-align:right">${(p.shares||0).toLocaleString()}</td><td style="text-align:right">$${(p.lastPrice||0).toFixed(2)}</td><td style="text-align:right">$${(p.valueUSD||0).toFixed(0)}</td><td style="text-align:right;color:${(p.pnlPct||0)>=0?"green":"red"}">${((p.pnlPct||0)*100).toFixed(1)}%</td><td style="text-align:right">${((p.weight||0)*100).toFixed(1)}%</td></tr>`).join('');
+                pw.document.write(`<html><head><title>A&R Portfolio</title><style>body{font-family:system-ui;font-size:11px}table{width:100%;border-collapse:collapse}th,td{padding:4px 8px;border-bottom:1px solid #eee}th{text-align:left;font-size:9px;color:#666}</style></head><body><h2>A&R Portfolio · ${new Date().toLocaleDateString('es-ES')} · ${pos.length} pos.</h2><table><thead><tr><th>Ticker</th><th>Empresa</th><th style="text-align:right">Shares</th><th style="text-align:right">Precio</th><th style="text-align:right">Valor</th><th style="text-align:right">P&L</th><th style="text-align:right">Peso</th></tr></thead><tbody>${r}</tbody></table></body></html>`);
+                pw.document.close();pw.focus();setTimeout(()=>pw.print(),300);
+              }} title="Print/PDF" style={{padding:"4px 6px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer"}} onMouseEnter={e=>e.target.style.color="var(--gold)"} onMouseLeave={e=>e.target.style.color="var(--text-tertiary)"}>🖨</button>
+            </div>
           </div>);
         })()}
         {/* Search + Sort — one row */}
