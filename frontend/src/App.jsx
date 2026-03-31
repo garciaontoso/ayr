@@ -1191,7 +1191,7 @@ function buildPositionsFromCB() {
       if (document.visibilityState === "visible") {
         refreshIBPrices();
       }
-    }, 30000);
+    }, 5000);
     return () => clearInterval(interval);
   }, [ibData.loaded, refreshIBPrices]);
 
@@ -1645,7 +1645,7 @@ function buildPositionsFromCB() {
     })();
     const badge = capBadge ? <span style={{fontSize:7,fontWeight:700,padding:"1px 4px",borderRadius:3,background:capBadge.bg,color:capBadge.c,letterSpacing:.3}}>{capBadge.l}</span> : null;
     return (
-      <div className="ar-company-row" onClick={()=>onOpen(p.ticker)} style={{display:"grid",gridTemplateColumns:showPos?"28px 1fr 70px 55px 55px 50px 50px 65px 55px 28px":"28px 1fr 70px 70px 28px",gap:4,alignItems:"center",padding:"5px 10px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,cursor:"pointer",transition:"all .15s"}}
+      <div className="ar-company-row" onClick={()=>onOpen(p.ticker)} style={{display:"grid",gridTemplateColumns:showPos?"28px 1fr 70px 50px 45px 55px 55px 50px 45px 60px 50px 28px":"28px 1fr 70px 70px 28px",gap:3,alignItems:"center",padding:"4px 8px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:8,cursor:"pointer",transition:"all .15s"}}
         onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--border-hover)";e.currentTarget.style.background="var(--card-hover)";}}
         onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";e.currentTarget.style.background="var(--card)";}}>
         {/* Logo */}
@@ -1678,43 +1678,38 @@ function buildPositionsFromCB() {
         {/* Price */}
         <div style={{textAlign:"right",fontFamily:"var(--fm)"}}>
           <div style={{fontSize:12,fontWeight:700,color:"var(--text-primary)"}}>{origSym}{(isGBX?(p.lastPrice||0)/100:(p.lastPrice||0)).toFixed(2)}</div>
-          {isForeign && <div style={{fontSize:8,color:"var(--text-tertiary)",opacity:.6}}>${_sf(priceUSD,2)}</div>}
         </div>
         {showPos && <>
+          {/* Daily Change $ */}
+          <div className="ar-hide-mobile" style={{textAlign:"right",fontFamily:"var(--fm)",fontSize:10,fontWeight:600,color:(p.dayChangeAbs||0)>=0?"var(--green)":"var(--red)"}}>
+            {(p.dayChangeAbs||0)!==0 ? (p.dayChangeAbs>=0?"+":"")+_sf(p.dayChangeAbs,2) : "—"}
+          </div>
+          {/* Daily Change % */}
+          <div style={{textAlign:"right",fontFamily:"var(--fm)",fontSize:10,fontWeight:700,color:(p.dayChange||0)>=0?"var(--green)":"var(--red)"}}>
+            {(p.dayChange||0)!==0 ? (p.dayChange>=0?"+":"")+_sf(p.dayChange,2)+"%" : "—"}
+          </div>
           {/* Shares */}
-          <div className="ar-hide-mobile" style={{textAlign:"right",fontSize:11,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":p.shares?(p.shares||0).toLocaleString():"—"}</div>
+          <div className="ar-hide-mobile" style={{textAlign:"right",fontSize:10,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":p.shares?(p.shares||0).toLocaleString():"—"}</div>
           {/* Cost */}
-          <div className="ar-hide-mobile" style={{textAlign:"right",fontFamily:"var(--fm)"}}>
-            <div style={{fontSize:11,fontWeight:600,color:"var(--text-secondary)"}}>{privacyMode?"•••":origSym+_sf(p.adjustedBasis||p.avgCost||0,2)}</div>
-          </div>
-          {/* P&L */}
-          <div style={{textAlign:"right",fontFamily:"var(--fm)"}}>
-            <div style={{fontSize:12,fontWeight:700,color:pnlPct>=0?"var(--green)":"var(--red)"}}>{privacyMode?"•••":(pnlPct>=0?"+":"")+_sf(pnlPct*100,0)+"%"}</div>
-            {(p.dayChange||0)!==0 && <div style={{fontSize:8,color:(p.dayChange||0)>=0?"var(--green)":"var(--red)",opacity:.7}}>{(p.dayChange||0)>=0?"+":""}{_sf(p.dayChange||0,1)}%hoy</div>}
-          </div>
+          <div className="ar-hide-mobile" style={{textAlign:"right",fontSize:10,fontWeight:600,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":origSym+_sf(p.adjustedBasis||p.avgCost||0,2)}</div>
+          {/* P&L total */}
+          <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:pnlPct>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":(pnlPct>=0?"+":"")+_sf(pnlPct*100,0)+"%"}</div>
           {/* Weight */}
-          <div className="ar-hide-mobile" style={{textAlign:"right",fontFamily:"var(--fm)"}}>
-            <div style={{fontSize:10,fontWeight:600,color:"var(--gold)"}}>{_sf(weight*100,1)}%</div>
-            <div style={{height:2,background:"rgba(255,255,255,.06)",borderRadius:1,marginTop:1,overflow:"hidden"}}>
-              <div style={{width:`${Math.min(weight*100*4,100)}%`,height:"100%",background:"var(--gold)",borderRadius:1}}/>
-            </div>
-          </div>
+          <div className="ar-hide-mobile" style={{textAlign:"right",fontSize:9,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fm)"}}>{_sf(weight*100,1)}%</div>
           {/* Value */}
-          <div style={{textAlign:"right",fontFamily:"var(--fm)"}}>
-            <div style={{fontSize:12,fontWeight:700,color:"var(--text-primary)"}}>{privacyMode?"•••":valSym+(valShow>=1e3?_sf(valShow/1e3,1)+"K":_sf(valShow,0))}</div>
-          </div>
+          <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":valSym+(valShow>=1e3?_sf(valShow/1e3,1)+"K":_sf(valShow,0))}</div>
           {/* Div */}
-          <div className="ar-hide-mobile" style={{textAlign:"right",fontSize:11,fontWeight:600,color:dpsUSD>0?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":(dpsUSD>0?"$"+_sf(dpsUSD,0):"—")}</div>
+          <div className="ar-hide-mobile" style={{textAlign:"right",fontSize:10,fontWeight:600,color:dpsUSD>0?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":(dpsUSD>0?"$"+_sf(dpsUSD,0):"—")}</div>
         </>}
         {!showPos && <>
           <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:p.targetPrice&&p.lastPrice<=p.targetPrice?"var(--green)":"var(--text-secondary)",fontFamily:"var(--fm)"}}>{p.targetPrice?"$"+_sf(toUSD(p.targetPrice,ccy)||0,2):"—"}</div>
         </>}
-        {/* Actions */}
-        <div style={{display:"flex",gap:2,justifyContent:"flex-end"}} onClick={e=>e.stopPropagation()}>
-          <button onClick={(e)=>{e.stopPropagation();openCostBasis(p.ticker);}} title="Cost Basis" style={{width:22,height:22,borderRadius:5,border:"1px solid rgba(200,164,78,.2)",background:"transparent",color:"var(--gold)",fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:.5}} onMouseEnter={e=>e.target.style.opacity="1"} onMouseLeave={e=>e.target.style.opacity=".5"}>📋</button>
-          <button onClick={(e)=>{e.stopPropagation();if(confirm(`¿Eliminar ${p.ticker}?`))removePosition(p.ticker);}} title="Eliminar" style={{width:22,height:22,borderRadius:5,border:"1px solid rgba(255,69,58,.15)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:.3}}
+        {/* Actions — far right */}
+        <div style={{display:"flex",gap:1,justifyContent:"flex-end"}} onClick={e=>e.stopPropagation()}>
+          <button onClick={(e)=>{e.stopPropagation();openCostBasis(p.ticker);}} title="Cost Basis" style={{width:18,height:18,borderRadius:4,border:"none",background:"transparent",color:"var(--gold)",fontSize:9,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:.3}} onMouseEnter={e=>e.target.style.opacity="1"} onMouseLeave={e=>e.target.style.opacity=".3"}>📋</button>
+          <button onClick={(e)=>{e.stopPropagation();if(confirm(`¿Eliminar ${p.ticker}?`))removePosition(p.ticker);}} title="Eliminar" style={{width:18,height:18,borderRadius:4,border:"none",background:"transparent",color:"var(--text-tertiary)",fontSize:8,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:.2}}
             onMouseEnter={e=>{e.target.style.opacity="1";e.target.style.color="var(--red)";}}
-            onMouseLeave={e=>{e.target.style.opacity=".3";e.target.style.color="var(--text-tertiary)";}}>✕</button>
+            onMouseLeave={e=>{e.target.style.opacity=".2";e.target.style.color="var(--text-tertiary)";}}>✕</button>
         </div>
       </div>
     );
