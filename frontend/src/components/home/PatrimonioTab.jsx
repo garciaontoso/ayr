@@ -670,8 +670,9 @@ return (
           ? `rgba(48,209,88,${0.1 + intensity * 0.6})`
           : `rgba(255,69,58,${0.1 + intensity * 0.6})`;
         return (
-          <div key={d.d} title={`${d.d}: ${retFmt(v)} · $${(d.pu||0).toLocaleString()}`} style={{width:28,height:28,borderRadius:4,background:bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:7,fontWeight:600,color:v>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)",cursor:"default"}}>
-            {v>=0?"+":""}{_sf(v,0)}
+          <div key={d.d} title={`${d.d}: ${retFmt(v)} · $${(d.pu||0).toLocaleString()}`} style={{width:44,height:36,borderRadius:6,background:bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:v>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)",cursor:"default",gap:1}}>
+            <span>{v>=0?"+":""}{_sf(v,1)}%</span>
+            <span style={{fontSize:6,fontWeight:400,color:"var(--text-tertiary)",opacity:.7}}>{d.d?.slice(5,7)}/{d.d?.slice(2,4)}</span>
           </div>
         );
       })}
@@ -683,10 +684,10 @@ return (
     <div style={{fontSize:14,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:16}}>📅 Rentabilidad Anual</div>
     <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
       {annualReturns.filter(a => a.ytdUsd != null).map(a => (
-        <div key={a.y} style={{flex:"1 1 120px",padding:"12px 16px",background:"rgba(255,255,255,.02)",borderRadius:12,border:"1px solid var(--border)",textAlign:"center"}}>
-          <div style={{fontSize:13,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginBottom:4}}>{a.y}</div>
-          <div style={{fontSize:24,fontWeight:700,color:retCol(a.ytdUsd),fontFamily:"var(--fm)"}}>{retFmt(a.ytdUsd)}</div>
-          <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>EUR {retFmt(a.ytdEur)}</div>
+        <div key={a.y} style={{flex:"1 1 130px",padding:"14px 18px",background:"rgba(255,255,255,.02)",borderRadius:12,border:`1px solid ${(a.ytdUsd||0)>=0?"rgba(48,209,88,.15)":"rgba(255,69,58,.15)"}`,textAlign:"center"}}>
+          <div style={{fontSize:14,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginBottom:4}}>{a.y}</div>
+          <div style={{fontSize:28,fontWeight:700,color:retCol(a.ytdUsd),fontFamily:"var(--fm)"}}>{retFmt(a.ytdUsd)}</div>
+          <div style={{fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>EUR {retFmt(a.ytdEur)}</div>
           <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:4}}>${fDol(a.start||0)} → ${fDol(a.end||0)}</div>
         </div>
       ))}
