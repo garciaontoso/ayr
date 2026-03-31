@@ -125,6 +125,32 @@ export default function HomeView() {
         </div>
 
         {/* Settings */}
+        {/* Health Check */}
+        <button onClick={async ()=>{
+          const checks = [];
+          const t = (name, fn) => checks.push(fn().then(()=>({name,ok:true})).catch(e=>({name,ok:false,err:e.message})));
+          const API = "https://aar-api.garciaontoso.workers.dev";
+          t("D1 Positions", async()=>{const r=await fetch(API+"/api/positions");const d=await r.json();if(!d.count)throw Error("0 positions")});
+          t("D1 Patrimonio", async()=>{const r=await fetch(API+"/api/patrimonio");if(!r.ok)throw Error(r.status)});
+          t("D1 Dividendos", async()=>{const r=await fetch(API+"/api/dividendos");if(!r.ok)throw Error(r.status)});
+          t("D1 Alerts", async()=>{const r=await fetch(API+"/api/alerts");if(!r.ok)throw Error(r.status)});
+          t("FX Rates", async()=>{const r=await fetch(API+"/api/fx");const d=await r.json();if(!d.EUR)throw Error("no EUR")});
+          t("Yahoo Prices", async()=>{const r=await fetch(API+"/api/prices?tickers=SPY&live=1");const d=await r.json();if(!d.prices?.SPY)throw Error("no SPY")});
+          t("IB Session", async()=>{const r=await fetch(API+"/api/ib-session");const d=await r.json();if(!d.ok)throw Error(d.error||"failed")});
+          t("IB Portfolio", async()=>{const r=await fetch(API+"/api/ib-portfolio");const d=await r.json();if(!d.count)throw Error("0 positions")});
+          t("IB Ledger", async()=>{const r=await fetch(API+"/api/ib-ledger");const d=await r.json();if(!d.ledger)throw Error("no ledger")});
+          t("NLV History", async()=>{const r=await fetch(API+"/api/ib-nlv-history?limit=1");if(!r.ok)throw Error(r.status)});
+          t("Flex Token", async()=>{/* just check endpoint exists */const r=await fetch(API+"/api/costbasis/all?limit=1");if(!r.ok)throw Error(r.status)});
+          const results = await Promise.all(checks);
+          const ok = results.filter(r=>r.ok).length;
+          const fail = results.filter(r=>!r.ok);
+          const msg = `Health Check: ${ok}/${results.length} OK\n\n` +
+            results.map(r=>`${r.ok?"✅":"❌"} ${r.name}${r.err?" — "+r.err:""}`).join("\n");
+          alert(msg);
+        }}
+          title="Health Check — verificar todos los sistemas"
+          style={{padding:"4px 7px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer"}}>🩺</button>
+
         <button onClick={()=>setShowSettings(!showSettings)} style={{padding:"4px 7px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer"}}>⚙</button>
       </div>
     </div>
