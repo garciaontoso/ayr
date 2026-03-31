@@ -33,7 +33,7 @@ export default function HomeView() {
     uiZoom, changeZoom,
     HOME_TABS,
     ibData, ibDiscrepancies, loadIBData,
-    alerts, alertsUnread, showAlertPanel, setShowAlertPanel, markAlertsRead,
+    alerts, alertsUnread, showAlertPanel, setShowAlertPanel, markAlertsRead, theme, toggleTheme,
   } = useHome();
 
   // IB badge logic
@@ -106,6 +106,12 @@ export default function HomeView() {
         </button>
 
         {/* Privacy */}
+        {/* Theme toggle */}
+        <button onClick={toggleTheme} title={theme==="dark"?"Modo claro":"Modo oscuro"}
+          style={{padding:"4px 7px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer",transition:"all .15s"}}>
+          {theme==="dark"?"☀️":"🌙"}
+        </button>
+
         <button onClick={()=>setPrivacyMode(!privacyMode)}
           style={{padding:"4px 7px",borderRadius:6,border:`1px solid ${privacyMode?"var(--gold)":"var(--border)"}`,background:privacyMode?"var(--gold-dim)":"transparent",color:privacyMode?"var(--gold)":"var(--text-tertiary)",fontSize:10,cursor:"pointer",transition:"all .15s"}}>
           {privacyMode?"🙈":"👁"}

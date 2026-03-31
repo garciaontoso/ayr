@@ -217,6 +217,14 @@ export default function ARApp() {
   const [fmpExtra, setFmpExtra] = useState({ rating: {}, dcf: {}, estimates: [], priceTarget: {}, keyMetrics: [], finGrowth: [], grades: {}, ownerEarnings: [], revSegments: [], geoSegments: [], peers: [], earnings: [], ptSummary: {}, profile: {} });
   const [showSettings, setShowSettings] = useState(false);
   const [privacyMode, setPrivacyMode] = useState(false);
+  const [theme, setTheme] = useState(() => localStorage.getItem("ayr_theme") || "dark");
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    document.body.style.background = theme === "light" ? "#f5f5f7" : "#000";
+    document.body.style.color = theme === "light" ? "#1d1d1f" : "#f5f5f7";
+    localStorage.setItem("ayr_theme", theme);
+  }, [theme]);
+  const toggleTheme = () => setTheme(t => t === "dark" ? "light" : "dark");
 
   // ── IB Integration state ──
   const [ibData, setIbData] = useState({ positions: [], ledger: {}, summary: {}, trades: [], loaded: false, loading: false, lastSync: null, errors: {} });
@@ -1700,7 +1708,7 @@ function buildPositionsFromCB() {
         onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--border-hover)";e.currentTarget.style.background="var(--card-hover)";}}
         onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";e.currentTarget.style.background="var(--card)";}}>
         {/* Logo */}
-        <div style={{width:24,height:24,borderRadius:6,overflow:"hidden",background:"#161b22",display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <div style={{width:24,height:24,borderRadius:6,overflow:"hidden",background:"var(--card)",display:"flex",alignItems:"center",justifyContent:"center"}}>
           <img src={`https://images.financialmodelingprep.com/symbol/${p.ticker.replace(':','.')}.png`} alt=""
             style={{width:24,height:24,objectFit:"contain",borderRadius:6}}
             onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}/>
@@ -1862,7 +1870,7 @@ function buildPositionsFromCB() {
     GASTOS_CAT, CASH_DATA, MARGIN_INTEREST_DATA,
     // IB Integration
     ibData, ibDiscrepancies, loadIBData,
-    alerts, alertsUnread, showAlertPanel, setShowAlertPanel, divStreaks,
+    alerts, alertsUnread, showAlertPanel, setShowAlertPanel, divStreaks, theme, toggleTheme,
     markAlertsRead: () => { fetch(`${API_URL}/api/alerts/read`, { method: "POST" }).catch(() => {}); setAlertsUnread(0); setAlerts(a => a.map(x => ({ ...x, leida: 1 }))); },
   }), [homeTab, portfolioList, watchlistList, historialList, portfolioTotals, portfolioComputed,
     positions, portfolio, searchTicker, countryFilter, portSort, showCapTable,
@@ -1986,7 +1994,7 @@ function buildPositionsFromCB() {
             <div className="ar-analysis-header" style={{display:"flex",alignItems:"center",gap:10,padding:"8px 24px 4px",flexWrap:"wrap"}}>
               <button onClick={goHome} style={{padding:"5px 12px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:11,cursor:"pointer",fontFamily:"var(--fm)",fontWeight:600,flexShrink:0}}>← Inicio</button>
               {/* Company logo */}
-              <div style={{width:28,height:28,borderRadius:7,overflow:"hidden",background:"#161b22",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              <div style={{width:28,height:28,borderRadius:7,overflow:"hidden",background:"var(--card)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                 {cfg.ticker ? (
                   <img src={`https://images.financialmodelingprep.com/symbol/${cfg.ticker.replace(':','.')}.png`} alt="" style={{width:28,height:28,objectFit:"contain"}}
                     onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}/>
@@ -2067,7 +2075,7 @@ function buildPositionsFromCB() {
       {globalSearch && (
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",backdropFilter:"blur(4px)",zIndex:9999,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:120}}
           onClick={()=>setGlobalSearch(false)}>
-          <div style={{background:"#1c1c1e",border:"1px solid var(--border)",borderRadius:14,width:"100%",maxWidth:500,overflow:"hidden",boxShadow:"0 20px 60px rgba(0,0,0,.5)"}}
+          <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,width:"100%",maxWidth:500,overflow:"hidden",boxShadow:"0 20px 60px rgba(0,0,0,.5)"}}
             onClick={e=>e.stopPropagation()}>
             <input autoFocus value={globalQuery} onChange={e=>setGlobalQuery(e.target.value)}
               placeholder="Buscar ticker, empresa, o pestaña..."
