@@ -428,8 +428,9 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
 // Main PatrimonioTab
 // ═══════════════════════════════════════
 export default function PatrimonioTab() {
-  const { CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, fxRates, ibData } = useHome();
+  const { CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, fxRates, ibData, hide, privacyMode } = useHome();
   const [section, setSection] = useState('historial');
+  const [hoveredBar, setHoveredBar] = useState(null);
 
   const data = CTRL_DATA.filter(c => c.pu > 0).sort((a,b) => (a.d||"").localeCompare(b.d||"")).map((c, i, arr) => {
   const prev = i > 0 ? arr[i-1] : null;
@@ -617,9 +618,18 @@ return (
                 const showLabel = labelBars.has(i);
                 const barColor = isLast ? "var(--gold)" : "rgba(201,169,80,0.5)";
                 return (
-                  <div key={d.d} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%",borderLeft:isYearStart?"1px solid rgba(255,255,255,.1)":"none",position:"relative"}} title={`${d.d}\n$${(d.pu||0).toLocaleString()}\n€${(d.pe||0).toLocaleString()}\n${d.mReturnUsd != null ? "Mes: "+retFmt(d.mReturnUsd) : ""}`}>
+                  <div key={d.d} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%",borderLeft:isYearStart?"1px solid rgba(255,255,255,.1)":"none",position:"relative",cursor:"pointer"}}
+                    onMouseEnter={()=>setHoveredBar(i)} onMouseLeave={()=>setHoveredBar(null)}>
+                    {hoveredBar===i && (
+                      <div style={{position:"absolute",bottom:`${Math.max(h,10)+5}%`,left:"50%",transform:"translateX(-50%)",background:"#1c1c1e",border:"1px solid var(--gold)",borderRadius:8,padding:"6px 10px",zIndex:10,whiteSpace:"nowrap",boxShadow:"0 4px 12px rgba(0,0,0,.5)",fontSize:10,fontFamily:"var(--fm)"}}>
+                        <div style={{fontWeight:700,color:"var(--gold)",marginBottom:2}}>{d.d}</div>
+                        <div style={{color:"var(--text-primary)"}}>{privacyMode?"•••":`$${(d.pu||0).toLocaleString()}`}</div>
+                        <div style={{color:"var(--text-tertiary)"}}>{privacyMode?"•••":`€${(d.pe||0).toLocaleString()}`}</div>
+                        {d.mReturnUsd!=null && <div style={{color:d.mReturnUsd>=0?"var(--green)":"var(--red)",fontWeight:600}}>Mes: {retFmt(d.mReturnUsd)}</div>}
+                      </div>
+                    )}
                     {showLabel && <div style={{fontSize:8,fontWeight:600,color:isLast?"var(--gold)":"var(--text-secondary)",fontFamily:"var(--fm)",marginBottom:2,whiteSpace:"nowrap"}}>{d.pu>=1e6?`$${_sf(d.pu/1e6,2)}M`:`$${_sf(d.pu/1e3,0)}K`}</div>}
-                    <div style={{width:"100%",maxWidth:16,height:`${Math.max(h,2)}%`,background:barColor,borderRadius:"2px 2px 0 0",transition:"opacity .2s"}}/>
+                    <div style={{width:"100%",maxWidth:16,height:`${Math.max(h,2)}%`,background:hoveredBar===i?"var(--gold)":barColor,borderRadius:"2px 2px 0 0",transition:"all .15s"}}/>
                   </div>
                 );
               })}

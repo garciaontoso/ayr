@@ -167,6 +167,18 @@ export default function PortfolioTab() {
             <button onClick={exportCSV} title="Exportar CSV"
               style={{padding:"5px 8px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer",fontFamily:"var(--fm)"}}
               onMouseEnter={e=>e.target.style.color="var(--gold)"} onMouseLeave={e=>e.target.style.color="var(--text-tertiary)"}>📥</button>
+            <button onClick={()=>{
+              const printWin = window.open('','','width=900,height=700');
+              const rows = (portfolioTotals.positions||[]).map(p =>
+                `<tr><td>${p.ticker}</td><td>${p.name||""}</td><td style="text-align:right">${(p.shares||0).toLocaleString()}</td><td style="text-align:right">$${(p.lastPrice||0).toFixed(2)}</td><td style="text-align:right">$${(p.valueUSD||0).toFixed(0)}</td><td style="text-align:right;color:${(p.pnlPct||0)>=0?"green":"red"}">${((p.pnlPct||0)*100).toFixed(1)}%</td><td style="text-align:right">${((p.weight||0)*100).toFixed(1)}%</td></tr>`
+              ).join('');
+              printWin.document.write(`<html><head><title>A&R Portfolio ${new Date().toISOString().slice(0,10)}</title><style>body{font-family:system-ui;font-size:11px}table{width:100%;border-collapse:collapse}th,td{padding:4px 8px;border-bottom:1px solid #eee}th{text-align:left;font-size:9px;color:#666}h1{font-size:16px}h2{font-size:12px;color:#666}</style></head><body><h1>A&R Portfolio Report</h1><h2>${new Date().toLocaleDateString('es-ES')} · ${(portfolioTotals.positions||[]).length} posiciones</h2><table><thead><tr><th>Ticker</th><th>Empresa</th><th style="text-align:right">Shares</th><th style="text-align:right">Precio</th><th style="text-align:right">Valor</th><th style="text-align:right">P&L</th><th style="text-align:right">Peso</th></tr></thead><tbody>${rows}</tbody></table></body></html>`);
+              printWin.document.close();
+              printWin.focus();
+              setTimeout(()=>printWin.print(),300);
+            }} title="Imprimir/PDF"
+              style={{padding:"5px 8px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer",fontFamily:"var(--fm)"}}
+              onMouseEnter={e=>e.target.style.color="var(--gold)"} onMouseLeave={e=>e.target.style.color="var(--text-tertiary)"}>🖨</button>
           </div>);
         })()}
         {/* Country Flag Filter */}

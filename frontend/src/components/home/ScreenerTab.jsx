@@ -6,7 +6,7 @@ export default function ScreenerTab() {
     screenerData, screenerLoading, screenerSort, setScreenerSort,
     screenerFilter, setScreenerFilter, customTickers, setCustomTickers,
     bulkLoading, bulkProgress, loadScreener, runBulkFetch,
-    openAnalysis, POS_STATIC,
+    openAnalysis, POS_STATIC, ibData,
   } = useHome();
 
   const portfolioUS = Object.entries(POS_STATIC)
@@ -131,6 +131,7 @@ export default function ScreenerTab() {
               {k:"roic",l:"ROIC%",a:"right"},
               {k:"pe",l:"P/E",a:"right"},
               {k:"fmpRatingScore",l:"FMP RATING",a:"center"},
+              {k:"ibPrice",l:"IB PRECIO",a:"right"},
             ].map((c,i)=>(
               <th key={i} onClick={()=>c.k&&sortBy(c.k)} style={{padding:"8px 10px",textAlign:c.a,color:screenerSort.col===c.k?"var(--gold)":"var(--text-tertiary)",fontSize:9,fontWeight:600,fontFamily:"var(--fm)",letterSpacing:.4,borderBottom:"2px solid var(--border)",cursor:c.k?"pointer":"default",userSelect:"none",whiteSpace:"nowrap",position:"sticky",top:0,background:"var(--card)"}}>{c.l}{sortArrow(c.k)}</th>
             ))}
@@ -158,6 +159,13 @@ export default function ScreenerTab() {
                 <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:item.pe>0&&item.pe<20?"var(--green)":item.pe>0&&item.pe<35?"var(--text-secondary)":"var(--red)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{item.pe>0?_sf(item.pe,1):"—"}</td>
                 <td style={{padding:"6px 10px",textAlign:"center",fontFamily:"var(--fm)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>
                   <span style={{fontSize:10,padding:"3px 10px",borderRadius:5,fontWeight:700,background:(fmpR.rating||"").startsWith("S")?"rgba(48,209,88,.12)":(fmpR.rating||"").startsWith("A")?"rgba(214,158,46,.12)":(fmpR.rating||"").startsWith("B")?"rgba(10,132,255,.1)":(fmpR.rating||"").startsWith("C")?"rgba(255,69,58,.1)":"rgba(255,255,255,.06)",color:(fmpR.rating||"").startsWith("S")?"#30d158":(fmpR.rating||"").startsWith("A")?"var(--gold)":(fmpR.rating||"").startsWith("B")?"#64d2ff":(fmpR.rating||"").startsWith("C")?"var(--red)":"var(--text-tertiary)"}}>{fmpR.rating||"—"}</span>
+                </td>
+                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>
+                  {(() => {
+                    const ibPos = (ibData?.positions||[]).find(p => p.ticker === item.symbol && p.assetClass === "STK");
+                    if (!ibPos) return <span style={{color:"var(--text-tertiary)",fontSize:9}}>—</span>;
+                    return <span style={{color:"#64d2ff",fontWeight:600,fontSize:11}}>${_sf(ibPos.mktPrice,2)}</span>;
+                  })()}
                 </td>
               </tr>;
             })}
