@@ -1597,6 +1597,16 @@ export default {
         }
       }
 
+      // GET /api/ib-pnl — daily P&L from IB (partitioned by position)
+      if (path === "/api/ib-pnl" && request.method === "GET") {
+        try {
+          const { lst, consumerKey, accessToken } = await getIBSession();
+          const ib = (m, e, b) => ibAuthFetch(lst, consumerKey, accessToken, m, e, b);
+          const pnl = await ib("GET", "/iserver/account/pnl/partitioned");
+          return json(pnl, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
       // GET /api/ib-trades — recent trades (up to 7 days)
       if (path === "/api/ib-trades" && request.method === "GET") {
         try {

@@ -21,6 +21,7 @@ export default function PortfolioTab() {
     pricesLoading, pricesLastUpdate, refreshPrices,
     displayCcy, privacyMode, hide,
     openAnalysis, getCountry, FLAGS, POS_STATIC, CompanyRow,
+    ibData,
   } = useHome();
 
   const [quickFilter, setQuickFilter] = useState("");
@@ -70,23 +71,47 @@ export default function PortfolioTab() {
 
   return (
       <div style={{display:"flex",flexDirection:"column",gap:6}}>
-        {/* Summary — inline compact */}
-        {portfolioList.length>0 && (
-          <div style={{display:"flex",gap:16,padding:"6px 0",flexWrap:"wrap",alignItems:"baseline"}}>
-            {[
-              {l:"Valor",v:hide(displayCcy==="EUR"?"€"+fDol(portfolioTotals.totalValueEUR):"$"+fDol(portfolioTotals.totalValueUSD)),c:"var(--text-primary)"},
-              {l:"Coste",v:hide(displayCcy==="EUR"?"€"+fDol(portfolioTotals.totalCostEUR):"$"+fDol(portfolioTotals.totalCostUSD)),c:"var(--text-tertiary)"},
-              {l:"P&L",v:hide((portfolioTotals.pnlUSD>=0?"+":"-")+(displayCcy==="EUR"?"€":"$")+fDol(Math.abs(displayCcy==="EUR"?portfolioTotals.pnlEUR:portfolioTotals.pnlUSD))),c:portfolioTotals.pnlUSD>=0?"var(--green)":"var(--red)",sub:privacyMode?"":_sf(portfolioTotals.pnlPctUSD*100,1)+"%"},
-              {l:"Div",v:hide(displayCcy==="EUR"?"€"+fDol(portfolioTotals.totalDivEUR):"$"+fDol(portfolioTotals.totalDivUSD)),c:"var(--gold)",sub:privacyMode?"":"YOC "+_sf(portfolioTotals.yocUSD*100,1)+"%"},
-            ].map((m,i)=>(
-              <div key={i} style={{fontFamily:"var(--fm)"}}>
-                <span style={{fontSize:9,color:"var(--text-tertiary)",marginRight:4}}>{m.l}</span>
-                <span style={{fontSize:16,fontWeight:700,color:m.c}}>{m.v}</span>
-                {m.sub && <span style={{fontSize:9,color:m.c,marginLeft:4,opacity:.6}}>{m.sub}</span>}
+        {/* IB-style live header */}
+        {portfolioList.length>0 && (() => {
+          const nlv = ibData?.summary?.nlv?.amount || portfolioTotals.totalValueUSD;
+          const totalPnl = ibData?.loaded
+            ? (ibData.positions||[]).filter(p=>p.assetClass==="STK").reduce((s,p)=>s+(p.unrealizedPnl||0),0)
+            : portfolioTotals.pnlUSD;
+          const costTotal = ibData?.loaded
+            ? (ibData.positions||[]).filter(p=>p.assetClass==="STK").reduce((s,p)=>s+((p.avgCost||0)*(p.shares||0)),0)
+            : portfolioTotals.totalCostUSD;
+          const pnlPct = costTotal > 0 ? (totalPnl / costTotal * 100) : (portfolioTotals.pnlPctUSD * 100);
+          const lastSync = ibData?.lastSync ? new Date(ibData.lastSync).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "";
+          const isLive = ibData?.loaded;
+
+          return (
+          <div style={{display:"flex",gap:12,padding:"6px 0",flexWrap:"wrap",alignItems:"center"}}>
+            {/* NLV */}
+            <div style={{fontFamily:"var(--fm)"}}>
+              <span style={{fontSize:9,color:"var(--text-tertiary)"}}>NLV </span>
+              <span style={{fontSize:20,fontWeight:700,color:"var(--text-primary)"}}>{hide("$"+fDol(nlv))}</span>
+            </div>
+            {/* Total P&L */}
+            <div style={{fontFamily:"var(--fm)"}}>
+              <span style={{fontSize:9,color:"var(--text-tertiary)"}}>P&L </span>
+              <span style={{fontSize:16,fontWeight:700,color:totalPnl>=0?"var(--green)":"var(--red)"}}>{hide((totalPnl>=0?"+":"")+fDol(totalPnl))}</span>
+              <span style={{fontSize:10,color:totalPnl>=0?"var(--green)":"var(--red)",marginLeft:4,opacity:.7}}>{pnlPct>=0?"+":""}{_sf(pnlPct,1)}%</span>
+            </div>
+            {/* Dividends */}
+            <div style={{fontFamily:"var(--fm)"}}>
+              <span style={{fontSize:9,color:"var(--text-tertiary)"}}>Div </span>
+              <span style={{fontSize:14,fontWeight:700,color:"var(--gold)"}}>{hide("$"+fDol(portfolioTotals.totalDivUSD))}</span>
+              <span style={{fontSize:9,color:"var(--gold)",marginLeft:3,opacity:.6}}>YOC {_sf(portfolioTotals.yocUSD*100,1)}%</span>
+            </div>
+            {/* Live indicator */}
+            {isLive && (
+              <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:4,fontSize:9,fontFamily:"var(--fm)",color:"var(--green)"}}>
+                <span style={{width:6,height:6,borderRadius:3,background:"var(--green)",display:"inline-block",animation:"pulse 2s infinite"}}/>
+                LIVE {lastSync}
               </div>
-            ))}
-          </div>
-        )}
+            )}
+          </div>);
+        })()}
         {/* Controls bar: country filter (clickable flags) + stats + actions — ONE line */}
         {portfolioList.length>0 && (() => {
           const pos = portfolioTotals.positions || [];

@@ -281,6 +281,17 @@ export default function ARApp() {
     return data;
   }, []);
 
+  // Light refresh: only update IB positions (prices) without full session re-init
+  const refreshIBPrices = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_URL}/api/ib-portfolio`);
+      const d = await r.json();
+      if (d.positions?.length) {
+        setIbData(prev => ({ ...prev, positions: d.positions, lastSync: new Date().toISOString() }));
+      }
+    } catch {}
+  }, []);
+
   // Auto-sync IB data once per session (must be after loadIBData declaration)
   useEffect(() => {
     if (!dataLoaded) return;
@@ -1173,6 +1184,17 @@ function buildPositionsFromCB() {
   }, [portfolioComputed, portfolioList.length]);
 
   // ── Deferred effects (need portfolioList + portfolioTotals + ibData) ──
+
+  // Auto-refresh IB prices every 30 seconds (when tab is visible + market hours)
+  useEffect(() => {
+    if (!ibData.loaded) return;
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        refreshIBPrices();
+      }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [ibData.loaded, refreshIBPrices]);
 
   // Request notification permission (for push on iPhone/desktop)
   useEffect(() => {
