@@ -216,6 +216,9 @@ export default function ARApp() {
   const [fmpError, setFmpError] = useState(null);
   const [portfolio, setPortfolio] = useState([]);
   const [lastSaved, setLastSaved] = useState(null); // ISO date of last save for current ticker
+  const [positionNotes, setPositionNotes] = useState(''); // current company notes (buy thesis)
+  const [notesSaved, setNotesSaved] = useState(false); // "Guardado" indicator
+  const notesTimerRef = useRef(null);
   const [recentTickers, setRecentTickers] = useState(() => {
     try { return JSON.parse(localStorage.getItem('ayr_recent') || '[]'); } catch { return []; }
   });
@@ -387,6 +390,8 @@ function buildPositionsFromCB() {
       yoc: st.yoc || 0, annualDivTotal: st.adt || 0,
       // CB income
       totalDivs, totalOptCredit, hasCB: txns.length > 0,
+      // Notes (buy thesis)
+      notes: st.notes || '',
     };
   }
   return result;
@@ -525,6 +530,24 @@ function buildPositionsFromCB() {
   }, []);
 
   const goHome = useCallback(() => setViewMode("home"), []);
+
+  // ── Position Notes (Buy Thesis) ──
+  const savePositionNotes = useCallback(async (ticker, notes) => {
+    if (!ticker) return;
+    try {
+      await fetch(`${API_URL}/api/positions/${encodeURIComponent(ticker)}/notes`, {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ notes }),
+      });
+      // Update local positions state so badge appears without reload
+      setPositions(prev => {
+        if (!prev[ticker]) return prev;
+        return { ...prev, [ticker]: { ...prev[ticker], notes } };
+      });
+      setNotesSaved(true);
+      setTimeout(() => setNotesSaved(false), 2000);
+    } catch (e) { console.warn('Failed to save notes:', e); }
+  }, []);
 
   const openCostBasis = useCallback((ticker) => {
     setCbTicker(ticker.toUpperCase());
