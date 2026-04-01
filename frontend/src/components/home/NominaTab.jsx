@@ -7,9 +7,9 @@ import { EmptyState } from '../ui/EmptyState.jsx';
    NominaTab — "Mi Nomina" motivational dividend salary view
    ═══════════════════════════════════════════════════════════════ */
 
-const GOLD = "#c8a44e";
-const GOLD_DIM = "rgba(200,164,78,.12)";
-const GREEN = "#30d158";
+const GOLD = "var(--gold)";
+const GOLD_DIM = "var(--gold-dim)";
+const GREEN = "var(--green)";
 const MNAMES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 
 const blur = (privacyMode) => privacyMode ? { filter: "blur(8px)", userSelect: "none" } : {};

@@ -1143,6 +1143,8 @@ export default {
       // POST /api/margin-interest — insertar (dedup via UNIQUE)
       if (path === "/api/margin-interest" && request.method === "POST") {
         const b = await parseBody(request);
+        const reqErr = validateRequired(b.mes, 'mes') || validateRequired(b.cuenta, 'cuenta') || validateNumber(b.interes, 'interes');
+        if (reqErr) return validationError(reqErr, corsHeaders);
         try {
           await env.DB.prepare(
             `INSERT OR IGNORE INTO margin_interest (mes, cuenta, divisa, interes, interes_usd)
@@ -1453,7 +1455,6 @@ export default {
         if (!symbols.length) return json({ error: "Missing ?symbols=" }, corsHeaders, 400);
 
         const results = {};
-        const headers = { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)" };
 
         // Process in batches of 5 to avoid rate limits
         for (let i = 0; i < symbols.length; i += 5) {

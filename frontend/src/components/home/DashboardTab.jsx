@@ -1286,7 +1286,7 @@ return (
         const corrColor = (v) => {
           if (v >= 0.7) return `rgba(255,69,58,${0.3 + 0.7 * Math.min(1, (v - 0.5) / 0.5)})`;
           if (v >= 0.3) return `rgba(255,159,10,${0.2 + 0.5 * ((v - 0.3) / 0.4)})`;
-          if (v >= -0.3) return `rgba(255,255,255,${0.05 + 0.1 * Math.abs(v)})`;
+          if (v >= -0.3) { const isLight = document.documentElement.getAttribute("data-theme") === "light"; return isLight ? `rgba(0,0,0,${0.05 + 0.1 * Math.abs(v)})` : `rgba(255,255,255,${0.05 + 0.1 * Math.abs(v)})`; }
           return `rgba(10,132,255,${0.3 + 0.7 * Math.min(1, Math.abs(v + 0.3) / 0.7)})`;
         };
         const scoreColor = score >= 70 ? "var(--green)" : score >= 40 ? "#ffd60a" : "var(--red)";
