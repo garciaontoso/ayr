@@ -186,19 +186,19 @@ export default function WeissTab() {
         <Card title="Historial Completo" icon="📋" style={{marginTop:16,overflowX:"auto",padding:0}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,fontFamily:"var(--fm)"}}>
             <thead><tr style={{background:"rgba(200,164,78,.06)"}}>
-              <th style={{padding:"10px 14px",textAlign:"left",color:"var(--gold)",fontSize:10,fontWeight:700,borderBottom:"2px solid #21262d"}}>AÑO</th>
-              <th style={{padding:"10px 8px",textAlign:"right",color:"var(--gold)",fontSize:10,fontWeight:700,borderBottom:"2px solid #21262d"}}>DPS</th>
-              <th style={{padding:"10px 8px",textAlign:"right",color:"var(--gold)",fontSize:10,fontWeight:700,borderBottom:"2px solid #21262d"}}>PRECIO EST.</th>
-              <th style={{padding:"10px 8px",textAlign:"right",color:"var(--gold)",fontSize:10,fontWeight:700,borderBottom:"2px solid #21262d"}}>CREC.</th>
-              <th style={{padding:"10px 8px",textAlign:"right",color:"var(--gold)",fontSize:10,fontWeight:700,borderBottom:"2px solid #21262d"}}>YIELD EST.</th>
-              <th style={{padding:"10px 8px",textAlign:"right",color:"var(--gold)",fontSize:10,fontWeight:700,borderBottom:"2px solid #21262d"}}>ZONA</th>
+              <th style={{padding:"10px 14px",textAlign:"left",color:"var(--gold)",fontSize:10,fontWeight:700,borderBottom:"2px solid var(--table-border)"}}>AÑO</th>
+              <th style={{padding:"10px 8px",textAlign:"right",color:"var(--gold)",fontSize:10,fontWeight:700,borderBottom:"2px solid var(--table-border)"}}>DPS</th>
+              <th style={{padding:"10px 8px",textAlign:"right",color:"var(--gold)",fontSize:10,fontWeight:700,borderBottom:"2px solid var(--table-border)"}}>PRECIO EST.</th>
+              <th style={{padding:"10px 8px",textAlign:"right",color:"var(--gold)",fontSize:10,fontWeight:700,borderBottom:"2px solid var(--table-border)"}}>CREC.</th>
+              <th style={{padding:"10px 8px",textAlign:"right",color:"var(--gold)",fontSize:10,fontWeight:700,borderBottom:"2px solid var(--table-border)"}}>YIELD EST.</th>
+              <th style={{padding:"10px 8px",textAlign:"right",color:"var(--gold)",fontSize:10,fontWeight:700,borderBottom:"2px solid var(--table-border)"}}>ZONA</th>
             </tr></thead>
             <tbody>{yieldData.map((d,i) => {
               const prevDps = i > 0 ? yieldData[i-1].dps : null;
               const growth = prevDps > 0 ? (d.dps / prevDps - 1) : null;
               const zone = d.yld >= yieldHigh ? "COMPRA" : d.yld >= yieldAvg ? "JUSTO" : "CARO";
               const zoneCol = d.yld >= yieldHigh ? "#30d158" : d.yld >= yieldAvg ? "#ffd60a" : "#ff453a";
-              return <tr key={d.y} style={{borderBottom:"1px solid #21262d"}}>
+              return <tr key={d.y} style={{borderBottom:"1px solid var(--table-border)"}}>
                 <td style={{padding:"8px 14px",color:"var(--text-primary)",fontWeight:600}}>{d.y}</td>
                 <td style={{padding:"8px",textAlign:"right",color:"var(--text-primary)"}}>${_sf(d.dps,2)}</td>
                 <td style={{padding:"8px",textAlign:"right",color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{d.priceEst>0?`$${_sf(d.priceEst,0)}`:"—"}</td>

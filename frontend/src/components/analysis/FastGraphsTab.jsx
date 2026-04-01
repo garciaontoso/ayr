@@ -284,13 +284,13 @@ export default function FastGraphsTab() {
         <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:20,padding:0,marginTop:16,overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5}}>
             <thead><tr>
-              <th style={{padding:"10px 14px",textAlign:"left",color:"var(--gold)",fontWeight:600,borderBottom:"2px solid #30363d",fontFamily:"var(--fm)",fontSize:10}}>AÑO</th>
-              <th style={{padding:"10px 10px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid #30363d",fontFamily:"var(--fm)",fontSize:10}}>{fgMode.toUpperCase()}/ACC</th>
-              <th style={{padding:"10px 10px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid #30363d",fontFamily:"var(--fm)",fontSize:10}}>DIV/ACC</th>
-              <th style={{padding:"10px 10px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid #30363d",fontFamily:"var(--fm)",fontSize:10}}>VALOR JUSTO (×PE)</th>
-              <th style={{padding:"10px 10px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid #30363d",fontFamily:"var(--fm)",fontSize:10}}>+DIV (×PE)</th>
-              <th style={{padding:"10px 10px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid #30363d",fontFamily:"var(--fm)",fontSize:10}}>CRECIM YoY</th>
-              <th style={{padding:"10px 10px",textAlign:"center",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid #30363d",fontFamily:"var(--fm)",fontSize:10}}>PROYECTADO</th>
+              <th style={{padding:"10px 14px",textAlign:"left",color:"var(--gold)",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:10}}>AÑO</th>
+              <th style={{padding:"10px 10px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:10}}>{fgMode.toUpperCase()}/ACC</th>
+              <th style={{padding:"10px 10px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:10}}>DIV/ACC</th>
+              <th style={{padding:"10px 10px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:10}}>VALOR JUSTO (×PE)</th>
+              <th style={{padding:"10px 10px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:10}}>+DIV (×PE)</th>
+              <th style={{padding:"10px 10px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:10}}>CRECIM YoY</th>
+              <th style={{padding:"10px 10px",textAlign:"center",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:10}}>PROYECTADO</th>
             </tr></thead>
             <tbody>
               {[...validHist, ...projData.map(d=>({...d,div:0}))].map((d,i,arr)=>{
@@ -301,13 +301,13 @@ export default function FastGraphsTab() {
                 const isProj = d.projected;
                 return (
                   <tr key={d.y} style={{background:isProj?"rgba(100,210,255,.03)":i%2?"var(--row-alt)":"transparent"}}>
-                    <td style={{padding:"7px 14px",color:isProj?"#64d2ff":"var(--text-primary)",fontWeight:isProj?600:400,borderBottom:"1px solid #21262d",fontFamily:"var(--fm)"}}>{d.y}{isProj?" ★":""}</td>
-                    <td style={{padding:"7px 10px",textAlign:"right",color:n(d.val)&&d.val<0?"var(--red)":"var(--orange)",fontWeight:600,borderBottom:"1px solid #21262d",fontFamily:"var(--fm)"}}>{fC(d.val)}</td>
-                    <td style={{padding:"7px 10px",textAlign:"right",color:"#ffd60a",borderBottom:"1px solid #21262d",fontFamily:"var(--fm)"}}>{n(d.div)&&d.div>0?fC(d.div):"—"}</td>
-                    <td style={{padding:"7px 10px",textAlign:"right",color:n(fair)&&cfg.price&&fair<cfg.price?"var(--red)":"var(--green)",fontWeight:600,borderBottom:"1px solid #21262d",fontFamily:"var(--fm)"}}>{fC(fair)}</td>
-                    <td style={{padding:"7px 10px",textAlign:"right",color:"#ffd60a",borderBottom:"1px solid #21262d",fontFamily:"var(--fm)"}}>{fC(fairDiv)}</td>
-                    <td style={{padding:"7px 10px",textAlign:"right",color:n(yoy)?yoy>=0?"var(--green)":"var(--red)":"var(--text-tertiary)",fontFamily:"var(--fm)",borderBottom:"1px solid #21262d"}}>{n(yoy)?fP(yoy):"—"}</td>
-                    <td style={{padding:"7px 10px",textAlign:"center",borderBottom:"1px solid #21262d"}}>{isProj?<span style={{fontSize:9,fontWeight:600,color:"#64d2ff",fontFamily:"var(--fm)",letterSpacing:.5}}>PROY</span>:"—"}</td>
+                    <td style={{padding:"7px 14px",color:isProj?"#64d2ff":"var(--text-primary)",fontWeight:isProj?600:400,borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)"}}>{d.y}{isProj?" ★":""}</td>
+                    <td style={{padding:"7px 10px",textAlign:"right",color:n(d.val)&&d.val<0?"var(--red)":"var(--orange)",fontWeight:600,borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)"}}>{fC(d.val)}</td>
+                    <td style={{padding:"7px 10px",textAlign:"right",color:"#ffd60a",borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)"}}>{n(d.div)&&d.div>0?fC(d.div):"—"}</td>
+                    <td style={{padding:"7px 10px",textAlign:"right",color:n(fair)&&cfg.price&&fair<cfg.price?"var(--red)":"var(--green)",fontWeight:600,borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)"}}>{fC(fair)}</td>
+                    <td style={{padding:"7px 10px",textAlign:"right",color:"#ffd60a",borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)"}}>{fC(fairDiv)}</td>
+                    <td style={{padding:"7px 10px",textAlign:"right",color:n(yoy)?yoy>=0?"var(--green)":"var(--red)":"var(--text-tertiary)",fontFamily:"var(--fm)",borderBottom:"1px solid var(--table-border)"}}>{n(yoy)?fP(yoy):"—"}</td>
+                    <td style={{padding:"7px 10px",textAlign:"center",borderBottom:"1px solid var(--table-border)"}}>{isProj?<span style={{fontSize:9,fontWeight:600,color:"#64d2ff",fontFamily:"var(--fm)",letterSpacing:.5}}>PROY</span>:"—"}</td>
                   </tr>
                 );
               })}

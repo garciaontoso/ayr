@@ -495,7 +495,7 @@ export default function PortfolioTab() {
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
                   <thead><tr>
                     {cols.map(c=>(
-                      <th key={c.id} onClick={()=>toggleSort(c.id)} style={{padding:"8px 10px",textAlign:c.align,color:portSort.col===c.id?"var(--gold)":"var(--text-tertiary)",fontSize:9,fontWeight:700,fontFamily:"var(--fm)",letterSpacing:.5,cursor:"pointer",borderBottom:"2px solid #21262d",whiteSpace:"nowrap",userSelect:"none"}}>
+                      <th key={c.id} onClick={()=>toggleSort(c.id)} style={{padding:"8px 10px",textAlign:c.align,color:portSort.col===c.id?"var(--gold)":"var(--text-tertiary)",fontSize:9,fontWeight:700,fontFamily:"var(--fm)",letterSpacing:.5,cursor:"pointer",borderBottom:"2px solid var(--table-border)",whiteSpace:"nowrap",userSelect:"none"}}>
                         {c.l} {portSort.col===c.id?(portSort.asc?"▲":"▼"):""}
                       </th>
                     ))}
