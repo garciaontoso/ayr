@@ -17,6 +17,22 @@ const CAT_COLORS = {
 };
 const catColor = (cat) => CAT_COLORS[cat] || CAT_COLORS[(cat||"").slice(0,3)] || "#86868b";
 
+/* ── Residence detection ── */
+const RESIDENCE_COLORS = { Valencia: "#30d158", "Costa Brava": "#0a84ff", China: "#ef4444" };
+const UTILITY_CATS = new Set(["UTI","UCH","Utilities","Utilities China"]);
+const getResidence = (g) => {
+  const detail = (g.detail || "").toLowerCase();
+  const cat = g.cat || "";
+  // China: tipo=china OR description contains {china}
+  if (g.tipo === "china" || detail.includes("{china}")) return "China";
+  // Costa Brava: description contains "costa brava" or "c.p. costa brava"
+  if (detail.includes("costa brava") || detail.includes("c.p. costa brava")) return "Costa Brava";
+  if (cat === "HOM" && detail.includes("costa brava")) return "Costa Brava";
+  if (cat === "Casa" && detail.includes("costa brava")) return "Costa Brava";
+  // Valencia: everything else (EUR expenses not tagged china / costa brava)
+  return "Valencia";
+};
+
 /* ── Multi-segment Donut Chart ── */
 const CategoryDonut = ({segments, size=150, strokeW=18}) => {
   // segments: [{label, value, color}]
@@ -257,6 +273,7 @@ export default function GastosTab() {
         if (gastosFilter.tipo === "nochina" && t === "china") return false;
         else if (gastosFilter.tipo !== "nochina" && t !== gastosFilter.tipo) return false;
       }
+      if (gastosFilter.residencia && gastosFilter.residencia !== "all" && getResidence(g) !== gastosFilter.residencia) return false;
       if (gastosFilter.search && !(g.detail||"").toLowerCase().includes(gastosFilter.search.toLowerCase()) && !(g.cat||"").toLowerCase().includes(gastosFilter.search.toLowerCase())) return false;
       if (g.secreto && !gastosFilter.showSecretos) return false;
       return true;
@@ -360,6 +377,12 @@ export default function GastosTab() {
             <option value="extra">⚡ Extraordinario</option>
             <option value="nochina">Sin China</option>
           </select>
+          <select value={gastosFilter.residencia||"all"} onChange={e=>setGastosFilter(p=>({...p,residencia:e.target.value}))} style={{padding:"5px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
+            <option value="all">Todas residencias</option>
+            <option value="Valencia">🏠 Valencia</option>
+            <option value="Costa Brava">🏖️ Costa Brava</option>
+            <option value="China">🇨🇳 China</option>
+          </select>
           <input type="text" placeholder="Buscar concepto..." value={gastosFilter.search||""} onChange={e=>setGastosFilter(p=>({...p,search:e.target.value}))} style={{padding:"5px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)",width:130}}/>
           <button onClick={()=>{setGastosForm(p=>({...p,isIngreso:false}));setGastosShowForm(!gastosShowForm);}} style={{padding:"7px 14px",borderRadius:7,border:"1px solid var(--gold)",background:gastosShowForm&&!gastosForm.isIngreso?"var(--gold)":"var(--gold-dim)",color:gastosShowForm&&!gastosForm.isIngreso?"#000":"var(--gold)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>
             {gastosShowForm&&!gastosForm.isIngreso?"✕":"+ Gasto"}
@@ -404,6 +427,90 @@ export default function GastosTab() {
           </div>
         </div>
       )}
+
+      {/* Por Residencia breakdown */}
+      {expenses.length > 0 && (() => {
+        const byRes = { Valencia: { total: 0, count: 0, months: new Set(), utilities: {} },
+                        "Costa Brava": { total: 0, count: 0, months: new Set(), utilities: {} },
+                        China: { total: 0, count: 0, months: new Set(), utilities: {} } };
+        expenses.forEach(g => {
+          const res = getResidence(g);
+          const eur = gToEur(g);
+          if (!byRes[res]) return;
+          byRes[res].total += eur;
+          byRes[res].count++;
+          const m = g.date?.slice(0, 7);
+          if (m) byRes[res].months.add(m);
+          // Track utilities per residence
+          const cat = g.cat || "";
+          if (UTILITY_CATS.has(cat)) {
+            const label = cat.length <= 3 ? ({ UTI: "Utilities", UCH: "Utilities CN" }[cat] || cat) : cat;
+            byRes[res].utilities[label] = (byRes[res].utilities[label] || 0) + eur;
+          }
+          // Also track Alquiler, Hipoteca, Internet-like cats as housing utilities
+          if (cat === "ALQ" || cat === "Alquiler") byRes[res].utilities["Alquiler"] = (byRes[res].utilities["Alquiler"] || 0) + eur;
+          if (cat === "HIP" || cat === "Hipoteca") byRes[res].utilities["Hipoteca"] = (byRes[res].utilities["Hipoteca"] || 0) + eur;
+          if (cat === "HOM" || cat === "Casa") byRes[res].utilities["Casa"] = (byRes[res].utilities["Casa"] || 0) + eur;
+        });
+        const maxResTotal = Math.max(...Object.values(byRes).map(r => r.total), 1);
+        const resEntries = [
+          { key: "Valencia", flag: "\uD83C\uDFE0", subtitle: "Espana" },
+          { key: "Costa Brava", flag: "\uD83C\uDFD6\uFE0F", subtitle: "Espana" },
+          { key: "China", flag: "\uD83C\uDDE8\uD83C\uDDF3", subtitle: "Asia" },
+        ];
+        return (
+          <div style={{padding:"14px 16px",background:"rgba(255,255,255,.02)",borderRadius:12,border:"1px solid rgba(255,255,255,.06)"}}>
+            <div style={{fontSize:10,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:12}}>POR RESIDENCIA</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10}}>
+              {resEntries.map(({key, flag, subtitle}) => {
+                const d = byRes[key];
+                const nM = d.months.size || 1;
+                const avg = d.total / nM;
+                const pct = d.total / maxResTotal * 100;
+                const color = RESIDENCE_COLORS[key];
+                const utilEntries = Object.entries(d.utilities).sort((a,b) => b[1] - a[1]);
+                return (
+                  <div key={key} onClick={() => setGastosFilter(p => ({ ...p, residencia: p.residencia === key ? "all" : key }))}
+                    style={{padding:"12px 14px",background: gastosFilter.residencia === key ? `${color}11` : "rgba(255,255,255,.02)",borderRadius:10,border:`1px solid ${gastosFilter.residencia === key ? color+"44" : "rgba(255,255,255,.06)"}`,cursor:"pointer",transition:"all .2s"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                      <div>
+                        <span style={{fontSize:14,marginRight:5}}>{flag}</span>
+                        <span style={{fontSize:12,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{key}</span>
+                        <span style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginLeft:5}}>{subtitle}</span>
+                      </div>
+                      <span style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{d.count} gastos</span>
+                    </div>
+                    <div style={{display:"flex",gap:16,marginBottom:8}}>
+                      <div>
+                        <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600}}>TOTAL</div>
+                        <div style={{fontSize:16,fontWeight:700,color:color,fontFamily:"var(--fm)"}}>{"\u20AC"}{d.total.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+                      </div>
+                      <div>
+                        <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600}}>MEDIA/MES</div>
+                        <div style={{fontSize:16,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{"\u20AC"}{avg.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+                      </div>
+                    </div>
+                    {/* Comparison bar */}
+                    <div style={{height:6,background:"rgba(255,255,255,.04)",borderRadius:3,overflow:"hidden",marginBottom:utilEntries.length > 0 ? 8 : 0}}>
+                      <div style={{width:`${pct}%`,height:"100%",background:color,borderRadius:3,opacity:.6,transition:"width .4s ease"}}/>
+                    </div>
+                    {/* Utility breakdown */}
+                    {utilEntries.length > 0 && (
+                      <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
+                        {utilEntries.slice(0, 5).map(([label, val]) => (
+                          <span key={label} style={{fontSize:7,padding:"2px 6px",borderRadius:4,background:`${color}10`,color:color,fontFamily:"var(--fm)",fontWeight:500}}>
+                            {label}: {"\u20AC"}{val.toLocaleString(undefined,{maximumFractionDigits:0})}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Visual charts row: Donut + Trend */}
       {expenses.length > 0 && (
@@ -560,6 +667,7 @@ export default function GastosTab() {
               if (gastosFilter.tipo === "nochina" && t === "china") return false;
               else if (gastosFilter.tipo !== "nochina" && t !== gastosFilter.tipo) return false;
             }
+            if (gastosFilter.residencia && gastosFilter.residencia !== "all" && getResidence(g) !== gastosFilter.residencia) return false;
             if (gastosFilter.search && !(g.detail||"").toLowerCase().includes(gastosFilter.search.toLowerCase()) && !(g.cat||"").toLowerCase().includes(gastosFilter.search.toLowerCase())) return false;
             return true;
           });

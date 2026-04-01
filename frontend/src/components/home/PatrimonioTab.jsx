@@ -257,37 +257,253 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
         </div>
       </div>
 
-      {/* Projection chart */}
+      {/* Projection chart — SVG bezier curves */}
       <div style={card}>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--gold)', fontFamily: 'var(--fd)', marginBottom: 12 }}>
           📈 Proyección Patrimonial — {SCENARIOS[scenario].name}
         </div>
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 200, padding: '0 4px' }}>
-          {projection.map((r, i) => {
-            const h = Math.max((r.patFinal / maxPat) * 100, 1);
-            const isMilestone = milestones.some(m => m.year === r.year);
-            const show = i === 0 || i === projection.length - 1 || i % Math.max(1, Math.floor(projection.length / 10)) === 0 || isMilestone;
-            const isRetiro = r.year === retiroRow.year;
-            const color = r.retirado ? (r.patFinal > 0 ? '#64d2ff' : 'var(--red)') : 'var(--gold)';
-            return (
-              <div key={r.year} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%', borderLeft: isRetiro ? '2px dashed var(--orange)' : 'none' }}
-                title={`${r.year} (${r.edad} años)\nPatrimonio: ${fN(r.patFinal)}\nReal: ${fN(r.patReal)}\nIngresos: ${fN(r.ingresoTotal)}\nGastos: ${fN(r.gastos)}`}>
-                {show && <div style={{ fontSize: 7, fontWeight: 600, color: r.patFinal >= 1e6 ? color : 'var(--text-tertiary)', fontFamily: 'var(--fm)', marginBottom: 2, whiteSpace: 'nowrap' }}>
-                  {r.patFinal >= 1e6 ? `$${(r.patFinal/1e6).toFixed(1)}M` : `$${(r.patFinal/1e3).toFixed(0)}K`}
-                </div>}
-                <div style={{ width: '100%', maxWidth: 18, height: `${h}%`, background: color, borderRadius: '2px 2px 0 0', opacity: 0.65 }} />
-                {show && <div style={{ fontSize: 7, color: isRetiro ? 'var(--orange)' : 'var(--text-tertiary)', fontFamily: 'var(--fm)', marginTop: 2, fontWeight: isRetiro ? 700 : 400, whiteSpace: 'nowrap' }}>
-                  {isRetiro ? `🏖️${r.year}` : r.year}
-                </div>}
-              </div>
-            );
-          })}
-        </div>
+        {(() => {
+          const W = 800, H = 260, padL = 55, padR = 20, padT = 30, padB = 40;
+          const cW = W - padL - padR, cH = H - padT - padB;
+          const n = projection.length;
+          if (n < 2) return null;
+
+          const yMax = Math.max(...projection.map(r => r.patFinal)) * 1.18;
+          const yMin = 0;
+
+          const px = (i) => padL + (i / (n - 1)) * cW;
+          const py = (v) => padT + cH - ((v - yMin) / (yMax - yMin)) * cH;
+
+          // Build points
+          const pts = projection.map((r, i) => ({ x: px(i), y: py(r.patFinal) }));
+          const ptsHi = projection.map((r, i) => ({ x: px(i), y: py(r.patFinal * 1.15) }));
+          const ptsLo = projection.map((r, i) => ({ x: px(i), y: py(r.patFinal * 0.85) }));
+
+          // Smooth bezier path from points
+          const bezier = (points) => {
+            if (points.length < 2) return '';
+            let d = `M${points[0].x},${points[0].y}`;
+            for (let i = 0; i < points.length - 1; i++) {
+              const p0 = points[Math.max(0, i - 1)];
+              const p1 = points[i];
+              const p2 = points[i + 1];
+              const p3 = points[Math.min(points.length - 1, i + 2)];
+              const cp1x = p1.x + (p2.x - p0.x) / 6;
+              const cp1y = p1.y + (p2.y - p0.y) / 6;
+              const cp2x = p2.x - (p3.x - p1.x) / 6;
+              const cp2y = p2.y - (p3.y - p1.y) / 6;
+              d += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`;
+            }
+            return d;
+          };
+
+          const mainPath = bezier(pts);
+          const hiPath = bezier(ptsHi);
+          const loPath = bezier(ptsLo);
+
+          // Confidence band closed path (hi forward + lo reverse)
+          const bandPath = hiPath + ` L${ptsLo[ptsLo.length - 1].x},${ptsLo[ptsLo.length - 1].y}` +
+            ptsLo.slice().reverse().reduce((d, p, i) => {
+              if (i === 0) return d;
+              const rev = [...ptsLo].reverse();
+              const p0 = rev[Math.max(0, i - 1)];
+              const p1 = rev[i];
+              const p2 = rev[Math.min(rev.length - 1, i + 1)];
+              const p3 = rev[Math.min(rev.length - 1, i + 2)];
+              // Reversed control points
+              return d;
+            }, '') + ' Z';
+          // Simpler confidence band using polyline fill
+          const bandPoly = ptsHi.map(p => `${p.x},${p.y}`).join(' ') + ' ' +
+            [...ptsLo].reverse().map(p => `${p.x},${p.y}`).join(' ');
+
+          // Fill area under main curve (working vs retirement)
+          const retiroIdx = projection.findIndex(r => r.retirado);
+          const splitIdx = retiroIdx > 0 ? retiroIdx : n;
+
+          // Working phase fill
+          const workPts = pts.slice(0, splitIdx + 1);
+          const workPath = bezier(workPts);
+          const workFill = workPts.length > 1 ? workPath + ` L${workPts[workPts.length-1].x},${padT + cH} L${workPts[0].x},${padT + cH} Z` : '';
+
+          // Retirement phase fill
+          const retPts = splitIdx < n ? pts.slice(splitIdx) : [];
+          const retPath = retPts.length > 1 ? bezier(retPts) : '';
+          const retFill = retPts.length > 1 ? retPath + ` L${retPts[retPts.length-1].x},${padT + cH} L${retPts[0].x},${padT + cH} Z` : '';
+
+          // Grid lines
+          const gridCount = 5;
+          const gridLines = [];
+          for (let i = 0; i <= gridCount; i++) {
+            const val = yMin + (yMax - yMin) * (i / gridCount);
+            const yy = py(val);
+            gridLines.push({ y: yy, val });
+          }
+
+          // Milestones on curve
+          const MILESTONE_TARGETS = [500000, 1000000, 1500000, 2000000];
+          const milestonesOnCurve = [];
+          for (const t of MILESTONE_TARGETS) {
+            const idx = projection.findIndex(r => r.patFinal >= t);
+            if (idx >= 0 && (projection[0]?.patInicio || 0) < t) {
+              milestonesOnCurve.push({ target: t, idx, x: pts[idx].x, y: pts[idx].y, year: projection[idx].year, label: t >= 1e6 ? `$${(t/1e6).toFixed(1)}M` : `$${(t/1e3).toFixed(0)}K` });
+            }
+          }
+
+          // Year labels on x-axis
+          const xLabels = projection.filter((r, i) => i === 0 || i === n - 1 || i % Math.max(1, Math.floor(n / 8)) === 0 || (retiroIdx > 0 && i === retiroIdx));
+
+          return (
+            <div style={{ overflowX: 'auto' }}>
+              <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block', maxWidth: '100%' }}>
+                <defs>
+                  <linearGradient id="projWorkGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#d69e2e" stopOpacity="0.35" />
+                    <stop offset="100%" stopColor="#d69e2e" stopOpacity="0.03" />
+                  </linearGradient>
+                  <linearGradient id="projRetGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#64d2ff" stopOpacity="0.30" />
+                    <stop offset="100%" stopColor="#64d2ff" stopOpacity="0.03" />
+                  </linearGradient>
+                  <style>{`
+                    @keyframes projPulse { 0%,100% { r: 5; opacity: 1; } 50% { r: 9; opacity: 0.5; } }
+                  `}</style>
+                </defs>
+
+                {/* Grid lines */}
+                {gridLines.map((g, i) => (
+                  <g key={i}>
+                    <line x1={padL} y1={g.y} x2={W - padR} y2={g.y} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+                    <text x={padL - 6} y={g.y + 3} textAnchor="end" fill="var(--text-tertiary)" fontSize="8" fontFamily="var(--fm)">
+                      {g.val >= 1e6 ? `$${(g.val/1e6).toFixed(1)}M` : `$${(g.val/1e3).toFixed(0)}K`}
+                    </text>
+                  </g>
+                ))}
+
+                {/* Confidence band */}
+                <polygon points={bandPoly} fill="var(--gold)" opacity="0.08" />
+
+                {/* Retirement dashed line */}
+                {retiroIdx > 0 && (
+                  <line x1={px(retiroIdx)} y1={padT} x2={px(retiroIdx)} y2={padT + cH} stroke="var(--orange)" strokeWidth="1.5" strokeDasharray="6,4" opacity="0.6" />
+                )}
+
+                {/* Area fills */}
+                {workFill && <path d={workFill} fill="url(#projWorkGrad)" />}
+                {retFill && <path d={retFill} fill="url(#projRetGrad)" />}
+
+                {/* Main curve - working phase */}
+                {workPts.length > 1 && <path d={workPath} fill="none" stroke="#d69e2e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
+
+                {/* Main curve - retirement phase */}
+                {retPts.length > 1 && <path d={retPath} fill="none" stroke="#64d2ff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
+
+                {/* Milestone markers */}
+                {milestonesOnCurve.map((m, i) => (
+                  <g key={i}>
+                    <circle cx={m.x} cy={m.y} r="4" fill="var(--card)" stroke="var(--gold)" strokeWidth="2" />
+                    <line x1={m.x} y1={m.y - 6} x2={m.x} y2={m.y - 18} stroke="var(--gold)" strokeWidth="1" opacity="0.4" />
+                    <rect x={m.x - 20} y={m.y - 32} width="40" height="14" rx="4" fill="var(--card)" stroke="var(--gold)" strokeWidth="0.5" opacity="0.9" />
+                    <text x={m.x} y={m.y - 22} textAnchor="middle" fill="var(--gold)" fontSize="8" fontWeight="700" fontFamily="var(--fm)">{m.label}</text>
+                  </g>
+                ))}
+
+                {/* Current position pulsing dot */}
+                <circle cx={pts[0].x} cy={pts[0].y} r="5" fill="var(--gold)" opacity="0.3" style={{ animation: 'projPulse 2s ease-in-out infinite' }} />
+                <circle cx={pts[0].x} cy={pts[0].y} r="4" fill="var(--gold)" stroke="var(--card)" strokeWidth="2" />
+
+                {/* X-axis year labels */}
+                {xLabels.map((r) => {
+                  const i = projection.indexOf(r);
+                  const isRet = retiroIdx > 0 && i === retiroIdx;
+                  return (
+                    <text key={r.year} x={px(i)} y={H - 8} textAnchor="middle" fill={isRet ? 'var(--orange)' : 'var(--text-tertiary)'} fontSize="8" fontWeight={isRet ? 700 : 400} fontFamily="var(--fm)">
+                      {isRet ? `\u{1F3D6}${r.year}` : r.year}
+                    </text>
+                  );
+                })}
+
+                {/* Retirement label */}
+                {retiroIdx > 0 && (
+                  <text x={px(retiroIdx) + 4} y={padT + 10} fill="var(--orange)" fontSize="8" fontWeight="600" fontFamily="var(--fm)">Retiro</text>
+                )}
+
+                {/* End value label */}
+                <text x={pts[n-1].x + 4} y={pts[n-1].y - 4} fill={projection[n-1].retirado ? '#64d2ff' : 'var(--gold)'} fontSize="9" fontWeight="700" fontFamily="var(--fm)">
+                  {lastRow.patFinal >= 1e6 ? `$${(lastRow.patFinal/1e6).toFixed(1)}M` : `$${(lastRow.patFinal/1e3).toFixed(0)}K`}
+                </text>
+              </svg>
+            </div>
+          );
+        })()}
         <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 8 }}>
           <span style={{ fontSize: 9, color: 'var(--gold)', fontFamily: 'var(--fm)' }}>● Fase trabajo</span>
           <span style={{ fontSize: 9, color: '#64d2ff', fontFamily: 'var(--fm)' }}>● Jubilación</span>
           <span style={{ fontSize: 9, color: 'var(--orange)', fontFamily: 'var(--fm)' }}>┊ Retiro ({params.edadRetiro})</span>
+          <span style={{ fontSize: 9, color: 'var(--gold)', fontFamily: 'var(--fm)', opacity: 0.5 }}>░ Banda ±15%</span>
         </div>
+      </div>
+
+      {/* Cash Flow Waterfall */}
+      <div style={card}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--gold)', fontFamily: 'var(--fd)', marginBottom: 12 }}>
+          💧 Cash Flow Mensual (año actual)
+        </div>
+        {(() => {
+          const salarioMes = params.salarioAnual / 12;
+          const divMes = params.dividendosAnual / 12;
+          const opcMes = params.opcionesAnual / 12;
+          const gastosMes = params.gastosAnual / 12;
+          const netMes = salarioMes + divMes + opcMes - gastosMes;
+
+          const bars = [
+            { label: 'Salario', value: salarioMes, color: '#30d158' },
+            { label: 'Dividendos', value: divMes, color: '#64d2ff' },
+            { label: 'Opciones', value: opcMes, color: '#a29bfe' },
+            { label: 'Gastos', value: -gastosMes, color: '#ff453a' },
+            { label: 'Neto', value: netMes, color: '#d69e2e', isNet: true },
+          ];
+
+          const absMax = Math.max(...bars.map(b => Math.abs(b.value)), 1);
+          const bW = 700, bH = 120, bPadL = 70, bPadR = 20, bPadT = 10, bPadB = 28;
+          const chartW = bW - bPadL - bPadR;
+          const chartH = bH - bPadT - bPadB;
+          const barCount = bars.length;
+          const barGap = chartW / barCount;
+          const barWidth = barGap * 0.55;
+          const midY = bPadT + chartH / 2;
+
+          return (
+            <div style={{ overflowX: 'auto' }}>
+              <svg width="100%" viewBox={`0 0 ${bW} ${bH}`} style={{ display: 'block', maxWidth: '100%' }}>
+                {/* Zero line */}
+                <line x1={bPadL} y1={midY} x2={bW - bPadR} y2={midY} stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+
+                {bars.map((b, i) => {
+                  const x = bPadL + i * barGap + (barGap - barWidth) / 2;
+                  const hPct = Math.abs(b.value) / absMax;
+                  const maxBarH = chartH / 2 - 4;
+                  const barH = hPct * maxBarH;
+                  const y = b.value >= 0 ? midY - barH : midY;
+
+                  return (
+                    <g key={i}>
+                      <rect x={x} y={y} width={barWidth} height={Math.max(barH, 2)} rx="4" fill={b.color} opacity={b.isNet ? 0.9 : 0.65} />
+                      {/* Value label */}
+                      <text x={x + barWidth / 2} y={b.value >= 0 ? y - 4 : y + barH + 10} textAnchor="middle" fill={b.color} fontSize="8" fontWeight="700" fontFamily="var(--fm)">
+                        {b.value >= 0 ? '+' : '-'}${Math.abs(b.value).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </text>
+                      {/* Bar label */}
+                      <text x={x + barWidth / 2} y={bH - 6} textAnchor="middle" fill="var(--text-tertiary)" fontSize="8" fontFamily="var(--fm)">
+                        {b.label}
+                      </text>
+                    </g>
+                  );
+                })}
+              </svg>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Nominal vs Real chart */}

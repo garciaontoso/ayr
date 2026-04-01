@@ -94,11 +94,46 @@ const SECTOR_MAP = {
 
 export default function IncomeLabTab() {
   const { portfolioTotals, portfolioList, positions, displayCcy, privacyMode, hide, openAnalysis, getCountry, FLAGS, POS_STATIC } = useHome();
-  const [section, setSection] = useState("calendar");
+  const [section, setSection] = useState("stacking");
   const [projYears, setProjYears] = useState(10);
   const [dripRate, setDripRate] = useState(5); // DPS growth %
+  const [incomeGoal, setIncomeGoal] = useState(5000); // monthly passive income target
 
   const pos = portfolioTotals.positions || [];
+
+  // Fetch historical income data for stacking chart
+  const [incomeHistory, setIncomeHistory] = useState(null);
+  useEffect(() => {
+    const year = new Date().getFullYear();
+    Promise.all([
+      fetch(`${API_URL}/api/cost-basis-all?tipo=OPTION&limit=2000&sort=fecha&dir=asc`).then(r=>r.json()).catch(()=>({results:[]})),
+      fetch(`${API_URL}/api/dividendos`).then(r=>r.json()).catch(()=>[]),
+    ]).then(([optData, divData]) => {
+      // Build monthly stacked income for last 24 months
+      const months = [];
+      const now = new Date();
+      for (let i = 23; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        months.push({ label: ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"][d.getMonth()] + " " + String(d.getFullYear()).slice(2), year: d.getFullYear(), month: d.getMonth(), dividends: 0, coveredCalls: 0, rop: 0, roc: 0 });
+      }
+      // Aggregate dividends
+      (Array.isArray(divData) ? divData : divData.results || []).forEach(d => {
+        const dt = d.fecha ? new Date(d.fecha) : null;
+        if (!dt) return;
+        const idx = months.findIndex(m => m.year === dt.getFullYear() && m.month === dt.getMonth());
+        if (idx >= 0) months[idx].dividends += Math.abs(d.div_total || d.total || 0);
+      });
+      // Aggregate option income
+      (optData.results || []).forEach(t => {
+        if ((t.coste || 0) <= 0) return;
+        const dt = t.fecha ? new Date(t.fecha) : null;
+        if (!dt) return;
+        const idx = months.findIndex(m => m.year === dt.getFullYear() && m.month === dt.getMonth());
+        if (idx >= 0) months[idx].coveredCalls += Math.abs(t.coste || 0);
+      });
+      setIncomeHistory(months);
+    });
+  }, []);
 
   // ── DIVIDEND CALENDAR ──
   const calendar = useMemo(() => {
@@ -190,10 +225,172 @@ export default function IncomeLabTab() {
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
       {/* Section toggle */}
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-        {[{id:"calendar",lbl:"📅 Calendario Dividendos"},{id:"projection",lbl:"📈 Proyección DRIP"},{id:"sectors",lbl:"🏭 Concentración"},{id:"taxloss",lbl:"🔻 Tax-Loss"},{id:"ideas",lbl:"💡 Ideas Opciones"},{id:"tax",lbl:"📋 Tax Report"}].map(s=>(
+        {[{id:"stacking",lbl:"📊 Income Stacking"},{id:"calendar",lbl:"📅 Calendario Dividendos"},{id:"projection",lbl:"📈 Proyección DRIP"},{id:"sectors",lbl:"🏭 Concentración"},{id:"taxloss",lbl:"🔻 Tax-Loss"},{id:"ideas",lbl:"💡 Ideas Opciones"},{id:"tax",lbl:"📋 Tax Report"}].map(s=>(
           <button key={s.id} onClick={()=>setSection(s.id)} style={pill(section===s.id)}>{s.lbl}</button>
         ))}
       </div>
+
+      {/* ══════ INCOME STACKING ══════ */}
+      {section === "stacking" && <>
+        {/* Passive Income Goal Tracker */}
+        {(() => {
+          const monthlyDiv = totalAnnualDiv / 12;
+          // Estimate monthly CC income from history
+          const monthlyCCEst = incomeHistory
+            ? incomeHistory.slice(-6).reduce((s,m) => s + m.coveredCalls, 0) / Math.max(incomeHistory.slice(-6).filter(m => m.coveredCalls > 0).length, 1)
+            : 0;
+          const totalMonthly = monthlyDiv + monthlyCCEst;
+          const pct = incomeGoal > 0 ? Math.min(totalMonthly / incomeGoal, 1) : 0;
+          return (
+            <div style={card}>
+              <div style={hd}>Objetivo de Ingreso Pasivo Mensual</div>
+              <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:12}}>
+                <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Objetivo:</div>
+                {[2000,3000,5000,7500,10000].map(g => (
+                  <button key={g} onClick={()=>setIncomeGoal(g)} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${incomeGoal===g?"var(--gold)":"var(--border)"}`,background:incomeGoal===g?"var(--gold-dim)":"transparent",color:incomeGoal===g?"var(--gold)":"var(--text-tertiary)",fontSize:10,fontWeight:incomeGoal===g?700:500,cursor:"pointer",fontFamily:"var(--fm)"}}>${(g/1000).toFixed(0)}K</button>
+                ))}
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:20}}>
+                {/* Thermometer */}
+                <div style={{width:40,height:180,position:"relative",flexShrink:0}}>
+                  <div style={{position:"absolute",bottom:0,left:0,width:"100%",height:"100%",background:"rgba(255,255,255,.04)",borderRadius:20,overflow:"hidden"}}>
+                    <div style={{position:"absolute",bottom:0,left:0,width:"100%",height:`${pct*100}%`,background:pct>=1?"var(--green)":pct>0.5?"var(--gold)":"var(--red)",borderRadius:20,transition:"height .8s ease",opacity:0.7}}/>
+                  </div>
+                  <div style={{position:"absolute",bottom:`${pct*100}%`,left:"50%",transform:"translate(-50%,50%)",fontSize:10,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",whiteSpace:"nowrap"}}>{_sf(pct*100,0)}%</div>
+                  {/* Goal line at top */}
+                  <div style={{position:"absolute",top:0,left:-6,right:-6,borderTop:"2px dashed var(--gold)",opacity:0.5}}/>
+                </div>
+                {/* Details */}
+                <div style={{flex:1}}>
+                  <div style={{fontSize:22,fontWeight:700,color:pct>=1?"var(--green)":"var(--gold)",fontFamily:"var(--fm)"}}>
+                    {privacyMode?"***":"$"+_sf(totalMonthly,0)}/mes
+                  </div>
+                  <div style={{fontSize:11,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginTop:2}}>
+                    Tu ingreso pasivo: {privacyMode?"***":"$"+_sf(totalMonthly,0)}/mes ({_sf(pct*100,1)}% del objetivo de ${fDol(incomeGoal)})
+                  </div>
+                  <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:6}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <div style={{width:12,height:12,borderRadius:2,background:"#c8a44e"}}/>
+                      <span style={{fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)",flex:1}}>Dividendos</span>
+                      <span style={{fontSize:12,fontWeight:700,color:"#c8a44e",fontFamily:"var(--fm)"}}>{privacyMode?"***":"$"+_sf(monthlyDiv,0)}/mes</span>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <div style={{width:12,height:12,borderRadius:2,background:"#30d158"}}/>
+                      <span style={{fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)",flex:1}}>Covered Calls (media 6m)</span>
+                      <span style={{fontSize:12,fontWeight:700,color:"#30d158",fontFamily:"var(--fm)"}}>{privacyMode?"***":"$"+_sf(monthlyCCEst,0)}/mes</span>
+                    </div>
+                  </div>
+                  {/* Progress bar */}
+                  <div style={{marginTop:12,height:8,background:"rgba(255,255,255,.06)",borderRadius:4,overflow:"hidden"}}>
+                    <div style={{height:"100%",borderRadius:4,transition:"width .8s ease",width:`${pct*100}%`,
+                      background:pct>=1?"var(--green)":pct>0.5?"linear-gradient(90deg,var(--gold),var(--green))":"linear-gradient(90deg,var(--red),var(--gold))"}}/>
+                  </div>
+                  <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
+                    <span style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>$0</span>
+                    <span style={{fontSize:8,color:"var(--gold)",fontFamily:"var(--fm)"}}>${fDol(incomeGoal)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Income Stacking Area Chart */}
+        {incomeHistory && (
+          <div style={card}>
+            <div style={hd}>Income Stacking -- Ultimos 24 Meses</div>
+            {(() => {
+              const data = incomeHistory;
+              const W = 800, H = 280, PL = 50, PR = 10, PT = 10, PB = 40;
+              const cW = W - PL - PR, cH = H - PT - PB;
+
+              // Compute cumulative stacked values
+              const stacked = data.map(m => {
+                const d = m.dividends;
+                const cc = m.coveredCalls;
+                return { ...m, s0: 0, s1: d, s2: d + cc };
+              });
+              const maxVal = Math.max(...stacked.map(s => s.s2), 1);
+              const yScale = (v) => PT + cH - (v / maxVal) * cH;
+              const xScale = (i) => PL + (i / Math.max(data.length - 1, 1)) * cW;
+
+              // Build area paths
+              const buildArea = (topKey, botKey) => {
+                let path = `M ${xScale(0)} ${yScale(stacked[0][topKey])}`;
+                for (let i = 1; i < stacked.length; i++) path += ` L ${xScale(i)} ${yScale(stacked[i][topKey])}`;
+                for (let i = stacked.length - 1; i >= 0; i--) path += ` L ${xScale(i)} ${yScale(stacked[i][botKey])}`;
+                path += " Z";
+                return path;
+              };
+
+              // Y-axis gridlines
+              const yTicks = 5;
+              const yStep = maxVal / yTicks;
+
+              return (
+                <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:"auto",fontFamily:"var(--fm)"}}>
+                  {/* Grid */}
+                  {Array.from({length:yTicks+1}).map((_,i) => {
+                    const val = i * yStep;
+                    const y = yScale(val);
+                    return <g key={i}>
+                      <line x1={PL} y1={y} x2={W-PR} y2={y} stroke="rgba(255,255,255,.06)" strokeWidth={0.5}/>
+                      <text x={PL-6} y={y+3} textAnchor="end" fill="var(--text-tertiary)" fontSize={8}>${_sf(val,0)}</text>
+                    </g>;
+                  })}
+                  {/* Areas */}
+                  <path d={buildArea("s2","s1")} fill="#30d158" opacity={0.35}/>
+                  <path d={buildArea("s1","s0")} fill="#c8a44e" opacity={0.4}/>
+                  {/* Top line */}
+                  {(() => {
+                    let line = `M ${xScale(0)} ${yScale(stacked[0].s2)}`;
+                    for (let i = 1; i < stacked.length; i++) line += ` L ${xScale(i)} ${yScale(stacked[i].s2)}`;
+                    return <path d={line} fill="none" stroke="#30d158" strokeWidth={1.5} opacity={0.7}/>;
+                  })()}
+                  {/* Divs top line */}
+                  {(() => {
+                    let line = `M ${xScale(0)} ${yScale(stacked[0].s1)}`;
+                    for (let i = 1; i < stacked.length; i++) line += ` L ${xScale(i)} ${yScale(stacked[i].s1)}`;
+                    return <path d={line} fill="none" stroke="#c8a44e" strokeWidth={1} opacity={0.6}/>;
+                  })()}
+                  {/* Dots on top */}
+                  {stacked.map((s,i) => s.s2 > 0 ? <circle key={i} cx={xScale(i)} cy={yScale(s.s2)} r={2.5} fill="#30d158" opacity={0.8}/> : null)}
+                  {/* X labels */}
+                  {data.map((m,i) => i % 3 === 0 || i === data.length - 1 ? (
+                    <text key={i} x={xScale(i)} y={H-PB+16} textAnchor="middle" fill="var(--text-tertiary)" fontSize={7}>{m.label}</text>
+                  ) : null)}
+                  {/* Legend */}
+                  <rect x={PL+10} y={PT+4} width={10} height={10} rx={2} fill="#c8a44e" opacity={0.6}/>
+                  <text x={PL+24} y={PT+12} fill="#c8a44e" fontSize={8}>Dividendos</text>
+                  <rect x={PL+100} y={PT+4} width={10} height={10} rx={2} fill="#30d158" opacity={0.6}/>
+                  <text x={PL+114} y={PT+12} fill="#30d158" fontSize={8}>Covered Calls</text>
+                </svg>
+              );
+            })()}
+            {/* Monthly totals below chart */}
+            <div style={{display:"flex",gap:16,justifyContent:"center",marginTop:8}}>
+              {(() => {
+                const last6 = (incomeHistory || []).slice(-6);
+                const avgDiv = last6.reduce((s,m)=>s+m.dividends,0)/Math.max(last6.length,1);
+                const avgCC = last6.reduce((s,m)=>s+m.coveredCalls,0)/Math.max(last6.length,1);
+                const total24 = (incomeHistory||[]).reduce((s,m)=>s+m.dividends+m.coveredCalls,0);
+                return [
+                  {l:"TOTAL 24M",v:"$"+fDol(total24),c:"var(--text-primary)"},
+                  {l:"MEDIA DIV/MES (6M)",v:"$"+_sf(avgDiv,0),c:"#c8a44e"},
+                  {l:"MEDIA CC/MES (6M)",v:"$"+_sf(avgCC,0),c:"#30d158"},
+                  {l:"MEDIA TOTAL/MES",v:"$"+_sf(avgDiv+avgCC,0),c:"var(--gold)"},
+                ].map((s,i)=>(
+                  <div key={i} style={{textAlign:"center"}}>
+                    <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5}}>{s.l}</div>
+                    <div style={{fontSize:16,fontWeight:700,color:s.c,fontFamily:"var(--fm)"}}>{privacyMode?"***":s.v}</div>
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+        )}
+        {!incomeHistory && <div style={{padding:30,textAlign:"center",color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Cargando datos de income...</div>}
+      </>}
 
       {/* ══════ CALENDAR ══════ */}
       {section === "calendar" && <>

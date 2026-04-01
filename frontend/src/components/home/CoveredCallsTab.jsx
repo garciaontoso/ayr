@@ -89,6 +89,48 @@ export default function CoveredCallsTab() {
   });
   const [wheelForm, setWheelForm] = useState({ ticker:"", phase:"put", strike:"", premium:"", expiration:"", notes:"" });
   const [wheelEditIdx, setWheelEditIdx] = useState(-1);
+  const [ccHistory, setCcHistory] = useState(null);
+
+  // Fetch CC trade history from cost_basis
+  useEffect(() => {
+    fetch(`${API_URL}/api/cost-basis-all?tipo=OPTION&limit=2000&sort=fecha&dir=desc`)
+      .then(r => r.json())
+      .then(d => setCcHistory(d.results || []))
+      .catch(() => setCcHistory([]));
+  }, []);
+
+  // Monthly CC income from trade history
+  const ccMonthlyIncome = useMemo(() => {
+    if (!ccHistory) return null;
+    const year = new Date().getFullYear();
+    const months = Array.from({length:12}, () => 0);
+    let ytd = 0;
+    ccHistory.forEach(t => {
+      const amt = Math.abs(t.coste || 0);
+      if (amt <= 0) return;
+      // coste > 0 = premium received (sold option)
+      if ((t.coste || 0) <= 0) return;
+      const d = t.fecha ? new Date(t.fecha) : null;
+      if (!d) return;
+      if (d.getFullYear() === year) {
+        months[d.getMonth()] += amt;
+        ytd += amt;
+      }
+    });
+    return { months, ytd };
+  }, [ccHistory]);
+
+  // Win rate from wheel entries (expired worthless = win, assigned = loss)
+  const winRate = useMemo(() => {
+    const expired = wheelEntries.filter(e => e.expiration && new Date(e.expiration) < new Date());
+    if (expired.length === 0) return null;
+    // Entries that went from put→call means assignment happened (loss for that put)
+    // Entries still in put/waiting phase that expired = expired worthless (win)
+    const wins = expired.filter(e => e.phase === "put" || e.phase === "waiting").length;
+    const losses = expired.filter(e => e.phase === "call").length;
+    const total = wins + losses;
+    return total > 0 ? { wins, losses, total, pct: wins / total } : null;
+  }, [wheelEntries]);
 
   const saveWheel = useCallback((entries) => {
     setWheelEntries(entries);
@@ -480,6 +522,79 @@ export default function CoveredCallsTab() {
           </div>
         ))}
       </div>
+
+      {/* ── YTD INCOME + WIN RATE ── */}
+      {ccMonthlyIncome && (
+        <div style={{display:"grid",gridTemplateColumns:winRate?"1fr 1fr":"1fr",gap:10}}>
+          <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 18px",display:"flex",alignItems:"center",gap:16}}>
+            <div>
+              <div style={{fontSize:9,color:"var(--text-tertiary)",fontWeight:600,textTransform:"uppercase",fontFamily:"var(--fm)",letterSpacing:.5}}>PREMIUM COBRADO YTD ({new Date().getFullYear()})</div>
+              <div style={{fontSize:28,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)",marginTop:4}}>{privacyMode?"***":"$"+fDol(ccMonthlyIncome.ytd)}</div>
+              <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>
+                Media mensual: {privacyMode?"***":"$"+_sf(ccMonthlyIncome.ytd / Math.max(new Date().getMonth()+1,1),0)} / mes
+              </div>
+            </div>
+          </div>
+          {winRate && (
+            <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"14px 18px",display:"flex",alignItems:"center",gap:16}}>
+              <div>
+                <div style={{fontSize:9,color:"var(--text-tertiary)",fontWeight:600,textTransform:"uppercase",fontFamily:"var(--fm)",letterSpacing:.5}}>WIN RATE (WHEEL TRACKER)</div>
+                <div style={{display:"flex",alignItems:"baseline",gap:8,marginTop:4}}>
+                  <div style={{fontSize:28,fontWeight:700,color:winRate.pct>0.7?"var(--green)":winRate.pct>0.5?"var(--gold)":"var(--red)",fontFamily:"var(--fm)"}}>{_sf(winRate.pct*100,0)}%</div>
+                  <div style={{fontSize:11,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{winRate.wins}W / {winRate.losses}L</div>
+                </div>
+                <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>
+                  {winRate.wins} expiraron sin valor (ganancia) de {winRate.total} cerradas
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── MONTHLY CC INCOME CALENDAR ── */}
+      {ccMonthlyIncome && ccMonthlyIncome.ytd > 0 && (
+        <div style={card}>
+          <div style={hd}>Calendario de Primas — {new Date().getFullYear()}</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:6}}>
+            {ccMonthlyIncome.months.map((amt,i) => {
+              const maxM = Math.max(...ccMonthlyIncome.months, 1);
+              const intensity = amt > 0 ? Math.max(0.15, amt / maxM) : 0;
+              const now = new Date();
+              const isCurrent = i === now.getMonth();
+              const isFuture = i > now.getMonth();
+              return (
+                <div key={i} style={{
+                  padding:"10px 8px",textAlign:"center",borderRadius:8,
+                  background: isFuture ? "rgba(255,255,255,.02)" : amt > 0 ? `rgba(48,209,88,${intensity * 0.25})` : "rgba(255,255,255,.02)",
+                  border: isCurrent ? "1px solid var(--gold)" : "1px solid transparent",
+                  opacity: isFuture ? 0.4 : 1,
+                }}>
+                  <div style={{fontSize:9,color:isCurrent?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:isCurrent?700:600}}>
+                    {["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"][i]}
+                  </div>
+                  <div style={{fontSize:16,fontWeight:700,color:amt>0?"var(--green)":"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:4}}>
+                    {isFuture ? "---" : privacyMode ? "***" : amt > 0 ? "$"+_sf(amt,0) : "$0"}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {/* Mini bar chart under calendar */}
+          <div style={{display:"flex",alignItems:"flex-end",gap:3,height:50,marginTop:10}}>
+            {ccMonthlyIncome.months.map((amt,i) => {
+              const maxM = Math.max(...ccMonthlyIncome.months, 1);
+              const h = amt > 0 ? Math.max((amt / maxM) * 100, 4) : 2;
+              const isFuture = i > new Date().getMonth();
+              return (
+                <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%"}}>
+                  <div style={{width:"100%",height:`${h}%`,background:isFuture?"rgba(255,255,255,.04)":"var(--green)",borderRadius:"2px 2px 0 0",opacity:isFuture?0.3:0.5,transition:"height .5s ease"}}/>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── CONTROLS ── */}
       <div className="ar-cc-controls" style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>

@@ -132,6 +132,16 @@ async function ensureMigrations(env) {
       UNIQUE(fecha)
     )`).run();
 
+    // push_subscriptions table (Web Push)
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      endpoint TEXT UNIQUE NOT NULL,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      last_used TEXT
+    )`).run();
+
     _migrated = true;
   } catch(e) {
     console.error("Migration error:", e.message);
@@ -3256,6 +3266,76 @@ export default {
         });
       }
 
+      // ─── Web Push Notifications ───────────────────────────
+
+      // POST /api/push-subscribe — store push subscription
+      if (path === "/api/push-subscribe" && request.method === "POST") {
+        const body = await parseBody(request);
+        const { endpoint, keys } = body;
+        if (!endpoint || !keys?.p256dh || !keys?.auth) {
+          return json({ error: "Missing endpoint or keys" }, corsHeaders, 400);
+        }
+        await env.DB.prepare(
+          `INSERT INTO push_subscriptions (endpoint, p256dh, auth) VALUES (?, ?, ?)
+           ON CONFLICT(endpoint) DO UPDATE SET p256dh=excluded.p256dh, auth=excluded.auth, last_used=datetime('now')`
+        ).bind(endpoint, keys.p256dh, keys.auth).run();
+        return json({ ok: true }, corsHeaders);
+      }
+
+      // POST /api/push-send — send push notification to all subscribers
+      if (path === "/api/push-send" && request.method === "POST") {
+        const body = await parseBody(request);
+        const { title, body: notifBody, url, tag } = body;
+        if (!title) return json({ error: "Missing title" }, corsHeaders, 400);
+        const { results: subs } = await env.DB.prepare("SELECT * FROM push_subscriptions").all();
+        if (!subs.length) return json({ sent: 0, reason: "no subscribers" }, corsHeaders);
+        const payload = JSON.stringify({ title, body: notifBody || "", url: url || "/", tag: tag || "ayr-alert" });
+        let sent = 0, failed = 0, removed = 0;
+        for (const sub of subs) {
+          try {
+            const res = await sendWebPush(env, sub, payload);
+            if (res.ok) { sent++; }
+            else if (res.status === 410 || res.status === 404) {
+              await env.DB.prepare("DELETE FROM push_subscriptions WHERE id = ?").bind(sub.id).run();
+              removed++;
+            } else { failed++; }
+          } catch { failed++; }
+        }
+        return json({ sent, failed, removed, total: subs.length }, corsHeaders);
+      }
+
+      // GET /api/push-test — send test notification
+      if (path === "/api/push-test" && request.method === "GET") {
+        const { results: subs } = await env.DB.prepare("SELECT * FROM push_subscriptions").all();
+        if (!subs.length) return json({ error: "No hay suscripciones push registradas" }, corsHeaders, 400);
+        const payload = JSON.stringify({
+          title: "A&R Alertas",
+          body: "Alertas funciona correctamente",
+          url: "/",
+          tag: "ayr-test",
+        });
+        let sent = 0, failed = 0, removed = 0;
+        for (const sub of subs) {
+          try {
+            const res = await sendWebPush(env, sub, payload);
+            if (res.ok) { sent++; }
+            else if (res.status === 410 || res.status === 404) {
+              await env.DB.prepare("DELETE FROM push_subscriptions WHERE id = ?").bind(sub.id).run();
+              removed++;
+            } else { failed++; }
+          } catch { failed++; }
+        }
+        return json({ ok: true, sent, failed, removed }, corsHeaders);
+      }
+
+      // DELETE /api/push-subscribe — unsubscribe
+      if (path === "/api/push-subscribe" && request.method === "DELETE") {
+        const body = await parseBody(request);
+        if (!body.endpoint) return json({ error: "Missing endpoint" }, corsHeaders, 400);
+        await env.DB.prepare("DELETE FROM push_subscriptions WHERE endpoint = ?").bind(body.endpoint).run();
+        return json({ ok: true }, corsHeaders);
+      }
+
       // 404
       return new Response(JSON.stringify({ error: "Not found", path }), {
         status: 404,
@@ -3286,4 +3366,208 @@ class BadBodyError extends Error {
 async function parseBody(request) {
   try { return await request.json(); }
   catch(e) { throw new BadBodyError(); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Web Push Protocol — VAPID + payload encryption via crypto.subtle
+// ═══════════════════════════════════════════════════════════════
+
+function base64urlDecode(str) {
+  const pad = str.length % 4 === 0 ? '' : '='.repeat(4 - (str.length % 4));
+  const b64 = (str + pad).replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(b64);
+  return new Uint8Array([...bin].map(c => c.charCodeAt(0)));
+}
+
+function base64urlEncode(buf) {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  let binary = '';
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function concatBuffers(...buffers) {
+  const total = buffers.reduce((s, b) => s + b.byteLength, 0);
+  const result = new Uint8Array(total);
+  let offset = 0;
+  for (const buf of buffers) {
+    result.set(new Uint8Array(buf instanceof ArrayBuffer ? buf : buf.buffer || buf), offset);
+    offset += buf.byteLength;
+  }
+  return result;
+}
+
+async function createVapidJwt(audience, env) {
+  const vapidPublicKey = env.VAPID_PUBLIC_KEY;
+  const vapidPrivateKey = env.VAPID_PRIVATE_KEY;
+
+  const header = { typ: 'JWT', alg: 'ES256' };
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    aud: audience,
+    exp: now + 12 * 3600,
+    sub: 'mailto:ricardo@onto-so.com',
+  };
+
+  const encHeader = base64urlEncode(new TextEncoder().encode(JSON.stringify(header)));
+  const encPayload = base64urlEncode(new TextEncoder().encode(JSON.stringify(payload)));
+  const unsignedToken = `${encHeader}.${encPayload}`;
+
+  // Import the VAPID private key for ES256 signing
+  const privKeyBytes = base64urlDecode(vapidPrivateKey);
+  const pubKeyBytes = base64urlDecode(vapidPublicKey);
+
+  // Build raw PKCS8-like structure for P-256 — we use JWK import instead
+  const signingKey = await crypto.subtle.importKey(
+    'jwk',
+    {
+      kty: 'EC', crv: 'P-256',
+      x: base64urlEncode(pubKeyBytes.slice(1, 33)),
+      y: base64urlEncode(pubKeyBytes.slice(33, 65)),
+      d: base64urlEncode(privKeyBytes),
+    },
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    false,
+    ['sign']
+  );
+
+  const signature = await crypto.subtle.sign(
+    { name: 'ECDSA', hash: 'SHA-256' },
+    signingKey,
+    new TextEncoder().encode(unsignedToken)
+  );
+
+  // Convert DER signature to raw r||s (64 bytes)
+  const sigBytes = new Uint8Array(signature);
+  let rawSig;
+  if (sigBytes.length === 64) {
+    rawSig = sigBytes;
+  } else {
+    // DER encoded — parse it
+    const r = parseDerInt(sigBytes, 3);
+    const sOffset = 3 + sigBytes[3] + 2;
+    const s = parseDerInt(sigBytes, sOffset + 1);
+    rawSig = concatBuffers(padTo32(r), padTo32(s));
+  }
+
+  return `${unsignedToken}.${base64urlEncode(rawSig)}`;
+}
+
+function parseDerInt(buf, offset) {
+  const len = buf[offset];
+  return buf.slice(offset + 1, offset + 1 + len);
+}
+
+function padTo32(buf) {
+  if (buf.length === 32) return buf;
+  if (buf.length > 32) return buf.slice(buf.length - 32);
+  const padded = new Uint8Array(32);
+  padded.set(buf, 32 - buf.length);
+  return padded;
+}
+
+async function hkdf(salt, ikm, info, length) {
+  const key = await crypto.subtle.importKey('raw', ikm, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const prk = new Uint8Array(await crypto.subtle.sign('HMAC', key, salt.byteLength ? salt : new Uint8Array(32)));
+  const prkKey = await crypto.subtle.importKey('raw', prk, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const infoWithCounter = concatBuffers(info, new Uint8Array([1]));
+  const okm = new Uint8Array(await crypto.subtle.sign('HMAC', prkKey, infoWithCounter));
+  return okm.slice(0, length);
+}
+
+async function encryptPayload(subscription, payloadText) {
+  const clientPublicKeyBytes = base64urlDecode(subscription.p256dh);
+  const authSecret = base64urlDecode(subscription.auth);
+  const payload = new TextEncoder().encode(payloadText);
+
+  // Generate a local ECDH key pair
+  const localKeyPair = await crypto.subtle.generateKey(
+    { name: 'ECDH', namedCurve: 'P-256' },
+    true,
+    ['deriveBits']
+  );
+
+  // Export local public key (uncompressed 65 bytes)
+  const localPublicKeyRaw = new Uint8Array(await crypto.subtle.exportKey('raw', localKeyPair.publicKey));
+
+  // Import the client's public key
+  const clientPublicKey = await crypto.subtle.importKey(
+    'raw',
+    clientPublicKeyBytes,
+    { name: 'ECDH', namedCurve: 'P-256' },
+    false,
+    []
+  );
+
+  // ECDH shared secret
+  const sharedSecret = new Uint8Array(await crypto.subtle.deriveBits(
+    { name: 'ECDH', public: clientPublicKey },
+    localKeyPair.privateKey,
+    256
+  ));
+
+  // Generate 16-byte salt
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+
+  // Key derivation (RFC 8291)
+  const authInfo = concatBuffers(
+    new TextEncoder().encode('WebPush: info\0'),
+    clientPublicKeyBytes,
+    localPublicKeyRaw
+  );
+  const ikm = await hkdf(authSecret, sharedSecret, authInfo, 32);
+
+  const contentEncKeyInfo = new TextEncoder().encode('Content-Encoding: aes128gcm\0');
+  const nonceInfo = new TextEncoder().encode('Content-Encoding: nonce\0');
+
+  const contentEncKey = await hkdf(salt, ikm, contentEncKeyInfo, 16);
+  const nonce = await hkdf(salt, ikm, nonceInfo, 12);
+
+  // Pad the payload (add a delimiter byte 0x02 then zeroes)
+  const paddedPayload = concatBuffers(payload, new Uint8Array([2]));
+
+  // AES-128-GCM encrypt
+  const aesKey = await crypto.subtle.importKey('raw', contentEncKey, 'AES-GCM', false, ['encrypt']);
+  const encrypted = new Uint8Array(await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: nonce },
+    aesKey,
+    paddedPayload
+  ));
+
+  // Build the aes128gcm content-coding header:
+  // salt (16) + record size (4, big-endian) + key id length (1) + key id (65 = local public key)
+  const recordSize = new Uint8Array(4);
+  new DataView(recordSize.buffer).setUint32(0, paddedPayload.length + 16 + 86, false);
+  const header = concatBuffers(
+    salt,
+    recordSize,
+    new Uint8Array([65]),
+    localPublicKeyRaw
+  );
+
+  return concatBuffers(header, encrypted);
+}
+
+async function sendWebPush(env, subscription, payloadText) {
+  const encryptedPayload = await encryptPayload(subscription, payloadText);
+
+  const endpointUrl = new URL(subscription.endpoint);
+  const audience = `${endpointUrl.protocol}//${endpointUrl.host}`;
+  const vapidJwt = await createVapidJwt(audience, env);
+
+  const vapidPublicKey = env.VAPID_PUBLIC_KEY;
+
+  const response = await fetch(subscription.endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'Content-Encoding': 'aes128gcm',
+      'Content-Length': String(encryptedPayload.byteLength),
+      'TTL': '86400',
+      'Authorization': `vapid t=${vapidJwt}, k=${vapidPublicKey}`,
+    },
+    body: encryptedPayload,
+  });
+
+  return response;
 }

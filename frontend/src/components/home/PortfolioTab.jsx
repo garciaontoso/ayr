@@ -39,6 +39,7 @@ export default function PortfolioTab() {
     displayCcy, privacyMode, hide,
     openAnalysis, getCountry, FLAGS, POS_STATIC, CompanyRow,
     ibData,
+    setHomeTab,
   } = useHome();
 
   const [quickFilter, setQuickFilter] = useState("");
@@ -119,6 +120,10 @@ export default function PortfolioTab() {
               <span style={{fontSize:9,color:"var(--text-tertiary)"}}>Div </span>
               <span style={{fontSize:14,fontWeight:700,color:"var(--gold)"}}>{hide("$"+fDol(portfolioTotals.totalDivUSD))}</span>
               <span style={{fontSize:9,color:"var(--gold)",marginLeft:3,opacity:.6}}>YOC {_sf(portfolioTotals.yocUSD*100,1)}%</span>
+            </div>
+            {/* Monthly dividend income — click to go to Mi Nomina */}
+            <div onClick={()=>setHomeTab("nomina")} style={{fontFamily:"var(--fm)",cursor:"pointer",padding:"2px 8px",borderRadius:6,background:"var(--gold-dim)",border:"1px solid var(--gold)",opacity:.85,transition:"opacity .15s"}} onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=.85} title="Ver Mi Nomina">
+              <span style={{fontSize:13,fontWeight:700,color:"var(--gold)"}}>{"💸"} {hide("$"+fDol(portfolioTotals.totalDivUSD/12))}/mes</span>
             </div>
             {/* Live indicator */}
             {isLive && (
