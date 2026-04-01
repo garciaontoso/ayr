@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { useHome } from '../../context/HomeContext';
-import { CURRENCIES, DISPLAY_CCYS } from '../../constants/index.js';
+import { CURRENCIES, DISPLAY_CCYS, API_URL } from '../../constants/index.js';
 
 export default function SettingsPanel() {
   const {
@@ -7,6 +8,7 @@ export default function SettingsPanel() {
     portfolio,
     removePosition, deleteCompany, importTransactions,
   } = useHome();
+  const [pushStatus, setPushStatus] = useState(null);
 
   return (
 <div style={{marginTop:20,padding:16,borderRadius:14,background:"var(--card)",border:"1px solid var(--border)"}}>
@@ -59,6 +61,53 @@ export default function SettingsPanel() {
         reader.readAsText(file);
       }}/>
     </label>
+  </div>
+
+  {/* Push Notifications */}
+  <div style={{marginBottom:14,padding:12,borderRadius:10,background:"rgba(214,158,46,.03)",border:"1px solid rgba(214,158,46,.1)"}}>
+    <div style={{fontSize:10,color:"var(--gold)",fontWeight:700,fontFamily:"var(--fm)",marginBottom:6}}>NOTIFICACIONES PUSH</div>
+    <div style={{fontSize:11,color:"var(--text-secondary)",marginBottom:8}}>
+      {typeof Notification !== "undefined" && Notification.permission === "granted"
+        ? "Notificaciones activadas."
+        : typeof Notification !== "undefined" && Notification.permission === "denied"
+          ? "Notificaciones bloqueadas en el navegador."
+          : "Notificaciones pendientes de activar."}
+      {localStorage.getItem("push-subscribed") && " Suscrito a push."}
+    </div>
+    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+      {typeof Notification !== "undefined" && Notification.permission !== "granted" && (
+        <button onClick={async () => {
+          const perm = await Notification.requestPermission();
+          if (perm === "granted") {
+            setPushStatus("Permiso concedido. Recarga la pagina para suscribirte.");
+          } else {
+            setPushStatus("Permiso denegado.");
+          }
+        }} style={{padding:"6px 12px",borderRadius:8,border:"1px solid rgba(214,158,46,.3)",background:"rgba(214,158,46,.08)",color:"var(--gold)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>
+          Activar notificaciones
+        </button>
+      )}
+      <button onClick={async () => {
+        setPushStatus("Enviando...");
+        try {
+          const r = await fetch(`${API_URL}/api/push-test`);
+          const d = await r.json();
+          if (d.ok) setPushStatus(`Test enviado (${d.sent} dispositivos)`);
+          else setPushStatus(d.error || "Error");
+        } catch (e) { setPushStatus("Error: " + e.message); }
+      }} style={{padding:"6px 12px",borderRadius:8,border:"1px solid rgba(214,158,46,.3)",background:"rgba(214,158,46,.08)",color:"var(--gold)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>
+        Probar notificacion
+      </button>
+      {localStorage.getItem("push-subscribed") && (
+        <button onClick={() => {
+          localStorage.removeItem("push-subscribed");
+          setPushStatus("Desuscrito. Se re-suscribira al recargar.");
+        }} style={{padding:"6px 12px",borderRadius:8,border:"1px solid rgba(255,69,58,.3)",background:"rgba(255,69,58,.06)",color:"var(--red)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>
+          Desuscribir
+        </button>
+      )}
+    </div>
+    {pushStatus && <div style={{fontSize:10,color:"var(--text-tertiary)",marginTop:6}}>{pushStatus}</div>}
   </div>
 
   {portfolio.length > 0 && (

@@ -1215,11 +1215,40 @@ function buildPositionsFromCB() {
     return () => clearInterval(interval);
   }, [dataLoaded, portfolioList.length, refreshLivePrices, isOffline]);
 
-  // Request notification permission (for push on iPhone/desktop)
+  // Request notification permission + Web Push subscription
   useEffect(() => {
-    if ("Notification" in window && Notification.permission === "default") {
-      setTimeout(() => Notification.requestPermission(), 3000);
-    }
+    if (!("Notification" in window)) return;
+    const subscribeToPush = async () => {
+      try {
+        if (Notification.permission === "default") {
+          await Notification.requestPermission();
+        }
+        if (Notification.permission !== "granted") return;
+        if (localStorage.getItem("push-subscribed")) return;
+        const reg = await navigator.serviceWorker?.ready;
+        if (!reg?.pushManager) return;
+        const VAPID_PUBLIC_KEY = "BLLKOH7cSIdsowyE_S1fK3fMsuZdq1QurvmoWq-Dg_CPd8XqrrhFtw4TK7DJtBM0PHPmfdh1-RToDFFXC5sMTv0";
+        const urlBase64ToUint8Array = (base64String) => {
+          const padding = "=".repeat((4 - base64String.length % 4) % 4);
+          const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+          const raw = atob(base64);
+          return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+        };
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        });
+        await fetch(`${API_URL}/api/push-subscribe`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(sub.toJSON()),
+        });
+        localStorage.setItem("push-subscribed", "1");
+      } catch (err) {
+        console.warn("Push subscription failed:", err);
+      }
+    };
+    setTimeout(subscribeToPush, 3000);
   }, []);
 
   // Load alerts on startup
