@@ -98,7 +98,7 @@ export default function DashTab() {
               <svg viewBox={`0 0 ${W} ${H+25}`} style={{width:"100%",height:"auto"}}>
                 <defs><linearGradient id="priceGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={col} stopOpacity=".2"/><stop offset="100%" stopColor={col} stopOpacity="0"/></linearGradient></defs>
                 {/* Grid lines */}
-                {gridPrices.map((p,i) => {const yPos = H - ((p-minP)/range)*H; return <g key={i}><line x1={PAD} y1={yPos} x2={W} y2={yPos} stroke="rgba(255,255,255,.04)" strokeWidth="0.5"/><text x={PAD-4} y={yPos+3} fill="rgba(255,255,255,.25)" fontSize="8" fontFamily="var(--fm)" textAnchor="end">{Math.round(p)}</text></g>;})}
+                {gridPrices.map((p,i) => {const yPos = H - ((p-minP)/range)*H; return <g key={i}><line x1={PAD} y1={yPos} x2={W} y2={yPos} stroke="var(--subtle-border)" strokeWidth="0.5"/><text x={PAD-4} y={yPos+3} fill="rgba(255,255,255,.25)" fontSize="8" fontFamily="var(--fm)" textAnchor="end">{Math.round(p)}</text></g>;})}
                 {/* Year lines */}
                 {years.map((y,i) => <g key={i}><line x1={y.x} y1={0} x2={y.x} y2={H} stroke="rgba(255,255,255,.06)" strokeWidth="0.5"/><text x={y.x} y={H+16} fill="rgba(255,255,255,.35)" fontSize="9" fontFamily="var(--fm)" textAnchor="middle">{y.yr}</text></g>)}
                 {/* Area + Line */}
@@ -358,7 +358,7 @@ export default function DashTab() {
                 }}>{ssd.aiDisruptionScore}<span style={{fontSize:14,color:"var(--text-tertiary)"}}>/100</span></div>
                 <div style={{fontSize:11,color:"var(--text-secondary)",marginTop:2}}>{ssd.aiDisruptionLevel==="Low"?"Bajo riesgo — modelo de negocio resiliente a IA":ssd.aiDisruptionLevel==="Medium"?"Riesgo moderado — algunos aspectos vulnerables":ssd.aiDisruptionLevel==="High"?"Alto riesgo — modelo de negocio amenazado por IA":"Riesgo crítico — alta probabilidad de disrupción"}</div>
               </div>
-              {ssd.aiDisruptionAssessment && <div style={{fontSize:11,color:"var(--text-secondary)",lineHeight:1.7,marginTop:8,padding:"10px 12px",background:"rgba(255,255,255,.02)",borderRadius:8}}>{ssd.aiDisruptionAssessment}</div>}
+              {ssd.aiDisruptionAssessment && <div style={{fontSize:11,color:"var(--text-secondary)",lineHeight:1.7,marginTop:8,padding:"10px 12px",background:"var(--row-alt)",borderRadius:8}}>{ssd.aiDisruptionAssessment}</div>}
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:10}}>
                 {ssd.aiDisruptionThreats?.length > 0 && (
                   <div style={{padding:"10px",background:"rgba(255,69,58,.04)",borderRadius:8,border:"1px solid rgba(255,69,58,.08)"}}>

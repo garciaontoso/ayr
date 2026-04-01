@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, _sl, n, fDol } from '../../utils/formatters.js';
 import { API_URL } from '../../constants/index.js';
+import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
 
 /* ═══════════════════════════════════════════
    AI Advisor Dashboard — A&R v3.2
@@ -41,7 +42,7 @@ function CircularGauge({ score, size = 140 }) {
   const color = score >= 70 ? GREEN : score >= 40 ? YELLOW : RED;
   return (
     <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,.04)" strokeWidth={8} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--subtle-border)" strokeWidth={8} />
       <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={8}
         strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
         style={{ transition: 'stroke-dashoffset .8s ease, stroke .4s ease' }} />
@@ -83,7 +84,7 @@ function PositionCard({ item, onClick, expanded, onToggle }) {
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 28, height: 28, borderRadius: 7, overflow: 'hidden', background: 'rgba(255,255,255,.03)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <div style={{ width: 28, height: 28, borderRadius: 7, overflow: 'hidden', background: 'var(--subtle-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <img src={`https://images.financialmodelingprep.com/symbol/${ticker}.png`} alt="" style={{ width: 28, height: 28, objectFit: 'contain' }}
               onError={e => { e.target.style.display = 'none'; }} />
           </div>
@@ -113,7 +114,7 @@ function PositionCard({ item, onClick, expanded, onToggle }) {
           )}
           {alerts?.length > 0 && (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
-              {alerts.map((a, i) => <div key={i} style={{ fontSize: 9, fontFamily: FM, color: a.sev === 'high' ? RED : a.sev === 'med' ? YELLOW : 'var(--text-tertiary)', paddingLeft: 8, borderLeft: `2px solid ${a.sev === 'high' ? 'rgba(248,113,113,.3)' : a.sev === 'med' ? 'rgba(245,158,11,.3)' : 'rgba(255,255,255,.06)'}` }}>{a.msg}</div>)}
+              {alerts.map((a, i) => <div key={i} style={{ fontSize: 9, fontFamily: FM, color: a.sev === 'high' ? RED : a.sev === 'med' ? YELLOW : 'var(--text-tertiary)', paddingLeft: 8, borderLeft: `2px solid ${a.sev === 'high' ? 'rgba(248,113,113,.3)' : a.sev === 'med' ? 'rgba(245,158,11,.3)' : 'var(--subtle-bg2)'}` }}>{a.msg}</div>)}
             </div>
           )}
         </div>
@@ -129,7 +130,7 @@ function PositionCard({ item, onClick, expanded, onToggle }) {
 
 const wifInputStyle = {
   padding: '8px 12px', borderRadius: 8,
-  border: `1px solid var(--border)`, background: 'rgba(255,255,255,.03)',
+  border: `1px solid var(--border)`, background: 'var(--subtle-bg)',
   color: 'var(--text-primary)', fontSize: 12, fontFamily: 'var(--fm)',
   outline: 'none', width: '100%',
 };
@@ -137,7 +138,7 @@ const wifInputStyle = {
 const wifLabelStyle = { fontSize: 9, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', letterSpacing: .5, textTransform: 'uppercase', marginBottom: 4 };
 
 const wifResultRow = (label, value, color = 'var(--text-secondary)') => (
-  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,.03)' }}>
+  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--subtle-bg)' }}>
     <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>{label}</span>
     <span style={{ fontSize: 12, fontWeight: 700, color, fontFamily: 'var(--fm)' }}>{value}</span>
   </div>
@@ -307,7 +308,7 @@ function WhatIfSimulator({
                   <button key={pct} onClick={() => setWifSellShares(String(Math.floor((sellSim.pos.shares || 0) * pct / 100)))}
                     style={{
                       padding: '5px 8px', borderRadius: 5, fontSize: 9, fontWeight: 600,
-                      border: `1px solid ${BORDER}`, background: 'rgba(255,255,255,.02)',
+                      border: `1px solid ${BORDER}`, background: 'var(--row-alt)',
                       color: 'var(--text-tertiary)', cursor: 'pointer', fontFamily: FM,
                     }}>
                     {pct}%
@@ -338,7 +339,7 @@ function WhatIfSimulator({
                   {wifResultRow('Div/ano', hideN ? '***' : `$${_sl(sellSim.currentAnnualDiv - sellSim.divLost)}`, RED)}
                 </div>
               </div>
-              <div style={{ marginTop: 14, padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,.02)', display: 'flex', gap: 20, justifyContent: 'center' }}>
+              <div style={{ marginTop: 14, padding: '10px 14px', borderRadius: 8, background: 'var(--row-alt)', display: 'flex', gap: 20, justifyContent: 'center' }}>
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: FM, textTransform: 'uppercase' }}>Capital liberado</div>
                   <div style={{ fontSize: 16, fontWeight: 800, color: GREEN, fontFamily: FM }}>{hideN ? '***' : `$${_sl(sellSim.valueFreed)}`}</div>
@@ -356,7 +357,7 @@ function WhatIfSimulator({
           )}
 
           {sellSim?.preview && wifSellTicker && (
-            <div style={{ padding: '14px 18px', borderRadius: 10, background: 'rgba(255,255,255,.02)', border: `1px solid var(--border)` }}>
+            <div style={{ padding: '14px 18px', borderRadius: 10, background: 'var(--row-alt)', border: `1px solid var(--border)` }}>
               <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: FM }}>
                 <strong style={{ color: GOLD }}>{wifSellTicker}</strong>: {hideN ? '***' : `${_sl(sellSim.pos?.shares || 0)} acciones`} — Valor: {hideN ? '***' : `$${_sl(sellSim.pos?.usdValue || 0)}`} — Peso: {_sf((sellSim.pos?.usdValue || 0) / nlv * 100, 2)}% — Div/ano: {hideN ? '***' : `$${_sl((sellSim.pos?.divTTM || 0) * (sellSim.pos?.shares || 0))}`}
               </div>
@@ -405,7 +406,7 @@ function WhatIfSimulator({
                 <button key={amt} onClick={() => setWifBuyAmount(String(amt))}
                   style={{
                     padding: '5px 8px', borderRadius: 5, fontSize: 9, fontWeight: 600,
-                    border: `1px solid ${BORDER}`, background: 'rgba(255,255,255,.02)',
+                    border: `1px solid ${BORDER}`, background: 'var(--row-alt)',
                     color: 'var(--text-tertiary)', cursor: 'pointer', fontFamily: FM,
                   }}>
                   ${amt >= 1000 ? `${amt / 1000}K` : amt}
@@ -435,7 +436,7 @@ function WhatIfSimulator({
                   {wifResultRow('Peso nuevo', `${_sf(buySim.newWeight, 2)}%`, buySim.newWeight > 8 ? YELLOW : GREEN)}
                 </div>
               </div>
-              <div style={{ marginTop: 14, padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,.02)', display: 'flex', gap: 20, justifyContent: 'center' }}>
+              <div style={{ marginTop: 14, padding: '10px 14px', borderRadius: 8, background: 'var(--row-alt)', display: 'flex', gap: 20, justifyContent: 'center' }}>
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: FM, textTransform: 'uppercase' }}>Div. nuevo / ano</div>
                   <div style={{ fontSize: 16, fontWeight: 800, color: GREEN, fontFamily: FM }}>{hideN ? '***' : `+$${_sl(buySim.newDivIncome)}`}</div>
@@ -458,7 +459,7 @@ function WhatIfSimulator({
           )}
 
           {buySim?.preview && wifBuyTicker && (
-            <div style={{ padding: '14px 18px', borderRadius: 10, background: 'rgba(255,255,255,.02)', border: `1px solid var(--border)` }}>
+            <div style={{ padding: '14px 18px', borderRadius: 10, background: 'var(--row-alt)', border: `1px solid var(--border)` }}>
               {buySim.needsPrice ? (
                 <div style={{ fontSize: 10, color: YELLOW, fontFamily: FM }}>
                   <strong>{buySim.ticker}</strong> no esta en tu cartera — solo se pueden simular compras de posiciones existentes (se necesita precio en vivo)
@@ -523,7 +524,7 @@ function WhatIfSimulator({
                   {wifResultRow('Div. ganado', hideN ? '***' : `+$${_sl(swapSim.buyDivGained)}/a`, GREEN)}
                 </div>
                 {/* Net result */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, justifyContent: 'center', padding: '10px 14px', background: 'rgba(255,255,255,.02)', borderRadius: 10 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, justifyContent: 'center', padding: '10px 14px', background: 'var(--row-alt)', borderRadius: 10 }}>
                   <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: FM, textTransform: 'uppercase', letterSpacing: .5, fontWeight: 700 }}>Resultado neto</div>
                   <div style={{ textAlign: 'center' }}>
                     <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: FM, textTransform: 'uppercase' }}>Cambio div/ano</div>
@@ -877,22 +878,13 @@ export default function AdvisorTab() {
 
   // ── Empty state ──
   if (!analysis.hasData && !aiData) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 60, gap: 16 }}>
-        <div style={{ fontSize: 48, opacity: .3 }}>&#129302;</div>
-        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', fontFamily: FB }}>Sin analisis disponible</div>
-        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: FM, textAlign: 'center', maxWidth: 400 }}>
-          Ve al Screener y carga los fundamentales de tu cartera, o pulsa el boton de analizar para comenzar.
-        </div>
-        <button onClick={runFullAnalysis} disabled={aiLoading} style={{
-          padding: '10px 24px', borderRadius: 10, border: `1px solid ${GOLD}40`,
-          background: GOLD_DIM, color: GOLD, fontSize: 12, fontWeight: 700,
-          cursor: 'pointer', fontFamily: FM, marginTop: 8,
-        }}>
-          &#129302; Analizar Portfolio
-        </button>
-      </div>
-    );
+    return <EmptyState
+      icon="🤖"
+      title="Sin analisis disponible"
+      subtitle="Ve al Screener y carga los fundamentales de tu cartera, o pulsa el boton de analizar para comenzar."
+      action="Analizar Portfolio"
+      onAction={runFullAnalysis}
+    />;
   }
 
   const { analyzed, counts, avgScore, sell, review, hold, divRiskPositions, valuationOpps, ccOpps, totalCCIncome } = analysis;
@@ -947,7 +939,7 @@ export default function AdvisorTab() {
             <button onClick={runFullAnalysis} disabled={aiLoading} style={{
               padding: '12px 28px', borderRadius: 12,
               border: `1px solid ${aiLoading ? 'var(--border)' : GOLD + '50'}`,
-              background: aiLoading ? 'rgba(255,255,255,.03)' : GOLD_DIM,
+              background: aiLoading ? 'var(--subtle-bg)' : GOLD_DIM,
               color: aiLoading ? 'var(--text-tertiary)' : GOLD,
               fontSize: 13, fontWeight: 700, cursor: aiLoading ? 'wait' : 'pointer',
               fontFamily: FM, transition: 'all .2s',
@@ -956,7 +948,7 @@ export default function AdvisorTab() {
             </button>
             {/* Progress bar */}
             {aiLoading && (
-              <div style={{ width: 160, height: 3, background: 'rgba(255,255,255,.06)', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{ width: 160, height: 3, background: 'var(--subtle-bg2)', borderRadius: 3, overflow: 'hidden' }}>
                 <div style={{
                   width: `${analyzeProgress}%`, height: '100%',
                   background: `linear-gradient(90deg, ${GOLD}, #b8860b)`,
@@ -1031,7 +1023,7 @@ export default function AdvisorTab() {
           {/* Table header */}
           <div style={{
             display: 'grid', gridTemplateColumns: '80px 70px 50px 65px 80px 75px 1fr',
-            gap: 8, padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,.04)',
+            gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--subtle-border)',
           }}>
             {['Ticker', 'Precio', 'Lotes', 'Yield', 'Premium/mes', 'Yield+CC', 'Estrategia'].map(h => (
               <div key={h} style={subLabel}>{h}</div>
@@ -1044,7 +1036,7 @@ export default function AdvisorTab() {
             return (
               <div key={p.ticker} style={{
                 display: 'grid', gridTemplateColumns: '80px 70px 50px 65px 80px 75px 1fr',
-                gap: 8, padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,.02)',
+                gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--row-alt)',
                 background: isTop5 ? 'rgba(214,158,46,.03)' : 'transparent',
                 cursor: 'pointer', transition: 'background .15s',
               }}
@@ -1071,7 +1063,7 @@ export default function AdvisorTab() {
           {/* Total row */}
           <div style={{
             display: 'grid', gridTemplateColumns: '80px 70px 50px 65px 80px 75px 1fr',
-            gap: 8, padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,.06)', marginTop: 4,
+            gap: 8, padding: '10px 12px', borderTop: '1px solid var(--subtle-bg2)', marginTop: 4,
           }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)', fontFamily: FM }}>TOTAL</span>
             <span />
@@ -1173,7 +1165,7 @@ export default function AdvisorTab() {
                   </div>
                   {/* Upside bar */}
                   <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ flex: 1, height: 6, background: 'rgba(255,255,255,.04)', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ flex: 1, height: 6, background: 'var(--subtle-border)', borderRadius: 3, overflow: 'hidden' }}>
                       <div style={{
                         width: `${barWidth}%`, height: '100%',
                         background: `linear-gradient(90deg, ${GREEN}, rgba(52,211,153,.4))`,
@@ -1206,7 +1198,7 @@ export default function AdvisorTab() {
             placeholder="Ticker (ej. AAPL)"
             style={{
               padding: '8px 14px', borderRadius: 8,
-              border: `1px solid ${BORDER}`, background: 'rgba(255,255,255,.03)',
+              border: `1px solid ${BORDER}`, background: 'var(--subtle-bg)',
               color: 'var(--text-primary)', fontSize: 12, fontFamily: FM,
               outline: 'none', width: 140,
             }}
@@ -1214,7 +1206,7 @@ export default function AdvisorTab() {
           <button onClick={runQuickAnalysis} disabled={quickLoading || !quickTicker.trim()} style={{
             padding: '8px 20px', borderRadius: 8,
             border: `1px solid ${GOLD}40`,
-            background: quickLoading ? 'rgba(255,255,255,.03)' : GOLD_DIM,
+            background: quickLoading ? 'var(--subtle-bg)' : GOLD_DIM,
             color: quickLoading ? 'var(--text-tertiary)' : GOLD,
             fontSize: 11, fontWeight: 700, cursor: quickLoading ? 'wait' : 'pointer',
             fontFamily: FM,
@@ -1253,7 +1245,7 @@ export default function AdvisorTab() {
             {quickResult.analysis ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {(Array.isArray(quickResult.analysis) ? quickResult.analysis : [quickResult.analysis]).map((section, i) => (
-                  <div key={i} style={{ padding: '10px 12px', background: 'rgba(255,255,255,.02)', borderRadius: 8 }}>
+                  <div key={i} style={{ padding: '10px 12px', background: 'var(--row-alt)', borderRadius: 8 }}>
                     {section.title && <div style={{ fontSize: 10, fontWeight: 700, color: GOLD, fontFamily: FM, marginBottom: 4 }}>{section.title}</div>}
                     <div style={{ fontSize: 10, color: 'var(--text-secondary)', fontFamily: FM, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
                       {section.content || section.text || (typeof section === 'string' ? section : JSON.stringify(section))}

@@ -75,7 +75,7 @@ export function EmptyState({ icon, title, subtitle, action, onAction, secondaryA
 /* ── Loading Skeleton ── */
 export function LoadingSkeleton({ rows = 5, cards = 0, message = "Cargando..." }) {
   const pulseStyle = (delay = 0) => ({
-    background: "linear-gradient(90deg, rgba(255,255,255,.02) 25%, rgba(255,255,255,.05) 50%, rgba(255,255,255,.02) 75%)",
+    background: "linear-gradient(90deg, var(--row-alt) 25%, var(--subtle-bg2) 50%, var(--row-alt) 75%)",
     backgroundSize: "200% 100%",
     animation: `shimmer 1.5s ease-in-out infinite`,
     animationDelay: `${delay}s`,

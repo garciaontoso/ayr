@@ -2,6 +2,21 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { EmptyState, LoadingSkeleton } from '../ui/EmptyState.jsx';
+import DividendView from './portfolio/DividendView.jsx';
+import TreemapView from './portfolio/TreemapView.jsx';
+import BubbleView from './portfolio/BubbleView.jsx';
+import SectorView from './portfolio/SectorView.jsx';
+import PerformanceView from './portfolio/PerformanceView.jsx';
+
+const VIEW_MODES = [
+  { id: "tabla", lbl: "Tabla", icon: "≡" },
+  { id: "dividendos", lbl: "Dividendos", icon: "$" },
+  { id: "mapa", lbl: "Mapa", icon: "▦" },
+  { id: "burbujas", lbl: "Burbujas", icon: "◉" },
+  { id: "sectores", lbl: "Sectores", icon: "◔" },
+  { id: "rendimiento", lbl: "Rendimiento", icon: "▲" },
+];
+const VIEW_STORAGE_KEY = "ayr_portfolio_view";
 
 const ALERTS_KEY = "ayr_price_alerts";
 
@@ -86,7 +101,7 @@ export default function PortfolioTab() {
         saveAlerts(alerts.map(x => x === a ? { ...x, fired: true } : x));
       }
     });
-  }, [portfolioTotals?.positions]);
+  }, [portfolioTotals?.positions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Empty portfolio state
   if (!portfolioList || portfolioList.length === 0) {
@@ -176,7 +191,7 @@ export default function PortfolioTab() {
             <div style={{marginLeft:"auto",display:"flex",gap:3,alignItems:"center"}}>
               <input type="text" placeholder="+ Ticker" value={searchTicker} onChange={e=>setSearchTicker(e.target.value.toUpperCase())}
                 onKeyDown={e=>{if(e.key==="Enter"&&searchTicker){updatePosition(searchTicker,{list:"portfolio",shares:0,avgCost:0,dps:0,name:searchTicker,lastPrice:0});setSearchTicker("");}}}
-                style={{padding:"4px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:10,outline:"none",fontFamily:"var(--fm)",width:70}}/>
+                style={{padding:"4px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:10,outline:"none",fontFamily:"var(--fm)",width:70}}/>
               <button onClick={()=>refreshPrices(true)} disabled={pricesLoading} title="Refresh precios"
                 style={{padding:"4px 7px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:pricesLoading?"var(--gold)":"var(--text-tertiary)",fontSize:10,cursor:pricesLoading?"wait":"pointer"}}>{pricesLoading?"⏳":"🔄"}</button>
               <button onClick={exportCSV} title="CSV" style={{padding:"4px 6px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer"}} onMouseEnter={e=>e.target.style.color="var(--gold)"} onMouseLeave={e=>e.target.style.color="var(--text-tertiary)"}>📥</button>
@@ -194,7 +209,7 @@ export default function PortfolioTab() {
             {portfolioList.length>5 && (
               <div style={{position:"relative",flex:1,maxWidth:220}}>
                 <input ref={searchRef} type="text" placeholder="🔍 Buscar... (⌘K)" value={quickFilter} onChange={e=>setQuickFilter(e.target.value)}
-                  style={{width:"100%",padding:"5px 10px",background:"rgba(255,255,255,.03)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,outline:"none",fontFamily:"var(--fm)"}}
+                  style={{width:"100%",padding:"5px 10px",background:"var(--subtle-bg)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,outline:"none",fontFamily:"var(--fm)"}}
                   onFocus={e=>e.target.style.borderColor="rgba(200,164,78,.3)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/>
                 {quickFilter && <button onClick={()=>setQuickFilter("")} style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"var(--text-tertiary)",cursor:"pointer",fontSize:12}}>×</button>}
               </div>
@@ -295,15 +310,18 @@ export default function PortfolioTab() {
               {[...pos].sort((a,b)=>(b.valueUSD||0)-(a.valueUSD||0)).map(p => {
                 const w = Math.max((p.valueUSD||0)/totalVal*100, 2.5);
                 const pnl = (p.pnlPct||0)*100;
-                const bg = pnl > 20 ? "#1a5c2a" : pnl > 5 ? "#1e4d2a" : pnl > 0 ? "#1a3d24" : pnl > -5 ? "#3d2020" : pnl > -20 ? "#4d2020" : "#5c1a1a";
+                const isLight = document.documentElement.getAttribute("data-theme") === "light";
+                const bg = isLight
+                  ? (pnl > 20 ? "#bbf7d0" : pnl > 5 ? "#d1fae5" : pnl > 0 ? "#ecfdf5" : pnl > -5 ? "#fee2e2" : pnl > -20 ? "#fecaca" : "#fca5a5")
+                  : (pnl > 20 ? "#1a5c2a" : pnl > 5 ? "#1e4d2a" : pnl > 0 ? "#1a3d24" : pnl > -5 ? "#3d2020" : pnl > -20 ? "#4d2020" : "#5c1a1a");
                 const isLarge = w > 5;
                 return (
                   <div key={p.ticker} onClick={()=>openAnalysis(p.ticker)} title={`${p.ticker}: ${_sf(pnl,1)}% · $${_sf(p.valueUSD||0,0)}`}
                     style={{width:`calc(${w}% - 3px)`,minWidth:55,minHeight:isLarge?70:50,padding:"8px 6px",background:bg,cursor:"pointer",textAlign:"center",transition:"all .15s",borderRadius:6,display:"flex",flexDirection:"column",justifyContent:"center",gap:2}}
                     onMouseEnter={e=>{e.currentTarget.style.opacity=".8";e.currentTarget.style.transform="scale(1.02)";}} onMouseLeave={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.transform="scale(1)";}}>
-                    <div style={{fontSize:isLarge?13:10,fontWeight:700,color:"#fff",fontFamily:"var(--fm)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.ticker}</div>
-                    <div style={{fontSize:isLarge?14:11,fontWeight:700,color:pnl>=0?"#4ade80":"#f87171",fontFamily:"var(--fm)"}}>{pnl>=0?"+":""}{_sf(pnl,0)}%</div>
-                    {isLarge && <div style={{fontSize:9,color:"rgba(255,255,255,.5)",fontFamily:"var(--fm)"}}>${_sf((p.valueUSD||0)/1000,1)}K</div>}
+                    <div style={{fontSize:isLarge?13:10,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.ticker}</div>
+                    <div style={{fontSize:isLarge?14:11,fontWeight:700,color:pnl>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)"}}>{pnl>=0?"+":""}{_sf(pnl,0)}%</div>
+                    {isLarge && <div style={{fontSize:9,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>${_sf((p.valueUSD||0)/1000,1)}K</div>}
                   </div>
                 );
               })}
@@ -341,7 +359,7 @@ export default function PortfolioTab() {
                       .sort((a,b) => Math.abs(b.deviation) - Math.abs(a.deviation))
                       .slice(0,10)
                       .map(p => (
-                        <tr key={p.ticker} style={{borderBottom:"1px solid rgba(255,255,255,.03)"}}>
+                        <tr key={p.ticker} style={{borderBottom:"1px solid var(--subtle-bg)"}}>
                           <td style={{padding:"4px 8px",fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{p.ticker}</td>
                           <td style={{padding:"4px 8px",textAlign:"right",fontFamily:"var(--fm)"}}>{_sf((p.weight||0)*100,1)}%</td>
                           <td style={{padding:"4px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)"}}>{_sf(idealWeight*100,1)}%</td>
@@ -380,7 +398,7 @@ export default function PortfolioTab() {
             {alerts.length > 0 && (
               <div style={{display:"flex",flexDirection:"column",gap:4}}>
                 {alerts.map((a,i) => (
-                  <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 8px",background:a.fired?"rgba(48,209,88,.06)":"rgba(255,255,255,.02)",borderRadius:6,fontSize:10,fontFamily:"var(--fm)"}}>
+                  <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 8px",background:a.fired?"rgba(48,209,88,.06)":"var(--row-alt)",borderRadius:6,fontSize:10,fontFamily:"var(--fm)"}}>
                     <span><b style={{color:"var(--gold)"}}>{a.ticker}</b> {a.direction==="below"?"≤":"≥"} <b>${a.price}</b></span>
                     <span>{a.fired ? <span style={{color:"var(--green)"}}>✅ Disparada</span> : <span style={{color:"var(--text-tertiary)"}}>Pendiente</span>}</span>
                     <button onClick={()=>saveAlerts(alerts.filter((_,j)=>j!==i))} style={{border:"none",background:"transparent",color:"var(--text-tertiary)",cursor:"pointer",fontSize:10}}>✕</button>

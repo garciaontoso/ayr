@@ -202,7 +202,7 @@ function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
           {/* Working phase */}
-          <div style={{ padding: 12, background: 'rgba(255,255,255,.02)', borderRadius: 10, border: '1px solid rgba(255,255,255,.04)' }}>
+          <div style={{ padding: 12, background: 'var(--row-alt)', borderRadius: 10, border: '1px solid var(--subtle-border)' }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: '#64d2ff', marginBottom: 8, fontFamily: 'var(--fm)' }}>📊 FASE TRABAJO</div>
             {[
               ['Coste de vida/año', 'lifestyleCost', 1000],
@@ -220,7 +220,7 @@ function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA
             ))}
           </div>
           {/* Retirement phase */}
-          <div style={{ padding: 12, background: 'rgba(255,255,255,.02)', borderRadius: 10, border: '1px solid rgba(255,255,255,.04)' }}>
+          <div style={{ padding: 12, background: 'var(--row-alt)', borderRadius: 10, border: '1px solid var(--subtle-border)' }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: '#ff9f43', marginBottom: 8, fontFamily: 'var(--fm)' }}>🏖️ FASE JUBILACIÓN</div>
             {[
               ['Años en jubilación', 'yearsIn', 1],
@@ -375,8 +375,8 @@ function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA
                 {/* Grid lines */}
                 {yTicks.map((v, i) => (
                   <g key={i}>
-                    <line x1={PL} y1={yOf(v)} x2={W - PR} y2={yOf(v)} stroke="rgba(255,255,255,.06)" strokeWidth="0.5" />
-                    <text x={PL - 4} y={yOf(v) + 3} textAnchor="end" fill="rgba(255,255,255,.3)" fontSize="7">{sym}{fShort(v)}</text>
+                    <line x1={PL} y1={yOf(v)} x2={W - PR} y2={yOf(v)} stroke="var(--subtle-bg2)" strokeWidth="0.5" />
+                    <text x={PL - 4} y={yOf(v) + 3} textAnchor="end" fill="var(--text-tertiary)" fontSize="7">{sym}{fShort(v)}</text>
                   </g>
                 ))}
 
@@ -405,17 +405,17 @@ function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA
                 {milestones.map((m, i) => (
                   <g key={i}>
                     <circle cx={m.x} cy={m.y} r="3.5" fill="var(--bg, #000)" stroke="#c8a44e" strokeWidth="1.5" />
-                    <text x={m.x} y={m.y - 7} textAnchor="middle" fill="rgba(255,255,255,.6)" fontSize="7" fontWeight="600">{sym}{m.label}</text>
+                    <text x={m.x} y={m.y - 7} textAnchor="middle" fill="var(--text-secondary)" fontSize="7" fontWeight="600">{sym}{m.label}</text>
                   </g>
                 ))}
 
                 {/* X-axis labels */}
                 {xTicks.map((yr, i) => (
-                  <text key={i} x={xOf(yr)} y={H - 6} textAnchor="middle" fill="rgba(255,255,255,.35)" fontSize="8">{yr}</text>
+                  <text key={i} x={xOf(yr)} y={H - 6} textAnchor="middle" fill="var(--text-tertiary)" fontSize="8">{yr}</text>
                 ))}
 
                 {/* Axis lines */}
-                <line x1={PL} y1={PT + cH} x2={W - PR} y2={PT + cH} stroke="rgba(255,255,255,.1)" strokeWidth="0.5" />
+                <line x1={PL} y1={PT + cH} x2={W - PR} y2={PT + cH} stroke="var(--border-hover)" strokeWidth="0.5" />
               </svg>
             </div>
             <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 6 }}>
@@ -449,7 +449,7 @@ function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA
             <tbody>
               {[4, 5, 6, 7, 8, 10, 12].map(ret => (
                 <tr key={ret}>
-                  <td style={{ padding: '5px 8px', fontWeight: 600, fontFamily: 'var(--fm)', color: s.returnWorking === ret ? 'var(--gold)' : 'var(--text-secondary)', borderBottom: '1px solid rgba(255,255,255,.03)' }}>{ret}%</td>
+                  <td style={{ padding: '5px 8px', fontWeight: 600, fontFamily: 'var(--fm)', color: s.returnWorking === ret ? 'var(--gold)' : 'var(--text-secondary)', borderBottom: '1px solid var(--subtle-bg)' }}>{ret}%</td>
                   {[0, 6000, 12000, 24000, 36000, 48000].map(sv => {
                     const testS = { ...s, returnWorking: ret, savePerYear: sv };
                     const testR = calcYourNumber(testS);
@@ -458,7 +458,7 @@ function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA
                     return (
                       <td key={sv} style={{
                         padding: '5px 8px', textAlign: 'center', fontWeight: isActive ? 800 : 600,
-                        fontFamily: 'var(--fm)', borderBottom: '1px solid rgba(255,255,255,.03)',
+                        fontFamily: 'var(--fm)', borderBottom: '1px solid var(--subtle-bg)',
                         color: yrs >= s.yearsIn ? 'var(--green)' : yrs >= s.yearsIn * 0.7 ? 'var(--gold)' : 'var(--red)',
                         background: isActive ? 'rgba(214,158,46,.1)' : 'transparent',
                       }}>
@@ -734,7 +734,7 @@ return (
               <span style={{fontSize:10,color:"var(--green)",fontFamily:"var(--fm)",fontWeight:600}}>Dividendos (TTM)</span>
               <span style={{fontSize:14,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)"}}>{sym}{divMonthly.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</span>
             </div>
-            <div style={{height:20,background:"rgba(255,255,255,.04)",borderRadius:6,overflow:"hidden",position:"relative"}}>
+            <div style={{height:20,background:"var(--subtle-border)",borderRadius:6,overflow:"hidden",position:"relative"}}>
               <div style={{width:`${Math.min(divMonthly/maxBar*100,100)}%`,height:"100%",background:"linear-gradient(90deg, rgba(48,209,88,.3), rgba(48,209,88,.6))",borderRadius:6,transition:"width .3s"}} />
             </div>
           </div>
@@ -744,7 +744,7 @@ return (
               <span style={{fontSize:10,color:"var(--red)",fontFamily:"var(--fm)",fontWeight:600}}>Gastos</span>
               <span style={{fontSize:14,fontWeight:700,color:"var(--red)",fontFamily:"var(--fm)"}}>{sym}{gastosAvg.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</span>
             </div>
-            <div style={{height:20,background:"rgba(255,255,255,.04)",borderRadius:6,overflow:"hidden",position:"relative"}}>
+            <div style={{height:20,background:"var(--subtle-border)",borderRadius:6,overflow:"hidden",position:"relative"}}>
               <div style={{width:`${Math.min(gastosAvg/maxBar*100,100)}%`,height:"100%",background:"linear-gradient(90deg, rgba(255,69,58,.3), rgba(255,69,58,.6))",borderRadius:6,transition:"width .3s"}} />
             </div>
           </div>
@@ -816,15 +816,15 @@ return (
       </div>
       {/* Year summary */}
       <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
-        <div style={{padding:"8px 14px",background:"rgba(255,255,255,.03)",borderRadius:8,display:"flex",gap:8,alignItems:"center"}}>
+        <div style={{padding:"8px 14px",background:"var(--subtle-bg)",borderRadius:8,display:"flex",gap:8,alignItems:"center"}}>
           <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>TOTAL {selYear}</span>
           <span style={{fontSize:16,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{sym}{yearTotal.toLocaleString(undefined,{maximumFractionDigits:0})}</span>
         </div>
-        <div style={{padding:"8px 14px",background:"rgba(255,255,255,.03)",borderRadius:8,display:"flex",gap:8,alignItems:"center"}}>
+        <div style={{padding:"8px 14px",background:"var(--subtle-bg)",borderRadius:8,display:"flex",gap:8,alignItems:"center"}}>
           <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>MEDIA/MES</span>
           <span style={{fontSize:16,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>{sym}{yearAvg.toLocaleString(undefined,{maximumFractionDigits:0})}</span>
         </div>
-        <div style={{padding:"8px 14px",background:"rgba(255,255,255,.03)",borderRadius:8,display:"flex",gap:8,alignItems:"center"}}>
+        <div style={{padding:"8px 14px",background:"var(--subtle-bg)",borderRadius:8,display:"flex",gap:8,alignItems:"center"}}>
           <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>MESES</span>
           <span style={{fontSize:16,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{yearMonths.length}</span>
         </div>
@@ -837,12 +837,12 @@ return (
           const total = toDisp(d.eur, d.cny, d.usd);
           const maxM = Math.max(...yearMonths.map(mm=>toDisp(gNative[mm]?.eur||0,gNative[mm]?.cny||0,gNative[mm]?.usd||0)),1);
           const pct = total/maxM*100;
-          return <div key={m} style={{padding:"10px 12px",background:"rgba(255,255,255,.02)",borderRadius:10,border:"1px solid rgba(255,255,255,.04)"}}>
+          return <div key={m} style={{padding:"10px 12px",background:"var(--row-alt)",borderRadius:10,border:"1px solid var(--subtle-border)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
               <span style={{fontSize:11,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{mNames[mi]}</span>
               <span style={{fontSize:14,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{sym}{total.toLocaleString(undefined,{maximumFractionDigits:0})}</span>
             </div>
-            <div style={{height:4,background:"rgba(255,255,255,.06)",borderRadius:2,marginBottom:6,overflow:"hidden"}}><div style={{width:`${pct}%`,height:"100%",background:"var(--gold)",borderRadius:2,opacity:.5}}/></div>
+            <div style={{height:4,background:"var(--subtle-bg2)",borderRadius:2,marginBottom:6,overflow:"hidden"}}><div style={{width:`${pct}%`,height:"100%",background:"var(--gold)",borderRadius:2,opacity:.5}}/></div>
             <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
               {d.eur > 0 && <span style={{fontSize:8,padding:"1px 5px",borderRadius:3,background:"rgba(48,209,88,.06)",color:"var(--green)",fontFamily:"var(--fm)"}}>🇪🇸 €{d.eur.toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
               {d.cny > 0 && <span style={{fontSize:8,padding:"1px 5px",borderRadius:3,background:"rgba(255,69,58,.06)",color:"var(--red)",fontFamily:"var(--fm)"}}>🇨🇳 ¥{d.cny.toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
@@ -858,7 +858,7 @@ return (
   <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:16,padding:20}}>
     <div style={{fontSize:14,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:14}}>Media Mensual (últimos 12m)</div>
     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:14}}>
-      <div style={{padding:"12px",background:"rgba(255,255,255,.02)",borderRadius:10,textAlign:"center",border:"1px solid rgba(255,255,255,.04)"}}>
+      <div style={{padding:"12px",background:"var(--row-alt)",borderRadius:10,textAlign:"center",border:"1px solid var(--subtle-border)"}}>
         <div style={{fontSize:16,marginBottom:2}}>🇪🇸</div>
         <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>ESPAÑA</div>
         <div style={{fontSize:20,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>€{avgEur.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
@@ -876,7 +876,7 @@ return (
         <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>alquiler, utils, viajes</div>
       </div>
     </div>
-    <div style={{padding:"10px 14px",background:"rgba(255,255,255,.03)",borderRadius:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+    <div style={{padding:"10px 14px",background:"var(--subtle-bg)",borderRadius:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
       <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>TOTAL</span>
       <span style={{fontSize:18,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{sym}{gastosAvg.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</span>
       <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{sym}{gastosAnnual.toLocaleString(undefined,{maximumFractionDigits:0})}/año</span>
@@ -888,26 +888,26 @@ return (
     <div style={{padding:"20px",background:"rgba(255,159,10,.04)",border:"1px solid rgba(255,159,10,.15)",borderRadius:16,textAlign:"center"}}>
       <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,marginBottom:6}}>VIDA ACTUAL (CHINA + ESPANA)</div>
       <div style={{fontSize:42,fontWeight:700,color:divCoversPct>=100?"var(--green)":"var(--orange)",fontFamily:"var(--fm)",lineHeight:1}}>{_sf(divCoversPct,0)}%</div>
-      <div style={{maxWidth:200,margin:"10px auto 0",height:6,background:"rgba(255,255,255,.06)",borderRadius:3,overflow:"hidden"}}><div style={{width:`${Math.min(divCoversPct,100)}%`,height:"100%",background:divCoversPct>=100?"var(--green)":"var(--orange)",borderRadius:3}}/></div>
+      <div style={{maxWidth:200,margin:"10px auto 0",height:6,background:"var(--subtle-bg2)",borderRadius:3,overflow:"hidden"}}><div style={{width:`${Math.min(divCoversPct,100)}%`,height:"100%",background:divCoversPct>=100?"var(--green)":"var(--orange)",borderRadius:3}}/></div>
       <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:6}}>{sym}{gastosAvg.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</div>
     </div>
     <div style={{padding:"20px",background:`rgba(214,158,46,${useBaseReal?".08":".04"})`,border:`1px solid rgba(214,158,46,${useBaseReal?".3":".12"})`,borderRadius:16,textAlign:"center"}}>
       <div style={{fontSize:9,color:useBaseReal?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,marginBottom:6,fontWeight:useBaseReal?700:400}}>BASE REAL (FIRE)</div>
       <div style={{fontSize:42,fontWeight:700,color:baseRealCoversPct>=100?"var(--green)":"var(--gold)",fontFamily:"var(--fm)",lineHeight:1}}>{_sf(baseRealCoversPct,0)}%</div>
-      <div style={{maxWidth:200,margin:"10px auto 0",height:6,background:"rgba(255,255,255,.06)",borderRadius:3,overflow:"hidden"}}><div style={{width:`${Math.min(baseRealCoversPct,100)}%`,height:"100%",background:baseRealCoversPct>=100?"var(--green)":"var(--gold)",borderRadius:3}}/></div>
+      <div style={{maxWidth:200,margin:"10px auto 0",height:6,background:"var(--subtle-bg2)",borderRadius:3,overflow:"hidden"}}><div style={{width:`${Math.min(baseRealCoversPct,100)}%`,height:"100%",background:baseRealCoversPct>=100?"var(--green)":"var(--gold)",borderRadius:3}}/></div>
       <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:6}}>{sym}{baseRealM.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</div>
       <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2,fontStyle:"italic"}}>Espana + China oblig.</div>
     </div>
     <div style={{padding:"20px",background:"rgba(48,209,88,.04)",border:"1px solid rgba(48,209,88,.15)",borderRadius:16,textAlign:"center"}}>
       <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,marginBottom:6}}>VIDA EN ESPANA (REALISTA)</div>
       <div style={{fontSize:42,fontWeight:700,color:espCoversPct>=100?"var(--green)":"#d69e2e",fontFamily:"var(--fm)",lineHeight:1}}>{_sf(espCoversPct,0)}%</div>
-      <div style={{maxWidth:200,margin:"10px auto 0",height:6,background:"rgba(255,255,255,.06)",borderRadius:3,overflow:"hidden"}}><div style={{width:`${Math.min(espCoversPct,100)}%`,height:"100%",background:espCoversPct>=100?"var(--green)":"#d69e2e",borderRadius:3}}/></div>
+      <div style={{maxWidth:200,margin:"10px auto 0",height:6,background:"var(--subtle-bg2)",borderRadius:3,overflow:"hidden"}}><div style={{width:`${Math.min(espCoversPct,100)}%`,height:"100%",background:espCoversPct>=100?"var(--green)":"#d69e2e",borderRadius:3}}/></div>
       <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:6}}>{sym}{espRealistaM.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</div>
     </div>
     <div style={{padding:"20px",background:"rgba(100,210,255,.04)",border:"1px solid rgba(100,210,255,.12)",borderRadius:16,textAlign:"center"}}>
       <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,marginBottom:6}}>GASTOS FIJOS ESPANA</div>
       <div style={{fontSize:42,fontWeight:700,color:espBasePct>=100?"var(--green)":"var(--text-secondary)",fontFamily:"var(--fm)",lineHeight:1}}>{_sf(espBasePct,0)}%</div>
-      <div style={{maxWidth:200,margin:"10px auto 0",height:6,background:"rgba(255,255,255,.06)",borderRadius:3,overflow:"hidden"}}><div style={{width:`${Math.min(espBasePct,100)}%`,height:"100%",background:espBasePct>=100?"var(--green)":"var(--text-secondary)",borderRadius:3}}/></div>
+      <div style={{maxWidth:200,margin:"10px auto 0",height:6,background:"var(--subtle-bg2)",borderRadius:3,overflow:"hidden"}}><div style={{width:`${Math.min(espBasePct,100)}%`,height:"100%",background:espBasePct>=100?"var(--green)":"var(--text-secondary)",borderRadius:3}}/></div>
       <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:6}}>{sym}{espBaseM.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</div>
     </div>
   </div>
@@ -972,14 +972,14 @@ return (
               </linearGradient>
             </defs>
             {/* Background arc */}
-            <path d={`M${bgArcStart.x},${bgArcStart.y} A${gR},${gR} 0 1,1 ${bgArcEnd.x},${bgArcEnd.y}`} fill="none" stroke="rgba(255,255,255,.08)" strokeWidth="10" strokeLinecap="round" />
+            <path d={`M${bgArcStart.x},${bgArcStart.y} A${gR},${gR} 0 1,1 ${bgArcEnd.x},${bgArcEnd.y}`} fill="none" stroke="var(--subtle-bg2)" strokeWidth="10" strokeLinecap="round" />
             {/* Colored arc */}
             {clampPct > 0 && (
               <path d={`M${pStart.x},${pStart.y} A${gR},${gR} 0 ${largeArc},1 ${pEnd.x},${pEnd.y}`} fill="none" stroke={gaugeColor} strokeWidth="10" strokeLinecap="round" />
             )}
             {/* Center text */}
             <text x={gCx} y={gCy - 8} textAnchor="middle" fill={gaugeColor} fontSize="26" fontWeight="800" fontFamily="var(--fm)">{Math.round(firePct)}%</text>
-            <text x={gCx} y={gCy + 8} textAnchor="middle" fill="rgba(255,255,255,.4)" fontSize="8" fontWeight="600" fontFamily="var(--fm)">FIRE Progress</text>
+            <text x={gCx} y={gCy + 8} textAnchor="middle" fill="var(--text-tertiary)" fontSize="8" fontWeight="600" fontFamily="var(--fm)">FIRE Progress</text>
           </svg>
           <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"center",marginTop:2}}>
             {sym}{fK(pat)} / {sym}{fK(swr35)}
@@ -1002,13 +1002,13 @@ return (
         const pct = total > 0 ? (divN/total*100) : 0;
         const mn = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"][parseInt(m.slice(5), 10)-1];
         return (<tr key={m} style={{background:i%2?"rgba(255,255,255,.01)":"transparent"}}>
-          <td style={{padding:"5px 8px",fontWeight:600,fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{mn} {m.slice(2,4)}</td>
-          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>€{(g.eur||0).toLocaleString(undefined,{maximumFractionDigits:0})}</td>
-          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>¥{(g.cny||0).toLocaleString(undefined,{maximumFractionDigits:0})}</td>
-          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:g.usd>0?"var(--text-primary)":"var(--text-tertiary)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{g.usd>0?`$${_sf(g.usd,0)}`:"-"}</td>
-          <td style={{padding:"5px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:"var(--red)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{sym}{total.toLocaleString(undefined,{maximumFractionDigits:0})}</td>
-          <td style={{padding:"5px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:"var(--green)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{sym}{divN.toLocaleString(undefined,{maximumFractionDigits:0})}</td>
-          <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,fontFamily:"var(--fm)",color:pct>=100?"var(--green)":pct>=50?"var(--gold)":"var(--red)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{_sf(pct,0)}%</td>
+          <td style={{padding:"5px 8px",fontWeight:600,fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)"}}>{mn} {m.slice(2,4)}</td>
+          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>€{(g.eur||0).toLocaleString(undefined,{maximumFractionDigits:0})}</td>
+          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>¥{(g.cny||0).toLocaleString(undefined,{maximumFractionDigits:0})}</td>
+          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:g.usd>0?"var(--text-primary)":"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{g.usd>0?`$${_sf(g.usd,0)}`:"-"}</td>
+          <td style={{padding:"5px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{sym}{total.toLocaleString(undefined,{maximumFractionDigits:0})}</td>
+          <td style={{padding:"5px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:"var(--green)",borderBottom:"1px solid var(--subtle-bg)"}}>{sym}{divN.toLocaleString(undefined,{maximumFractionDigits:0})}</td>
+          <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,fontFamily:"var(--fm)",color:pct>=100?"var(--green)":pct>=50?"var(--gold)":"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{_sf(pct,0)}%</td>
         </tr>);
       })}
     </tbody></table></div>
@@ -1018,7 +1018,7 @@ return (
   <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
     <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:12}}>🎯 Freedom Numbers ({fireCcy})</div>
     <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-      {[{l:"@3%",fn:activeGastosA/0.03},{l:"@3.5%",fn:activeSwr35},{l:"@4%",fn:activeGastosA/0.04},{l:"BASE REAL @3.5%",fn:baseRealA/0.035,sub:"ESP+CN oblig",hl:useBaseReal},{l:"ESPANA @3.5%",fn:espRealistaA/0.035,sub:"solo EUR"},{l:"LEAN @3.5%",fn:activeGastosA*0.7/0.035,sub:"70%"}].map((f,i)=>{const pct=f.fn>0?(pat/f.fn*100):0;const dP=f.fn>0?(divNetA/(f.fn*0.035)*100):0;return(<div key={i} style={{flex:"1 1 110px",padding:"12px",background:f.hl?"rgba(214,158,46,.06)":"rgba(255,255,255,.02)",borderRadius:10,border:`1px solid ${f.hl?"rgba(214,158,46,.2)":"rgba(255,255,255,.04)"}`}}><div style={{fontSize:9,color:f.hl?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,marginBottom:4}}>{f.l}{f.sub?` (${f.sub})`:""}</div><div style={{fontSize:16,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>{sym}{fK(f.fn)}</div><div style={{height:5,background:"rgba(255,255,255,.06)",borderRadius:3,marginTop:6,overflow:"hidden"}}><div style={{width:`${Math.min(pct,100)}%`,height:"100%",background:pct>=100?"var(--green)":"var(--gold)",borderRadius:3}}/></div><div style={{display:"flex",justifyContent:"space-between",marginTop:4}}><span style={{fontSize:9,fontWeight:600,color:pct>=100?"var(--green)":"var(--gold)",fontFamily:"var(--fm)"}}>{_sf(pct,0)}%</span><span style={{fontSize:9,color:dP>=100?"var(--green)":"var(--text-tertiary)",fontFamily:"var(--fm)"}}>div {_sf(dP,0)}%</span></div></div>);})}
+      {[{l:"@3%",fn:activeGastosA/0.03},{l:"@3.5%",fn:activeSwr35},{l:"@4%",fn:activeGastosA/0.04},{l:"BASE REAL @3.5%",fn:baseRealA/0.035,sub:"ESP+CN oblig",hl:useBaseReal},{l:"ESPANA @3.5%",fn:espRealistaA/0.035,sub:"solo EUR"},{l:"LEAN @3.5%",fn:activeGastosA*0.7/0.035,sub:"70%"}].map((f,i)=>{const pct=f.fn>0?(pat/f.fn*100):0;const dP=f.fn>0?(divNetA/(f.fn*0.035)*100):0;return(<div key={i} style={{flex:"1 1 110px",padding:"12px",background:f.hl?"rgba(214,158,46,.06)":"var(--row-alt)",borderRadius:10,border:`1px solid ${f.hl?"rgba(214,158,46,.2)":"var(--subtle-border)"}`}}><div style={{fontSize:9,color:f.hl?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,marginBottom:4}}>{f.l}{f.sub?` (${f.sub})`:""}</div><div style={{fontSize:16,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>{sym}{fK(f.fn)}</div><div style={{height:5,background:"var(--subtle-bg2)",borderRadius:3,marginTop:6,overflow:"hidden"}}><div style={{width:`${Math.min(pct,100)}%`,height:"100%",background:pct>=100?"var(--green)":"var(--gold)",borderRadius:3}}/></div><div style={{display:"flex",justifyContent:"space-between",marginTop:4}}><span style={{fontSize:9,fontWeight:600,color:pct>=100?"var(--green)":"var(--gold)",fontFamily:"var(--fm)"}}>{_sf(pct,0)}%</span><span style={{fontSize:9,color:dP>=100?"var(--green)":"var(--text-tertiary)",fontFamily:"var(--fm)"}}>div {_sf(dP,0)}%</span></div></div>);})}
     </div>
   </div>
 
@@ -1034,7 +1034,7 @@ return (
   <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
     <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:10}}>🧪 Escenarios</div>
     <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:450}}><thead><tr>{["","GASTOS","FREEDOM","PAT","DIV","GAP"].map((h,i)=><th key={i} style={{padding:"5px 8px",textAlign:i?"right":"left",color:"var(--text-tertiary)",fontSize:8,fontWeight:600,fontFamily:"var(--fm)",borderBottom:"1px solid var(--border)"}}>{h}</th>)}</tr></thead><tbody>
-      {[{l:"🌏 Actual",g:gastosAnnual},{l:"🎯 Base Real",g:baseRealA,hl:true},{l:"🇪🇸 Espana",g:espRealistaA},{l:"🔻 Lean (70%)",g:gastosAnnual*0.7},{l:"🔻🔻 Ultra (50%)",g:gastosAnnual*0.5},{l:"🔺 Fat (+30%)",g:gastosAnnual*1.3}].map((s,i)=>{const fn=s.g/0.035;const pp=fn>0?(pat/fn*100):0;const dp=s.g>0?(divNetA/s.g*100):0;const gap=divNetA-s.g;return(<tr key={i} style={{background:s.hl?"rgba(214,158,46,.06)":i%2?"rgba(255,255,255,.01)":"transparent"}}><td style={{padding:"5px 8px",fontWeight:s.hl?700:600,fontFamily:"var(--fm)",color:s.hl?"var(--gold)":"var(--text-primary)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{s.l}</td><td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--red)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{sym}{fK(s.g)}</td><td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{sym}{fK(fn)}</td><td style={{padding:"5px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:pp>=100?"var(--green)":"var(--orange)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{_sf(pp,0)}%</td><td style={{padding:"5px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:dp>=100?"var(--green)":"var(--orange)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{_sf(dp,0)}%</td><td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,fontFamily:"var(--fm)",color:gap>=0?"var(--green)":"var(--red)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{gap>=0?"+":""}{sym}{fK(gap)}</td></tr>);})}
+      {[{l:"🌏 Actual",g:gastosAnnual},{l:"🎯 Base Real",g:baseRealA,hl:true},{l:"🇪🇸 Espana",g:espRealistaA},{l:"🔻 Lean (70%)",g:gastosAnnual*0.7},{l:"🔻🔻 Ultra (50%)",g:gastosAnnual*0.5},{l:"🔺 Fat (+30%)",g:gastosAnnual*1.3}].map((s,i)=>{const fn=s.g/0.035;const pp=fn>0?(pat/fn*100):0;const dp=s.g>0?(divNetA/s.g*100):0;const gap=divNetA-s.g;return(<tr key={i} style={{background:s.hl?"rgba(214,158,46,.06)":i%2?"rgba(255,255,255,.01)":"transparent"}}><td style={{padding:"5px 8px",fontWeight:s.hl?700:600,fontFamily:"var(--fm)",color:s.hl?"var(--gold)":"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>{s.l}</td><td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{sym}{fK(s.g)}</td><td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)"}}>{sym}{fK(fn)}</td><td style={{padding:"5px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:pp>=100?"var(--green)":"var(--orange)",borderBottom:"1px solid var(--subtle-bg)"}}>{_sf(pp,0)}%</td><td style={{padding:"5px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:dp>=100?"var(--green)":"var(--orange)",borderBottom:"1px solid var(--subtle-bg)"}}>{_sf(dp,0)}%</td><td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,fontFamily:"var(--fm)",color:gap>=0?"var(--green)":"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{gap>=0?"+":""}{sym}{fK(gap)}</td></tr>);})}
     </tbody></table></div>
   </div>
 

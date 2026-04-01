@@ -33,15 +33,15 @@ export default function QualityTab() {
         <Card style={{overflowX:"auto",padding:0}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5}}>
             <thead><tr>
-              <th style={{position:"sticky",left:0,background:"var(--surface)",padding:"10px 14px",textAlign:"left",color:"var(--gold)",fontWeight:600,borderBottom:"2px solid #30363d",minWidth:140,fontFamily:"var(--fm)",fontSize:10}}>MÉTRICA</th>
-              <th style={{padding:"10px 8px",textAlign:"center",color:"var(--text-secondary)",borderBottom:"2px solid #30363d",minWidth:80,fontSize:10}}>RATING</th>
-              {yrs.map(y=><th key={y} style={{padding:"10px 6px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid #30363d",minWidth:72,fontFamily:"var(--fm)",fontSize:10}}>{y}</th>)}
+              <th style={{position:"sticky",left:0,background:"var(--surface)",padding:"10px 14px",textAlign:"left",color:"var(--gold)",fontWeight:600,borderBottom:"2px solid var(--table-border)",minWidth:140,fontFamily:"var(--fm)",fontSize:10}}>MÉTRICA</th>
+              <th style={{padding:"10px 8px",textAlign:"center",color:"var(--text-secondary)",borderBottom:"2px solid var(--table-border)",minWidth:80,fontSize:10}}>RATING</th>
+              {yrs.map(y=><th key={y} style={{padding:"10px 6px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid var(--table-border)",minWidth:72,fontFamily:"var(--fm)",fontSize:10}}>{y}</th>)}
             </tr></thead>
             <tbody>{metrics.map((m,i)=>(
-              <tr key={m.k} style={{background:i%2?"rgba(255,255,255,.02)":"transparent"}}>
-                <td style={{position:"sticky",left:0,background:i%2?"#0a0a0a":"#000",padding:"7px 14px",color:"var(--text-primary)",fontWeight:500,borderBottom:"1px solid #21262d"}}>{m.l}</td>
-                <td style={{padding:"7px",textAlign:"center",borderBottom:"1px solid #21262d"}}>{m.r?<Badge val={L[m.k]} rules={m.r}/>:"—"}</td>
-                {yrs.map(y=><td key={y} style={{padding:"7px 6px",textAlign:"right",color:"var(--text-primary)",borderBottom:"1px solid #21262d",fontFamily:"var(--fm)"}}>{m.f(comp[y]?.[m.k])}</td>)}
+              <tr key={m.k} style={{background:i%2?"var(--row-alt)":"transparent"}}>
+                <td style={{position:"sticky",left:0,background:i%2?"var(--card)":"var(--bg)",padding:"7px 14px",color:"var(--text-primary)",fontWeight:500,borderBottom:"1px solid var(--table-border)"}}>{m.l}</td>
+                <td style={{padding:"7px",textAlign:"center",borderBottom:"1px solid var(--table-border)"}}>{m.r?<Badge val={L[m.k]} rules={m.r}/>:"—"}</td>
+                {yrs.map(y=><td key={y} style={{padding:"7px 6px",textAlign:"right",color:"var(--text-primary)",borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)"}}>{m.f(comp[y]?.[m.k])}</td>)}
               </tr>
             ))}</tbody>
           </table>
@@ -72,7 +72,7 @@ export default function QualityTab() {
                             {n(growth) != null && <span style={{color:growth>0?"var(--green)":"var(--red)",marginLeft:4,fontSize:9}}>{growth>0?"+":""}{_sf(growth*100,1)}%</span>}
                           </span>
                         </div>
-                        <div style={{height:4,background:"rgba(255,255,255,.04)",borderRadius:2}}>
+                        <div style={{height:4,background:"var(--subtle-border)",borderRadius:2}}>
                           <div style={{width:`${pct*100}%`,height:"100%",background:"var(--gold)",borderRadius:2,opacity:0.7}}/>
                         </div>
                       </div>
@@ -105,7 +105,7 @@ export default function QualityTab() {
                             {n(growth) != null && <span style={{color:growth>0?"var(--green)":"var(--red)",marginLeft:4,fontSize:9}}>{growth>0?"+":""}{_sf(growth*100,1)}%</span>}
                           </span>
                         </div>
-                        <div style={{height:4,background:"rgba(255,255,255,.04)",borderRadius:2}}>
+                        <div style={{height:4,background:"var(--subtle-border)",borderRadius:2}}>
                           <div style={{width:`${pct*100}%`,height:"100%",background:color,borderRadius:2,opacity:0.7}}/>
                         </div>
                       </div>

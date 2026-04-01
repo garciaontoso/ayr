@@ -18,9 +18,9 @@ export default function HistorialTab() {
         ) : (
           <div style={{display:"flex",flexDirection:"column",gap:6}}>
             {historialList.map(h => (
-              <div key={h.ticker} style={{display:"grid",gridTemplateColumns:"48px 1fr 80px 80px 80px 65px 44px",gap:6,alignItems:"center",padding:"10px 16px",background:"rgba(255,255,255,.02)",border:"1px solid rgba(255,255,255,.04)",borderRadius:14,opacity:.7,transition:"all .2s"}}
+              <div key={h.ticker} style={{display:"grid",gridTemplateColumns:"48px 1fr 80px 80px 80px 65px 44px",gap:6,alignItems:"center",padding:"10px 16px",background:"var(--row-alt)",border:"1px solid var(--subtle-border)",borderRadius:14,opacity:.7,transition:"all .2s"}}
                 onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--border-hover)";e.currentTarget.style.opacity="1";}}
-                onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,.04)";e.currentTarget.style.opacity=".7";}}>
+                onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--subtle-border)";e.currentTarget.style.opacity=".7";}}>
                 <div style={{width:38,height:38,borderRadius:9,background:"linear-gradient(135deg,#555,#333)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:h.ticker.length>3?7:10,fontWeight:800,color:"#999",fontFamily:"var(--fm)"}}>{h.ticker.slice(0,4)}</div>
                 <div>
                   <div style={{fontSize:14,fontWeight:600,color:"var(--text-secondary)"}}>{h.ticker}</div>

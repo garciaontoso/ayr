@@ -83,11 +83,11 @@ export default function PaybackTab() {
               {pbtR1 && <div style={{marginTop:6}}><Badge val={pbtR1} rules={R.payback}/></div>}
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:10}}>
-              <div style={{padding:"6px 8px",borderRadius:6,background:"rgba(255,255,255,.02)"}}>
+              <div style={{padding:"6px 8px",borderRadius:6,background:"var(--row-alt)"}}>
                 <div style={{color:"var(--text-tertiary)",fontSize:8,fontFamily:"var(--fm)"}}>FCF Ratio</div>
                 <div style={{color:"#ff9f0a",fontWeight:700,fontFamily:"var(--fm)"}}>{fcfRatioR1 ? _sf(fcfRatioR1*100,0)+"%" : "—"}</div>
               </div>
-              <div style={{padding:"6px 8px",borderRadius:6,background:"rgba(255,255,255,.02)"}}>
+              <div style={{padding:"6px 8px",borderRadius:6,background:"var(--row-alt)"}}>
                 <div style={{color:"var(--text-tertiary)",fontSize:8,fontFamily:"var(--fm)"}}>FCF/Share</div>
                 <div style={{color:"#ff9f0a",fontWeight:700,fontFamily:"var(--fm)"}}>{fC(fcfPerShareR1)}</div>
               </div>
@@ -106,11 +106,11 @@ export default function PaybackTab() {
               {pbtClaude && <div style={{marginTop:6}}><Badge val={pbtClaude} rules={R.payback}/></div>}
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:10}}>
-              <div style={{padding:"6px 8px",borderRadius:6,background:"rgba(255,255,255,.02)"}}>
+              <div style={{padding:"6px 8px",borderRadius:6,background:"var(--row-alt)"}}>
                 <div style={{color:"var(--text-tertiary)",fontSize:8,fontFamily:"var(--fm)"}}>FCF Base</div>
                 <div style={{color:"#64d2ff",fontWeight:700,fontFamily:"var(--fm)"}}>{fM(fcfBase)}</div>
               </div>
-              <div style={{padding:"6px 8px",borderRadius:6,background:"rgba(255,255,255,.02)"}}>
+              <div style={{padding:"6px 8px",borderRadius:6,background:"var(--row-alt)"}}>
                 <div style={{color:"var(--text-tertiary)",fontSize:8,fontFamily:"var(--fm)"}}>CAGR FCF</div>
                 <div style={{color:"#64d2ff",fontWeight:700,fontFamily:"var(--fm)"}}>{fP(paybackGrowthClaude)}</div>
               </div>
@@ -121,12 +121,12 @@ export default function PaybackTab() {
         <Card style={{overflowX:"auto",padding:0}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
             <thead><tr>
-              <th style={{padding:"10px 14px",textAlign:"left",color:"var(--gold)",fontWeight:600,borderBottom:"2px solid #30363d",fontFamily:"var(--fm)",fontSize:9}}>AÑO</th>
-              <th style={{padding:"10px 8px",textAlign:"right",color:"#ff9f0a",fontWeight:600,borderBottom:"2px solid #30363d",fontFamily:"var(--fm)",fontSize:9}}>FCF R1</th>
-              <th style={{padding:"10px 8px",textAlign:"right",color:"#ff9f0a",fontWeight:600,borderBottom:"2px solid #30363d",fontFamily:"var(--fm)",fontSize:9}}>ACUM R1</th>
-              <th style={{padding:"10px 8px",textAlign:"right",color:"#64d2ff",fontWeight:600,borderBottom:"2px solid #30363d",fontFamily:"var(--fm)",fontSize:9}}>FCF Claude</th>
-              <th style={{padding:"10px 8px",textAlign:"right",color:"#64d2ff",fontWeight:600,borderBottom:"2px solid #30363d",fontFamily:"var(--fm)",fontSize:9}}>ACUM Claude</th>
-              <th style={{padding:"10px 8px",textAlign:"center",fontWeight:600,borderBottom:"2px solid #30363d",fontFamily:"var(--fm)",fontSize:9,color:"var(--text-secondary)"}}>PROGRESO</th>
+              <th style={{padding:"10px 14px",textAlign:"left",color:"var(--gold)",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:9}}>AÑO</th>
+              <th style={{padding:"10px 8px",textAlign:"right",color:"#ff9f0a",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:9}}>FCF R1</th>
+              <th style={{padding:"10px 8px",textAlign:"right",color:"#ff9f0a",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:9}}>ACUM R1</th>
+              <th style={{padding:"10px 8px",textAlign:"right",color:"#64d2ff",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:9}}>FCF Claude</th>
+              <th style={{padding:"10px 8px",textAlign:"right",color:"#64d2ff",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:9}}>ACUM Claude</th>
+              <th style={{padding:"10px 8px",textAlign:"center",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:9,color:"var(--text-secondary)"}}>PROGRESO</th>
             </tr></thead>
             <tbody>
               {Array.from({length:12},(_,i)=>i+1).map(yr=>{
@@ -134,16 +134,16 @@ export default function PaybackTab() {
                 const pctR1 = r1 ? Math.min(r1.cum/mktCap,1) : 0;
                 const pctCl = cl ? Math.min(cl.cum/mktCap,1) : 0;
                 return (
-                  <tr key={yr} style={{background:yr%2?"rgba(255,255,255,.015)":"transparent"}}>
-                    <td style={{padding:"6px 14px",color:yr===8?"var(--gold)":"var(--text-primary)",fontWeight:yr===8?700:400,borderBottom:"1px solid #21262d"}}>{yr}{yr===8?" ⭐":""}</td>
-                    <td style={{padding:"6px 8px",textAlign:"right",color:r1?.recovered?"var(--green)":"var(--text-secondary)",borderBottom:"1px solid #21262d",fontFamily:"var(--fm)"}}>{r1?fM(r1.fcf):"—"}</td>
-                    <td style={{padding:"6px 8px",textAlign:"right",color:r1?.recovered?"var(--green)":"#ff9f0a",fontWeight:r1?.recovered?700:400,borderBottom:"1px solid #21262d",fontFamily:"var(--fm)"}}>{r1?fM(r1.cum):"—"}{r1?.recovered?" ✓":""}</td>
-                    <td style={{padding:"6px 8px",textAlign:"right",color:cl?.recovered?"var(--green)":"var(--text-secondary)",borderBottom:"1px solid #21262d",fontFamily:"var(--fm)"}}>{cl?fM(cl.fcf):"—"}</td>
-                    <td style={{padding:"6px 8px",textAlign:"right",color:cl?.recovered?"var(--green)":"#64d2ff",fontWeight:cl?.recovered?700:400,borderBottom:"1px solid #21262d",fontFamily:"var(--fm)"}}>{cl?fM(cl.cum):"—"}{cl?.recovered?" ✓":""}</td>
-                    <td style={{padding:"6px 8px",borderBottom:"1px solid #21262d"}}>
+                  <tr key={yr} style={{background:yr%2?"var(--row-alt)":"transparent"}}>
+                    <td style={{padding:"6px 14px",color:yr===8?"var(--gold)":"var(--text-primary)",fontWeight:yr===8?700:400,borderBottom:"1px solid var(--table-border)"}}>{yr}{yr===8?" ⭐":""}</td>
+                    <td style={{padding:"6px 8px",textAlign:"right",color:r1?.recovered?"var(--green)":"var(--text-secondary)",borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)"}}>{r1?fM(r1.fcf):"—"}</td>
+                    <td style={{padding:"6px 8px",textAlign:"right",color:r1?.recovered?"var(--green)":"#ff9f0a",fontWeight:r1?.recovered?700:400,borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)"}}>{r1?fM(r1.cum):"—"}{r1?.recovered?" ✓":""}</td>
+                    <td style={{padding:"6px 8px",textAlign:"right",color:cl?.recovered?"var(--green)":"var(--text-secondary)",borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)"}}>{cl?fM(cl.fcf):"—"}</td>
+                    <td style={{padding:"6px 8px",textAlign:"right",color:cl?.recovered?"var(--green)":"#64d2ff",fontWeight:cl?.recovered?700:400,borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)"}}>{cl?fM(cl.cum):"—"}{cl?.recovered?" ✓":""}</td>
+                    <td style={{padding:"6px 8px",borderBottom:"1px solid var(--table-border)"}}>
                       <div style={{display:"flex",flexDirection:"column",gap:2}}>
-                        <div style={{height:4,background:"#1a1a1a",borderRadius:2}}><div style={{width:`${_sf(pctR1*100,0)}%`,height:"100%",background:pctR1>=1?"var(--green)":"#ff9f0a",borderRadius:2}}/></div>
-                        <div style={{height:4,background:"#1a1a1a",borderRadius:2}}><div style={{width:`${_sf(pctCl*100,0)}%`,height:"100%",background:pctCl>=1?"var(--green)":"#64d2ff",borderRadius:2}}/></div>
+                        <div style={{height:4,background:"var(--progress-track)",borderRadius:2}}><div style={{width:`${_sf(pctR1*100,0)}%`,height:"100%",background:pctR1>=1?"var(--green)":"#ff9f0a",borderRadius:2}}/></div>
+                        <div style={{height:4,background:"var(--progress-track)",borderRadius:2}}><div style={{width:`${_sf(pctCl*100,0)}%`,height:"100%",background:pctCl>=1?"var(--green)":"#64d2ff",borderRadius:2}}/></div>
                       </div>
                     </td>
                   </tr>

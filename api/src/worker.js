@@ -614,7 +614,7 @@ export default {
         const { results } = await env.DB.prepare(
           `SELECT ticker, SUM(bruto) as bruto, SUM(neto) as neto, COUNT(*) as cobros,
                   MIN(fecha) as primero, MAX(fecha) as ultimo
-           FROM dividendos GROUP BY ticker ORDER BY neto DESC`
+           FROM dividendos GROUP BY ticker ORDER BY neto DESC LIMIT 500`
         ).all();
         return json(results, corsHeaders);
       }
@@ -650,7 +650,8 @@ export default {
         if (cat) { conditions.push("categoria = ?"); params.push(cat); }
         if (conditions.length) query += " WHERE " + conditions.join(" AND ");
         query += " ORDER BY fecha DESC";
-        if (limit > 0) { query += " LIMIT ?"; params.push(limit); }
+        const effectiveLimit = limit > 0 ? Math.min(limit, 10000) : 10000;
+        query += " LIMIT ?"; params.push(effectiveLimit);
 
         const { results } = await env.DB.prepare(query).bind(...params).all();
         return json(results, corsHeaders);
@@ -817,6 +818,10 @@ export default {
       // POST /api/trades — añadir trade (uso diario)
       if (path === "/api/trades" && request.method === "POST") {
         const body = await parseBody(request);
+        const fechaErr = validateFecha(body.fecha);
+        if (fechaErr) return validationError(fechaErr, corsHeaders);
+        const reqErr = validateRequired(body.ticker, 'ticker') || validateRequired(body.tipo, 'tipo');
+        if (reqErr) return validationError(reqErr, corsHeaders);
         await env.DB.prepare(
           `INSERT INTO trades (fecha, ticker, tipo, shares, precio, comision, importe, divisa, fuente, notas)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -838,8 +843,8 @@ export default {
       // GET /api/fire
       if (path === "/api/fire" && request.method === "GET") {
         const [tracking, proyecciones, config] = await Promise.all([
-          env.DB.prepare("SELECT * FROM fire_tracking ORDER BY mes DESC").all(),
-          env.DB.prepare("SELECT * FROM fire_proyecciones ORDER BY anio").all(),
+          env.DB.prepare("SELECT * FROM fire_tracking ORDER BY mes DESC LIMIT 500").all(),
+          env.DB.prepare("SELECT * FROM fire_proyecciones ORDER BY anio LIMIT 200").all(),
           env.DB.prepare("SELECT * FROM config WHERE clave = 'fire_params'").first(),
         ]);
         return json({
@@ -891,15 +896,25 @@ export default {
 
       // DELETE /api/dividendos/:id
       if (path.startsWith("/api/dividendos/") && request.method === "DELETE") {
-        const id = path.split("/").pop();
+        const id = validateId(path.split("/").pop());
+        if (!id) return validationError("Invalid id", corsHeaders);
         await env.DB.prepare("DELETE FROM dividendos WHERE id = ?").bind(id).run();
         return json({ success: true, deleted: id }, corsHeaders);
       }
 
       // PUT /api/gastos/:id — update gasto
       if (path.startsWith("/api/gastos/") && request.method === "PUT") {
-        const id = path.split("/").pop();
+        const id = validateId(path.split("/").pop());
+        if (!id) return validationError("Invalid id", corsHeaders);
         const body = await parseBody(request);
+        if (body.fecha !== undefined) {
+          const fechaErr = validateFecha(body.fecha);
+          if (fechaErr) return validationError(fechaErr, corsHeaders);
+        }
+        if (body.importe !== undefined) {
+          const numErr = validateNumber(body.importe, 'importe');
+          if (numErr) return validationError(numErr, corsHeaders);
+        }
         const sets = []; const vals = [];
         if (body.descripcion !== undefined) { sets.push("descripcion = ?"); vals.push(body.descripcion); }
         if (body.divisa !== undefined) { sets.push("divisa = ?"); vals.push(body.divisa); }
@@ -936,14 +951,16 @@ export default {
 
       // DELETE /api/gastos/:id
       if (path.startsWith("/api/gastos/") && request.method === "DELETE") {
-        const id = path.split("/").pop();
+        const id = validateId(path.split("/").pop());
+        if (!id) return validationError("Invalid id", corsHeaders);
         await env.DB.prepare("DELETE FROM gastos WHERE id = ?").bind(id).run();
         return json({ success: true, deleted: id }, corsHeaders);
       }
 
       // DELETE /api/patrimonio/:id
       if (path.startsWith("/api/patrimonio/") && request.method === "DELETE") {
-        const id = path.split("/").pop();
+        const id = validateId(path.split("/").pop());
+        if (!id) return validationError("Invalid id", corsHeaders);
         await env.DB.prepare("DELETE FROM patrimonio WHERE id = ?").bind(id).run();
         return json({ success: true, deleted: id }, corsHeaders);
       }
@@ -1005,6 +1022,10 @@ export default {
       // POST /api/costbasis — añadir transacción (con dedup)
       if (path === "/api/costbasis" && request.method === "POST") {
         const b = await parseBody(request);
+        const fechaErr = validateFecha(b.fecha);
+        if (fechaErr) return validationError(fechaErr, corsHeaders);
+        const reqErr = validateRequired(b.ticker, 'ticker') || validateRequired(b.tipo, 'tipo');
+        if (reqErr) return validationError(reqErr, corsHeaders);
         const dup = await env.DB.prepare(
           "SELECT id FROM cost_basis WHERE fecha=? AND ticker=? AND tipo=? AND ABS(shares - ?) < 0.001 AND ABS(precio - ?) < 0.01"
         ).bind(b.fecha, b.ticker, b.tipo, b.shares||0, b.precio||0).first();
@@ -1057,7 +1078,8 @@ export default {
 
       // DELETE /api/costbasis/:id
       if (path.startsWith("/api/costbasis/") && request.method === "DELETE") {
-        const id = path.split("/").pop();
+        const id = validateId(path.split("/").pop());
+        if (!id) return validationError("Invalid id", corsHeaders);
         await env.DB.prepare("DELETE FROM cost_basis WHERE id = ?").bind(id).run();
         return json({ success: true, deleted: id }, corsHeaders);
       }
@@ -1187,9 +1209,8 @@ export default {
             batch.map(async (ticker) => {
               const yahooSymbol = YAHOO_MAP[ticker] || ticker;
               try {
-                const resp = await fetch(
-                  `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1d&range=5d`,
-                  { headers: { "User-Agent": "Mozilla/5.0" } }
+                const resp = await fetchYahoo(
+                  `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1d&range=5d`
                 );
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const data = await resp.json();
@@ -1263,9 +1284,8 @@ export default {
 
         // 1) VIX from Yahoo Finance
         try {
-          const resp = await fetch(
-            "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=5d",
-            { headers: { "User-Agent": "Mozilla/5.0" } }
+          const resp = await fetchYahoo(
+            "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=5d"
           );
           if (resp.ok) {
             const data = await resp.json();
@@ -1366,8 +1386,7 @@ export default {
         try {
           // Step 1: Get available expirations
           const baseUrl = `https://query2.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol)}`;
-          const headers = { "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)" };
-          const resp1 = await fetch(baseUrl, { headers });
+          const resp1 = await fetchYahoo(baseUrl);
           if (!resp1.ok) return json({ error: `Yahoo returned ${resp1.status}` }, corsHeaders, 502);
           const data1 = await resp1.json();
           const result = data1?.optionChain?.result?.[0];
@@ -1390,7 +1409,7 @@ export default {
           // Step 3: Fetch chain for that expiration
           let options = result.options?.[0] || {};
           if (bestExp && bestExp !== expirations[0]) {
-            const resp2 = await fetch(`${baseUrl}?date=${bestExp}`, { headers });
+            const resp2 = await fetchYahoo(`${baseUrl}?date=${bestExp}`);
             if (resp2.ok) {
               const data2 = await resp2.json();
               options = data2?.optionChain?.result?.[0]?.options?.[0] || options;
@@ -1438,7 +1457,7 @@ export default {
           const fetches = batch.map(async sym => {
             try {
               const baseUrl = `https://query2.finance.yahoo.com/v7/finance/options/${encodeURIComponent(sym)}`;
-              const resp1 = await fetch(baseUrl, { headers });
+              const resp1 = await fetchYahoo(baseUrl);
               if (!resp1.ok) { results[sym] = { error: resp1.status }; return; }
               const data1 = await resp1.json();
               const result = data1?.optionChain?.result?.[0];
@@ -1605,122 +1624,11 @@ export default {
       // ─── IB OAuth helpers — delegates to top-level functions ───
       // (Actual implementations extracted to module scope for reuse by scheduled handler)
 
-      // GET /api/ib-session — obtain IB live session token (called internally, cached)
+      // GET /api/ib-session — delegates to top-level getIBSession
       if (path === "/api/ib-session" && request.method === "GET") {
         try {
-          const consumerKey = env.IB_CONSUMER_KEY;
-          const accessToken = env.IB_ACCESS_TOKEN;
-          const accessTokenSecret = env.IB_ACCESS_TOKEN_SECRET;
-          const sigKeyPem = env.IB_SIGNATURE_KEY;
-          const encKeyPem = env.IB_ENCRYPTION_KEY;
-          const dhParamPem = env.IB_DH_PARAM;
-
-          if (!consumerKey || !accessToken || !accessTokenSecret) {
-            return json({ error: "IB OAuth credentials not configured" }, corsHeaders, 500);
-          }
-
-          const IB_BASE = "https://api.ibkr.com/v1/api";
-          const timestamp = Math.floor(Date.now() / 1000).toString();
-          const nonce = crypto.randomUUID().replace(/-/g, "");
-
-          // Step 1: Decrypt access token secret
-          const decryptedATS = await rsaDecrypt(encKeyPem, accessTokenSecret);
-          const prepend = bytesToHex(decryptedATS);
-
-          // Step 2: DH challenge
-          const dhPrime = extractDhPrime(dhParamPem);
-          const generator = 2n;
-          // Generate random a (256 bits)
-          const randomBytes = new Uint8Array(32);
-          crypto.getRandomValues(randomBytes);
-          const a = bytesToBigInt(randomBytes);
-          const A = modPow(generator, a, dhPrime);
-          const dhChallenge = A.toString(16);
-
-          // Step 3: Build OAuth params for LST request
-          const lstUrl = IB_BASE + "/oauth/live_session_token";
-          const oauthParams = {
-            oauth_consumer_key: consumerKey,
-            oauth_token: accessToken,
-            oauth_signature_method: "RSA-SHA256",
-            oauth_timestamp: timestamp,
-            oauth_nonce: nonce,
-            diffie_hellman_challenge: dhChallenge,
-          };
-
-          // Step 4: Build base string WITH prepend
-          const baseString = buildBaseString("POST", lstUrl, oauthParams, prepend);
-
-          // Step 5: RSA-SHA256 sign
-          const signature = await rsaSign(sigKeyPem, baseString);
-
-          // Step 6: Make LST request
-          const authHeader = "OAuth " + Object.entries({ ...oauthParams, oauth_signature: signature })
-            .map(([k, v]) => `${encodeURIComponent(k)}="${encodeURIComponent(v)}"`)
-            .join(", ");
-
-          const lstResp = await fetch(lstUrl, {
-            method: "POST",
-            headers: { "Authorization": authHeader, "Content-Length": "0", "User-Agent": "AyR/1.0" },
-          });
-
-          if (!lstResp.ok) {
-            const errText = await lstResp.text();
-            return json({ error: "LST request failed", status: lstResp.status, detail: errText.slice(0, 500) }, corsHeaders, 502);
-          }
-
-          const lstData = await lstResp.json();
-          const dhResponse = lstData.diffie_hellman_response;
-          const lstSignature = lstData.live_session_token_signature;
-
-          // Step 7: Compute shared secret K = B^a mod prime
-          const B = BigInt("0x" + dhResponse);
-          const K = modPow(B, a, dhPrime);
-          const kBytes = bigIntToBytes(K);
-
-          // Step 8: Compute LST = HMAC-SHA1(K, decrypted_access_token_secret)
-          const lst = await hmacSHA1(kBytes, decryptedATS);
-
-          // Step 9: Verify — HMAC-SHA1(LST, consumer_key) should equal lstSignature
-          const verify = await hmacSHA1(lst, new TextEncoder().encode(consumerKey));
-          const verifyHex = bytesToHex(verify);
-
-          if (verifyHex !== lstSignature) {
-            return json({ error: "LST verification failed", expected: lstSignature, got: verifyHex }, corsHeaders, 500);
-          }
-
-          // Step 10: Init brokerage session
-          const initUrl = IB_BASE + "/iserver/auth/ssodh/init";
-          const ts2 = Math.floor(Date.now() / 1000).toString();
-          const nonce2 = crypto.randomUUID().replace(/-/g, "");
-
-          const initParams = {
-            oauth_consumer_key: consumerKey,
-            oauth_token: accessToken,
-            oauth_signature_method: "HMAC-SHA256",
-            oauth_timestamp: ts2,
-            oauth_nonce: nonce2,
-          };
-          const initBaseStr = buildBaseString("POST", initUrl, initParams);
-          const initSig = await hmacSHA256Sign(lst, initBaseStr);
-
-          const initAuth = "OAuth " + Object.entries({ ...initParams, oauth_signature: initSig })
-            .map(([k, v]) => `${encodeURIComponent(k)}="${encodeURIComponent(v)}"`)
-            .join(", ");
-
-          const initResp = await fetch(initUrl, {
-            method: "POST",
-            headers: { "Authorization": initAuth, "Content-Type": "application/json", "User-Agent": "AyR/1.0" },
-            body: JSON.stringify({ publish: true, compete: true }),
-          });
-
-          const initData = await initResp.json().catch(() => ({}));
-
-          return json({
-            ok: true,
-            lstExpires: lstData.live_session_token_expiration,
-            session: initData,
-          }, corsHeaders);
+          const session = await getIBSession(env);
+          return json({ ok: true, consumerKey: session.consumerKey }, corsHeaders);
         } catch(e) {
           return json({ error: "IB OAuth error: " + e.message }, corsHeaders, 500);
         }
@@ -2362,7 +2270,7 @@ export default {
           let query = "SELECT * FROM positions";
           const params = [];
           if (list) { query += " WHERE list = ?"; params.push(list); }
-          query += " ORDER BY usd_value DESC";
+          query += " ORDER BY usd_value DESC LIMIT 500";
           const { results } = params.length
             ? await env.DB.prepare(query).bind(...params).all()
             : await env.DB.prepare(query).all();
@@ -3384,7 +3292,7 @@ export default {
       // GET /api/presupuesto — all budget items
       if (path === "/api/presupuesto" && request.method === "GET") {
         const { results } = await env.DB.prepare(
-          "SELECT * FROM presupuesto ORDER BY categoria, nombre"
+          "SELECT * FROM presupuesto ORDER BY categoria, nombre LIMIT 500"
         ).all();
         return json(results, corsHeaders);
       }
@@ -3575,7 +3483,7 @@ export default {
         const body = await parseBody(request);
         const { title, body: notifBody, url, tag } = body;
         if (!title) return json({ error: "Missing title" }, corsHeaders, 400);
-        const { results: subs } = await env.DB.prepare("SELECT * FROM push_subscriptions").all();
+        const { results: subs } = await env.DB.prepare("SELECT * FROM push_subscriptions LIMIT 100").all();
         if (!subs.length) return json({ sent: 0, reason: "no subscribers" }, corsHeaders);
         const payload = JSON.stringify({ title, body: notifBody || "", url: url || "/", tag: tag || "ayr-alert" });
         let sent = 0, failed = 0, removed = 0;
@@ -3594,7 +3502,7 @@ export default {
 
       // GET /api/push-test — send test notification
       if (path === "/api/push-test" && request.method === "GET") {
-        const { results: subs } = await env.DB.prepare("SELECT * FROM push_subscriptions").all();
+        const { results: subs } = await env.DB.prepare("SELECT * FROM push_subscriptions LIMIT 100").all();
         if (!subs.length) return json({ error: "No hay suscripciones push registradas" }, corsHeaders, 400);
         const payload = JSON.stringify({
           title: "A&R Alertas",
@@ -3654,7 +3562,7 @@ export default {
         if (ticker) { conditions.push("ticker = ?"); params.push(ticker.toUpperCase()); }
         if (action) { conditions.push("action = ?"); params.push(action.toUpperCase()); }
         if (conditions.length) sql += " WHERE " + conditions.join(" AND ");
-        sql += " ORDER BY updated_at DESC";
+        sql += " ORDER BY updated_at DESC LIMIT 500";
         const stmt = params.length ? env.DB.prepare(sql).bind(...params) : env.DB.prepare(sql);
         const { results } = await stmt.all();
         // Parse JSON fields

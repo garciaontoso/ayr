@@ -94,3 +94,17 @@
 .ar-controls-group > select {
   min-height: 28px;
 }
+
+/* ═══ Smooth touch scrolling for all horizontal overflow containers ═══ */
+[style*="overflow-x: auto"], [style*="overflowX"] {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ═══ Global touch-friendly sizing for iPad ═══ */
+@media (min-width: 769px) and (max-width: 1199px) {
+  /* Ensure SVGs scale to container width */
+  svg { max-width: 100%; }
+
+  /* Ensure font sizes stay readable */
+  body { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+}

@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf } from '../../utils/formatters.js';
+import { EmptyState } from '../ui/EmptyState.jsx';
 
 const WL_KEY = "ayr_wl_tabs";
 
@@ -121,7 +122,7 @@ export default function WatchlistTab() {
           <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
             <input autoFocus value={newTabName} onChange={e => setNewTabName(e.target.value)}
               onKeyDown={e => e.key === "Enter" && addTab()}
-              placeholder="Nombre..." style={{ padding: "5px 10px", borderRadius: 8, border: "1px solid var(--gold)", background: "rgba(255,255,255,.04)", color: "var(--text-primary)", fontSize: 11, fontFamily: "var(--fm)", outline: "none", width: 100 }} />
+              placeholder="Nombre..." style={{ padding: "5px 10px", borderRadius: 8, border: "1px solid var(--gold)", background: "var(--subtle-border)", color: "var(--text-primary)", fontSize: 11, fontFamily: "var(--fm)", outline: "none", width: 100 }} />
             <button onClick={addTab} style={{ ...pill(true), padding: "5px 10px" }}>✓</button>
             <button onClick={() => setShowAddTab(false)} style={{ ...pill(false), padding: "5px 8px" }}>✕</button>
           </div>
@@ -140,7 +141,7 @@ export default function WatchlistTab() {
               setSearchTicker("");
             }
           }}
-          style={{ padding: "7px 12px", background: "rgba(255,255,255,.04)", border: "1px solid var(--border)", borderRadius: 8, color: "var(--text-primary)", fontSize: 12, outline: "none", fontFamily: "var(--fm)", width: 130 }}
+          style={{ padding: "7px 12px", background: "var(--subtle-border)", border: "1px solid var(--border)", borderRadius: 8, color: "var(--text-primary)", fontSize: 12, outline: "none", fontFamily: "var(--fm)", width: 130 }}
           onFocus={e => e.target.style.borderColor = "var(--gold)"} onBlur={e => e.target.style.borderColor = "var(--border)"} />
         <button onClick={() => {
           if (searchTicker) {
@@ -153,7 +154,7 @@ export default function WatchlistTab() {
 
         {allItems.length > 3 && (
           <input type="text" placeholder="🔍 Buscar..." value={quickFilter} onChange={e => setQuickFilter(e.target.value)}
-            style={{ padding: "7px 12px", background: "rgba(255,255,255,.03)", border: "1px solid var(--border)", borderRadius: 8, color: "var(--text-primary)", fontSize: 12, outline: "none", fontFamily: "var(--fm)", flex: 1, minWidth: 120 }} />
+            style={{ padding: "7px 12px", background: "var(--subtle-bg)", border: "1px solid var(--border)", borderRadius: 8, color: "var(--text-primary)", fontSize: 12, outline: "none", fontFamily: "var(--fm)", flex: 1, minWidth: 120 }} />
         )}
 
         <div style={{ marginLeft: "auto", display: "flex", gap: 3 }}>
@@ -168,10 +169,11 @@ export default function WatchlistTab() {
 
       {/* Items */}
       {sorted.length === 0 && (
-        <div style={{ textAlign: "center", padding: 50, color: "var(--text-tertiary)" }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>👁</div>
-          {currentTab.tickers ? `Pestaña "${currentTab.name}" vacía. Añade tickers arriba.` : "Watchlist vacía. Añade empresas que te interesen."}
-        </div>
+        <EmptyState
+          icon="👁"
+          title={currentTab.tickers ? `"${currentTab.name}" esta vacia` : "Watchlist vacia"}
+          subtitle={currentTab.tickers ? "Anade tickers usando el campo de busqueda de arriba." : "Anade empresas que te interesen para hacer seguimiento de sus precios y metricas."}
+        />
       )}
 
       {/* Data table view */}
@@ -195,7 +197,7 @@ export default function WatchlistTab() {
                   const cc = getCountry(p.ticker, p.currency);
                   return (
                     <tr key={p.ticker} onClick={() => openAnalysis(p.ticker)}
-                      style={{ borderBottom: "1px solid rgba(255,255,255,.04)", cursor: "pointer", transition: "background .15s" }}
+                      style={{ borderBottom: "1px solid var(--subtle-border)", cursor: "pointer", transition: "background .15s" }}
                       onMouseEnter={e => e.currentTarget.style.background = "var(--card-hover)"}
                       onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                       <td style={{ padding: "5px 6px", width: 32 }}>
@@ -223,7 +225,7 @@ export default function WatchlistTab() {
                         {high52 > 0 && (
                           <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
                             <span style={{ fontSize: 8, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>${_sf(low52, 0)}</span>
-                            <div style={{ width: 50, height: 4, background: "rgba(255,255,255,.06)", borderRadius: 2, overflow: "hidden", position: "relative" }}>
+                            <div style={{ width: 50, height: 4, background: "var(--subtle-bg2)", borderRadius: 2, overflow: "hidden", position: "relative" }}>
                               <div style={{ position: "absolute", left: `${Math.max(0, Math.min(100, range52))}%`, top: -1, width: 6, height: 6, borderRadius: 3, background: "var(--gold)", transform: "translateX(-3px)" }} />
                             </div>
                             <span style={{ fontSize: 8, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>${_sf(high52, 0)}</span>

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { API_URL } from '../../constants/index.js';
+import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
 
 // ── Black-Scholes fallback ──
 const normCDF = (x) => {
@@ -433,17 +434,16 @@ export default function CoveredCallsTab() {
   const card = {background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:16,marginBottom:14};
   const pill = (active) => ({padding:"5px 14px",borderRadius:8,border:`1px solid ${active?"var(--gold)":"var(--border)"}`,background:active?"var(--gold-dim)":"transparent",color:active?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:active?700:500,cursor:"pointer",fontFamily:"var(--fm)",transition:"all .15s"});
 
-  if (loading) return <div style={{padding:40,textAlign:"center",color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>
-    <div style={{fontSize:14,marginBottom:8}}>Cargando datos de opciones para {eligible.length} posiciones...</div>
-    <div style={{fontSize:11,color:"var(--gold)"}}>{loadingMsg}</div>
-  </div>;
+  if (loading) return <InlineLoading message={`Cargando opciones para ${eligible.length} posiciones... ${loadingMsg}`} />;
+
+  if (eligible.length === 0) return <EmptyState icon="📋" title="Sin posiciones elegibles para covered calls" subtitle="Necesitas al menos 100 acciones de una posicion para vender calls cubiertos." />;
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
       {/* ── DATA SOURCE BADGE + REFRESH ── */}
       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
         <span style={{fontSize:9,padding:"3px 8px",borderRadius:6,fontFamily:"var(--fm)",fontWeight:600,
-          background: dataSource === "yahoo" ? "rgba(48,209,88,.1)" : "rgba(255,255,255,.05)",
+          background: dataSource === "yahoo" ? "rgba(48,209,88,.1)" : "var(--subtle-bg2)",
           color: dataSource === "yahoo" ? "#30d158" : "var(--text-tertiary)",
           border: `1px solid ${dataSource === "yahoo" ? "rgba(48,209,88,.3)" : "var(--border)"}`}}>
           {dataSource === "yahoo"
@@ -451,7 +451,7 @@ export default function CoveredCallsTab() {
             : (yahooProgress > 0 && yahooProgress < 100 ? `📐 B-S → Yahoo ${yahooProgress}%` : "📐 Black-Scholes")}
         </span>
         {yahooProgress > 0 && yahooProgress < 100 && (
-          <div style={{width:80,height:4,background:"rgba(255,255,255,.06)",borderRadius:2,overflow:"hidden"}}>
+          <div style={{width:80,height:4,background:"var(--subtle-bg2)",borderRadius:2,overflow:"hidden"}}>
             <div style={{width:`${yahooProgress}%`,height:"100%",background:"#30d158",borderRadius:2,transition:"width .3s"}}/>
           </div>
         )}
@@ -556,7 +556,7 @@ export default function CoveredCallsTab() {
       {ccMonthlyIncome && ccMonthlyIncome.ytd > 0 && (
         <div style={card}>
           <div style={hd}>Calendario de Primas — {new Date().getFullYear()}</div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:6}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(120px, 1fr))",gap:6}}>
             {ccMonthlyIncome.months.map((amt,i) => {
               const maxM = Math.max(...ccMonthlyIncome.months, 1);
               const intensity = amt > 0 ? Math.max(0.15, amt / maxM) : 0;
@@ -566,7 +566,7 @@ export default function CoveredCallsTab() {
               return (
                 <div key={i} style={{
                   padding:"10px 8px",textAlign:"center",borderRadius:8,
-                  background: isFuture ? "rgba(255,255,255,.02)" : amt > 0 ? `rgba(48,209,88,${intensity * 0.25})` : "rgba(255,255,255,.02)",
+                  background: isFuture ? "var(--row-alt)" : amt > 0 ? `rgba(48,209,88,${intensity * 0.25})` : "var(--row-alt)",
                   border: isCurrent ? "1px solid var(--gold)" : "1px solid transparent",
                   opacity: isFuture ? 0.4 : 1,
                 }}>
@@ -588,7 +588,7 @@ export default function CoveredCallsTab() {
               const isFuture = i > new Date().getMonth();
               return (
                 <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%"}}>
-                  <div style={{width:"100%",height:`${h}%`,background:isFuture?"rgba(255,255,255,.04)":"var(--green)",borderRadius:"2px 2px 0 0",opacity:isFuture?0.3:0.5,transition:"height .5s ease"}}/>
+                  <div style={{width:"100%",height:`${h}%`,background:isFuture?"var(--subtle-border)":"var(--green)",borderRadius:"2px 2px 0 0",opacity:isFuture?0.3:0.5,transition:"height .5s ease"}}/>
                 </div>
               );
             })}
@@ -632,7 +632,7 @@ export default function CoveredCallsTab() {
           </thead>
           <tbody>
             {filtered.map(p=>(
-              <tr key={p.ticker} onClick={()=>openAnalysis(p.ticker)} style={{borderBottom:"1px solid rgba(255,255,255,.04)",cursor:"pointer",transition:"background .15s"}}
+              <tr key={p.ticker} onClick={()=>openAnalysis(p.ticker)} style={{borderBottom:"1px solid var(--subtle-border)",cursor:"pointer",transition:"background .15s"}}
                 onMouseEnter={e=>e.currentTarget.style.background="var(--card-hover)"}
                 onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                 <td style={{padding:"6px 4px",width:28}}>
@@ -686,9 +686,9 @@ export default function CoveredCallsTab() {
                 {/* Source badge */}
                 <td style={{padding:"6px 4px",textAlign:"center"}}>
                   <span style={{fontSize:7,padding:"1px 4px",borderRadius:3,fontFamily:"var(--fm)",fontWeight:600,
-                    background:p.source==="MASSIVE"?"rgba(100,210,255,.1)":p.source==="YAHOO"?"rgba(48,209,88,.1)":"rgba(255,255,255,.05)",
+                    background:p.source==="MASSIVE"?"rgba(100,210,255,.1)":p.source==="YAHOO"?"rgba(48,209,88,.1)":"var(--subtle-bg2)",
                     color:p.source==="MASSIVE"?"#64d2ff":p.source==="YAHOO"?"#30d158":"var(--text-tertiary)",
-                    border:`1px solid ${p.source==="MASSIVE"?"rgba(100,210,255,.2)":p.source==="YAHOO"?"rgba(48,209,88,.2)":"rgba(255,255,255,.06)"}`}}>
+                    border:`1px solid ${p.source==="MASSIVE"?"rgba(100,210,255,.2)":p.source==="YAHOO"?"rgba(48,209,88,.2)":"var(--subtle-bg2)"}`}}>
                     {p.source === "MASSIVE" ? "MSV" : p.source}
                   </span>
                 </td>
@@ -785,7 +785,7 @@ export default function CoveredCallsTab() {
                 </thead>
                 <tbody>
                   {rollData.map(p=>(
-                    <tr key={p.ticker} style={{borderBottom:"1px solid rgba(255,255,255,.04)",background:p.light==="red"?"rgba(255,69,58,.06)":p.light==="yellow"?"rgba(255,214,10,.04)":"transparent"}}>
+                    <tr key={p.ticker} style={{borderBottom:"1px solid var(--subtle-border)",background:p.light==="red"?"rgba(255,69,58,.06)":p.light==="yellow"?"rgba(255,214,10,.04)":"transparent"}}>
                       <td style={{padding:"6px 8px",textAlign:"center"}}>
                         <div style={{fontSize:14}}>{p.light==="red"?"🔴":p.light==="yellow"?"🟡":"🟢"}</div>
                         <div style={{fontSize:7,color:p.lightColor,fontFamily:"var(--fm)",fontWeight:700}}>{p.lightLabel}</div>
@@ -851,7 +851,7 @@ export default function CoveredCallsTab() {
                 </thead>
                 <tbody>
                   {putData.slice(0,60).map((p,i)=>(
-                    <tr key={`${p.ticker}-${p.otmPct}`} style={{borderBottom:"1px solid rgba(255,255,255,.04)"}}>
+                    <tr key={`${p.ticker}-${p.otmPct}`} style={{borderBottom:"1px solid var(--subtle-border)"}}>
                       <td style={{padding:"6px 8px",fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",textAlign:"left"}}>
                         {p.ticker}
                         <div style={{fontSize:8,color:"var(--text-tertiary)",fontWeight:400}}>{(p.name||"").slice(0,18)}</div>
@@ -907,7 +907,7 @@ export default function CoveredCallsTab() {
                     </thead>
                     <tbody>
                       {ibOpts.map((p,i) => (
-                        <tr key={i} style={{borderBottom:"1px solid rgba(255,255,255,.04)"}}>
+                        <tr key={i} style={{borderBottom:"1px solid var(--subtle-border)"}}>
                           <td style={{padding:"6px 8px",fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{p.undSym || p.ticker}</td>
                           <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:p.putOrCall==="C"?"var(--green)":"var(--gold)"}}>{p.putOrCall==="C"?"CALL":"PUT"}</td>
                           <td style={{padding:"6px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)"}}>${_sf(p.strike,0)}</td>
@@ -922,7 +922,7 @@ export default function CoveredCallsTab() {
                   </table>
                 </div>
               ) : (
-                <div style={{padding:16,textAlign:"center",color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontSize:11,background:"rgba(255,255,255,.02)",borderRadius:8,marginBottom:12}}>
+                <div style={{padding:16,textAlign:"center",color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontSize:11,background:"var(--row-alt)",borderRadius:8,marginBottom:12}}>
                   Sin opciones abiertas en IB. Cuando vendas covered calls o puts, aparecerán aquí automáticamente.
                 </div>
               )}
@@ -932,7 +932,7 @@ export default function CoveredCallsTab() {
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:8}}>
                 {ibStocks.map(p => {
                   const contracts = Math.floor(p.shares / 100);
-                  return <div key={p.ticker} style={{padding:"10px 12px",background:"rgba(255,255,255,.02)",borderRadius:8,border:"1px solid var(--border)"}}>
+                  return <div key={p.ticker} style={{padding:"10px 12px",background:"var(--row-alt)",borderRadius:8,border:"1px solid var(--border)"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                       <span style={{fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{p.ticker}</span>
                       <span style={{fontSize:9,color:contracts>0?"var(--green)":"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600}}>{contracts>0?`${contracts} ctrts`:"<100 sh"}</span>
@@ -961,7 +961,7 @@ export default function CoveredCallsTab() {
       {/* ══════ WHEEL TRACKER SECTION ══════ */}
       {section === "wheel" && <>
         {/* Summary cards */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:12}}>
           {[
             {l:"POSICIONES WHEEL",v:`${wheelEntries.length}`,c:"var(--text-primary)"},
             {l:"FASE CALL",v:`${wheelEntries.filter(e=>e.phase==="call").length}`,c:"var(--green)"},
@@ -1056,7 +1056,7 @@ export default function CoveredCallsTab() {
                     const phaseColor = e.phase==="call"?"var(--green)":e.phase==="put"?"var(--gold)":"var(--text-tertiary)";
                     const isExpired = e.expiration && new Date(e.expiration) < new Date();
                     return (
-                      <tr key={i} style={{borderBottom:"1px solid rgba(255,255,255,.04)",opacity:isExpired?0.5:1}}>
+                      <tr key={i} style={{borderBottom:"1px solid var(--subtle-border)",opacity:isExpired?0.5:1}}>
                         <td style={{padding:"6px 8px",textAlign:"center"}}>
                           <span style={{fontSize:13}}>{phaseIcon}</span>
                           <div style={{fontSize:7,fontFamily:"var(--fm)",fontWeight:700,color:phaseColor}}>{phaseLabel}</div>

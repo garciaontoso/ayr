@@ -47,13 +47,13 @@ export default function TenCapTab() {
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
               {[{l:"OCF",v:fM(r1OCF),c:"var(--text-primary)"},{l:"Maint. CapEx (70%)",v:"-"+fM(r1MaintCapex),c:"var(--red)"},{l:"+ Tax Provision",v:"+"+fM(r1Tax),c:"var(--green)"},{l:"Owner Earnings",v:fM(r1OE),c:"#ff9f0a",bg:"rgba(255,159,10,.06)"}].map((x,i)=>(
-                <div key={i} style={{padding:"8px",borderRadius:8,background:x.bg||"rgba(255,255,255,.02)"}}>
+                <div key={i} style={{padding:"8px",borderRadius:8,background:x.bg||"var(--row-alt)"}}>
                   <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textTransform:"uppercase"}}>{x.l}</div>
                   <div style={{fontSize:15,fontWeight:700,color:x.c,fontFamily:"var(--fm)"}}>{x.v}</div>
                 </div>
               ))}
             </div>
-            <div style={{textAlign:"center",padding:"12px 0",borderTop:"1px solid #21262d"}}>
+            <div style={{textAlign:"center",padding:"12px 0",borderTop:"1px solid var(--table-border)"}}>
               <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textTransform:"uppercase",letterSpacing:1}}>10 CAP PRICE</div>
               <div style={{fontSize:42,fontWeight:800,fontFamily:"var(--fm)",color:cfg.price<=tenCapR1?"var(--green)":"var(--red)",lineHeight:1.1,marginTop:4}}>{fC(tenCapR1)}</div>
               <div style={{fontSize:11,color:"var(--text-secondary)",marginTop:6}}>OE/Share: {fC(r1OEps)} × 10</div>
@@ -69,13 +69,13 @@ export default function TenCapTab() {
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
               {[{l:"Net Income",v:fM(LD.netIncome),c:"var(--text-primary)"},{l:"+ Depreciation",v:"+"+fM(LD.depreciation),c:"var(--green)"},{l:"− CapEx (100%)",v:"-"+fM(LD.capex),c:"var(--red)"},{l:"Owner Earnings",v:fM(oeForCalc),c:"#64d2ff",bg:"rgba(100,210,255,.06)"}].map((x,i)=>(
-                <div key={i} style={{padding:"8px",borderRadius:8,background:x.bg||"rgba(255,255,255,.02)"}}>
+                <div key={i} style={{padding:"8px",borderRadius:8,background:x.bg||"var(--row-alt)"}}>
                   <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textTransform:"uppercase"}}>{x.l}</div>
                   <div style={{fontSize:15,fontWeight:700,color:x.c,fontFamily:"var(--fm)"}}>{x.v}</div>
                 </div>
               ))}
             </div>
-            <div style={{textAlign:"center",padding:"12px 0",borderTop:"1px solid #21262d"}}>
+            <div style={{textAlign:"center",padding:"12px 0",borderTop:"1px solid var(--table-border)"}}>
               <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textTransform:"uppercase",letterSpacing:1}}>10 CAP PRICE</div>
               <div style={{fontSize:42,fontWeight:800,fontFamily:"var(--fm)",color:cfg.price<=tenCapClaude?"var(--green)":"var(--red)",lineHeight:1.1,marginTop:4}}>{fC(tenCapClaude)}</div>
               <div style={{fontSize:11,color:"var(--text-secondary)",marginTop:6}}>OE/Share: {fC(oepsForCalc)} × 10</div>
@@ -107,8 +107,8 @@ export default function TenCapTab() {
         <Card title="Histórico de Owner Earnings" icon="📊" style={{overflowX:"auto",padding:0}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
             <thead><tr>
-              <th style={{position:"sticky",left:0,background:"var(--surface)",padding:"8px 12px",textAlign:"left",color:"var(--gold)",fontWeight:600,borderBottom:"2px solid #30363d",fontFamily:"var(--fm)",fontSize:9,minWidth:120}}>MÉTRICA</th>
-              {histYrs.map(y=><th key={y} style={{padding:"8px 6px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid #30363d",fontFamily:"var(--fm)",fontSize:9}}>{y}</th>)}
+              <th style={{position:"sticky",left:0,background:"var(--surface)",padding:"8px 12px",textAlign:"left",color:"var(--gold)",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:9,minWidth:120}}>MÉTRICA</th>
+              {histYrs.map(y=><th key={y} style={{padding:"8px 6px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:9}}>{y}</th>)}
             </tr></thead>
             <tbody>
               {[
@@ -121,9 +121,9 @@ export default function TenCapTab() {
                 {l:"OE Rule #1",fn:y=>fM((fin[y]?.ocf||0)-(fin[y]?.capex||0)*0.7+(fin[y]?.taxProvision||0)),c:"#ff9f0a"},
                 {l:"OE Claude",fn:y=>fM(comp[y]?.oe),c:"#64d2ff"},
               ].map((row,i)=>(
-                <tr key={i} style={{background:i%2?"rgba(255,255,255,.015)":"transparent",fontWeight:i>=6?700:400}}>
-                  <td style={{position:"sticky",left:0,background:i%2?"#0a0a0a":"#000",padding:"5px 12px",color:row.c,borderBottom:"1px solid #21262d",fontSize:i>=6?11.5:11}}>{row.l}</td>
-                  {histYrs.map(y=><td key={y} style={{padding:"5px 6px",textAlign:"right",borderBottom:"1px solid #21262d",fontFamily:"var(--fm)",color:row.c}}>{row.fn(y)}</td>)}
+                <tr key={i} style={{background:i%2?"var(--row-alt)":"transparent",fontWeight:i>=6?700:400}}>
+                  <td style={{position:"sticky",left:0,background:i%2?"var(--card)":"var(--bg)",padding:"5px 12px",color:row.c,borderBottom:"1px solid var(--table-border)",fontSize:i>=6?11.5:11}}>{row.l}</td>
+                  {histYrs.map(y=><td key={y} style={{padding:"5px 6px",textAlign:"right",borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)",color:row.c}}>{row.fn(y)}</td>)}
                 </tr>
               ))}
             </tbody>

@@ -10,7 +10,7 @@ const Badge = ({val,rules,showTip}) => {
       <span style={{width:5,height:5,borderRadius:"50%",background:r.c,boxShadow:`0 0 6px ${r.c}40`}}/>
       {r.lbl}
       {hover && r.tip && showTip!==false && (
-        <span style={{position:"absolute",bottom:"calc(100% + 10px)",left:"50%",transform:"translateX(-50%)",background:"#1c1c1e",border:"1px solid rgba(255,255,255,.1)",borderRadius:14,padding:"10px 14px",fontSize:12,color:"#86868b",width:240,lineHeight:1.6,zIndex:99,boxShadow:"0 12px 40px rgba(0,0,0,.6)",pointerEvents:"none",fontFamily:"var(--fb)",fontWeight:400}}>
+        <span style={{position:"absolute",bottom:"calc(100% + 10px)",left:"50%",transform:"translateX(-50%)",background:"var(--surface)",border:"1px solid var(--border-hover)",borderRadius:14,padding:"10px 14px",fontSize:12,color:"#86868b",width:240,lineHeight:1.6,zIndex:99,boxShadow:"0 12px 40px rgba(0,0,0,.6)",pointerEvents:"none",fontFamily:"var(--fb)",fontWeight:400}}>
           {r.tip}
         </span>
       )}

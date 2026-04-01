@@ -62,7 +62,7 @@ export default function ScreenerTab() {
       {/* Custom tickers input */}
       <div style={{display:"flex",gap:8,marginTop:12,alignItems:"center"}}>
         <input type="text" placeholder="Tickers personalizados: AAPL, MSFT, JNJ, PG..." value={customTickers} onChange={e=>setCustomTickers(e.target.value)}
-          style={{flex:1,padding:"10px 14px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:10,color:"var(--text-primary)",fontSize:12,outline:"none",fontFamily:"var(--fm)"}}
+          style={{flex:1,padding:"10px 14px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:10,color:"var(--text-primary)",fontSize:12,outline:"none",fontFamily:"var(--fm)"}}
           onFocus={e=>e.target.style.borderColor="var(--gold)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/>
         <button onClick={()=>{ const syms = customTickers.split(/[,\s]+/).map(s=>s.trim().toUpperCase()).filter(Boolean); if(syms.length>0) runBulkFetch(syms); }}
           disabled={bulkLoading || !customTickers.trim()}
@@ -75,7 +75,7 @@ export default function ScreenerTab() {
     {/* Filters */}
     <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center"}}>
       <input type="text" placeholder="Buscar ticker/nombre..." value={screenerFilter.search} onChange={e=>setScreenerFilter(p=>({...p,search:e.target.value}))}
-        style={{padding:"8px 12px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:11,outline:"none",fontFamily:"var(--fm)",width:160}}/>
+        style={{padding:"8px 12px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:11,outline:"none",fontFamily:"var(--fm)",width:160}}/>
       <select value={screenerFilter.sector} onChange={e=>setScreenerFilter(p=>({...p,sector:e.target.value}))}
         style={{padding:"8px 12px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
         <option value="">Todos los sectores</option>
@@ -141,27 +141,27 @@ export default function ScreenerTab() {
             {sorted.map((item,i) => {
               const inPortfolio = !!POS_STATIC[item.symbol];
               const fmpR = item.fmpRating || {};
-              return <tr key={item.symbol} style={{background:i%2?"rgba(255,255,255,.01)":"transparent",cursor:"pointer"}}
+              return <tr key={item.symbol} style={{background:i%2?"var(--row-alt)":"transparent",cursor:"pointer"}}
                 onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"}
-                onMouseLeave={e=>e.currentTarget.style.background=i%2?"rgba(255,255,255,.01)":"transparent"}
+                onMouseLeave={e=>e.currentTarget.style.background=i%2?"var(--row-alt)":"transparent"}
                 onClick={()=>openAnalysis(item.symbol)}>
-                <td style={{padding:"6px 10px",textAlign:"center",borderBottom:"1px solid rgba(255,255,255,.03)"}}>
+                <td style={{padding:"6px 10px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)"}}>
                   <span style={{padding:"3px 10px",borderRadius:6,background:scoreBg(item.score),color:scoreColor(item.score),fontWeight:800,fontSize:13,fontFamily:"var(--fm)"}}>{item.score}</span>
                 </td>
-                <td style={{padding:"6px 10px",fontWeight:700,color:inPortfolio?"var(--gold)":"var(--text-primary)",fontFamily:"var(--fm)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>
+                <td style={{padding:"6px 10px",fontWeight:700,color:inPortfolio?"var(--gold)":"var(--text-primary)",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>
                   {inPortfolio && <span style={{fontSize:7,marginRight:4}}>●</span>}{item.symbol}{item.capSize&&<span style={{fontSize:6,marginLeft:4,padding:"1px 3px",borderRadius:3,background:item.capSize==="Mega Cap"?"rgba(52,211,153,.08)":item.capSize==="Large Cap"?"rgba(96,165,250,.08)":item.capSize==="Mid Cap"?"rgba(214,158,46,.08)":"rgba(248,113,113,.08)",color:item.capSize==="Mega Cap"?"#34d399":item.capSize==="Large Cap"?"#60a5fa":item.capSize==="Mid Cap"?"#d69e2e":"#f87171",verticalAlign:"middle"}}>{item.capSize==="Mega Cap"?"MEGA":item.capSize==="Large Cap"?"LARGE":item.capSize==="Mid Cap"?"MID":item.capSize==="Small Cap"?"SMALL":"MICRO"}</span>}
                 </td>
-                <td title={item.name} style={{padding:"6px 10px",color:"var(--text-secondary)",fontFamily:"var(--fm)",borderBottom:"1px solid rgba(255,255,255,.03)",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</td>
-                <td style={{padding:"6px 10px",color:"var(--text-tertiary)",fontFamily:"var(--fm)",borderBottom:"1px solid rgba(255,255,255,.03)",fontSize:9}}>{item.sector}</td>
-                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:item.divYield>4?"var(--green)":item.divYield>2?"var(--gold)":"var(--text-secondary)",fontWeight:600,borderBottom:"1px solid rgba(255,255,255,.03)"}}>{_sf(item.divYield,1)}%</td>
-                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:item.payoutFCF<60?"var(--green)":item.payoutFCF<80?"var(--gold)":"var(--red)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{item.payoutFCF}%</td>
-                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:item.debtEBITDA<3?"var(--green)":item.debtEBITDA<5?"var(--gold)":"var(--red)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{_sf(item.debtEBITDA,1)}x</td>
-                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:item.roic>15?"var(--green)":item.roic>8?"var(--text-secondary)":"var(--red)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{_sf(item.roic,1)}%</td>
-                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:item.pe>0&&item.pe<20?"var(--green)":item.pe>0&&item.pe<35?"var(--text-secondary)":"var(--red)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{item.pe>0?_sf(item.pe,1):"—"}</td>
-                <td style={{padding:"6px 10px",textAlign:"center",fontFamily:"var(--fm)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>
-                  <span style={{fontSize:10,padding:"3px 10px",borderRadius:5,fontWeight:700,background:(fmpR.rating||"").startsWith("S")?"rgba(48,209,88,.12)":(fmpR.rating||"").startsWith("A")?"rgba(214,158,46,.12)":(fmpR.rating||"").startsWith("B")?"rgba(10,132,255,.1)":(fmpR.rating||"").startsWith("C")?"rgba(255,69,58,.1)":"rgba(255,255,255,.06)",color:(fmpR.rating||"").startsWith("S")?"#30d158":(fmpR.rating||"").startsWith("A")?"var(--gold)":(fmpR.rating||"").startsWith("B")?"#64d2ff":(fmpR.rating||"").startsWith("C")?"var(--red)":"var(--text-tertiary)"}}>{fmpR.rating||"—"}</span>
+                <td title={item.name} style={{padding:"6px 10px",color:"var(--text-secondary)",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</td>
+                <td style={{padding:"6px 10px",color:"var(--text-tertiary)",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)",fontSize:9}}>{item.sector}</td>
+                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:item.divYield>4?"var(--green)":item.divYield>2?"var(--gold)":"var(--text-secondary)",fontWeight:600,borderBottom:"1px solid var(--subtle-bg)"}}>{_sf(item.divYield,1)}%</td>
+                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:item.payoutFCF<60?"var(--green)":item.payoutFCF<80?"var(--gold)":"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{item.payoutFCF}%</td>
+                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:item.debtEBITDA<3?"var(--green)":item.debtEBITDA<5?"var(--gold)":"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{_sf(item.debtEBITDA,1)}x</td>
+                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:item.roic>15?"var(--green)":item.roic>8?"var(--text-secondary)":"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{_sf(item.roic,1)}%</td>
+                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:item.pe>0&&item.pe<20?"var(--green)":item.pe>0&&item.pe<35?"var(--text-secondary)":"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{item.pe>0?_sf(item.pe,1):"—"}</td>
+                <td style={{padding:"6px 10px",textAlign:"center",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>
+                  <span style={{fontSize:10,padding:"3px 10px",borderRadius:5,fontWeight:700,background:(fmpR.rating||"").startsWith("S")?"rgba(48,209,88,.12)":(fmpR.rating||"").startsWith("A")?"rgba(214,158,46,.12)":(fmpR.rating||"").startsWith("B")?"rgba(10,132,255,.1)":(fmpR.rating||"").startsWith("C")?"rgba(255,69,58,.1)":"var(--subtle-bg2)",color:(fmpR.rating||"").startsWith("S")?"#30d158":(fmpR.rating||"").startsWith("A")?"var(--gold)":(fmpR.rating||"").startsWith("B")?"#64d2ff":(fmpR.rating||"").startsWith("C")?"var(--red)":"var(--text-tertiary)"}}>{fmpR.rating||"—"}</span>
                 </td>
-                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>
+                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>
                   {(() => {
                     const IB_MAP = {"BME:VIS":"VIS","BME:AMS":"AMS","IIPR-PRA":"IIPR PRA","HKG:9618":"9618","HKG:1052":"1052","HKG:2219":"2219","HKG:1910":"1910","HGK:9616":"9616"};
                     const ibTicker = IB_MAP[item.symbol] || item.symbol;
@@ -173,7 +173,7 @@ export default function ScreenerTab() {
                     </div>;
                   })()}
                 </td>
-                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>
+                <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>
                   {(() => {
                     const IB_MAP = {"BME:VIS":"VIS","BME:AMS":"AMS","IIPR-PRA":"IIPR PRA","HKG:9618":"9618"};
                     const ibTicker = IB_MAP[item.symbol] || item.symbol;

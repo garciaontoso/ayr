@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { API_URL, CURRENCIES } from '../../constants/index.js';
+import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
 
 // ─── Categories matching user's budget spreadsheet ───
 const CATEGORIAS = [
@@ -479,10 +480,10 @@ export default function PresupuestoTab() {
               <span>{cat.ico}</span> {CAT_LABELS[cat.id]}
             </div>
             <div style={{ fontSize: 14, fontWeight: 700, color: cat.color, fontFamily: 'var(--fm)', marginTop: 2 }}>{fmt(totals.byCat[cat.id])}</div>
-            <div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>{((totals.byCat[cat.id] / totals.totalMensual) * 100).toFixed(1)}%</div>
+            <div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>{((totals.byCat[cat.id] / (totals.totalMensual || 1)) * 100).toFixed(1)}%</div>
             {/* Mini bar */}
             <div style={{ height: 3, background: 'var(--border)', borderRadius: 2, marginTop: 4, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${(totals.byCat[cat.id] / totals.totalMensual) * 100}%`, background: cat.color, borderRadius: 2 }} />
+              <div style={{ height: '100%', width: `${(totals.byCat[cat.id] / (totals.totalMensual || 1)) * 100}%`, background: cat.color, borderRadius: 2 }} />
             </div>
           </div>
         ))}
@@ -518,7 +519,7 @@ export default function PresupuestoTab() {
               <div style={{ width: 8, height: 8, borderRadius: 2, background: cat.color, flexShrink: 0 }} />
               <span style={{ color: 'var(--text-secondary)', minWidth: 90 }}>{CAT_LABELS[cat.id]}</span>
               <span style={{ color: cat.color, fontWeight: 600, fontFamily: 'var(--fm)' }}>{fmt(totals.byCat[cat.id])}</span>
-              <span style={{ color: 'var(--text-tertiary)', fontSize: 9 }}>{((totals.byCat[cat.id] / totals.totalMensual) * 100).toFixed(0)}%</span>
+              <span style={{ color: 'var(--text-tertiary)', fontSize: 9 }}>{((totals.byCat[cat.id] / (totals.totalMensual || 1)) * 100).toFixed(0)}%</span>
             </div>
           ))}
         </div>
@@ -595,12 +596,9 @@ export default function PresupuestoTab() {
 
       {/* ═══ Items Table ═══ */}
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-tertiary)' }}>Cargando presupuesto...</div>
+        <InlineLoading message="Cargando presupuesto..." />
       ) : filtered.length === 0 ? (
-        <div style={{ ...card, textAlign: 'center', padding: 40 }}>
-          <div style={{ fontSize: 24, marginBottom: 8 }}>📋</div>
-          <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>No hay partidas{catFilter !== 'ALL' ? ` en ${CAT_LABELS[catFilter]}` : ''}. Pulsa "+ Añadir" para empezar.</div>
-        </div>
+        <EmptyState icon="📋" title={catFilter !== 'ALL' ? `Sin partidas en ${CAT_LABELS[catFilter]}` : "Sin partidas de presupuesto"} subtitle="Crea tu primera partida para empezar a controlar tu presupuesto mensual." action="+ Anadir partida" onAction={() => setShowForm(true)} />
       ) : (
         <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>

@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
+import { EmptyState } from '../ui/EmptyState.jsx';
 
 // ═══════════════════════════════════════
 // Proyección de Patrimonio Component
@@ -116,7 +117,7 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
         patReal: pat / Math.pow(1 + inflacionPct/100, i+1),
         inflacionAcum: Math.pow(1 + inflacionPct/100, i+1) - 1,
         fireNumber,
-        firePct: pat / fireNumber * 100,
+        firePct: fireNumber > 0 ? pat / fireNumber * 100 : 0,
       });
 
       // Grow for next year
@@ -553,7 +554,7 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
               {projection.map((r, i) => {
                 const isRetiro = r.year === retiroRow.year;
                 const bg = isRetiro ? 'rgba(255,159,10,.06)' : i % 2 ? 'rgba(255,255,255,.01)' : 'transparent';
-                const td = { padding: '5px 8px', textAlign: 'right', fontFamily: 'var(--fm)', borderBottom: '1px solid rgba(255,255,255,.03)' };
+                const td = { padding: '5px 8px', textAlign: 'right', fontFamily: 'var(--fm)', borderBottom: '1px solid var(--subtle-bg)' };
                 return (
                   <tr key={r.year} style={{ background: bg }}>
                     <td style={{ ...td, textAlign: 'center', fontWeight: 600, color: isRetiro ? 'var(--orange)' : 'var(--text-secondary)' }}>{isRetiro ? `🏖️ ${r.year}` : r.year}</td>
@@ -601,7 +602,7 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
             <tbody>
               {[4, 5, 6, 7, 8, 10, 12].map(ret => (
                 <tr key={ret}>
-                  <td style={{ padding: '5px 8px', fontWeight: 600, fontFamily: 'var(--fm)', color: Math.abs(params.retorno - ret) < 0.5 ? 'var(--gold)' : 'var(--text-secondary)', borderBottom: '1px solid rgba(255,255,255,.03)' }}>{ret}%</td>
+                  <td style={{ padding: '5px 8px', fontWeight: 600, fontFamily: 'var(--fm)', color: Math.abs(params.retorno - ret) < 0.5 ? 'var(--gold)' : 'var(--text-secondary)', borderBottom: '1px solid var(--subtle-bg)' }}>{ret}%</td>
                   {[60000, 80000, 100000, 120000, 150000].map(g => {
                     // Quick sim: compound pat for N years
                     let p = params.patrimonioInicial;
@@ -619,7 +620,7 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
                     return (
                       <td key={g} style={{
                         padding: '5px 8px', textAlign: 'center', fontWeight: isActive ? 800 : 600,
-                        fontFamily: 'var(--fm)', borderBottom: '1px solid rgba(255,255,255,.03)',
+                        fontFamily: 'var(--fm)', borderBottom: '1px solid var(--subtle-bg)',
                         color: p >= 2e6 ? 'var(--green)' : p >= 1e6 ? 'var(--gold)' : p > 0 ? 'var(--orange)' : 'var(--red)',
                         background: isActive ? 'rgba(214,158,46,.1)' : 'transparent',
                       }}>
@@ -724,6 +725,10 @@ const sparkPath = spark.map((d,i) => {
   return `${i===0?"M":"L"}${_sf(x,1)},${_sf(y,1)}`;
 }).join(" ");
 
+if (data.length === 0) {
+  return <EmptyState icon="📈" title="Sin datos de patrimonio" subtitle="Registra tu primer snapshot mensual para empezar a trackear la evolucion de tu patrimonio." action="Nuevo snapshot" onAction={() => {}} />;
+}
+
 return (
 <div style={{display:"flex",flexDirection:"column",gap:16}}>
   {/* Section toggle */}
@@ -767,7 +772,7 @@ return (
       const bankPct = ((latest.bk || 0) * (latest.fx || 1.08) / total * 100);
       const otherPct = Math.max(0, 100 - brokerPct - bankPct);
       return <div style={{marginTop:4}}>
-        <div style={{display:"flex",height:8,borderRadius:6,overflow:"hidden",background:"rgba(255,255,255,.03)"}}>
+        <div style={{display:"flex",height:8,borderRadius:6,overflow:"hidden",background:"var(--subtle-bg)"}}>
           <div style={{width:`${brokerPct}%`,background:"var(--gold)",transition:"width .5s"}}/>
           <div style={{width:`${bankPct}%`,background:"#64d2ff",transition:"width .5s"}}/>
           {otherPct > 1 && <div style={{width:`${otherPct}%`,background:"rgba(255,255,255,.1)"}}/>}
@@ -824,7 +829,7 @@ return (
           </div>
           <div style={{flex:1,position:"relative"}}>
             <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",justifyContent:"space-between",pointerEvents:"none"}}>
-              {ySteps.map(v => <div key={v} style={{borderBottom:"1px solid rgba(255,255,255,.04)",width:"100%"}}/>)}
+              {ySteps.map(v => <div key={v} style={{borderBottom:"1px solid var(--subtle-border)",width:"100%"}}/>)}
             </div>
             <div style={{display:"flex",alignItems:"flex-end",gap:1,height:chartH,position:"relative"}}>
               {data.map((d, i) => {
@@ -900,7 +905,7 @@ return (
     <div style={{fontSize:14,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:16}}>📅 Rentabilidad Anual</div>
     <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
       {annualReturns.filter(a => a.ytdUsd != null).map(a => (
-        <div key={a.y} style={{flex:"1 1 130px",padding:"14px 18px",background:"rgba(255,255,255,.02)",borderRadius:12,border:`1px solid ${(a.ytdUsd||0)>=0?"rgba(48,209,88,.15)":"rgba(255,69,58,.15)"}`,textAlign:"center"}}>
+        <div key={a.y} style={{flex:"1 1 130px",padding:"14px 18px",background:"var(--row-alt)",borderRadius:12,border:`1px solid ${(a.ytdUsd||0)>=0?"rgba(48,209,88,.15)":"rgba(255,69,58,.15)"}`,textAlign:"center"}}>
           <div style={{fontSize:14,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginBottom:4}}>{a.y}</div>
           <div style={{fontSize:28,fontWeight:700,color:retCol(a.ytdUsd),fontFamily:"var(--fm)"}}>{retFmt(a.ytdUsd)}</div>
           <div style={{fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>EUR {retFmt(a.ytdEur)}</div>
@@ -926,15 +931,15 @@ return (
             const bg = i%2 ? "rgba(255,255,255,.01)" : "transparent";
             return (
               <tr key={d.d} style={{background:bg}} onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"} onMouseLeave={e=>e.currentTarget.style.background=bg}>
-                <td style={{padding:"6px 12px",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid rgba(255,255,255,.03)",fontWeight:500}}>{d.d}</td>
-                <td style={{padding:"6px 12px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid rgba(255,255,255,.03)",fontWeight:600}}>${(d.pu||0).toLocaleString(undefined,{maximumFractionDigits:0})}</td>
-                <td style={{padding:"6px 12px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>€{(d.pe||0).toLocaleString(undefined,{maximumFractionDigits:0})}</td>
-                <td style={{padding:"6px 12px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>${(d.br||0).toLocaleString(undefined,{maximumFractionDigits:0})}</td>
-                <td style={{padding:"6px 12px",textAlign:"right",fontFamily:"var(--fm)",color:"#64d2ff",borderBottom:"1px solid rgba(255,255,255,.03)"}}>€{(d.bk||0).toLocaleString(undefined,{maximumFractionDigits:0})}</td>
-                <td style={{padding:"6px 12px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{d.fx?.toFixed(2)||"—"}</td>
-                <td style={{padding:"6px 12px",textAlign:"right",fontFamily:"var(--fm)",fontWeight:600,color:retCol(d.mReturnUsd),borderBottom:"1px solid rgba(255,255,255,.03)"}}>{retFmt(d.mReturnUsd)}</td>
-                <td style={{padding:"6px 12px",textAlign:"right",fontFamily:"var(--fm)",color:retCol(d.mReturnEur),borderBottom:"1px solid rgba(255,255,255,.03)"}}>{retFmt(d.mReturnEur)}</td>
-                <td style={{padding:"6px 12px",textAlign:"right",fontFamily:"var(--fm)",color:d.sl?"var(--text-secondary)":"var(--text-tertiary)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{d.sl ? `$${fDol(d.sl)}` : "—"}</td>
+                <td style={{padding:"6px 12px",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)",fontWeight:500}}>{d.d}</td>
+                <td style={{padding:"6px 12px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)",fontWeight:600}}>${(d.pu||0).toLocaleString(undefined,{maximumFractionDigits:0})}</td>
+                <td style={{padding:"6px 12px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)"}}>€{(d.pe||0).toLocaleString(undefined,{maximumFractionDigits:0})}</td>
+                <td style={{padding:"6px 12px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)"}}>${(d.br||0).toLocaleString(undefined,{maximumFractionDigits:0})}</td>
+                <td style={{padding:"6px 12px",textAlign:"right",fontFamily:"var(--fm)",color:"#64d2ff",borderBottom:"1px solid var(--subtle-bg)"}}>€{(d.bk||0).toLocaleString(undefined,{maximumFractionDigits:0})}</td>
+                <td style={{padding:"6px 12px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{d.fx?.toFixed(2)||"—"}</td>
+                <td style={{padding:"6px 12px",textAlign:"right",fontFamily:"var(--fm)",fontWeight:600,color:retCol(d.mReturnUsd),borderBottom:"1px solid var(--subtle-bg)"}}>{retFmt(d.mReturnUsd)}</td>
+                <td style={{padding:"6px 12px",textAlign:"right",fontFamily:"var(--fm)",color:retCol(d.mReturnEur),borderBottom:"1px solid var(--subtle-bg)"}}>{retFmt(d.mReturnEur)}</td>
+                <td style={{padding:"6px 12px",textAlign:"right",fontFamily:"var(--fm)",color:d.sl?"var(--text-secondary)":"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{d.sl ? `$${fDol(d.sl)}` : "—"}</td>
               </tr>
             );
           })}

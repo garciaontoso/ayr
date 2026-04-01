@@ -22,7 +22,7 @@ export default function ScoreTab() {
             return (
               <Card key={cat} title={cat}>
                 {items.map((it,i)=>(
-                  <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:i<items.length-1?"1px solid #21262d":"none"}}>
+                  <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:i<items.length-1?"1px solid var(--table-border)":"none"}}>
                     <div>
                       <div style={{fontSize:12,color:"var(--text-primary)",fontWeight:500}}>{it.name}</div>
                       <div style={{fontSize:18,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",marginTop:2}}>{n(it.val)!=null?(typeof it.val==="number"&&it.rules===R.pio?`${it.val}/9`:it.rules===R.growth||it.rules===R.mos?fP(it.val):it.rules===R.d2fcf||it.rules===R.ic||it.rules===R.eve?fX(it.val):it.name==="Altman Z"?_sf(it.val,1):fP(it.val)):"—"}</div>
@@ -52,9 +52,9 @@ export default function ScoreTab() {
         <Card title="Altman Z-Score" icon="📐" badge={altmanZ.score != null ? <span style={{fontSize:11,fontWeight:700,color:altmanZ.zoneColor,background:`${altmanZ.zoneColor}15`,padding:"4px 12px",borderRadius:100,border:`1px solid ${altmanZ.zoneColor}33`}}>{_sf(altmanZ.score,2)} — {altmanZ.zone}</span> : null} style={{marginTop:16}}>
           {altmanZ.score != null ? (
             <div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6,marginBottom:12}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(100px, 1fr))",gap:6,marginBottom:12}}>
                 {altmanZ.items.map((it,i)=>(
-                  <div key={i} style={{padding:"8px",borderRadius:8,background:"rgba(255,255,255,.03)",textAlign:"center"}}>
+                  <div key={i} style={{padding:"8px",borderRadius:8,background:"var(--subtle-bg)",textAlign:"center"}}>
                     <div style={{fontSize:8,color:"var(--text-tertiary)",textTransform:"uppercase",fontFamily:"var(--fm)",marginBottom:4}}>{it.name.split(":")[0]}</div>
                     <div style={{fontSize:16,fontWeight:700,color:it.weighted>0?"var(--text-primary)":"var(--red)",fontFamily:"var(--fm)"}}>{_sf(it.weighted,2)}</div>
                     <div style={{fontSize:8,color:"var(--text-tertiary)",marginTop:2}}>×{it.weight}</div>
@@ -80,7 +80,7 @@ export default function ScoreTab() {
             </div>
           </Card>
 
-          <Card title="Buyback / Dilución" icon="🔄" badge={advancedMetrics.buybackCAGR != null ? <span style={{fontSize:11,fontWeight:700,color:advancedMetrics.buybackCAGR<-0.01?"#30d158":advancedMetrics.buybackCAGR>0.01?"#ff453a":"#888",background:advancedMetrics.buybackCAGR<-0.01?"rgba(48,209,88,.12)":advancedMetrics.buybackCAGR>0.01?"rgba(255,69,58,.12)":"rgba(255,255,255,.06)",padding:"4px 12px",borderRadius:100,border:"1px solid rgba(255,255,255,.1)"}}>{advancedMetrics.buybackLabel}</span> : null}>
+          <Card title="Buyback / Dilución" icon="🔄" badge={advancedMetrics.buybackCAGR != null ? <span style={{fontSize:11,fontWeight:700,color:advancedMetrics.buybackCAGR<-0.01?"#30d158":advancedMetrics.buybackCAGR>0.01?"#ff453a":"#888",background:advancedMetrics.buybackCAGR<-0.01?"rgba(48,209,88,.12)":advancedMetrics.buybackCAGR>0.01?"rgba(255,69,58,.12)":"rgba(255,255,255,.06)",padding:"4px 12px",borderRadius:100,border:"1px solid var(--border-hover)"}}>{advancedMetrics.buybackLabel}</span> : null}>
             <div style={{textAlign:"center",padding:"8px 0"}}>
               <div style={{fontSize:28,fontWeight:800,color:advancedMetrics.buybackCAGR!=null?(advancedMetrics.buybackCAGR<-0.01?"var(--green)":advancedMetrics.buybackCAGR>0.01?"var(--red)":"var(--text-primary)"):"var(--text-tertiary)",fontFamily:"var(--fm)"}}>
                 {advancedMetrics.buybackCAGR != null ? `${(advancedMetrics.buybackCAGR*100)>0?"+":""}${_sf(advancedMetrics.buybackCAGR*100,1)}%` : "—"}
@@ -108,7 +108,7 @@ export default function ScoreTab() {
             <span style={{fontSize:11,fontWeight:700,
               color:ssd.aiDisruptionLevel==="Low"?"#30d158":ssd.aiDisruptionLevel==="Medium"?"#ffd60a":ssd.aiDisruptionLevel==="High"?"#ff9f0a":"#ff453a",
               background:ssd.aiDisruptionLevel==="Low"?"rgba(48,209,88,.12)":ssd.aiDisruptionLevel==="Medium"?"rgba(255,214,10,.12)":ssd.aiDisruptionLevel==="High"?"rgba(255,159,10,.12)":"rgba(255,69,58,.12)",
-              padding:"4px 12px",borderRadius:100,border:"1px solid rgba(255,255,255,.1)"
+              padding:"4px 12px",borderRadius:100,border:"1px solid var(--border-hover)"
             }}>{ssd.aiDisruptionLevel} ({ssd.aiDisruptionScore}/100)</span>
           }>
             <div style={{textAlign:"center",padding:"8px 0"}}>
@@ -150,7 +150,7 @@ export default function ScoreTab() {
 
         <Card style={{marginTop:16}}>
           <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",marginBottom:8,fontFamily:"var(--fd)"}}>📝 Notas y Tesis de Inversión</div>
-          <textarea placeholder="Escribe tu tesis: ¿por qué invertir? ¿Cuáles son los riesgos? ¿Catalizadores? ¿Precio objetivo?" style={{width:"100%",minHeight:120,padding:12,background:"#000",border:"1px solid #21262d",borderRadius:8,color:"var(--text-primary)",fontSize:12,resize:"vertical",outline:"none",fontFamily:"inherit",lineHeight:1.6}} onFocus={e=>e.target.style.borderColor="var(--gold)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/>
+          <textarea placeholder="Escribe tu tesis: ¿por qué invertir? ¿Cuáles son los riesgos? ¿Catalizadores? ¿Precio objetivo?" style={{width:"100%",minHeight:120,padding:12,background:"var(--bg)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:12,resize:"vertical",outline:"none",fontFamily:"inherit",lineHeight:1.6}} onFocus={e=>e.target.style.borderColor="var(--gold)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/>
         </Card>
       </div>
     );

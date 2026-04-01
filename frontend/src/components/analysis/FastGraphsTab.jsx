@@ -179,27 +179,27 @@ export default function FastGraphsTab() {
             </defs>
 
             {/* Background */}
-            <rect x={PADL} y={PADT} width={chartW} height={chartH} fill="#0a0a0a" rx={4}/>
+            <rect x={PADL} y={PADT} width={chartW} height={chartH} fill="var(--chart-bg)" rx={4}/>
 
             {/* Grid lines */}
             {gridLines.map((g, i) => (
               <g key={i}>
-                <line x1={PADL} y1={g.y} x2={PADL + chartW} y2={g.y} stroke="rgba(255,255,255,.05)" strokeWidth={1}/>
-                <text x={PADL - 6} y={g.y + 4} textAnchor="end" fontSize={9} fill="rgba(255,255,255,.3)" fontFamily="monospace">${yNice(g.val)}</text>
+                <line x1={PADL} y1={g.y} x2={PADL + chartW} y2={g.y} stroke="var(--subtle-border)" strokeWidth={1}/>
+                <text x={PADL - 6} y={g.y + 4} textAnchor="end" fontSize={9} fill="var(--text-tertiary)" fontFamily="monospace">${yNice(g.val)}</text>
               </g>
             ))}
 
             {/* Vertical year lines */}
             {allYears.filter((y, i) => i % 2 === 0).map(y => (
               <g key={y}>
-                <line x1={xScale(y)} y1={PADT} x2={xScale(y)} y2={PADT + chartH} stroke="rgba(255,255,255,.04)" strokeWidth={1}/>
-                <text x={xScale(y)} y={PADT + chartH + 16} textAnchor="middle" fontSize={9} fill="rgba(255,255,255,.3)" fontFamily="monospace">{y}</text>
+                <line x1={xScale(y)} y1={PADT} x2={xScale(y)} y2={PADT + chartH} stroke="var(--subtle-border)" strokeWidth={1}/>
+                <text x={xScale(y)} y={PADT + chartH + 16} textAnchor="middle" fontSize={9} fill="var(--text-tertiary)" fontFamily="monospace">{y}</text>
               </g>
             ))}
 
             {/* Separator: hist vs projection */}
             {validHist.length > 0 && (
-              <line x1={xScale(lastHistY)} y1={PADT} x2={xScale(lastHistY)} y2={PADT + chartH} stroke="rgba(255,255,255,.15)" strokeWidth={1} strokeDasharray="4,4"/>
+              <line x1={xScale(lastHistY)} y1={PADT} x2={xScale(lastHistY)} y2={PADT + chartH} stroke="var(--border-hover)" strokeWidth={1} strokeDasharray="4,4"/>
             )}
 
             {/* EPS area (green) */}
@@ -243,16 +243,16 @@ export default function FastGraphsTab() {
 
             {/* Projected EPS dots */}
             {projLinePts.map((pt, i) => (
-              <circle key={i} cx={pt.x} cy={pt.y} r={3} fill="#64d2ff" strokeWidth={1.5} stroke="#0a0a0a"/>
+              <circle key={i} cx={pt.x} cy={pt.y} r={3} fill="#64d2ff" strokeWidth={1.5} stroke="var(--chart-bg)"/>
             ))}
 
             {/* Current price — horizontal dashed line across chart */}
             {currentPriceY != null && (
               <>
-                <line x1={PADL} y1={currentPriceY} x2={PADL + chartW} y2={currentPriceY} stroke="rgba(255,255,255,.5)" strokeWidth={1} strokeDasharray="2,4"/>
+                <line x1={PADL} y1={currentPriceY} x2={PADL + chartW} y2={currentPriceY} stroke="var(--text-secondary)" strokeWidth={1} strokeDasharray="2,4"/>
                 {/* Price dot at last hist year */}
-                <circle cx={currentPriceX} cy={currentPriceY} r={6} fill="#ffffff" stroke="#000" strokeWidth={2}/>
-                <text x={currentPriceX + 10} y={currentPriceY + 4} fontSize={10} fill="white" fontFamily="monospace" fontWeight="bold">{fC(cfg.price)}</text>
+                <circle cx={currentPriceX} cy={currentPriceY} r={6} fill="var(--text-primary)" stroke="var(--bg)" strokeWidth={2}/>
+                <text x={currentPriceX + 10} y={currentPriceY + 4} fontSize={10} fill="var(--text-primary)" fontFamily="monospace" fontWeight="bold">{fC(cfg.price)}</text>
               </>
             )}
 
@@ -300,7 +300,7 @@ export default function FastGraphsTab() {
                 const fairDiv = n(d.val) ? (d.val + (d.div||0)) * fgPE : null;
                 const isProj = d.projected;
                 return (
-                  <tr key={d.y} style={{background:isProj?"rgba(100,210,255,.03)":i%2?"rgba(255,255,255,.02)":"transparent"}}>
+                  <tr key={d.y} style={{background:isProj?"rgba(100,210,255,.03)":i%2?"var(--row-alt)":"transparent"}}>
                     <td style={{padding:"7px 14px",color:isProj?"#64d2ff":"var(--text-primary)",fontWeight:isProj?600:400,borderBottom:"1px solid #21262d",fontFamily:"var(--fm)"}}>{d.y}{isProj?" ★":""}</td>
                     <td style={{padding:"7px 10px",textAlign:"right",color:n(d.val)&&d.val<0?"var(--red)":"var(--orange)",fontWeight:600,borderBottom:"1px solid #21262d",fontFamily:"var(--fm)"}}>{fC(d.val)}</td>
                     <td style={{padding:"7px 10px",textAlign:"right",color:"#ffd60a",borderBottom:"1px solid #21262d",fontFamily:"var(--fm)"}}>{n(d.div)&&d.div>0?fC(d.div):"—"}</td>

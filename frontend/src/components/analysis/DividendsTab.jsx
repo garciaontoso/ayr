@@ -67,8 +67,8 @@ export default function DividendsTab() {
             </div>
             {/* Middle metrics */}
             <div>
-              {S.safetyNote && <div style={{fontSize:11,color:"var(--text-secondary)",lineHeight:1.7,marginBottom:12,padding:"10px 14px",background:"rgba(255,255,255,.02)",borderRadius:8,borderLeft:`3px solid ${safetyColor}`}}>{S.safetyNote}</div>}
-              <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
+              {S.safetyNote && <div style={{fontSize:11,color:"var(--text-secondary)",lineHeight:1.7,marginBottom:12,padding:"10px 14px",background:"var(--row-alt)",borderRadius:8,borderLeft:`3px solid ${safetyColor}`}}>{S.safetyNote}</div>}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(120px, 1fr))",gap:8}}>
                 {(() => {
                   const fwdEPS = fmpExtra.estimates?.[0]?.epsAvg || fmpExtra.estimates?.[0]?.estimatedEpsAvg;
                   const fwdPayout = fwdEPS > 0 && LD.dps > 0 ? LD.dps / fwdEPS : null;
@@ -79,7 +79,7 @@ export default function DividendsTab() {
                   {l:"Deuda/EBITDA",v:(S.ndEbitda!=null?_sf(S.ndEbitda,1)+"x":"—"),c:S.ndEbitda<3?cGreen:S.ndEbitda<5?cYellow:cRed},
                   {l:"FCF Coverage",v:fcfCoverage?_sf(fcfCoverage,1)+"x":"—",c:fcfCoverage&&fcfCoverage>2?cGreen:fcfCoverage&&fcfCoverage>1.5?cYellow:cRed},
                 ]})().map((x,i)=>(
-                  <div key={i} style={{padding:"10px 8px",borderRadius:8,background:"rgba(255,255,255,.03)",textAlign:"center",border:"1px solid rgba(255,255,255,.04)"}}>
+                  <div key={i} style={{padding:"10px 8px",borderRadius:8,background:"var(--subtle-bg)",textAlign:"center",border:"1px solid var(--subtle-border)"}}>
                     <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>{x.l}</div>
                     <div style={{fontSize:18,fontWeight:700,color:x.c,fontFamily:"var(--fm)"}}>{x.v}</div>
                   </div>
@@ -122,7 +122,7 @@ export default function DividendsTab() {
             {S.notes.map((note,i) => {
               const nc = note.score>=80?cGreen:note.score>=60?"#8BC34A":cOrange;
               return (
-                <div key={i} style={{display:"flex",gap:14,padding:"12px 14px",background:"rgba(255,255,255,.02)",borderRadius:10,border:"1px solid rgba(255,255,255,.04)"}}>
+                <div key={i} style={{display:"flex",gap:14,padding:"12px 14px",background:"var(--row-alt)",borderRadius:10,border:"1px solid var(--subtle-border)"}}>
                   <div style={{width:42,height:42,borderRadius:"50%",border:`2.5px solid ${nc}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                     <span style={{fontSize:16,fontWeight:800,color:nc,fontFamily:"var(--fm)"}}>{note.score}</span>
                   </div>
@@ -139,13 +139,13 @@ export default function DividendsTab() {
 
         {/* ══════ DIVIDEND GROWTH ══════ */}
         <Card title="Crecimiento del Dividendo" icon="📈">
-          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:16}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))",gap:12,marginBottom:16}}>
             {[
               {l:"Últimos 12 Meses",v:S.growthLast12m},
               {l:"CAGR 5 Años",v:S.growthLast5y,sub:"anualizado"},
               {l:"CAGR 10 Años",v:S.growthLast10y,sub:"anualizado"},
             ].map((x,i)=>(
-              <div key={i} style={{textAlign:"center",padding:"14px",background:"rgba(255,255,255,.025)",borderRadius:10,border:"1px solid rgba(255,255,255,.04)"}}>
+              <div key={i} style={{textAlign:"center",padding:"14px",background:"rgba(255,255,255,.025)",borderRadius:10,border:"1px solid var(--subtle-border)"}}>
                 <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textTransform:"uppercase",letterSpacing:.5}}>{x.l}</div>
                 <div style={{fontSize:28,fontWeight:800,color:x.v!=null&&x.v!==0?(x.v>=0?cGreen:cRed):"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:6}}>{x.v!=null&&x.v!==0?`${_sf(x.v*100,1)}%`:"—"}</div>
                 {x.sub && <div style={{fontSize:9,color:"var(--text-tertiary)",marginTop:2}}>{x.sub}</div>}
@@ -188,7 +188,7 @@ export default function DividendsTab() {
               {t:"Deuda Neta/EBITDA",d:"Años de EBITDA para saldar deuda. <3x preferido para seguridad.",
                 data:histYrs.map(y=>({y,v:comp[y]?.ebitda>0?comp[y].netDebt/comp[y].ebitda:null})), cf:v=>v&&v<3?cGreen:v&&v<4?cOrange:cRed, ff:v=>`${_sf(v,1)}x`},
             ].map((ch,i)=>(
-              <div key={i} style={{padding:"12px",background:"rgba(255,255,255,.02)",borderRadius:10,border:"1px solid rgba(255,255,255,.04)"}}>
+              <div key={i} style={{padding:"12px",background:"var(--row-alt)",borderRadius:10,border:"1px solid var(--subtle-border)"}}>
                 <div style={{fontSize:12,fontWeight:600,color:"var(--text-primary)",marginBottom:3}}>{ch.t}</div>
                 <div style={{fontSize:9.5,color:"var(--text-tertiary)",lineHeight:1.5,marginBottom:8}}>{ch.d}</div>
                 <DivBar data={ch.data} colorFn={ch.cf} formatFn={ch.ff} height={80}/>
@@ -199,7 +199,7 @@ export default function DividendsTab() {
 
         {/* ══════ PAYMENT DETAILS ══════ */}
         <Card title="Detalles del Pago" icon="📅">
-          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(130px, 1fr))",gap:10}}>
             {[
               {l:"Frecuencia",v:S.frequency,s:S.freqMonths},
               {l:"Pago Anual",v:`$${S.annualPayout?.toFixed(2)||"—"}`,s:"por acción"},
@@ -207,7 +207,7 @@ export default function DividendsTab() {
               {l:"Fecha Pago",v:S.payDate||"—",s:S.payDateStatus||""},
               {l:"Fiscalidad",v:S.taxation,s:S.taxForm},
             ].map((x,i)=>(
-              <div key={i} style={{textAlign:"center",padding:"12px 8px",background:"rgba(255,255,255,.02)",borderRadius:10,border:"1px solid rgba(255,255,255,.04)"}}>
+              <div key={i} style={{textAlign:"center",padding:"12px 8px",background:"var(--row-alt)",borderRadius:10,border:"1px solid var(--subtle-border)"}}>
                 <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textTransform:"uppercase",letterSpacing:.5}}>{x.l}</div>
                 <div style={{fontSize:15,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",marginTop:5}}>{x.v}</div>
                 <div style={{fontSize:9.5,color:"var(--text-tertiary)",marginTop:2}}>{x.s}</div>

@@ -55,7 +55,7 @@ function ARReport() {
       {/* RESUMEN EJECUTIVO */}
       <div style={card}>
         <div style={hd}>Resumen Ejecutivo</div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:12}}>
           {[
             {l:"Market Cap",v:fV(Math.round((r.marketCap||0)/1e6))},
             {l:"P/E Ratio",v:L.pe||"—",c:L.pe>0&&L.pe<20?"#34d399":L.pe<35?"var(--text-primary)":"#f87171"},
@@ -69,7 +69,7 @@ function ARReport() {
             {l:"DPA",v:`${s}${_sf(L.dps,2)}`,c:"var(--gold)"},
             {l:"Payout",v:`${L.payout||"—"}%`,c:L.payout<60?"#34d399":L.payout<80?"#d69e2e":"#f87171"},
             {l:"Score A&R",v:`${_sf(r.finalScore,1)}/5`,c:qC(r.finalScore)},
-          ].map((kpi,i)=><div key={i} style={{padding:"10px",background:"rgba(255,255,255,.02)",borderRadius:10}}>
+          ].map((kpi,i)=><div key={i} style={{padding:"10px",background:"var(--row-alt)",borderRadius:10}}>
             <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,textTransform:"uppercase"}}>{kpi.l}</div>
             <div style={{fontSize:17,fontWeight:700,color:kpi.c||"var(--text-primary)",fontFamily:"var(--fm)",marginTop:2}}>{kpi.v}</div>
           </div>)}
@@ -81,7 +81,7 @@ function ARReport() {
         <div style={card}>
           <div style={hd}>Crecimiento (CAGR {yrs.length}Y)</div>
           {[{l:"Ventas",v:revCAGR},{l:"BPA",v:epsCAGR},{l:"DPA",v:dpsCAGR},{l:"FCF",v:fcfCAGR}].map((g,i)=>
-            <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}}>
+            <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid var(--subtle-border)"}}>
               <span style={{fontSize:11,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{g.l}</span>
               <span style={{fontSize:13,fontWeight:700,color:pC(g.v),fontFamily:"var(--fm)"}}>{g.v!=null?`${g.v>0?"+":""}${_sf(g.v,1)}%`:"—"}</span>
             </div>)}
@@ -93,7 +93,7 @@ function ARReport() {
             {l:"Autonomía Financiera",v:L.autonomy!=null?`${L.autonomy}%`:"—",c:L.autonomy>40?"#34d399":"#f87171"},
             {l:"Deuda Neta",v:L.netDebt!=null?`${s}${fV(L.netDebt)}`:"—",c:L.netDebt<0?"#34d399":"var(--text-primary)"},
           ].map((g,i)=>
-            <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}}>
+            <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid var(--subtle-border)"}}>
               <span style={{fontSize:11,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{g.l}</span>
               <span style={{fontSize:13,fontWeight:700,color:g.c||"var(--text-primary)",fontFamily:"var(--fm)"}}>{g.v}</span>
             </div>)}
@@ -112,7 +112,7 @@ function ARReport() {
             {l:"Target Bajo",v:r.valuation.targetLow},
           ].map((p,i)=>{
             const disc=p.v&&r.price?Math.round((p.v-r.price)/r.price*100):null;
-            return <div key={i} style={{padding:"12px",background:"rgba(255,255,255,.02)",borderRadius:10}}>
+            return <div key={i} style={{padding:"12px",background:"var(--row-alt)",borderRadius:10}}>
               <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textTransform:"uppercase",letterSpacing:.3}}>{p.l}</div>
               <div style={{fontSize:18,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",marginTop:3}}>{p.v?`${s}${_sf(p.v,0)}`:"—"}</div>
               {disc!=null&&<div style={{fontSize:10,fontWeight:600,color:disc>0?"#34d399":"#f87171",fontFamily:"var(--fm)"}}>{disc>0?"+":""}{disc}% upside</div>}
@@ -141,9 +141,9 @@ function ARReport() {
           </tr></thead>
           <tbody>
             {[{k:"revenue",l:"Ventas",cagr:revCAGR},{k:"netIncome",l:"Beneficio Neto"},{k:"ebitda",l:"EBITDA"},{k:"fcf",l:"Free Cash Flow",cagr:fcfCAGR},{k:"eps",l:"BPA",dec:1,cagr:epsCAGR},{k:"dps",l:"DPA",dec:1,cagr:dpsCAGR,gold:1},{k:"payout",l:"Payout %",pct:1},{k:"rpd",l:"Yield %",pct:1},{k:"pe",l:"PER",dec:1},{k:"debtEbitda",l:"D/EBITDA",dec:1},{k:"roe",l:"ROE %",pct:1},{k:"marginNet",l:"Margen Neto %",pct:1}].map(row=>
-              <tr key={row.k}><td style={{padding:"4px 7px",fontWeight:600,color:row.gold?"var(--gold)":"var(--text-secondary)",fontFamily:"var(--fm)",borderBottom:"1px solid rgba(255,255,255,.04)",fontSize:10}}>{row.l}</td>
-                {yrs.map(y=>{const v=y[row.k];return <td key={y.year} style={{padding:"4px 7px",textAlign:"right",fontFamily:"var(--fm)",color:row.gold?"var(--gold)":v>0?"var(--text-primary)":v<0?"#f87171":"var(--text-tertiary)",borderBottom:"1px solid rgba(255,255,255,.04)",fontSize:10}}>{v!=null?(row.pct?v+"%":row.dec?_sf(v,2):fV(v)):"—"}</td>;})}
-                <td style={{padding:"4px 7px",textAlign:"right",fontWeight:700,fontFamily:"var(--fm)",color:pC(row.cagr),borderBottom:"1px solid rgba(255,255,255,.04)",fontSize:10}}>{row.cagr!=null?`${row.cagr>0?"+":""}${_sf(row.cagr,1)}%`:"—"}</td>
+              <tr key={row.k}><td style={{padding:"4px 7px",fontWeight:600,color:row.gold?"var(--gold)":"var(--text-secondary)",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-border)",fontSize:10}}>{row.l}</td>
+                {yrs.map(y=>{const v=y[row.k];return <td key={y.year} style={{padding:"4px 7px",textAlign:"right",fontFamily:"var(--fm)",color:row.gold?"var(--gold)":v>0?"var(--text-primary)":v<0?"#f87171":"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-border)",fontSize:10}}>{v!=null?(row.pct?v+"%":row.dec?_sf(v,2):fV(v)):"—"}</td>;})}
+                <td style={{padding:"4px 7px",textAlign:"right",fontWeight:700,fontFamily:"var(--fm)",color:pC(row.cagr),borderBottom:"1px solid var(--subtle-border)",fontSize:10}}>{row.cagr!=null?`${row.cagr>0?"+":""}${_sf(row.cagr,1)}%`:"—"}</td>
               </tr>)}
           </tbody>
         </table></div>
@@ -171,7 +171,7 @@ function ARReport() {
           {[{l:"Solidez",items:r.scoring.solidez},{l:"Rentabilidad",items:r.scoring.rentabilidad},{l:"Dividendo",items:r.scoring.dividendo}].map(sec=>{
             const vals=Object.values(sec.items).filter(v=>v!=null);
             const avg=vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:0;
-            return <div key={sec.l} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}}>
+            return <div key={sec.l} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid var(--subtle-border)"}}>
               <span style={{fontSize:11,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{sec.l}</span>
               <span style={{fontSize:14,fontWeight:800,color:qC(avg),fontFamily:"var(--fm)"}}>{_sf(avg,1)}</span>
             </div>;
@@ -187,7 +187,7 @@ function ARReport() {
       {r.estimates?.length>0&&<div style={card}>
         <div style={hd}>Estimaciones de Analistas</div>
         <div style={{display:"flex",gap:14}}>
-          {r.estimates.map((e,i)=><div key={i} style={{flex:1,padding:12,background:"rgba(255,255,255,.02)",borderRadius:10}}>
+          {r.estimates.map((e,i)=><div key={i} style={{flex:1,padding:12,background:"var(--row-alt)",borderRadius:10}}>
             <div style={{fontSize:13,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{e.year}</div>
             <div style={{fontSize:9,color:"var(--text-tertiary)",marginTop:4}}>BPA Estimado</div>
             <div style={{fontSize:16,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{s}{_sf(e.epsEst,2)}</div>

@@ -19,7 +19,7 @@ export default function ResearchTab() {
   <div style={{display:"flex",gap:8,alignItems:"center"}}>
     <input type="text" placeholder="Escribe un ticker y pulsa Enter o Buscar" value={searchTicker} onChange={e=>setSearchTicker(e.target.value.toUpperCase())}
       onKeyDown={e=>{if(e.key==="Enter"&&searchTicker){setCfg(prev=>({...prev,ticker:searchTicker,name:searchTicker}));setViewMode("analysis");setTab("dash");}}}
-      style={{flex:1,maxWidth:300,padding:"10px 14px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:12,color:"var(--text-primary)",fontSize:13,outline:"none",fontFamily:"var(--fm)"}}
+      style={{flex:1,maxWidth:300,padding:"10px 14px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:12,color:"var(--text-primary)",fontSize:13,outline:"none",fontFamily:"var(--fm)"}}
       onFocus={e=>e.target.style.borderColor="var(--gold)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/>
     <button onClick={()=>{if(searchTicker){setCfg(prev=>({...prev,ticker:searchTicker,name:searchTicker}));setViewMode("analysis");setTab("dash");}}}
       style={{padding:"10px 20px",borderRadius:12,border:"1px solid var(--green)",background:"rgba(48,209,88,.08)",color:"var(--green)",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>🔍 Analizar</button>
@@ -90,7 +90,7 @@ export default function ResearchTab() {
       {lists.map((list,li) => (
         <div key={li} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden"}}>
           <div onClick={()=>setOpenList(openList===li?null:li)} style={{padding:"14px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}
-            onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,.02)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+            onMouseEnter={e=>e.currentTarget.style.background="var(--row-alt)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
             <div>
               <div style={{fontSize:13,fontWeight:700,color:list.color,fontFamily:"var(--fd)"}}>{list.name}</div>
               <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>{list.desc} · {list.tickers.length} empresas</div>
@@ -125,7 +125,7 @@ export default function ResearchTab() {
             const rc = r => (r||"").startsWith("S")?"#30d158":(r||"").startsWith("A")?"var(--gold)":(r||"").startsWith("B")?"#64d2ff":(r||"").startsWith("C")?"var(--red)":"var(--text-tertiary)";
             const riskC = r => r==="Bajo"?"var(--green)":r==="Medio"?"var(--orange)":"var(--red)";
             const typeC = t => t==="Calidad MAX"?"var(--green)":t==="REIT"?"#a855f7":t==="Cíclica"?"var(--orange)":"var(--text-secondary)";
-            const bd = "1px solid rgba(255,255,255,.03)";
+            const bd = "1px solid var(--subtle-bg)";
             const cs = {padding:"4px 7px",fontFamily:"var(--fm)",borderBottom:bd,whiteSpace:"nowrap"};
             const basicCols = ["SCORE","TICKER","EMPRESA","SECTOR","YIELD%","PAYOUT FCF%","D/EBITDA","ROIC%","P/E","FMP",""];
             const advCols = ["SCORE","TICKER","EMPRESA","TIPO","RIESGO","DIV","MKT CAP","D.NETA","BPA","DPA","D/FCF","RD%","PAYOUT","PER","PER JUSTO","CREC.","TIR","P.JUSTO","DESC.","FMP"];

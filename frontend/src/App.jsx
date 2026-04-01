@@ -1922,7 +1922,7 @@ function buildPositionsFromCB() {
     FIRE_PROJ, FIRE_PARAMS, ANNUAL_PL, FI_TRACK, HIST_INIT, GASTO_CATS,
     GASTOS_CAT, CASH_DATA, MARGIN_INTEREST_DATA,
     // IB Integration
-    ibData, ibDiscrepancies, loadIBData,
+    ibData, ibDiscrepancies, loadIBData, ibSyncMsg,
     alerts, alertsUnread, showAlertPanel, setShowAlertPanel, divStreaks, theme, toggleTheme,
     markAlertsRead: () => { fetch(`${API_URL}/api/alerts/read`, { method: "POST" }).catch(() => {}); setAlertsUnread(0); setAlerts(a => a.map(x => ({ ...x, leida: 1 }))); },
   }), [homeTab, portfolioList, watchlistList, historialList, portfolioTotals, portfolioComputed,
@@ -1938,7 +1938,7 @@ function buildPositionsFromCB() {
     researchOpenList, researchAdvanced, researchHide, researchCapFilter,
     reportData, reportLoading, reportSymbol,
     fmpLoading, fmpError, hide, hideN, uiZoom, apiData,
-    ibData, ibDiscrepancies, loadIBData,
+    ibData, ibDiscrepancies, loadIBData, ibSyncMsg,
     alerts, alertsUnread, showAlertPanel]);
 
   // renderCostBasis and renderHome have been extracted to:
@@ -1988,7 +1988,7 @@ function buildPositionsFromCB() {
         {[80,70,60,50,70,80,70].map((w,i)=><div key={i} style={{width:w,height:28,borderRadius:6,background:"var(--skeleton-bg)",animation:"pulse 1.5s infinite",animationDelay:`${i*0.1}s`}}/>)}
       </div>
       {/* Skeleton summary cards */}
-      <div style={{padding:"0 36px",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:16}}>
+      <div className="ar-skeleton-grid" style={{padding:"0 36px",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:16}}>
         {[0,1,2,3].map(i=><div key={i} style={{background:"var(--skeleton-bg)",borderRadius:18,padding:"20px",height:100,animation:"pulse 1.5s infinite",animationDelay:`${i*0.15}s`}}>
           <div style={{width:80,height:8,background:"var(--skeleton-inner)",borderRadius:4,marginBottom:12}}/>
           <div style={{width:120,height:24,background:"var(--skeleton-inner)",borderRadius:6}}/>

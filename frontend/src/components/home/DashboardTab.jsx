@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { _CURRENT_YEAR, API_URL } from '../../constants/index.js';
-import { EmptyState, LoadingSkeleton } from '../ui/EmptyState.jsx';
+import { EmptyState } from '../ui/EmptyState.jsx';
 
 export default function DashboardTab() {
   const [nlvHistory, setNlvHistory] = useState([]);
@@ -207,7 +207,7 @@ return (
       <div style={{fontSize:11,fontWeight:700,color:"#ffd60a",fontFamily:"var(--fm)",marginBottom:6}}>⚠ Discrepancias IB vs FMP ({ibDiscrepancies.length})</div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
         {ibDiscrepancies.map(d=>(
-          <div key={d.ticker} style={{padding:"4px 10px",background:"rgba(255,255,255,.03)",borderRadius:6,fontSize:10,fontFamily:"var(--fm)"}}>
+          <div key={d.ticker} style={{padding:"4px 10px",background:"var(--subtle-bg)",borderRadius:6,fontSize:10,fontFamily:"var(--fm)"}}>
             <b style={{color:"var(--gold)"}}>{d.ticker}</b> IB:${_sf(d.ibPrice,2)} FMP:${_sf(d.fmpPrice,2)} <span style={{color:parseFloat(d.diff)>0?"var(--green)":"var(--red)"}}>{d.diff}%</span>
           </div>
         ))}
@@ -275,10 +275,10 @@ return (
             </tr></thead>
             <tbody>
               {rows.map(r=>(
-                <tr key={r.ticker} style={{borderBottom:"1px solid rgba(255,255,255,.03)"}}>
+                <tr key={r.ticker} style={{borderBottom:"1px solid var(--subtle-bg)"}}>
                   <td style={{padding:"3px 6px",fontFamily:"var(--fm)"}}>
                     <span style={{fontSize:8,padding:"1px 5px",borderRadius:3,fontWeight:600,
-                      background:r.status==="DIFF"?"rgba(255,214,10,.1)":r.status==="IB_ONLY"?"rgba(191,90,242,.1)":"rgba(255,255,255,.05)",
+                      background:r.status==="DIFF"?"rgba(255,214,10,.1)":r.status==="IB_ONLY"?"rgba(191,90,242,.1)":"var(--subtle-bg2)",
                       color:r.status==="DIFF"?"#ffd60a":r.status==="IB_ONLY"?"#bf5af2":"var(--text-tertiary)"
                     }}>{r.status==="DIFF"?"⚠ DIF":r.status==="IB_ONLY"?"+ IB":"- APP"}</span>
                   </td>
@@ -367,7 +367,7 @@ return (
           <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
             <div style={{display:"flex",gap:1,alignItems:"flex-end",width:"100%",justifyContent:"center",height:40}}>
               <div style={{width:"40%",background:i<=curMonth?"var(--gold)":"rgba(200,164,78,.2)",borderRadius:"2px 2px 0 0",height:`${Math.max((curData[i]/max)*40,1)}px`,transition:"height .3s"}} title={`${curYear} ${m}: $${_sf(curData[i],0)}`}/>
-              <div style={{width:"40%",background:"rgba(255,255,255,.1)",borderRadius:"2px 2px 0 0",height:`${Math.max((prevData[i]/max)*40,1)}px`}} title={`${prevYear} ${m}: $${_sf(prevData[i],0)}`}/>
+              <div style={{width:"40%",background:"var(--border-hover)",borderRadius:"2px 2px 0 0",height:`${Math.max((prevData[i]/max)*40,1)}px`}} title={`${prevYear} ${m}: $${_sf(prevData[i],0)}`}/>
             </div>
             <span style={{fontSize:7,color:i===curMonth?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:i===curMonth?700:400}}>{m}</span>
           </div>
@@ -417,7 +417,7 @@ return (
       </div>
       <svg viewBox={`0 0 ${w} ${h}`} style={{width:"100%",height:80}}>
         {/* Zero line */}
-        <line x1="0" y1={zeroY} x2={w} y2={zeroY} stroke="rgba(255,255,255,.1)" strokeWidth="0.5" strokeDasharray="4"/>
+        <line x1="0" y1={zeroY} x2={w} y2={zeroY} stroke="var(--border-hover)" strokeWidth="0.5" strokeDasharray="4"/>
         {/* SPY line */}
         <polyline points={spyPoints} fill="none" stroke="#64d2ff" strokeWidth="1.5" strokeLinejoin="round" opacity=".6"/>
         {/* Portfolio line */}
@@ -509,8 +509,8 @@ return (
                 return (
                   <div key={e.ticker} style={{
                     display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:10,
-                    background:e.thisWeek?"rgba(255,214,10,.04)":"rgba(255,255,255,.02)",
-                    border:e.thisWeek?"1px solid rgba(255,214,10,.2)":"1px solid rgba(255,255,255,.04)",
+                    background:e.thisWeek?"rgba(255,214,10,.04)":"var(--row-alt)",
+                    border:e.thisWeek?"1px solid rgba(255,214,10,.2)":"1px solid var(--subtle-border)",
                   }}>
                     <div style={{width:70,fontSize:10,color:e.thisWeek?"#ffd60a":"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600}}>{dateStr}</div>
                     <div style={{width:55,fontSize:12,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)",cursor:"pointer"}} onClick={() => openAnalysis && openAnalysis(e.ticker)}>{e.ticker}</div>
@@ -526,7 +526,7 @@ return (
               })}
             </div>
             {/* Mini calendar */}
-            <div style={{padding:12,background:"rgba(255,255,255,.02)",borderRadius:12,border:"1px solid rgba(255,255,255,.04)"}}>
+            <div style={{padding:12,background:"var(--row-alt)",borderRadius:12,border:"1px solid var(--subtle-border)"}}>
               <div style={{fontSize:11,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)",textAlign:"center",marginBottom:8}}>{monthNames[month]} {year}</div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,textAlign:"center"}}>
                 {dayLabels.map(d => <div key={d} style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,padding:"2px 0"}}>{d}</div>)}
@@ -621,7 +621,7 @@ return (
                   </div>
                   <span style={{fontSize:11,fontWeight:700,color:seg.c,fontFamily:"var(--fm)"}}>{_sf(pct,1)}%</span>
                 </div>
-                <div style={{height:5,background:"rgba(255,255,255,.04)",borderRadius:3,overflow:"hidden"}}>
+                <div style={{height:5,background:"var(--subtle-border)",borderRadius:3,overflow:"hidden"}}>
                   <div style={{width:`${pct}%`,height:"100%",background:seg.c,borderRadius:3,opacity:.7}}/>
                 </div>
                 <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>{hide(`$${fDol(seg.v)}`)}</div>
@@ -662,7 +662,7 @@ return (
           <div style={{display:"flex",flexDirection:"column",alignItems:"center"}}>
             <svg width={200} height={120} viewBox="0 0 200 120">
               {/* Background arc */}
-              <path d={bgPath} fill="none" stroke="rgba(255,255,255,.06)" strokeWidth={sw} strokeLinecap="round"/>
+              <path d={bgPath} fill="none" stroke="var(--subtle-bg2)" strokeWidth={sw} strokeLinecap="round"/>
               {/* Fill arc */}
               {marginPct > 0 && <path d={fillPath} fill="none" stroke={gaugeColor} strokeWidth={sw} strokeLinecap="round" opacity={0.85}/>}
               {/* Tick marks */}
@@ -861,7 +861,7 @@ return (
           return <div key={name} style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
             <div style={{width:8,height:8,borderRadius:4,background:acctColors[name]||"var(--gold)",flexShrink:0}}/>
             <div style={{fontSize:11,color:"var(--text-secondary)",fontFamily:"var(--fm)",width:80}}>{name}</div>
-            <div style={{flex:1,height:6,background:"rgba(255,255,255,.04)",borderRadius:3,overflow:"hidden"}}>
+            <div style={{flex:1,height:6,background:"var(--subtle-border)",borderRadius:3,overflow:"hidden"}}>
               <div style={{width:pct+"%",height:"100%",background:acctColors[name]||"var(--gold)",borderRadius:3}}/>
             </div>
             <div style={{fontSize:11,fontWeight:700,color:acctColors[name]||"var(--gold)",fontFamily:"var(--fm)",width:60,textAlign:"right"}}>${fDol(total)}</div>
@@ -873,7 +873,7 @@ return (
       <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:6,fontWeight:600}}>SALDOS NEGATIVOS</div>
       <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
         {negCash.map((c,i) => (
-          <div key={i} style={{padding:"6px 12px",borderRadius:8,background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.06)",fontSize:11,fontFamily:"var(--fm)"}}>
+          <div key={i} style={{padding:"6px 12px",borderRadius:8,background:"var(--subtle-bg)",border:"1px solid var(--subtle-bg2)",fontSize:11,fontFamily:"var(--fm)"}}>
             <span style={{color:"var(--text-tertiary)"}}>{acctNames[c.cuenta]||c.cuenta}</span>
             <span style={{color:"var(--red)",fontWeight:700,marginLeft:6}}>{c.divisa} -${fDol(Math.abs(c.cash_balance_usd||0))}</span>
           </div>
@@ -921,12 +921,12 @@ return (
           </div>)}
         </div>
         {/* Progress bar */}
-        <div style={{marginBottom:16,padding:"12px 16px",background:"rgba(255,255,255,.02)",borderRadius:10}}>
+        <div style={{marginBottom:16,padding:"12px 16px",background:"var(--row-alt)",borderRadius:10}}>
           <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
             <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Cobertura de gastos</span>
             <span style={{fontSize:12,fontWeight:700,color:latestCov>=100?"var(--green)":"var(--gold)",fontFamily:"var(--fm)"}}>{_sf(latestCov,0)}%</span>
           </div>
-          <div style={{height:12,background:"rgba(255,255,255,.06)",borderRadius:6,overflow:"hidden",position:"relative"}}>
+          <div style={{height:12,background:"var(--subtle-bg2)",borderRadius:6,overflow:"hidden",position:"relative"}}>
             <div style={{width:`${Math.min(latestCov/Math.max(latestCov,150)*100,100)}%`,height:"100%",background:latestCov>=100?"var(--green)":"linear-gradient(90deg, var(--red), var(--gold))",borderRadius:6}}/>
             <div style={{position:"absolute",left:`${100/Math.max(latestCov/100,1.5)*100}%`,top:-2,bottom:-2,width:2,background:"var(--green)"}}/>
           </div>
@@ -949,7 +949,7 @@ return (
                   {isPos && showLbl && <div style={{fontSize:7,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)",marginBottom:1,whiteSpace:"nowrap"}}>+€{Math.abs(v)>=1000?_sf(Math.abs(v)/1000,1)+"K":_sf(Math.abs(v),0)}</div>}
                   {isPos && <div style={{width:"70%",maxWidth:14,height:`${Math.max(hPct,v>0?3:0)}%`,background:isLast?"var(--green)":"rgba(48,209,88,.5)",borderRadius:"2px 2px 0 0"}}/>}
                 </div>
-                <div style={{width:"100%",height:1,background:"rgba(255,255,255,.12)",flexShrink:0}}/>
+                <div style={{width:"100%",height:1,background:"var(--border-hover)",flexShrink:0}}/>
                 <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-start",width:"100%"}}>
                   {!isPos && <div style={{width:"70%",maxWidth:14,height:`${Math.max(hPct,v<0?3:0)}%`,background:"rgba(255,69,58,.45)",borderRadius:"0 0 2px 2px"}}/>}
                   {!isPos && showLbl && <div style={{fontSize:7,fontWeight:700,color:"var(--red)",fontFamily:"var(--fm)",marginTop:1,whiteSpace:"nowrap"}}>-€{Math.abs(v)>=1000?_sf(Math.abs(v)/1000,1)+"K":_sf(Math.abs(v),0)}</div>}
@@ -974,7 +974,7 @@ return (
       {[0,.25,.5,.75,1].map(p => (
         <div key={p} style={{position:"absolute",left:0,right:0,bottom:`${p*100}%`,display:"flex",alignItems:"center",pointerEvents:"none"}}>
           <div style={{width:50,fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>${fDol(minPat+(maxPat-minPat)*p)}</div>
-          <div style={{flex:1,height:1,background:"rgba(255,255,255,.03)"}}/>
+          <div style={{flex:1,height:1,background:"var(--subtle-bg)"}}/>
         </div>
       ))}
       <div style={{position:"absolute",left:55,right:0,top:0,bottom:0,display:"flex",alignItems:"flex-end",gap:1}}>
@@ -1006,7 +1006,7 @@ return (
               <span style={{fontSize:13,fontWeight:700,color:d.total >= 0 ? "var(--green)" : "var(--red)",fontFamily:"var(--fm)"}}>{hide(`$${(d.total || 0).toLocaleString(undefined, {maximumFractionDigits: 0})}`)}</span>
             </div>
             <div style={{display:"flex",alignItems:"center",gap:6}}>
-              <div style={{flex:1,height:26,background:"rgba(255,255,255,.03)",borderRadius:6,overflow:"hidden",position:"relative"}}>
+              <div style={{flex:1,height:26,background:"var(--subtle-bg)",borderRadius:6,overflow:"hidden",position:"relative"}}>
                 <div style={{display:"flex",height:"100%",width:`${barWidth}%`}}>
                   {bars.map(b => (
                     <div key={b.k} style={{width:`${b.v / positive * 100}%`,background:b.c,minWidth:2,position:"relative",overflow:"hidden"}} title={`${b.l}: $${(b.v || 0).toLocaleString(undefined, {maximumFractionDigits: 0})}`}>
@@ -1069,7 +1069,7 @@ return (
             <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,marginBottom:6}}>TOP HOLDINGS</div>
             {allH.map((h,i) => <div key={h.t} style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
               <span style={{fontSize:10,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)",width:45}}>{h.t}</span>
-              <div style={{flex:1,height:6,background:"rgba(255,255,255,.04)",borderRadius:3,overflow:"hidden"}}>
+              <div style={{flex:1,height:6,background:"var(--subtle-border)",borderRadius:3,overflow:"hidden"}}>
                 <div style={{width:`${Math.min(h.val/totalVal*100*3,100)}%`,height:"100%",background:colors[i%colors.length],borderRadius:3}}/>
               </div>
               <span style={{fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)",width:55,textAlign:"right"}}>${fDol(h.val)}</span>
@@ -1143,10 +1143,10 @@ return (
             {l:"  └ Calendars",k:"cal",c:"#ff6b9d",prefix:"$"},
             {l:"Gastos",k:"gastos",c:"var(--red)",prefix:"€",bold:true},
           ].map(row => <tr key={row.k}>
-            <td style={{padding:"5px 10px",fontSize:row.bold?12:11,color:row.bold?"var(--text-primary)":"var(--text-secondary)",fontFamily:"var(--fm)",fontWeight:row.bold?600:400,borderBottom:"1px solid rgba(255,255,255,.03)"}}>{row.l}</td>
+            <td style={{padding:"5px 10px",fontSize:row.bold?12:11,color:row.bold?"var(--text-primary)":"var(--text-secondary)",fontFamily:"var(--fm)",fontWeight:row.bold?600:400,borderBottom:"1px solid var(--subtle-bg)"}}>{row.l}</td>
             {ANNUAL_PL.map(d => {
               const v = d[row.k]||0;
-              return <td key={d.y} style={{padding:"5px 10px",textAlign:"right",fontSize:row.bold?12:11,fontWeight:row.bold?700:500,color:v<0?"var(--red)":row.c,fontFamily:"var(--fm)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>
+              return <td key={d.y} style={{padding:"5px 10px",textAlign:"right",fontSize:row.bold?12:11,fontWeight:row.bold?700:500,color:v<0?"var(--red)":row.c,fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>
                 {v!==0?`${row.prefix}${Math.abs(v).toLocaleString()}`:"—"}
               </td>;
             })}
@@ -1189,7 +1189,7 @@ return (
                 {isP && <div style={{fontSize:7,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)",marginBottom:1,whiteSpace:"nowrap"}}>{v>=1000?`${_sf(v/1000,0)}K`:`$${_sf(v,0)}`}</div>}
                 {isP && <div style={{width:"100%",maxWidth:24,height:`${Math.max(h,3)}%`,background:"rgba(48,209,88,.5)",borderRadius:"3px 3px 0 0"}}/>}
               </div>
-              <div style={{width:"100%",height:1,background:"rgba(255,255,255,.1)",flexShrink:0}}/>
+              <div style={{width:"100%",height:1,background:"var(--border-hover)",flexShrink:0}}/>
               <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-start",width:"100%"}}>
                 {!isP && <div style={{width:"100%",maxWidth:24,height:`${Math.max(h,3)}%`,background:"rgba(255,69,58,.45)",borderRadius:"0 0 3px 3px"}}/>}
                 {!isP && <div style={{fontSize:7,fontWeight:700,color:"var(--red)",fontFamily:"var(--fm)",marginTop:1,whiteSpace:"nowrap"}}>-{_sf(Math.abs(v)/1000,0)}K</div>}
@@ -1221,7 +1221,7 @@ return (
         const absMax = Math.abs(maxExp);
         return <div key={cat} style={{display:"flex",alignItems:"center",gap:8}}>
           <span style={{width:180,fontSize:11,color:"var(--text-secondary)",fontFamily:"var(--fm)",textAlign:"right",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cat}</span>
-          <div style={{flex:1,height:16,background:"rgba(255,255,255,.03)",borderRadius:4,overflow:"hidden"}}>
+          <div style={{flex:1,height:16,background:"var(--subtle-bg)",borderRadius:4,overflow:"hidden"}}>
             <div style={{width:`${absVal/absMax*100}%`,height:"100%",background:"linear-gradient(90deg,var(--red),rgba(255,69,58,.2))",borderRadius:4}}/>
           </div>
           <span style={{width:60,fontSize:10,color:"var(--red)",fontFamily:"var(--fm)",textAlign:"right"}}>€{_sf(absVal/1e3,1)}K</span>
@@ -1245,8 +1245,8 @@ return (
           {[...ctrlWithData].reverse().slice(0,24).map((c,i) => {
             const prev = ctrlWithData[ctrlWithData.length-1-i-1];
             const chg = prev?.pu?((c.pu-prev.pu)/prev.pu*100):0;
-            const bg = i%2?"rgba(255,255,255,.012)":"transparent";
-            const bd = "1px solid rgba(255,255,255,.03)";
+            const bg = i%2?"var(--row-alt)":"transparent";
+            const bd = "1px solid var(--subtle-bg)";
             return <tr key={i} style={{background:bg}}>
               <td style={{padding:"7px 12px",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:bd}}>{c.d}</td>
               <td style={{padding:"7px 12px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:bd}}>${(c.pu||0).toLocaleString()}</td>
@@ -1293,7 +1293,7 @@ return (
         return <>
           {/* Diversification score + highlights */}
           <div style={{display:"flex",gap:16,marginBottom:16,flexWrap:"wrap"}}>
-            <div style={{padding:"12px 20px",background:"rgba(255,255,255,.02)",borderRadius:12,border:"1px solid var(--border)",textAlign:"center",minWidth:120}}>
+            <div style={{padding:"12px 20px",background:"var(--row-alt)",borderRadius:12,border:"1px solid var(--border)",textAlign:"center",minWidth:120}}>
               <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,letterSpacing:.5}}>DIVERSIFICATION SCORE</div>
               <div style={{fontSize:32,fontWeight:800,fontFamily:"var(--fm)",color:scoreColor,lineHeight:1.2}}>{score}</div>
               <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Avg r = {_sf(avgCorr, 2)}</div>
@@ -1331,7 +1331,7 @@ return (
               {cm.map((row, i) => row.map((v, j) => (
                 <g key={`${i}-${j}`}>
                   <rect x={labelW + j * cellSz} y={labelH + i * cellSz} width={cellSz - 1} height={cellSz - 1} rx={3}
-                    fill={i === j ? "rgba(255,255,255,.06)" : corrColor(v)} stroke="rgba(255,255,255,.03)" strokeWidth=".5"/>
+                    fill={i === j ? "var(--subtle-bg2)" : corrColor(v)} stroke="var(--subtle-bg)" strokeWidth=".5"/>
                   {cellSz >= 26 && <text x={labelW + j * cellSz + cellSz / 2} y={labelH + i * cellSz + cellSz / 2 + 3}
                     textAnchor="middle" style={{fontSize:Math.min(8, cellSz * 0.28),fill:i === j ? "var(--text-tertiary)" : "var(--text-primary)",fontFamily:"var(--fm)",fontWeight:500}}>
                     {i === j ? "1" : _sf(v, 2)}
@@ -1343,7 +1343,7 @@ return (
           {/* Legend */}
           <div style={{display:"flex",justifyContent:"center",gap:12,marginTop:10,fontSize:9,fontFamily:"var(--fm)",color:"var(--text-tertiary)"}}>
             <span><span style={{display:"inline-block",width:10,height:10,borderRadius:2,background:"rgba(10,132,255,.6)",verticalAlign:"middle",marginRight:3}}></span>Negativa (diversifica)</span>
-            <span><span style={{display:"inline-block",width:10,height:10,borderRadius:2,background:"rgba(255,255,255,.1)",verticalAlign:"middle",marginRight:3}}></span>Sin correlación</span>
+            <span><span style={{display:"inline-block",width:10,height:10,borderRadius:2,background:"var(--border-hover)",verticalAlign:"middle",marginRight:3}}></span>Sin correlación</span>
             <span><span style={{display:"inline-block",width:10,height:10,borderRadius:2,background:"rgba(255,69,58,.7)",verticalAlign:"middle",marginRight:3}}></span>Alta positiva (riesgo)</span>
           </div>
         </>;

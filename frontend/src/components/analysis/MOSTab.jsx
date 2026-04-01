@@ -69,13 +69,13 @@ export default function MOSTab() {
               {l:"EPS TTM",v:fC(epsTTM)},{l:"FGR (BVPS CAGR 5a)",v:fP(fgr)},{l:"Future EPS (10a)",v:fC(futureEPS)},
               {l:"Future P/E (2×FGR)",v:f2(futurePE)+"x"},{l:"Sticker Price",v:fC(stickerPrice),c:"#ff9f0a"},{l:"MOS Price (50%)",v:fC(mosPrice),c:"var(--gold)"},
             ].map((x,i)=>(
-              <div key={i} style={{padding:"10px",borderRadius:8,background:"rgba(255,255,255,.02)",textAlign:"center"}}>
+              <div key={i} style={{padding:"10px",borderRadius:8,background:"var(--row-alt)",textAlign:"center"}}>
                 <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textTransform:"uppercase",marginBottom:4}}>{x.l}</div>
                 <div style={{fontSize:17,fontWeight:700,color:x.c||"var(--text-primary)",fontFamily:"var(--fm)"}}>{x.v}</div>
               </div>
             ))}
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:16,alignItems:"center",padding:"12px 0",borderTop:"1px solid #21262d"}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:16,alignItems:"center",padding:"12px 0",borderTop:"1px solid var(--table-border)"}}>
             <div style={{textAlign:"center"}}>
               <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>STICKER PRICE</div>
               <div style={{fontSize:32,fontWeight:800,color:"#ff9f0a",fontFamily:"var(--fm)"}}>{fC(stickerPrice)}</div>
@@ -135,7 +135,7 @@ export default function MOSTab() {
                     <div style={{fontSize:18,fontWeight:700,color:barColor,fontFamily:"var(--fm)"}}>{fP(m.mos)}</div>
                   </div>
                 </div>
-                <div style={{height:5,background:"rgba(255,255,255,.04)",borderRadius:3,overflow:"hidden"}}>
+                <div style={{height:5,background:"var(--subtle-border)",borderRadius:3,overflow:"hidden"}}>
                   <div style={{width:`${barW}%`,height:"100%",background:barColor,borderRadius:3,transition:"width .8s"}}/>
                 </div>
               </Card>
@@ -148,7 +148,7 @@ export default function MOSTab() {
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
             <thead><tr>
               {["MÉTODO","V. INTRÍNSECO","MOS","PRECIO 50%","SEÑAL"].map((h,i)=>(
-                <th key={i} style={{padding:"10px 12px",textAlign:i===0?"left":"center",color:i===0?"var(--gold)":"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid #30363d",fontFamily:"var(--fm)",fontSize:9}}>{h}</th>
+                <th key={i} style={{padding:"10px 12px",textAlign:i===0?"left":"center",color:i===0?"var(--gold)":"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:9}}>{h}</th>
               ))}
             </tr></thead>
             <tbody>
@@ -157,12 +157,12 @@ export default function MOSTab() {
                 const sg = mo==null?"—":mo>0.3?"COMPRAR":mo>0.15?"INTERESANTE":mo>0?"AJUSTADO":"CARO";
                 const sc = sg==="COMPRAR"?"var(--green)":sg==="INTERESANTE"?"var(--gold)":sg==="AJUSTADO"?"var(--yellow)":"var(--red)";
                 return (
-                  <tr key={i} style={{background:i%2?"rgba(255,255,255,.015)":"transparent"}}>
-                    <td style={{padding:"7px 12px",color:m.color,fontWeight:600,borderBottom:"1px solid #21262d"}}>{m.icon} {m.name}</td>
-                    <td style={{padding:"7px 12px",textAlign:"center",fontWeight:700,color:m.color,borderBottom:"1px solid #21262d",fontFamily:"var(--fm)"}}>{fC(m.iv)}</td>
-                    <td style={{padding:"7px 12px",textAlign:"center",fontWeight:700,color:sc,borderBottom:"1px solid #21262d",fontFamily:"var(--fm)"}}>{fP(m.mos)}</td>
-                    <td style={{padding:"7px 12px",textAlign:"center",color:"var(--gold)",borderBottom:"1px solid #21262d",fontFamily:"var(--fm)"}}>{fC(m.iv?m.iv*0.5:null)}</td>
-                    <td style={{padding:"7px 12px",textAlign:"center",borderBottom:"1px solid #21262d"}}>
+                  <tr key={i} style={{background:i%2?"var(--row-alt)":"transparent"}}>
+                    <td style={{padding:"7px 12px",color:m.color,fontWeight:600,borderBottom:"1px solid var(--table-border)"}}>{m.icon} {m.name}</td>
+                    <td style={{padding:"7px 12px",textAlign:"center",fontWeight:700,color:m.color,borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)"}}>{fC(m.iv)}</td>
+                    <td style={{padding:"7px 12px",textAlign:"center",fontWeight:700,color:sc,borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)"}}>{fP(m.mos)}</td>
+                    <td style={{padding:"7px 12px",textAlign:"center",color:"var(--gold)",borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)"}}>{fC(m.iv?m.iv*0.5:null)}</td>
+                    <td style={{padding:"7px 12px",textAlign:"center",borderBottom:"1px solid var(--table-border)"}}>
                       <span style={{fontSize:9,fontWeight:700,color:sc,background:`${sc}15`,padding:"3px 10px",borderRadius:10,border:`1px solid ${sc}33`}}>{sg}</span>
                     </td>
                   </tr>

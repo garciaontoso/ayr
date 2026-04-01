@@ -103,7 +103,7 @@ const TrendAreaChart = ({monthData, w=320, h=120}) => {
         {/* grid lines */}
         {[0,.25,.5,.75,1].map(p => {
           const y = padT + ch*(1-p);
-          return <line key={p} x1={padL} y1={y} x2={w-padR} y2={y} stroke="rgba(255,255,255,.04)" strokeWidth={.5}/>;
+          return <line key={p} x1={padL} y1={y} x2={w-padR} y2={y} stroke="var(--subtle-border)" strokeWidth={.5}/>;
         })}
         {/* avg line */}
         <line x1={padL} y1={avgY} x2={w-padR} y2={avgY} stroke="var(--gold)" strokeWidth={.5} strokeDasharray="3 3" opacity={.4}/>
@@ -355,36 +355,36 @@ export default function GastosTab() {
           <div onTouchStart={()=>{window._secTimer=setTimeout(()=>{setGastosFilter(p=>({...p,showSecretos:!p.showSecretos}));if(navigator.vibrate)navigator.vibrate(30);window._secTimer='fired';},1000);}} onTouchEnd={()=>{if(window._secTimer!=='fired')clearTimeout(window._secTimer);window._secTimer=null;}} onTouchMove={()=>{clearTimeout(window._secTimer);window._secTimer=null;}} onMouseDown={()=>{window._secTimer=setTimeout(()=>{setGastosFilter(p=>({...p,showSecretos:!p.showSecretos}));window._secTimer='fired';},1000);}} onMouseUp={()=>{if(window._secTimer!=='fired')clearTimeout(window._secTimer);window._secTimer=null;}} style={{cursor:"default",userSelect:"none",WebkitUserSelect:"none"}}><div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>REGISTROS</div><div style={{fontSize:20,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{filtered.length}</div></div>
         </div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-          <select value={gastosFilter.year} onChange={e=>setGastosFilter(p=>({...p,year:e.target.value,month:"all"}))} style={{padding:"5px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
+          <select value={gastosFilter.year} onChange={e=>setGastosFilter(p=>({...p,year:e.target.value,month:"all"}))} style={{padding:"5px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
             <option value="all">Todos años</option>
             {[...new Set(gastosLog.map(g=>g.date?.slice(0,4)).filter(Boolean))].sort().reverse().map(y=><option key={y} value={y}>{y}</option>)}
           </select>
-          {gastosFilter.year !== "all" && <select value={gastosFilter.month} onChange={e=>setGastosFilter(p=>({...p,month:e.target.value}))} style={{padding:"5px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
+          {gastosFilter.year !== "all" && <select value={gastosFilter.month} onChange={e=>setGastosFilter(p=>({...p,month:e.target.value}))} style={{padding:"5px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
             <option value="all">Todos meses</option>
             {[...new Set(gastosLog.filter(g=>g.date?.startsWith(gastosFilter.year)).map(g=>g.date?.slice(0,7)).filter(Boolean))].sort().reverse().map(m=>{const mn=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"][parseInt(m.slice(5,7))-1]; return <option key={m} value={m}>{mn} {m.slice(0,4)}</option>;})}
           </select>}
-          <select value={gastosFilter.cat} onChange={e=>setGastosFilter(p=>({...p,cat:e.target.value}))} style={{padding:"5px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
+          <select value={gastosFilter.cat} onChange={e=>setGastosFilter(p=>({...p,cat:e.target.value}))} style={{padding:"5px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
             <option value="all">Todas categorías</option>
             {GASTO_CAT_LIST.map(c=><option key={c} value={c}>{c}</option>)}
           </select>
-          <select value={gastosFilter.ccy||"all"} onChange={e=>setGastosFilter(p=>({...p,ccy:e.target.value}))} style={{padding:"5px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
+          <select value={gastosFilter.ccy||"all"} onChange={e=>setGastosFilter(p=>({...p,ccy:e.target.value}))} style={{padding:"5px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
             <option value="all">Todas divisas</option>
             <option value="EUR">🇪🇺 EUR</option><option value="USD">🇺🇸 USD</option><option value="CNY">🇨🇳 CNY</option><option value="GBP">🇬🇧 GBP</option>
           </select>
-          <select value={gastosFilter.tipo||"all"} onChange={e=>setGastosFilter(p=>({...p,tipo:e.target.value}))} style={{padding:"5px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
+          <select value={gastosFilter.tipo||"all"} onChange={e=>setGastosFilter(p=>({...p,tipo:e.target.value}))} style={{padding:"5px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
             <option value="all">Todos tipos</option>
             <option value="normal">Normal</option>
             <option value="china">🇨🇳 China</option>
             <option value="extra">⚡ Extraordinario</option>
             <option value="nochina">Sin China</option>
           </select>
-          <select value={gastosFilter.residencia||"all"} onChange={e=>setGastosFilter(p=>({...p,residencia:e.target.value}))} style={{padding:"5px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
+          <select value={gastosFilter.residencia||"all"} onChange={e=>setGastosFilter(p=>({...p,residencia:e.target.value}))} style={{padding:"5px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
             <option value="all">Todas residencias</option>
             <option value="Valencia">🏠 Valencia</option>
             <option value="Costa Brava">🏖️ Costa Brava</option>
             <option value="China">🇨🇳 China</option>
           </select>
-          <input type="text" placeholder="Buscar concepto..." value={gastosFilter.search||""} onChange={e=>setGastosFilter(p=>({...p,search:e.target.value}))} style={{padding:"5px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)",width:130}}/>
+          <input type="text" placeholder="Buscar concepto..." value={gastosFilter.search||""} onChange={e=>setGastosFilter(p=>({...p,search:e.target.value}))} style={{padding:"5px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:7,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)",width:130}}/>
           <button onClick={()=>{setGastosForm(p=>({...p,isIngreso:false}));setGastosShowForm(!gastosShowForm);}} style={{padding:"7px 14px",borderRadius:7,border:"1px solid var(--gold)",background:gastosShowForm&&!gastosForm.isIngreso?"var(--gold)":"var(--gold-dim)",color:gastosShowForm&&!gastosForm.isIngreso?"#000":"var(--gold)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>
             {gastosShowForm&&!gastosForm.isIngreso?"✕":"+ Gasto"}
           </button>
@@ -460,7 +460,7 @@ export default function GastosTab() {
           { key: "China", flag: "\uD83C\uDDE8\uD83C\uDDF3", subtitle: "Asia" },
         ];
         return (
-          <div style={{padding:"14px 16px",background:"rgba(255,255,255,.02)",borderRadius:12,border:"1px solid rgba(255,255,255,.06)"}}>
+          <div style={{padding:"14px 16px",background:"var(--row-alt)",borderRadius:12,border:"1px solid var(--subtle-bg2)"}}>
             <div style={{fontSize:10,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:12}}>POR RESIDENCIA</div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10}}>
               {resEntries.map(({key, flag, subtitle}) => {
@@ -472,7 +472,7 @@ export default function GastosTab() {
                 const utilEntries = Object.entries(d.utilities).sort((a,b) => b[1] - a[1]);
                 return (
                   <div key={key} onClick={() => setGastosFilter(p => ({ ...p, residencia: p.residencia === key ? "all" : key }))}
-                    style={{padding:"12px 14px",background: gastosFilter.residencia === key ? `${color}11` : "rgba(255,255,255,.02)",borderRadius:10,border:`1px solid ${gastosFilter.residencia === key ? color+"44" : "rgba(255,255,255,.06)"}`,cursor:"pointer",transition:"all .2s"}}>
+                    style={{padding:"12px 14px",background: gastosFilter.residencia === key ? `${color}11` : "var(--row-alt)",borderRadius:10,border:`1px solid ${gastosFilter.residencia === key ? color+"44" : "var(--subtle-bg2)"}`,cursor:"pointer",transition:"all .2s"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                       <div>
                         <span style={{fontSize:14,marginRight:5}}>{flag}</span>
@@ -492,7 +492,7 @@ export default function GastosTab() {
                       </div>
                     </div>
                     {/* Comparison bar */}
-                    <div style={{height:6,background:"rgba(255,255,255,.04)",borderRadius:3,overflow:"hidden",marginBottom:utilEntries.length > 0 ? 8 : 0}}>
+                    <div style={{height:6,background:"var(--subtle-border)",borderRadius:3,overflow:"hidden",marginBottom:utilEntries.length > 0 ? 8 : 0}}>
                       <div style={{width:`${pct}%`,height:"100%",background:color,borderRadius:3,opacity:.6,transition:"width .4s ease"}}/>
                     </div>
                     {/* Utility breakdown */}
@@ -518,14 +518,14 @@ export default function GastosTab() {
         <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"flex-start"}}>
           {/* Category donut */}
           {donutSegments.length > 0 && (
-            <div style={{padding:"14px 16px",background:"rgba(255,255,255,.02)",borderRadius:12,border:"1px solid rgba(255,255,255,.04)",flex:"0 0 auto"}}>
+            <div style={{padding:"14px 16px",background:"var(--row-alt)",borderRadius:12,border:"1px solid var(--subtle-border)",flex:"0 0 auto"}}>
               <div style={{fontSize:9,fontWeight:600,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:10}}>GASTO POR CATEGORIA</div>
               <CategoryDonut segments={donutSegments} size={140} strokeW={16}/>
             </div>
           )}
           {/* 12-month trend */}
           {trendData.length >= 2 && (
-            <div style={{padding:"14px 16px",background:"rgba(255,255,255,.02)",borderRadius:12,border:"1px solid rgba(255,255,255,.04)",flex:"1 1 320px",minWidth:280}}>
+            <div style={{padding:"14px 16px",background:"var(--row-alt)",borderRadius:12,border:"1px solid var(--subtle-border)",flex:"1 1 320px",minWidth:280}}>
               <div style={{fontSize:9,fontWeight:600,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:10}}>TENDENCIA MENSUAL</div>
               <TrendAreaChart monthData={trendData} w={320} h={120}/>
             </div>
@@ -537,7 +537,7 @@ export default function GastosTab() {
       {Object.keys(byCcy).length > 1 && (
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           {Object.entries(byCcy).sort((a,b)=>b[1].eur-a[1].eur).map(([ccy,d]) => (
-            <div key={ccy} style={{padding:"5px 12px",background:"rgba(255,255,255,.03)",borderRadius:8,border:"1px solid var(--border)",display:"flex",alignItems:"center",gap:8}}>
+            <div key={ccy} style={{padding:"5px 12px",background:"var(--subtle-bg)",borderRadius:8,border:"1px solid var(--border)",display:"flex",alignItems:"center",gap:8}}>
               <span style={{fontSize:11,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{CURRENCIES[ccy]?.flag||""} {ccy}</span>
               <span style={{fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{ccySym(ccy)}{(d.raw||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>
               <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>=</span>
@@ -563,19 +563,19 @@ export default function GastosTab() {
             const pctCny = d.cny/dEur*100;
             const pctUsd = d.usd/dEur*100;
             return (
-              <div key={m} style={{padding:"8px 10px",background:"rgba(255,255,255,.02)",borderRadius:8,border:"1px solid rgba(255,255,255,.04)"}}>
+              <div key={m} style={{padding:"8px 10px",background:"var(--row-alt)",borderRadius:8,border:"1px solid var(--subtle-border)"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
                   <span style={{fontSize:10,fontWeight:600,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{mNames[mi]} {yr}</span>
                   <span style={{fontSize:14,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>€{(d.eur||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>
                 </div>
                 {/* stacked bar */}
-                <div style={{height:6,background:"rgba(255,255,255,.04)",borderRadius:3,overflow:"hidden",display:"flex",marginBottom:4}} title={`EUR: €${Math.round(d.eurNat)} | CNY: €${Math.round(d.cny)} | USD: €${Math.round(d.usd)}`}>
+                <div style={{height:6,background:"var(--subtle-border)",borderRadius:3,overflow:"hidden",display:"flex",marginBottom:4}} title={`EUR: €${Math.round(d.eurNat)} | CNY: €${Math.round(d.cny)} | USD: €${Math.round(d.usd)}`}>
                   {d.eurNat > 0 && <div style={{width:`${pctEur}%`,height:"100%",background:"#30d158",opacity:.7,transition:"width .4s ease"}}/>}
                   {d.cny > 0 && <div style={{width:`${pctCny}%`,height:"100%",background:"#ff453a",opacity:.7,transition:"width .4s ease"}}/>}
                   {d.usd > 0 && <div style={{width:`${pctUsd}%`,height:"100%",background:"#0a84ff",opacity:.7,transition:"width .4s ease"}}/>}
                 </div>
                 {/* overall bar vs max month */}
-                <div style={{height:3,background:"rgba(255,255,255,.03)",borderRadius:2,overflow:"hidden"}}>
+                <div style={{height:3,background:"var(--subtle-bg)",borderRadius:2,overflow:"hidden"}}>
                   <div style={{width:`${pctTotal}%`,height:"100%",background:"var(--gold)",opacity:.3,borderRadius:2,transition:"width .4s ease"}}/>
                 </div>
                 {(d.cny > 0 || d.usd > 0) && <div style={{display:"flex",gap:3,marginTop:4,flexWrap:"wrap"}}>
@@ -592,10 +592,10 @@ export default function GastosTab() {
       {/* Category breakdown mini-bars with colored indicators */}
       {topCats.length > 0 && <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
         {topCats.map(([cat,val]) => (
-          <div key={cat} style={{flex:"1 1 220px",display:"flex",alignItems:"center",gap:6,padding:"5px 10px",background:"rgba(255,255,255,.02)",borderRadius:6}}>
+          <div key={cat} style={{flex:"1 1 220px",display:"flex",alignItems:"center",gap:6,padding:"5px 10px",background:"var(--row-alt)",borderRadius:6}}>
             <div style={{width:4,height:20,borderRadius:2,background:catColor(cat),flexShrink:0,opacity:.7}}/>
             <span style={{fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)",width:110,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cat}</span>
-            <div style={{flex:1,height:6,background:"rgba(255,255,255,.04)",borderRadius:3,overflow:"hidden"}}>
+            <div style={{flex:1,height:6,background:"var(--subtle-border)",borderRadius:3,overflow:"hidden"}}>
               <div style={{width:`${val/maxCat*100}%`,height:"100%",background:catColor(cat),borderRadius:3,opacity:.5,transition:"width .4s ease"}}/>
             </div>
             <span style={{fontSize:9,color:"var(--text-secondary)",fontFamily:"var(--fm)",width:60,textAlign:"right"}}>€{val.toLocaleString(undefined,{maximumFractionDigits:0})}</span>
@@ -612,19 +612,19 @@ export default function GastosTab() {
       <div style={{fontSize:10,fontWeight:700,color:gastosForm.isIngreso?"var(--green)":"var(--gold)",fontFamily:"var(--fm)",marginBottom:8,letterSpacing:1}}>{gastosForm.isIngreso?"NUEVO INGRESO":"NUEVO GASTO"}</div>
       <div style={{display:"flex",flexWrap:"wrap",gap:8,alignItems:"flex-end"}}>
         <div><label style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:3}}>FECHA</label>
-          <input type="date" value={gastosForm.date} onChange={e=>setGastosForm(p=>({...p,date:e.target.value}))} style={{padding:"6px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}/></div>
+          <input type="date" value={gastosForm.date} onChange={e=>setGastosForm(p=>({...p,date:e.target.value}))} style={{padding:"6px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}/></div>
         <div><label style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:3}}>CATEGORÍA</label>
-          <select value={gastosForm.cat} onChange={e=>setGastosForm(p=>({...p,cat:e.target.value}))} style={{padding:"6px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
+          <select value={gastosForm.cat} onChange={e=>setGastosForm(p=>({...p,cat:e.target.value}))} style={{padding:"6px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
             {GASTO_CAT_LIST.map(c=><option key={c} value={c}>{c}</option>)}
           </select></div>
         <div><label style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:3}}>IMPORTE</label>
-          <input type="number" step="0.01" value={gastosForm.amount||""} onChange={e=>setGastosForm(p=>({...p,amount:parseFloat(e.target.value)||0}))} placeholder="25.50" style={{width:80,padding:"6px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}/></div>
+          <input type="number" step="0.01" value={gastosForm.amount||""} onChange={e=>setGastosForm(p=>({...p,amount:parseFloat(e.target.value)||0}))} placeholder="25.50" style={{width:80,padding:"6px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}/></div>
         <div><label style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:3}}>DIVISA</label>
-          <select value={gastosForm.currency} onChange={e=>setGastosForm(p=>({...p,currency:e.target.value}))} style={{padding:"6px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
+          <select value={gastosForm.currency} onChange={e=>setGastosForm(p=>({...p,currency:e.target.value}))} style={{padding:"6px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
             <option value="EUR">EUR €</option><option value="USD">USD $</option><option value="CNY">CNY ¥</option>
           </select></div>
         <div><label style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:3}}>CONCEPTO</label>
-          <input type="text" value={gastosForm.detail} onChange={e=>setGastosForm(p=>({...p,detail:e.target.value}))} placeholder="Cena con amigos..." style={{width:160,padding:"6px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}/></div>
+          <input type="text" value={gastosForm.detail} onChange={e=>setGastosForm(p=>({...p,detail:e.target.value}))} placeholder="Cena con amigos..." style={{width:160,padding:"6px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}/></div>
         <div><label style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:3}}>TIPO</label>
           <div style={{display:"flex",gap:4}}>
             {[{v:"normal",l:"Normal"},{v:"china",l:"🇨🇳 China"},{v:"extra",l:"⚡ Extra"}].map(t=>(
@@ -711,16 +711,16 @@ export default function GastosTab() {
                 const isNonEur = ccy !== "EUR";
                 const eurVal = _gToEur(g);
                 return (
-                  <tr key={g.id||i} id={g.id ? `gasto-${g.id}` : undefined} style={{background:i%2?"rgba(255,255,255,.01)":"transparent",opacity:g.secreto?.5:1}}
-                    onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"} onMouseLeave={e=>e.currentTarget.style.background=i%2?"rgba(255,255,255,.01)":"transparent"}>
-                    <td style={{padding:"5px 10px",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{g.date}</td>
-                    <td style={{padding:"5px 10px",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid rgba(255,255,255,.03)",maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.cat}{g.secreto?<span style={{fontSize:7,marginLeft:4,padding:"1px 4px",borderRadius:3,background:"rgba(99,102,241,.08)",color:"#6366f1",verticalAlign:"middle"}}>🔒</span>:""}{g.tipo==="china"?<span style={{fontSize:7,marginLeft:4,padding:"1px 4px",borderRadius:3,background:"rgba(239,68,68,.08)",color:"#ef4444",verticalAlign:"middle"}}>🇨🇳 CHINA</span>:g.tipo==="extra"?<span style={{fontSize:7,marginLeft:4,padding:"1px 4px",borderRadius:3,background:"rgba(168,85,247,.08)",color:"#a855f7",verticalAlign:"middle"}}>EXTRA</span>:""}{g.recur?<span style={{fontSize:7,marginLeft:3,padding:"1px 4px",borderRadius:3,background:"rgba(255,159,10,.08)",color:"var(--orange)",verticalAlign:"middle"}}>REC</span>:""}</td>
-                    <td style={{padding:"5px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:g.amount>0?"var(--green)":"var(--text-primary)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{_ccyFlag(ccy)} {g.amount>0?"+":""}{_ccySym(ccy)}{Math.abs(g.amount||0).toLocaleString(undefined,{minimumFractionDigits:ccy==="CNY"?0:2,maximumFractionDigits:2})}</td>
-                    <td style={{padding:"3px 4px",fontFamily:"var(--fm)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{isNonEur && <span style={{fontSize:8,padding:"1px 5px",borderRadius:3,background:"rgba(255,255,255,.04)",color:"var(--text-tertiary)"}}>{ccy}</span>}</td>
-                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:isNonEur?"var(--text-secondary)":"var(--text-tertiary)",borderBottom:"1px solid rgba(255,255,255,.03)",fontSize:isNonEur?11:10.5}}>{isNonEur ? `€${eurVal.toLocaleString(undefined,{maximumFractionDigits:0})}` : `€${_sf(Math.abs(g.amount||0),2)}`}</td>
-                    <td style={{padding:"5px 10px",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid rgba(255,255,255,.03)",fontSize:10,maxWidth:240,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.detail||""}</td>
-                    <td style={{padding:"3px 6px",borderBottom:"1px solid rgba(255,255,255,.03)",whiteSpace:"nowrap"}}>
-                      <button onClick={()=>{setGastosForm({date:g.date,cat:g.cat,amount:Math.abs(g.amount||0),currency:ccy,recur:!!g.recur,detail:g.detail||"",tipo:g.tipo||"normal",secreto:!!g.secreto,_isEdit:true,isIngreso:g.amount>0});setGastosShowForm(true);deleteGasto(g.id);}} title="Editar" style={{width:22,height:22,borderRadius:4,border:"1px solid rgba(255,255,255,.08)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center",marginRight:4}}>✎</button>
+                  <tr key={g.id||i} id={g.id ? `gasto-${g.id}` : undefined} style={{background:i%2?"var(--row-alt)":"transparent",opacity:g.secreto?.5:1}}
+                    onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"} onMouseLeave={e=>e.currentTarget.style.background=i%2?"var(--row-alt)":"transparent"}>
+                    <td style={{padding:"5px 10px",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>{g.date}</td>
+                    <td style={{padding:"5px 10px",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)",maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.cat}{g.secreto?<span style={{fontSize:7,marginLeft:4,padding:"1px 4px",borderRadius:3,background:"rgba(99,102,241,.08)",color:"#6366f1",verticalAlign:"middle"}}>🔒</span>:""}{g.tipo==="china"?<span style={{fontSize:7,marginLeft:4,padding:"1px 4px",borderRadius:3,background:"rgba(239,68,68,.08)",color:"#ef4444",verticalAlign:"middle"}}>🇨🇳 CHINA</span>:g.tipo==="extra"?<span style={{fontSize:7,marginLeft:4,padding:"1px 4px",borderRadius:3,background:"rgba(168,85,247,.08)",color:"#a855f7",verticalAlign:"middle"}}>EXTRA</span>:""}{g.recur?<span style={{fontSize:7,marginLeft:3,padding:"1px 4px",borderRadius:3,background:"rgba(255,159,10,.08)",color:"var(--orange)",verticalAlign:"middle"}}>REC</span>:""}</td>
+                    <td style={{padding:"5px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:g.amount>0?"var(--green)":"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>{_ccyFlag(ccy)} {g.amount>0?"+":""}{_ccySym(ccy)}{Math.abs(g.amount||0).toLocaleString(undefined,{minimumFractionDigits:ccy==="CNY"?0:2,maximumFractionDigits:2})}</td>
+                    <td style={{padding:"3px 4px",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>{isNonEur && <span style={{fontSize:8,padding:"1px 5px",borderRadius:3,background:"var(--subtle-border)",color:"var(--text-tertiary)"}}>{ccy}</span>}</td>
+                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:isNonEur?"var(--text-secondary)":"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)",fontSize:isNonEur?11:10.5}}>{isNonEur ? `€${eurVal.toLocaleString(undefined,{maximumFractionDigits:0})}` : `€${_sf(Math.abs(g.amount||0),2)}`}</td>
+                    <td style={{padding:"5px 10px",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)",fontSize:10,maxWidth:240,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.detail||""}</td>
+                    <td style={{padding:"3px 6px",borderBottom:"1px solid var(--subtle-bg)",whiteSpace:"nowrap"}}>
+                      <button onClick={()=>{setGastosForm({date:g.date,cat:g.cat,amount:Math.abs(g.amount||0),currency:ccy,recur:!!g.recur,detail:g.detail||"",tipo:g.tipo||"normal",secreto:!!g.secreto,_isEdit:true,isIngreso:g.amount>0});setGastosShowForm(true);deleteGasto(g.id);}} title="Editar" style={{width:22,height:22,borderRadius:4,border:"1px solid var(--subtle-bg2)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center",marginRight:4}}>✎</button>
                       <button onClick={()=>{if(confirm("Borrar este gasto?"))deleteGasto(g.id);}} title="Borrar" style={{width:22,height:22,borderRadius:4,border:"1px solid rgba(255,69,58,.2)",background:"transparent",color:"var(--red)",fontSize:9,cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center"}}>✕</button>
                     </td>
                   </tr>

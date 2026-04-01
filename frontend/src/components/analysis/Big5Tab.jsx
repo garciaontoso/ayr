@@ -123,34 +123,34 @@ export default function Big5Tab() {
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
             <thead>
               <tr>
-                <th style={{padding:"12px 16px",textAlign:"left",color:"var(--gold)",fontWeight:600,borderBottom:"2px solid #30363d",fontFamily:"var(--fm)",fontSize:10,letterSpacing:.5,minWidth:200}}>BIG FIVE</th>
-                <th style={{padding:"12px 14px",textAlign:"center",color:"var(--text-secondary)",borderBottom:"2px solid #30363d",fontSize:10,fontFamily:"var(--fm)"}}>1 AÑO</th>
-                <th style={{padding:"12px 14px",textAlign:"center",color:"var(--text-secondary)",borderBottom:"2px solid #30363d",fontSize:10,fontFamily:"var(--fm)"}}>5 AÑOS</th>
-                <th style={{padding:"12px 14px",textAlign:"center",color:"var(--gold)",borderBottom:"2px solid #30363d",fontSize:10,fontWeight:700,fontFamily:"var(--fm)",background:"var(--gold-glow)"}}>10 AÑOS</th>
-                <th style={{padding:"12px 14px",textAlign:"center",color:"var(--text-secondary)",borderBottom:"2px solid #30363d",fontSize:10,fontFamily:"var(--fm)"}}>MÍNIMO</th>
-                <th style={{padding:"12px 14px",textAlign:"center",color:"var(--text-secondary)",borderBottom:"2px solid #30363d",fontSize:10,fontFamily:"var(--fm)"}}>STATUS</th>
+                <th style={{padding:"12px 16px",textAlign:"left",color:"var(--gold)",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:10,letterSpacing:.5,minWidth:200}}>BIG FIVE</th>
+                <th style={{padding:"12px 14px",textAlign:"center",color:"var(--text-secondary)",borderBottom:"2px solid var(--table-border)",fontSize:10,fontFamily:"var(--fm)"}}>1 AÑO</th>
+                <th style={{padding:"12px 14px",textAlign:"center",color:"var(--text-secondary)",borderBottom:"2px solid var(--table-border)",fontSize:10,fontFamily:"var(--fm)"}}>5 AÑOS</th>
+                <th style={{padding:"12px 14px",textAlign:"center",color:"var(--gold)",borderBottom:"2px solid var(--table-border)",fontSize:10,fontWeight:700,fontFamily:"var(--fm)",background:"var(--gold-glow)"}}>10 AÑOS</th>
+                <th style={{padding:"12px 14px",textAlign:"center",color:"var(--text-secondary)",borderBottom:"2px solid var(--table-border)",fontSize:10,fontFamily:"var(--fm)"}}>MÍNIMO</th>
+                <th style={{padding:"12px 14px",textAlign:"center",color:"var(--text-secondary)",borderBottom:"2px solid var(--table-border)",fontSize:10,fontFamily:"var(--fm)"}}>STATUS</th>
               </tr>
             </thead>
             <tbody>
               {big5Data.map((m,i) => (
-                <tr key={m.key} style={{background:i%2?"rgba(255,255,255,.02)":"transparent"}}>
-                  <td style={{padding:"12px 16px",borderBottom:"1px solid #21262d"}}>
+                <tr key={m.key} style={{background:i%2?"var(--row-alt)":"transparent"}}>
+                  <td style={{padding:"12px 16px",borderBottom:"1px solid var(--table-border)"}}>
                     <div style={{color:"var(--text-primary)",fontWeight:600,fontSize:12.5}}>{m.name}</div>
                     <div style={{color:"var(--text-tertiary)",fontSize:10,marginTop:2}}>{m.desc}</div>
                   </td>
-                  <td style={{padding:"12px 14px",textAlign:"center",borderBottom:"1px solid #21262d"}}>
+                  <td style={{padding:"12px 14px",textAlign:"center",borderBottom:"1px solid var(--table-border)"}}>
                     <span style={{fontFamily:"var(--fm)",fontWeight:600,fontSize:13,color:valColor(m.y1)}}>{fP(m.y1)}</span>
                   </td>
-                  <td style={{padding:"12px 14px",textAlign:"center",borderBottom:"1px solid #21262d"}}>
+                  <td style={{padding:"12px 14px",textAlign:"center",borderBottom:"1px solid var(--table-border)"}}>
                     <span style={{fontFamily:"var(--fm)",fontWeight:600,fontSize:13,color:valColor(m.y5)}}>{fP(m.y5)}</span>
                   </td>
-                  <td style={{padding:"12px 14px",textAlign:"center",borderBottom:"1px solid #21262d",background:"var(--gold-glow)"}}>
+                  <td style={{padding:"12px 14px",textAlign:"center",borderBottom:"1px solid var(--table-border)",background:"var(--gold-glow)"}}>
                     <span style={{fontFamily:"var(--fm)",fontWeight:700,fontSize:14,color:valColor(m.y10)}}>{fP(m.y10)}</span>
                   </td>
-                  <td style={{padding:"12px 14px",textAlign:"center",borderBottom:"1px solid #21262d"}}>
+                  <td style={{padding:"12px 14px",textAlign:"center",borderBottom:"1px solid var(--table-border)"}}>
                     <span style={{fontFamily:"var(--fm)",fontSize:11,color:"var(--gold)"}}>10.0%</span>
                   </td>
-                  <td style={{padding:"12px 14px",textAlign:"center",borderBottom:"1px solid #21262d"}}>
+                  <td style={{padding:"12px 14px",textAlign:"center",borderBottom:"1px solid var(--table-border)"}}>
                     {n(m.y10)!=null ? <Badge val={m.y10} rules={R.big5}/> : 
                       n(m.y5)!=null ? <span style={{fontSize:9,fontWeight:600,padding:"2px 6px",borderRadius:4,color:m.y5>=0.10?"#30d158":"#ff9f0a",background:m.y5>=0.10?"rgba(48,209,88,.1)":"rgba(255,159,10,.1)",fontFamily:"var(--fm)"}}>5Y:{m.y5>=0.10?"✓":"✗"}</span> :
                       <span style={{fontSize:9,color:"var(--text-tertiary)"}}>N/A</span>}
@@ -161,7 +161,7 @@ export default function Big5Tab() {
           </table>
           {/* Note for negative years */}
           {fin[latestDataYear]?.netIncome < 0 && (
-            <div style={{padding:"10px 16px",borderTop:"1px solid #21262d",fontSize:10.5,color:"var(--orange)",background:"rgba(255,159,10,.04)",lineHeight:1.6}}>
+            <div style={{padding:"10px 16px",borderTop:"1px solid var(--table-border)",fontSize:10.5,color:"var(--orange)",background:"rgba(255,159,10,.04)",lineHeight:1.6}}>
               ⚠ El último año tiene Net Income negativo (goodwill impairment). Los CAGRs de ROIC y EPS se calculan usando el año positivo más reciente para evitar distorsiones.
             </div>
           )}
@@ -172,8 +172,8 @@ export default function Big5Tab() {
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5}}>
             <thead>
               <tr>
-                <th style={{position:"sticky",left:0,background:"var(--surface)",padding:"10px 14px",textAlign:"left",color:"var(--gold)",fontWeight:600,borderBottom:"2px solid #30363d",zIndex:2,minWidth:155,fontFamily:"var(--fm)",fontSize:10,letterSpacing:.5}}>HISTÓRICO</th>
-                {histYrs.map(y=><th key={y} style={{padding:"10px 6px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid #30363d",minWidth:72,fontFamily:"var(--fm)",fontSize:10}}>{y}</th>)}
+                <th style={{position:"sticky",left:0,background:"var(--surface)",padding:"10px 14px",textAlign:"left",color:"var(--gold)",fontWeight:600,borderBottom:"2px solid var(--table-border)",zIndex:2,minWidth:155,fontFamily:"var(--fm)",fontSize:10,letterSpacing:.5}}>HISTÓRICO</th>
+                {histYrs.map(y=><th key={y} style={{padding:"10px 6px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid var(--table-border)",minWidth:72,fontFamily:"var(--fm)",fontSize:10}}>{y}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -185,9 +185,9 @@ export default function Big5Tab() {
                 {label:"FCF / Acción",fn:y=>{const v=comp[y]?.fcfps;return <span style={{color:n(v)!=null&&v<0?"var(--red)":"var(--text-primary)"}}>{fC(v)}</span>;}},
                 {label:"Dividendo / Acción",fn:y=>fC(fin[y]?.dps)},
               ].map((row,i) => (
-                <tr key={i} style={{background:i%2?"rgba(255,255,255,.02)":"transparent"}}>
-                  <td style={{position:"sticky",left:0,background:i%2?"#0a0a0a":"#000",padding:"7px 14px",color:i===0?"var(--gold)":"var(--text-primary)",fontWeight:i===0?600:500,borderBottom:"1px solid #21262d",zIndex:1,fontSize:11.5}}>{row.label}</td>
-                  {histYrs.map(y=><td key={y} style={{padding:"7px 6px",textAlign:"right",borderBottom:"1px solid #21262d",fontFamily:"var(--fm)"}}>{row.fn(y)}</td>)}
+                <tr key={i} style={{background:i%2?"var(--row-alt)":"transparent"}}>
+                  <td style={{position:"sticky",left:0,background:i%2?"var(--card)":"var(--bg)",padding:"7px 14px",color:i===0?"var(--gold)":"var(--text-primary)",fontWeight:i===0?600:500,borderBottom:"1px solid var(--table-border)",zIndex:1,fontSize:11.5}}>{row.label}</td>
+                  {histYrs.map(y=><td key={y} style={{padding:"7px 6px",textAlign:"right",borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)"}}>{row.fn(y)}</td>)}
                 </tr>
               ))}
             </tbody>

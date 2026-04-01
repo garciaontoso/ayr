@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { API_URL } from '../../constants/index.js';
+import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
 
 function TaxReportSection({ hide, openAnalysis, pill, card, hd }) {
   const [taxYear, setTaxYear] = useState(String(new Date().getFullYear()));
@@ -22,10 +23,10 @@ function TaxReportSection({ hide, openAnalysis, pill, card, hd }) {
         <button key={y} onClick={() => setTaxYear(y)} style={{...pill(taxYear===y)}}>{y}</button>
       ))}
     </div>
-    {taxLoading && <div style={{padding:30,textAlign:"center",color:"var(--text-tertiary)"}}>Cargando datos fiscales...</div>}
+    {taxLoading && <InlineLoading message="Cargando datos fiscales..." />}
     {taxData && !taxLoading && (
       <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:10}}>
           {[
             {l:"VENTAS",v:hide("$"+fDol(taxData.trades?.totalSellProceeds||0)),c:"var(--text-primary)",sub:`${taxData.trades?.sells||0} operaciones`},
             {l:"DIVIDENDOS",v:hide("$"+fDol(taxData.dividends?.gross||0)),c:"var(--gold)",sub:`${taxData.dividends?.count||0} cobros`},
@@ -51,7 +52,7 @@ function TaxReportSection({ hide, openAnalysis, pill, card, hd }) {
                 </tr></thead>
                 <tbody>
                   {taxData.dividends.byTicker.slice(0,30).map(d => (
-                    <tr key={d.ticker} style={{borderBottom:"1px solid rgba(255,255,255,.03)",cursor:"pointer"}} onClick={()=>openAnalysis(d.ticker)}
+                    <tr key={d.ticker} style={{borderBottom:"1px solid var(--subtle-bg)",cursor:"pointer"}} onClick={()=>openAnalysis(d.ticker)}
                       onMouseEnter={e=>e.currentTarget.style.background="var(--card-hover)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                       <td style={{padding:"4px 8px",fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>{d.ticker}</td>
                       <td style={{padding:"4px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)"}}>{d.payments}x</td>
@@ -221,6 +222,10 @@ export default function IncomeLabTab() {
   const card = {background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:16,marginBottom:14};
   const pill = (active) => ({padding:"5px 14px",borderRadius:8,border:`1px solid ${active?"var(--gold)":"var(--border)"}`,background:active?"var(--gold-dim)":"transparent",color:active?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:active?700:500,cursor:"pointer",fontFamily:"var(--fm)",transition:"all .15s"});
 
+  if (pos.length === 0) {
+    return <EmptyState icon="🧪" title="Sin datos de income" subtitle="El laboratorio de income necesita posiciones con dividendos para generar analisis de ingresos pasivos." />;
+  }
+
   return (
     <div style={{display:"flex",flexDirection:"column",gap:14}}>
       {/* Section toggle */}
@@ -253,7 +258,7 @@ export default function IncomeLabTab() {
               <div style={{display:"flex",alignItems:"center",gap:20}}>
                 {/* Thermometer */}
                 <div style={{width:40,height:180,position:"relative",flexShrink:0}}>
-                  <div style={{position:"absolute",bottom:0,left:0,width:"100%",height:"100%",background:"rgba(255,255,255,.04)",borderRadius:20,overflow:"hidden"}}>
+                  <div style={{position:"absolute",bottom:0,left:0,width:"100%",height:"100%",background:"var(--subtle-border)",borderRadius:20,overflow:"hidden"}}>
                     <div style={{position:"absolute",bottom:0,left:0,width:"100%",height:`${pct*100}%`,background:pct>=1?"var(--green)":pct>0.5?"var(--gold)":"var(--red)",borderRadius:20,transition:"height .8s ease",opacity:0.7}}/>
                   </div>
                   <div style={{position:"absolute",bottom:`${pct*100}%`,left:"50%",transform:"translate(-50%,50%)",fontSize:10,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",whiteSpace:"nowrap"}}>{_sf(pct*100,0)}%</div>
@@ -281,7 +286,7 @@ export default function IncomeLabTab() {
                     </div>
                   </div>
                   {/* Progress bar */}
-                  <div style={{marginTop:12,height:8,background:"rgba(255,255,255,.06)",borderRadius:4,overflow:"hidden"}}>
+                  <div style={{marginTop:12,height:8,background:"var(--subtle-bg2)",borderRadius:4,overflow:"hidden"}}>
                     <div style={{height:"100%",borderRadius:4,transition:"width .8s ease",width:`${pct*100}%`,
                       background:pct>=1?"var(--green)":pct>0.5?"linear-gradient(90deg,var(--gold),var(--green))":"linear-gradient(90deg,var(--red),var(--gold))"}}/>
                   </div>
@@ -334,7 +339,7 @@ export default function IncomeLabTab() {
                     const val = i * yStep;
                     const y = yScale(val);
                     return <g key={i}>
-                      <line x1={PL} y1={y} x2={W-PR} y2={y} stroke="rgba(255,255,255,.06)" strokeWidth={0.5}/>
+                      <line x1={PL} y1={y} x2={W-PR} y2={y} stroke="var(--subtle-bg2)" strokeWidth={0.5}/>
                       <text x={PL-6} y={y+3} textAnchor="end" fill="var(--text-tertiary)" fontSize={8}>${_sf(val,0)}</text>
                     </g>;
                   })}
@@ -389,13 +394,13 @@ export default function IncomeLabTab() {
             </div>
           </div>
         )}
-        {!incomeHistory && <div style={{padding:30,textAlign:"center",color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Cargando datos de income...</div>}
+        {!incomeHistory && <InlineLoading message="Cargando datos de income..." />}
       </>}
 
       {/* ══════ CALENDAR ══════ */}
       {section === "calendar" && <>
         {/* Monthly summary */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,...(window.innerWidth<768?{gridTemplateColumns:"repeat(3,1fr)"}:{})}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:8}}>
           {calendar.map((m,i) => (
             <div key={i} style={{...card,marginBottom:0,padding:12,textAlign:"center"}}>
               <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600}}>{MONTHS[i]}</div>
@@ -464,7 +469,7 @@ export default function IncomeLabTab() {
             </thead>
             <tbody>
               {dripProjection.map((y,i) => (
-                <tr key={y.year} style={{borderBottom:"1px solid rgba(255,255,255,.04)",background:i===0?"rgba(200,164,78,.04)":"transparent"}}>
+                <tr key={y.year} style={{borderBottom:"1px solid var(--subtle-border)",background:i===0?"rgba(200,164,78,.04)":"transparent"}}>
                   <td style={{padding:"6px 10px",fontFamily:"var(--fm)",fontWeight:i===0?700:400,color:i===0?"var(--gold)":"var(--text-primary)"}}>{y.year}{i===0?" (hoy)":""}</td>
                   <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-primary)"}}>{privacyMode?"•••":"$"+fDol(y.value)}</td>
                   <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",fontWeight:600}}>{privacyMode?"•••":"$"+fDol(y.divIncome)}</td>
@@ -498,7 +503,7 @@ export default function IncomeLabTab() {
             const isOverweight = s.pct > 0.20;
             const colors = ["#c8a44e","#30d158","#64d2ff","#ff9f0a","#bf5af2","#ff453a","#ffd60a","#86868b","#34c759","#5ac8fa","#ff6b6b","#4ecdc4"];
             return (
-              <div key={s.sec} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}}>
+              <div key={s.sec} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:"1px solid var(--subtle-border)"}}>
                 <div style={{width:10,height:10,borderRadius:2,background:colors[i%colors.length],flexShrink:0}}/>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -508,7 +513,7 @@ export default function IncomeLabTab() {
                     <span style={{fontSize:12,fontWeight:700,color:isOverweight?"var(--red)":"var(--gold)",fontFamily:"var(--fm)"}}>{_sf(s.pct*100,1)}%</span>
                   </div>
                   <div style={{display:"flex",alignItems:"center",gap:6,marginTop:4}}>
-                    <div style={{flex:1,height:4,background:"rgba(255,255,255,.06)",borderRadius:2,overflow:"hidden"}}>
+                    <div style={{flex:1,height:4,background:"var(--subtle-bg2)",borderRadius:2,overflow:"hidden"}}>
                       <div style={{width:`${Math.min(s.pct*100*3,100)}%`,height:"100%",background:isOverweight?"var(--red)":colors[i%colors.length],borderRadius:2,transition:"width .5s ease"}}/>
                     </div>
                     <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",flexShrink:0}}>{s.count} pos · ${fDol(s.value)}</span>
@@ -563,7 +568,7 @@ export default function IncomeLabTab() {
                 </thead>
                 <tbody>
                   {taxLoss.map(p=>(
-                    <tr key={p.ticker} onClick={()=>openAnalysis(p.ticker)} style={{borderBottom:"1px solid rgba(255,255,255,.04)",cursor:"pointer"}}
+                    <tr key={p.ticker} onClick={()=>openAnalysis(p.ticker)} style={{borderBottom:"1px solid var(--subtle-border)",cursor:"pointer"}}
                       onMouseEnter={e=>e.currentTarget.style.background="var(--card-hover)"}
                       onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                       <td style={{padding:"6px 8px",fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{p.ticker}</td>
@@ -650,7 +655,7 @@ export default function IncomeLabTab() {
               </div>
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
                 {pos.filter(p => p.lastPrice > 20 && p.shares >= 100 && (p.pnlPct||0) < -0.1).slice(0,5).map(p => (
-                  <div key={p.ticker} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",background:"rgba(255,255,255,.02)",borderRadius:8,fontSize:10,fontFamily:"var(--fm)"}}>
+                  <div key={p.ticker} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 10px",background:"var(--row-alt)",borderRadius:8,fontSize:10,fontFamily:"var(--fm)"}}>
                     <span style={{fontWeight:700,color:"var(--text-primary)"}}>{p.ticker}</span>
                     <span style={{color:"var(--text-secondary)"}}>Precio: ${_sf(p.lastPrice,2)}</span>
                     <span style={{color:"var(--red)"}}>{_sf((p.pnlPct||0)*100,0)}%</span>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
+import { EmptyState } from '../ui/EmptyState.jsx';
 
 export default function ControlTab() {
   const {
@@ -46,7 +47,7 @@ export default function ControlTab() {
       const latest = withData[0] || {};
       const prev = withData[1] || {};
       const chg = prev.pu ? ((latest.pu - prev.pu) / prev.pu * 100) : 0;
-      return <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,flex:1}}>
+      return <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))",gap:10,flex:1}}>
         {[
           {l:"PAT. USD",v:"$"+fDol(latest.pu||0),c:"var(--text-primary)"},
           {l:"PAT. EUR",v:"€"+fDol(latest.pe||0),c:"var(--text-secondary)"},
@@ -106,7 +107,7 @@ export default function ControlTab() {
           <div key={f.k}>
             <label style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:2}}>{f.l}</label>
             <input type={f.t} step={f.s} value={ctrlForm[f.k]||""} onChange={e=>setCtrlForm(p=>({...p,[f.k]:f.t==="date"?e.target.value:parseFloat(e.target.value)||0}))} placeholder={f.p}
-              style={{width:"100%",padding:"6px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)",boxSizing:"border-box"}}/>
+              style={{width:"100%",padding:"6px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)",boxSizing:"border-box"}}/>
           </div>
         ))}
       </div>
@@ -147,16 +148,16 @@ export default function ControlTab() {
           {ctrlLog.filter(c=>c.pu>0).map((c,i,arr) => {
             const prev = arr[i+1];
             const chg = prev?.pu ? ((c.pu-prev.pu)/prev.pu*100) : 0;
-            return <tr key={c.id||i} style={{background:i%2?"rgba(255,255,255,.01)":"transparent"}}
-              onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"} onMouseLeave={e=>e.currentTarget.style.background=i%2?"rgba(255,255,255,.01)":"transparent"}>
-              <td style={{padding:"6px 10px",fontFamily:"var(--fm)",color:"var(--text-primary)",fontWeight:600,borderBottom:"1px solid rgba(255,255,255,.03)"}}>{c.d}</td>
-              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{c.fx?.toFixed(3)}</td>
-              <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>${(c.pu||0).toLocaleString()}</td>
-              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>€{(c.pe||0).toLocaleString()}</td>
-              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>${(c.br||0).toLocaleString()}</td>
-              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"#64d2ff",borderBottom:"1px solid rgba(255,255,255,.03)"}}>€{(c.bk||0).toLocaleString()}</td>
-              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"#bf5af2",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{c.cr?`€${(c.cr||0).toLocaleString()}`:"—"}</td>
-              <td style={{padding:"6px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:chg>=0?"var(--green)":"var(--red)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{chg?`${chg>=0?"+":""}${_sf(chg,1)}%`:""}</td>
+            return <tr key={c.id||i} style={{background:i%2?"var(--row-alt)":"transparent"}}
+              onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"} onMouseLeave={e=>e.currentTarget.style.background=i%2?"var(--row-alt)":"transparent"}>
+              <td style={{padding:"6px 10px",fontFamily:"var(--fm)",color:"var(--text-primary)",fontWeight:600,borderBottom:"1px solid var(--subtle-bg)"}}>{c.d}</td>
+              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{c.fx?.toFixed(3)}</td>
+              <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>${(c.pu||0).toLocaleString()}</td>
+              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)"}}>€{(c.pe||0).toLocaleString()}</td>
+              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)"}}>${(c.br||0).toLocaleString()}</td>
+              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"#64d2ff",borderBottom:"1px solid var(--subtle-bg)"}}>€{(c.bk||0).toLocaleString()}</td>
+              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"#bf5af2",borderBottom:"1px solid var(--subtle-bg)"}}>{c.cr?`€${(c.cr||0).toLocaleString()}`:"—"}</td>
+              <td style={{padding:"6px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:chg>=0?"var(--green)":"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{chg?`${chg>=0?"+":""}${_sf(chg,1)}%`:""}</td>
             </tr>;
           })}
         </tbody>

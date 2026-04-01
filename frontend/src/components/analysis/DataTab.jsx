@@ -22,16 +22,16 @@ export default function DataTab() {
         <Card style={{overflowX:"auto",padding:0}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5}}>
             <thead>
-              <tr><th style={{position:"sticky",left:0,background:"var(--surface)",padding:"10px 14px",textAlign:"left",color:"var(--gold)",fontWeight:600,borderBottom:"2px solid #30363d",zIndex:2,minWidth:155,fontFamily:"var(--fm)",fontSize:10,letterSpacing:.5}}>MÉTRICA</th>
-                {yrs.map(y=><th key={y} style={{padding:"10px 6px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid #30363d",minWidth:82,fontFamily:"var(--fm)",fontSize:10}}>{y}</th>)}
+              <tr><th style={{position:"sticky",left:0,background:"var(--surface)",padding:"10px 14px",textAlign:"left",color:"var(--gold)",fontWeight:600,borderBottom:"2px solid var(--table-border)",zIndex:2,minWidth:155,fontFamily:"var(--fm)",fontSize:10,letterSpacing:.5}}>MÉTRICA</th>
+                {yrs.map(y=><th key={y} style={{padding:"10px 6px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid var(--table-border)",minWidth:82,fontFamily:"var(--fm)",fontSize:10}}>{y}</th>)}
               </tr>
             </thead>
             <tbody>
               {fields.map((f,i)=>(
-                <tr key={f.k} style={{background:i%2?"rgba(255,255,255,.02)":"transparent"}} onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"} onMouseLeave={e=>e.currentTarget.style.background=i%2?"rgba(255,255,255,.02)":"transparent"}>
-                  <td style={{position:"sticky",left:0,background:i%2?"#0a0a0a":"#000",padding:"5px 14px",color:"var(--text-primary)",fontWeight:500,borderBottom:"1px solid #21262d",zIndex:1,fontSize:11.5}}>{f.l}</td>
+                <tr key={f.k} style={{background:i%2?"var(--row-alt)":"transparent"}} onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"} onMouseLeave={e=>e.currentTarget.style.background=i%2?"var(--row-alt)":"transparent"}>
+                  <td style={{position:"sticky",left:0,background:i%2?"var(--card)":"var(--bg)",padding:"5px 14px",color:"var(--text-primary)",fontWeight:500,borderBottom:"1px solid var(--table-border)",zIndex:1,fontSize:11.5}}>{f.l}</td>
                   {yrs.map(y=>(
-                    <td key={y} style={{padding:"3px 3px",borderBottom:"1px solid #21262d"}}>
+                    <td key={y} style={{padding:"3px 3px",borderBottom:"1px solid var(--table-border)"}}>
                       <input type="number" value={fin[y]?.[f.k] != null && fin[y][f.k] !== 0 ? (f.fmt != null ? parseFloat(fin[y][f.k].toFixed(f.fmt)) : fin[y][f.k]) : ""} onChange={e=>upFin(y,f.k,e.target.value)} placeholder="—"
                         style={{width:74,padding:"4px 5px",background:"transparent",border:"1px solid transparent",borderRadius:4,color:"var(--text-primary)",fontSize:11.5,textAlign:"right",outline:"none",fontFamily:"var(--fm)"}}
                         onFocus={e=>{e.target.style.borderColor="var(--gold)";e.target.style.background="var(--gold-glow)";}}

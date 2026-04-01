@@ -66,7 +66,7 @@ export default function ClaudeTab() {
           </Card>
 
           {/* Growth */}
-          <Card title="Crecimiento" icon="📈" badge={ssd.fcfTrend?<span style={{fontSize:10,fontWeight:600,color:"var(--text-tertiary)",background:"rgba(255,255,255,.04)",padding:"3px 8px",borderRadius:100}}>{ssd.fcfTrend}</span>:null}>
+          <Card title="Crecimiento" icon="📈" badge={ssd.fcfTrend?<span style={{fontSize:10,fontWeight:600,color:"var(--text-tertiary)",background:"var(--subtle-border)",padding:"3px 8px",borderRadius:100}}>{ssd.fcfTrend}</span>:null}>
             {ssd.growthAssessment && <div style={{fontSize:12,color:"var(--text-secondary)",lineHeight:1.8}}>{ssd.growthAssessment}</div>}
           </Card>
 
@@ -102,7 +102,7 @@ export default function ClaudeTab() {
               <div style={{fontSize:40,fontWeight:800,fontFamily:"var(--fm)",color:aiColor}}>{ssd.aiDisruptionScore}</div>
               <div style={{fontSize:11,color:"var(--text-secondary)",marginTop:2}}>{ssd.aiDisruptionLevel==="Low"?"Bajo riesgo — negocio resiliente a IA":ssd.aiDisruptionLevel==="Medium"?"Riesgo moderado — vulnerabilidades parciales":ssd.aiDisruptionLevel==="High"?"Alto riesgo — modelo amenazado":"Riesgo crítico — alta probabilidad de disrupción"}</div>
             </div>
-            {ssd.aiDisruptionAssessment && <div style={{fontSize:12,color:"var(--text-secondary)",lineHeight:1.8,marginTop:10,padding:"12px 14px",background:"rgba(255,255,255,.02)",borderRadius:10}}>{ssd.aiDisruptionAssessment}</div>}
+            {ssd.aiDisruptionAssessment && <div style={{fontSize:12,color:"var(--text-secondary)",lineHeight:1.8,marginTop:10,padding:"12px 14px",background:"var(--row-alt)",borderRadius:10}}>{ssd.aiDisruptionAssessment}</div>}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:12}}>
               {ssd.aiDisruptionThreats?.length > 0 && (
                 <div style={{padding:"12px",background:"rgba(255,69,58,.04)",borderRadius:10,border:"1px solid rgba(255,69,58,.08)"}}>
@@ -124,7 +124,7 @@ export default function ClaudeTab() {
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginTop:16}}>
           <Card title="Riesgos Principales" icon="⚠️">
             {ssd.risks?.length > 0 ? ssd.risks.map((r,i) => (
-              <div key={i} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"8px 0",borderBottom:i<ssd.risks.length-1?"1px solid rgba(255,255,255,.04)":"none"}}>
+              <div key={i} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"8px 0",borderBottom:i<ssd.risks.length-1?"1px solid var(--subtle-border)":"none"}}>
                 <span style={{fontSize:14,color:"#ff453a",flexShrink:0,marginTop:1}}>●</span>
                 <div style={{fontSize:12,color:"var(--text-secondary)",lineHeight:1.7}}>{r}</div>
               </div>
@@ -132,7 +132,7 @@ export default function ClaudeTab() {
           </Card>
           <Card title="Catalizadores" icon="🚀">
             {ssd.catalysts?.length > 0 ? ssd.catalysts.map((c,i) => (
-              <div key={i} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"8px 0",borderBottom:i<ssd.catalysts.length-1?"1px solid rgba(255,255,255,.04)":"none"}}>
+              <div key={i} style={{display:"flex",gap:8,alignItems:"flex-start",padding:"8px 0",borderBottom:i<ssd.catalysts.length-1?"1px solid var(--subtle-border)":"none"}}>
                 <span style={{fontSize:14,color:"#30d158",flexShrink:0,marginTop:1}}>●</span>
                 <div style={{fontSize:12,color:"var(--text-secondary)",lineHeight:1.7}}>{c}</div>
               </div>

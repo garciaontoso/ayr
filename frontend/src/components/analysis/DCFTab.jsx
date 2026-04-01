@@ -41,22 +41,22 @@ export default function DCFTab() {
         <Card style={{marginTop:16,overflowX:"auto",padding:0}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5}}>
             <thead><tr>
-              <th style={{padding:"10px 14px",textAlign:"left",color:"var(--gold)",fontWeight:600,borderBottom:"2px solid #30363d",fontFamily:"var(--fm)",fontSize:10}}>AÑO</th>
-              <th style={{padding:"10px 8px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid #30363d",fontFamily:"var(--fm)",fontSize:10}}>FCF PROY.</th>
-              <th style={{padding:"10px 8px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid #30363d",fontFamily:"var(--fm)",fontSize:10}}>VALOR PRESENTE</th>
+              <th style={{padding:"10px 14px",textAlign:"left",color:"var(--gold)",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:10}}>AÑO</th>
+              <th style={{padding:"10px 8px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:10}}>FCF PROY.</th>
+              <th style={{padding:"10px 8px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:10}}>VALOR PRESENTE</th>
             </tr></thead>
             <tbody>
               {dcf.projs.map((p,i)=>(
-                <tr key={p.year} style={{background:i%2?"rgba(255,255,255,.02)":"transparent"}}>
-                  <td style={{padding:"7px 14px",color:"var(--text-primary)",fontWeight:500,borderBottom:"1px solid #21262d"}}>{p.year}</td>
-                  <td style={{padding:"7px 8px",textAlign:"right",color:"var(--text-primary)",borderBottom:"1px solid #21262d",fontFamily:"var(--fm)"}}>{fM(p.fcf)}</td>
-                  <td style={{padding:"7px 8px",textAlign:"right",color:"var(--text-secondary)",borderBottom:"1px solid #21262d",fontFamily:"var(--fm)"}}>{fM(p.pv)}</td>
+                <tr key={p.year} style={{background:i%2?"var(--row-alt)":"transparent"}}>
+                  <td style={{padding:"7px 14px",color:"var(--text-primary)",fontWeight:500,borderBottom:"1px solid var(--table-border)"}}>{p.year}</td>
+                  <td style={{padding:"7px 8px",textAlign:"right",color:"var(--text-primary)",borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)"}}>{fM(p.fcf)}</td>
+                  <td style={{padding:"7px 8px",textAlign:"right",color:"var(--text-secondary)",borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)"}}>{fM(p.pv)}</td>
                 </tr>
               ))}
               <tr style={{background:"rgba(48,209,88,.06)"}}>
-                <td style={{padding:"10px 14px",color:"var(--green)",fontWeight:700,borderTop:"2px solid #30363d"}}>TOTAL</td>
-                <td style={{padding:"10px 8px",textAlign:"right",borderTop:"2px solid #30363d"}}/>
-                <td style={{padding:"10px 8px",textAlign:"right",color:"var(--green)",fontWeight:700,borderTop:"2px solid #30363d",fontFamily:"var(--fm)"}}>{fM(dcf.total)}</td>
+                <td style={{padding:"10px 14px",color:"var(--green)",fontWeight:700,borderTop:"2px solid var(--table-border)"}}>TOTAL</td>
+                <td style={{padding:"10px 8px",textAlign:"right",borderTop:"2px solid var(--table-border)"}}/>
+                <td style={{padding:"10px 8px",textAlign:"right",color:"var(--green)",fontWeight:700,borderTop:"2px solid var(--table-border)",fontFamily:"var(--fm)"}}>{fM(dcf.total)}</td>
               </tr>
             </tbody>
           </table>

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fC } from '../../utils/formatters.js';
+import { EmptyState } from '../ui/EmptyState.jsx';
 
 /* ═══════════════════════════════════════════════════════════════
    NominaTab — "Mi Nomina" motivational dividend salary view
@@ -88,7 +89,7 @@ function CoberturaCard({ monthlyDiv, monthlyExp, privacyMode, sym }) {
       </div>
 
       {/* Progress bar */}
-      <div style={{ height: 10, background: "rgba(255,255,255,.06)", borderRadius: 6, overflow: "hidden", marginBottom: 8 }}>
+      <div style={{ height: 10, background: "var(--subtle-bg2)", borderRadius: 6, overflow: "hidden", marginBottom: 8 }}>
         <div style={{
           height: "100%", width: `${Math.min(pct, 100)}%`, borderRadius: 6,
           background: covered ? `linear-gradient(90deg, ${GREEN}, #20a040)` : `linear-gradient(90deg, ${GOLD}, #b8943e)`,
@@ -237,7 +238,7 @@ function TopPayers({ portfolioList, privacyMode, sym }) {
               <div style={{ width: 32, fontSize: 9, fontWeight: 700, color: "var(--text-secondary)", fontFamily: "var(--fm)", textAlign: "right", flexShrink: 0 }}>
                 {p.ticker.length > 5 ? p.ticker.slice(0, 5) : p.ticker}
               </div>
-              <div style={{ flex: 1, height: 22, background: "rgba(255,255,255,.03)", borderRadius: 5, overflow: "hidden", position: "relative" }}>
+              <div style={{ flex: 1, height: 22, background: "var(--subtle-bg)", borderRadius: 5, overflow: "hidden", position: "relative" }}>
                 <div style={{
                   height: "100%", width: `${pct}%`, borderRadius: 5, minWidth: 2,
                   background: `linear-gradient(90deg, ${yldColor}66, ${yldColor}cc)`,
@@ -418,8 +419,8 @@ function CountdownCard({ annualDiv, monthlyExp, cagr, privacyMode, sym }) {
           return (
             <div key={m.pct} style={{
               padding: "5px 10px", borderRadius: 8,
-              background: reached ? (m.pct === 100 ? "rgba(48,209,88,.12)" : GOLD_DIM) : "rgba(255,255,255,.03)",
-              border: `1px solid ${reached ? (m.pct === 100 ? "rgba(48,209,88,.3)" : "rgba(200,164,78,.3)") : "rgba(255,255,255,.06)"}`,
+              background: reached ? (m.pct === 100 ? "rgba(48,209,88,.12)" : GOLD_DIM) : "var(--subtle-bg)",
+              border: `1px solid ${reached ? (m.pct === 100 ? "rgba(48,209,88,.3)" : "rgba(200,164,78,.3)") : "var(--subtle-bg2)"}`,
               opacity: reached ? 1 : 0.4,
             }}>
               <div style={{ fontSize: 16 }}>{m.emoji}</div>
@@ -468,6 +469,10 @@ export default function NominaTab() {
     }
     return 0;
   }, [DIV_BY_YEAR]);
+
+  if (annualDiv <= 0 && (!portfolioList || portfolioList.length === 0)) {
+    return <EmptyState icon="💵" title="Tu nomina pasiva esta en camino" subtitle="Anade posiciones que paguen dividendos para ver tu sueldo pasivo calculado al minuto." />;
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>

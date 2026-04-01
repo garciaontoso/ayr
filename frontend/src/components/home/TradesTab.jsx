@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf } from '../../utils/formatters.js';
 import { API_URL } from '../../constants/index.js';
+import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
 
 export default function TradesTab() {
   const {
@@ -79,7 +80,7 @@ export default function TradesTab() {
   return (
   <div style={{display:"flex",flexDirection:"column",gap:12}}>
     {/* KPI Cards — más compactos */}
-    <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:8}}>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(130px, 1fr))",gap:8}}>
       {[
         {l:"TRANSACCIONES",v:totalTxns.toLocaleString(),c:"var(--text-primary)"},
         {l:"TICKERS",v:summary.length.toString(),c:"var(--gold)"},
@@ -99,16 +100,16 @@ export default function TradesTab() {
     <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
       <input placeholder="Buscar ticker..." value={tradesFilter.ticker} onChange={e=>{const f={...tradesFilter,ticker:e.target.value};setTradesFilter(f);}}
         onKeyDown={e=>{if(e.key==="Enter"){setTradesPage(0);loadTrades(tradesFilter,0);}}}
-        style={{padding:"7px 12px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:12,fontFamily:"var(--fm)",outline:"none",width:130}}/>
+        style={{padding:"7px 12px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:12,fontFamily:"var(--fm)",outline:"none",width:130}}/>
       <select value={tradesFilter.tipo} onChange={e=>{const f={...tradesFilter,tipo:e.target.value};setTradesFilter(f);setTradesPage(0);loadTrades(f,0);}}
-        style={{padding:"7px 10px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:12,fontFamily:"var(--fm)",outline:"none"}}>
+        style={{padding:"7px 10px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:12,fontFamily:"var(--fm)",outline:"none"}}>
         <option value="">Todos los tipos</option>
         <option value="EQUITY">Equity</option>
         <option value="DIVIDENDS">Dividendos</option>
         <option value="OPTION">Opciones</option>
       </select>
       <select value={tradesFilter.year} onChange={e=>{const f={...tradesFilter,year:e.target.value};setTradesFilter(f);setTradesPage(0);loadTrades(f,0);}}
-        style={{padding:"7px 10px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:12,fontFamily:"var(--fm)",outline:"none"}}>
+        style={{padding:"7px 10px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:12,fontFamily:"var(--fm)",outline:"none"}}>
         <option value="">Todos los años</option>
         {["2026","2025","2024","2023","2022","2021","2020"].map(y=><option key={y} value={y}>{y}</option>)}
       </select>
@@ -122,7 +123,9 @@ export default function TradesTab() {
 
     {/* Transaction Table */}
     {tradesLoading ? (
-      <div style={{padding:60,textAlign:"center",color:"var(--text-tertiary)",fontSize:14}}>Cargando transacciones...</div>
+      <InlineLoading message="Cargando transacciones..." />
+    ) : results.length === 0 ? (
+      <EmptyState icon="📝" title="Sin transacciones" subtitle="No se encontraron transacciones con los filtros seleccionados. Prueba a cambiar los filtros o sincroniza tus operaciones desde IB." action="Limpiar filtros" onAction={() => { const f={tipo:"",year:"",ticker:""}; setTradesFilter(f); setTradesPage(0); loadTrades(f,0); }} />
     ) : (
     <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden"}}>
       <div style={{overflowX:"auto"}}>
@@ -143,19 +146,19 @@ export default function TradesTab() {
               <tr key={r.id||i} style={{background:i%2?"rgba(255,255,255,.012)":"transparent",transition:"background .15s"}}
                 onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"}
                 onMouseLeave={e=>e.currentTarget.style.background=i%2?"rgba(255,255,255,.012)":"transparent"}>
-                <td style={{padding:"5px 10px",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid rgba(255,255,255,.03)",fontSize:11}}>{r.fecha}</td>
-                <td style={{padding:"5px 10px",fontWeight:700,fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid rgba(255,255,255,.03)",cursor:"pointer"}} onClick={()=>openCostBasis(r.ticker)}>{r.ticker}</td>
-                <td style={{padding:"5px 10px",fontFamily:"var(--fm)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>
+                <td style={{padding:"5px 10px",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)",fontSize:11}}>{r.fecha}</td>
+                <td style={{padding:"5px 10px",fontWeight:700,fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)",cursor:"pointer"}} onClick={()=>openCostBasis(r.ticker)}>{r.ticker}</td>
+                <td style={{padding:"5px 10px",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>
                   <span style={{fontSize:9,padding:"2px 8px",borderRadius:4,background:`${tColor}15`,color:tColor,fontWeight:600}}>{typeLabels[r.tipo]||r.tipo}</span>
                 </td>
-                <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:isNeg?"var(--red)":"var(--text-primary)",fontWeight:isNeg?600:400,borderBottom:"1px solid rgba(255,255,255,.03)"}}>{r.shares||""}</td>
-                <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{r.precio?`$${_sf(r.precio,2)}`:""}</td>
-                <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--red)",borderBottom:"1px solid rgba(255,255,255,.03)",opacity:.5,fontSize:10}}>{r.comision?`$${_sf(r.comision,2)}`:""}</td>
-                <td style={{padding:"5px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:r.coste>0?"var(--green)":r.coste<0?"var(--red)":"var(--text-tertiary)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{r.coste!=null?`$${_sf(r.coste,0)}`:""}</td>
-                <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid rgba(255,255,255,.03)",fontSize:10}}>{r.dps?`$${_sf(r.dps,4)}`:""}</td>
-                <td style={{padding:"5px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:"var(--green)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{r.div_total?`$${_sf(r.div_total,2)}`:""}</td>
-                <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"#64d2ff",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{r.opt_credit_total?`$${_sf(r.opt_credit_total,2)}`:""}</td>
-                <td style={{padding:"5px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:r.balance>=0?"var(--green)":"var(--red)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{r.balance!=null&&r.balance!==0?`$${_sf(r.balance,0)}`:""}</td>
+                <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:isNeg?"var(--red)":"var(--text-primary)",fontWeight:isNeg?600:400,borderBottom:"1px solid var(--subtle-bg)"}}>{r.shares||""}</td>
+                <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)"}}>{r.precio?`$${_sf(r.precio,2)}`:""}</td>
+                <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--red)",borderBottom:"1px solid var(--subtle-bg)",opacity:.5,fontSize:10}}>{r.comision?`$${_sf(r.comision,2)}`:""}</td>
+                <td style={{padding:"5px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:r.coste>0?"var(--green)":r.coste<0?"var(--red)":"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{r.coste!=null?`$${_sf(r.coste,0)}`:""}</td>
+                <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)",fontSize:10}}>{r.dps?`$${_sf(r.dps,4)}`:""}</td>
+                <td style={{padding:"5px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:"var(--green)",borderBottom:"1px solid var(--subtle-bg)"}}>{r.div_total?`$${_sf(r.div_total,2)}`:""}</td>
+                <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"#64d2ff",borderBottom:"1px solid var(--subtle-bg)"}}>{r.opt_credit_total?`$${_sf(r.opt_credit_total,2)}`:""}</td>
+                <td style={{padding:"5px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:r.balance>=0?"var(--green)":"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{r.balance!=null&&r.balance!==0?`$${_sf(r.balance,0)}`:""}</td>
               </tr>);
             })}
           </tbody>

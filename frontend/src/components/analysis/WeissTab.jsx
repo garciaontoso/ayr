@@ -133,7 +133,7 @@ export default function WeissTab() {
               </linearGradient>
             </defs>
 
-            <rect x={PADL} y={PADT} width={chartW} height={chartH} fill="#0a0a0a" rx={4}/>
+            <rect x={PADL} y={PADT} width={chartW} height={chartH} fill="var(--chart-bg)" rx={4}/>
 
             {/* Undervalued zone (high yield) — green */}
             <rect x={PADL} y={yScale(yMax)} width={chartW} height={yScale(yieldHigh)-yScale(yMax)} fill="url(#weissGreen)" opacity={0.6}/>
@@ -154,20 +154,20 @@ export default function WeissTab() {
             {Array.from({length:6},(_, i) => {
               const v = yMin2 + (yMax - yMin2) * i / 5;
               return <g key={i}>
-                <line x1={PADL} y1={yScale(v)} x2={PADL+chartW} y2={yScale(v)} stroke="rgba(255,255,255,.05)"/>
-                <text x={PADL-6} y={yScale(v)+4} textAnchor="end" fontSize={9} fill="rgba(255,255,255,.3)" fontFamily="monospace">{_sf(v*100,1)}%</text>
+                <line x1={PADL} y1={yScale(v)} x2={PADL+chartW} y2={yScale(v)} stroke="var(--subtle-border)"/>
+                <text x={PADL-6} y={yScale(v)+4} textAnchor="end" fontSize={9} fill="var(--text-tertiary)" fontFamily="monospace">{_sf(v*100,1)}%</text>
               </g>;
             })}
 
             {/* Year labels */}
-            {allYears.filter((_,i)=>i%2===0).map(y => <text key={y} x={xScale(y)} y={PADT+chartH+16} textAnchor="middle" fontSize={9} fill="rgba(255,255,255,.3)" fontFamily="monospace">{y}</text>)}
+            {allYears.filter((_,i)=>i%2===0).map(y => <text key={y} x={xScale(y)} y={PADT+chartH+16} textAnchor="middle" fontSize={9} fill="var(--text-tertiary)" fontFamily="monospace">{y}</text>)}
 
             {/* Yield line */}
             <path d={yieldPath} fill="none" stroke="#64d2ff" strokeWidth={2.5}/>
-            {yieldData.map((d,i)=><circle key={i} cx={xScale(d.y)} cy={yScale(d.yld)} r={3.5} fill="#64d2ff" stroke="#0d1117" strokeWidth={1.5}/>)}
+            {yieldData.map((d,i)=><circle key={i} cx={xScale(d.y)} cy={yScale(d.yld)} r={3.5} fill="#64d2ff" stroke="var(--bg)" strokeWidth={1.5}/>)}
 
             {/* Current yield marker */}
-            <circle cx={xScale(maxY-0.5)} cy={yScale(currentYield)} r={7} fill={weissColor} stroke="#fff" strokeWidth={2}/>
+            <circle cx={xScale(maxY-0.5)} cy={yScale(currentYield)} r={7} fill={weissColor} stroke="var(--text-primary)" strokeWidth={2}/>
             <text x={xScale(maxY-0.5)} y={yScale(currentYield)-12} textAnchor="middle" fontSize={11} fill={weissColor} fontWeight={700} fontFamily="monospace">{_sf(currentYield*100,1)}%</text>
             <text x={xScale(maxY-0.5)} y={PADT+chartH+16} textAnchor="middle" fontSize={9} fill={weissColor} fontWeight={700} fontFamily="monospace">NOW</text>
 

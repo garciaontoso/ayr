@@ -321,7 +321,7 @@ function AirplaneMode({ portfolioList }) {
           {dlDone && <button onClick={() => setDlOpen(false)} style={{ border: "none", background: "transparent", color: "var(--text-tertiary)", cursor: "pointer", fontSize: 12, marginLeft: 8 }}>✕</button>}
         </div>
         {!dlDone && (
-          <div style={{ height: 3, background: "rgba(255,255,255,.06)", borderRadius: 2, overflow: "hidden" }}>
+          <div style={{ height: 3, background: "var(--subtle-bg2)", borderRadius: 2, overflow: "hidden" }}>
             <div style={{ height: "100%", width: `${pct}%`, background: "linear-gradient(90deg, #64d2ff, #30d158)", borderRadius: 2, transition: "width .3s" }} />
           </div>
         )}
@@ -341,7 +341,7 @@ export default function HomeView() {
     showSettings, setShowSettings,
     uiZoom, changeZoom,
     HOME_TABS,
-    ibData, ibDiscrepancies, loadIBData,
+    ibData, ibDiscrepancies, loadIBData, ibSyncMsg,
     alerts, alertsUnread, showAlertPanel, setShowAlertPanel, markAlertsRead, theme, toggleTheme,
   } = useHome();
 
@@ -407,6 +407,7 @@ export default function HomeView() {
           style={{padding:"4px 8px",borderRadius:6,border:`1px solid ${ibColor}33`,background:`${ibColor}0F`,color:ibColor,fontSize:10,cursor:ibLoading?"wait":"pointer",fontFamily:"var(--fm)",fontWeight:600,transition:"all .15s"}}>
           {ibLoading ? "⏳" : ibLoaded ? `📡${ibAlerts.length?" ⚠":""}` : "IB"}
         </button>
+        {ibSyncMsg && <span style={{fontSize:9,color:"var(--text-tertiary)",whiteSpace:"nowrap",animation:"fadeIn .3s"}}>{ibSyncMsg}</span>}
 
         {/* Alerts bell */}
         <button onClick={()=>{setShowAlertPanel(!showAlertPanel);if(alertsUnread>0)markAlertsRead();}}
@@ -484,7 +485,7 @@ export default function HomeView() {
               const icons = { DIVIDEND: "💰", EARNINGS: "📊", DROP: "📉", OPTION_EXP: "⏰", MARGIN: "⚠️", MILESTONE: "🎉" };
               const colors = { DIVIDEND: "var(--gold)", EARNINGS: "#64d2ff", DROP: "var(--red)", OPTION_EXP: "#bf5af2", MARGIN: "#ffd60a", MILESTONE: "var(--green)" };
               return (
-                <div key={a.id || i} style={{padding:"6px 10px",borderRadius:8,background:a.leida?"transparent":"rgba(255,214,10,.03)",border:`1px solid ${a.leida?"rgba(255,255,255,.03)":"rgba(255,214,10,.1)"}`,display:"flex",gap:8,alignItems:"center"}}>
+                <div key={a.id || i} style={{padding:"6px 10px",borderRadius:8,background:a.leida?"transparent":"rgba(255,214,10,.03)",border:`1px solid ${a.leida?"var(--subtle-bg)":"rgba(255,214,10,.1)"}`,display:"flex",gap:8,alignItems:"center"}}>
                   <span style={{fontSize:14}}>{icons[a.tipo] || "🔔"}</span>
                   <div style={{flex:1}}>
                     <div style={{fontSize:11,fontWeight:600,color:colors[a.tipo] || "var(--text-primary)",fontFamily:"var(--fm)"}}>{a.titulo}</div>
@@ -545,7 +546,7 @@ export default function HomeView() {
                   ].map((d,i) => {
                     const isOld = d.v && d.v !== "—" && (Date.now() - new Date(d.v).getTime()) > 7*86400000;
                     return (
-                    <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"4px 8px",borderRadius:5,background:isOld?"rgba(255,214,10,.04)":"rgba(255,255,255,.02)",border:`1px solid ${isOld?"rgba(255,214,10,.12)":"rgba(255,255,255,.03)"}`}}>
+                    <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"4px 8px",borderRadius:5,background:isOld?"rgba(255,214,10,.04)":"var(--row-alt)",border:`1px solid ${isOld?"rgba(255,214,10,.12)":"var(--subtle-bg)"}`}}>
                       <span style={{fontSize:10,color:isOld?"#ffd60a":"var(--text-secondary)",fontFamily:"var(--fm)",fontWeight:600}}>{isOld?"⚠ ":""}{d.l}</span>
                       <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{d.v||"—"}{d.n?` (${d.n})`:""}</span>
                     </div>);

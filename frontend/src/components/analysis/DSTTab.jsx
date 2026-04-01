@@ -16,9 +16,9 @@ function DSTTab() {
   const sc = v => v>=4?"#34d399":v>=3?"#d69e2e":v>=2?"#f59e0b":"#f87171";
   const fM = v => v==null?"—":Math.abs(v)>=1000?`${_sf(v/1000,1)}B`:`${v}M`;
   const hd = {fontSize:15,fontWeight:700,color:"#c9972e",fontFamily:"var(--fd)",marginBottom:12,marginTop:24,paddingBottom:6,borderBottom:"2px solid #c9972e"};
-  const thS = {padding:"5px 7px",textAlign:"right",color:"#fff",fontSize:8,fontWeight:700,fontFamily:"var(--fm)",background:"#8B4513",whiteSpace:"nowrap",borderBottom:"none"};
-  const tdS = {padding:"4px 7px",textAlign:"right",fontFamily:"var(--fm)",fontSize:10,borderBottom:"1px solid rgba(255,255,255,.06)",whiteSpace:"nowrap"};
-  const tdL = {padding:"4px 7px",textAlign:"left",fontFamily:"var(--fm)",fontSize:10,fontWeight:600,borderBottom:"1px solid rgba(255,255,255,.06)",whiteSpace:"nowrap",background:"#8B4513",color:"#fff"};
+  const thS = {padding:"5px 7px",textAlign:"right",color:"#fffbf0",fontSize:8,fontWeight:700,fontFamily:"var(--fm)",background:"#8B4513",whiteSpace:"nowrap",borderBottom:"none"};
+  const tdS = {padding:"4px 7px",textAlign:"right",fontFamily:"var(--fm)",fontSize:10,borderBottom:"1px solid var(--subtle-bg2)",whiteSpace:"nowrap"};
+  const tdL = {padding:"4px 7px",textAlign:"left",fontFamily:"var(--fm)",fontSize:10,fontWeight:600,borderBottom:"1px solid var(--subtle-bg2)",whiteSpace:"nowrap",background:"#8B4513",color:"#fff"};
   const pctChg = (cur,prev) => prev?Math.round((cur-prev)/Math.abs(prev)*10000)/100:null;
 
   // SVG line chart
@@ -32,10 +32,10 @@ function DSTTab() {
     const toY=v=>H-((v-mn)/rg)*H;
     const gridN=4,gridVals=Array.from({length:gridN+1},(_,i)=>mn+rg*i/gridN);
     return <svg viewBox={`0 0 ${W} ${H+20}`} style={{width:"100%",height:"auto"}}>
-      {gridVals.map((v,i)=><g key={i}><line x1={P} y1={toY(v)} x2={W} y2={toY(v)} stroke="rgba(255,255,255,.06)" strokeWidth=".5"/><text x={P-3} y={toY(v)+3} fill="rgba(255,255,255,.25)" fontSize="7" textAnchor="end" fontFamily="var(--fm)">{Math.abs(v)>=100?Math.round(v):_sf(v,1)}</text></g>)}
+      {gridVals.map((v,i)=><g key={i}><line x1={P} y1={toY(v)} x2={W} y2={toY(v)} stroke="var(--subtle-bg2)" strokeWidth=".5"/><text x={P-3} y={toY(v)+3} fill="var(--text-tertiary)" fontSize="7" textAnchor="end" fontFamily="var(--fm)">{Math.abs(v)>=100?Math.round(v):_sf(v,1)}</text></g>)}
       {keys.map((k,ki)=>{const pts=data.map((d,i)=>[toX(i),toY(d[k]||0)]);const line=pts.map(p=>p.join(",")).join(" ");return <g key={k}>{area&&<polygon points={`${P},${H} ${line} ${toX(data.length-1)},${H}`} fill={colors[ki]} opacity=".08"/>}<polyline points={line} fill="none" stroke={colors[ki]} strokeWidth="2" strokeLinejoin="round"/>{dots&&pts.map((p,i)=><circle key={i} cx={p[0]} cy={p[1]} r="2.5" fill={colors[ki]} stroke="var(--bg)" strokeWidth="1"/>)}</g>;})}
-      {data.map((d,i)=><text key={i} x={toX(i)} y={H+14} fill="rgba(255,255,255,.35)" fontSize="8" fontFamily="var(--fm)" textAnchor="middle">{d.year?.slice(2)}</text>)}
-      {labels&&<g>{labels.map((l,i)=><g key={i}><line x1={P+i*100} y1={4} x2={P+i*100+12} y2={4} stroke={colors[i]} strokeWidth="2"/><text x={P+i*100+16} y={7} fill="rgba(255,255,255,.5)" fontSize="7" fontFamily="var(--fm)">{l}</text></g>)}</g>}
+      {data.map((d,i)=><text key={i} x={toX(i)} y={H+14} fill="var(--text-tertiary)" fontSize="8" fontFamily="var(--fm)" textAnchor="middle">{d.year?.slice(2)}</text>)}
+      {labels&&<g>{labels.map((l,i)=><g key={i}><line x1={P+i*100} y1={4} x2={P+i*100+12} y2={4} stroke={colors[i]} strokeWidth="2"/><text x={P+i*100+16} y={7} fill="var(--text-secondary)" fontSize="7" fontFamily="var(--fm)">{l}</text></g>)}</g>}
     </svg>;
   };
 
@@ -49,9 +49,9 @@ function DSTTab() {
     const toY=v=>H-((v-mn)/rg)*H;
     const zY=toY(0);
     return <svg viewBox={`0 0 ${W} ${H+20}`} style={{width:"100%",height:"auto"}}>
-      <line x1={P} y1={zY} x2={W} y2={zY} stroke="rgba(255,255,255,.1)" strokeWidth=".5"/>
-      {data.map((d,i)=>{const x=P+i*(W-P)/data.length+bW*0.15; if(stacked){let cum=0;return <g key={i}>{keys.map((k,ki)=>{const v=Math.abs(d[k]||0);const h=v/rg*H;const yy=zY-cum-h;cum+=h;return <rect key={k} x={x} y={yy} width={bW} height={Math.max(h,0.5)} fill={colors[ki]} opacity=".7" rx="1"/>;})}<text x={x+bW/2} y={H+14} fill="rgba(255,255,255,.35)" fontSize="8" fontFamily="var(--fm)" textAnchor="middle">{d.year?.slice(2)}</text></g>;} const nk=keys.length;const sw=bW/nk;return <g key={i}>{keys.map((k,ki)=>{const v=d[k]||0;const h=Math.abs(v)/rg*H;const yy=v>=0?zY-h:zY;return <rect key={k} x={x+ki*sw} y={yy} width={sw-1} height={Math.max(h,0.5)} fill={colors[ki]} opacity=".7" rx="1"/>;})}<text x={x+bW/2} y={H+14} fill="rgba(255,255,255,.35)" fontSize="8" fontFamily="var(--fm)" textAnchor="middle">{d.year?.slice(2)}</text></g>;})}
-      {labels&&<g>{labels.map((l,i)=><g key={i}><rect x={P+i*80} y={2} width={8} height={8} rx={1} fill={colors[i]} opacity=".7"/><text x={P+i*80+12} y={9} fill="rgba(255,255,255,.5)" fontSize="7" fontFamily="var(--fm)">{l}</text></g>)}</g>}
+      <line x1={P} y1={zY} x2={W} y2={zY} stroke="var(--border-hover)" strokeWidth=".5"/>
+      {data.map((d,i)=>{const x=P+i*(W-P)/data.length+bW*0.15; if(stacked){let cum=0;return <g key={i}>{keys.map((k,ki)=>{const v=Math.abs(d[k]||0);const h=v/rg*H;const yy=zY-cum-h;cum+=h;return <rect key={k} x={x} y={yy} width={bW} height={Math.max(h,0.5)} fill={colors[ki]} opacity=".7" rx="1"/>;})}<text x={x+bW/2} y={H+14} fill="var(--text-tertiary)" fontSize="8" fontFamily="var(--fm)" textAnchor="middle">{d.year?.slice(2)}</text></g>;} const nk=keys.length;const sw=bW/nk;return <g key={i}>{keys.map((k,ki)=>{const v=d[k]||0;const h=Math.abs(v)/rg*H;const yy=v>=0?zY-h:zY;return <rect key={k} x={x+ki*sw} y={yy} width={sw-1} height={Math.max(h,0.5)} fill={colors[ki]} opacity=".7" rx="1"/>;})}<text x={x+bW/2} y={H+14} fill="var(--text-tertiary)" fontSize="8" fontFamily="var(--fm)" textAnchor="middle">{d.year?.slice(2)}</text></g>;})}
+      {labels&&<g>{labels.map((l,i)=><g key={i}><rect x={P+i*80} y={2} width={8} height={8} rx={1} fill={colors[i]} opacity=".7"/><text x={P+i*80+12} y={9} fill="var(--text-secondary)" fontSize="7" fontFamily="var(--fm)">{l}</text></g>)}</g>}
     </svg>;
   };
 
@@ -65,14 +65,14 @@ function DSTTab() {
     const mn=Math.min(0,...allV),mx=Math.max(...allV),rg=mx-mn||1;
     const toX=i=>P+i*(W-P)/data.length;const toY=v=>H-((v-mn)/rg)*H;const zY=toY(0);
     return <svg viewBox={`0 0 ${W} ${H+20}`} style={{width:"100%",height:"auto"}}>
-      <line x1={P} y1={zY} x2={W} y2={zY} stroke="rgba(255,255,255,.1)" strokeWidth=".5"/>
-      {data.map((d,i)=>{const x=toX(i)+bW*0.1;let cum=0;return <g key={i}>{barKeys.map((k,ki)=>{const v=Math.abs(d[k]||0);const h=v/rg*H;const yy=zY-cum-h;cum+=h;return <rect key={k} x={x} y={yy} width={bW} height={Math.max(h,0.5)} fill={barColors[ki]} opacity=".6" rx="1"/>;})}<text x={x+bW/2} y={H+14} fill="rgba(255,255,255,.35)" fontSize="8" fontFamily="var(--fm)" textAnchor="middle">{d.year?.slice(2)}</text></g>;})}
+      <line x1={P} y1={zY} x2={W} y2={zY} stroke="var(--border-hover)" strokeWidth=".5"/>
+      {data.map((d,i)=>{const x=toX(i)+bW*0.1;let cum=0;return <g key={i}>{barKeys.map((k,ki)=>{const v=Math.abs(d[k]||0);const h=v/rg*H;const yy=zY-cum-h;cum+=h;return <rect key={k} x={x} y={yy} width={bW} height={Math.max(h,0.5)} fill={barColors[ki]} opacity=".6" rx="1"/>;})}<text x={x+bW/2} y={H+14} fill="var(--text-tertiary)" fontSize="8" fontFamily="var(--fm)" textAnchor="middle">{d.year?.slice(2)}</text></g>;})}
       {lineKeys.map((k,ki)=>{const pts=data.map((d,i)=>`${toX(i)+bW/2},${toY(d[k]||0)}`).join(" ");return <polyline key={k} points={pts} fill="none" stroke={lineColors[ki]} strokeWidth="2" strokeLinejoin="round"/>;})}
-      {[...barLabels,...lineLabels].map((l,i)=><g key={i}>{i<barLabels.length?<rect x={P+i*85} y={2} width={8} height={8} rx={1} fill={barColors[i]} opacity=".7"/>:<line x1={P+i*85} y1={6} x2={P+i*85+12} y2={6} stroke={lineColors[i-barLabels.length]} strokeWidth="2"/>}<text x={P+i*85+(i<barLabels.length?12:16)} y={9} fill="rgba(255,255,255,.5)" fontSize="7" fontFamily="var(--fm)">{l}</text></g>)}
+      {[...barLabels,...lineLabels].map((l,i)=><g key={i}>{i<barLabels.length?<rect x={P+i*85} y={2} width={8} height={8} rx={1} fill={barColors[i]} opacity=".7"/>:<line x1={P+i*85} y1={6} x2={P+i*85+12} y2={6} stroke={lineColors[i-barLabels.length]} strokeWidth="2"/>}<text x={P+i*85+(i<barLabels.length?12:16)} y={9} fill="var(--text-secondary)" fontSize="7" fontFamily="var(--fm)">{l}</text></g>)}
     </svg>;
   };
 
-  const ScorePill = ({label,value}) => <div style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid rgba(255,255,255,.06)"}}>
+  const ScorePill = ({label,value}) => <div style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid var(--subtle-bg2)"}}>
     <span style={{fontSize:11,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{label}</span>
     <span style={{fontSize:13,fontWeight:800,color:sc(value),fontFamily:"var(--fm)"}}>{value!=null?value:"—"}</span>
   </div>;
@@ -228,7 +228,7 @@ function DSTTab() {
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
         <div>
           {[{l:"Por PER Med. Last 5Y",v:d.valuation.fairByPerMed},{l:"Por PER Min. Last 5Y",v:d.valuation.fairByPerMin}].map((r,i)=>
-            <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,.06)"}}>
+            <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid var(--subtle-bg2)"}}>
               <span style={{fontSize:11,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{r.l}</span>
               <span style={{fontSize:14,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{r.v?`${sym}${_sf(r.v,2)}`:"—"}</span>
             </div>)}
@@ -236,7 +236,7 @@ function DSTTab() {
         <div>
           <div style={{fontSize:13,fontWeight:700,color:"#c9972e",fontFamily:"var(--fd)",marginBottom:10}}>Precios por Descuento de Flujos de Caja</div>
           {[{l:"DCF Fair Value",v:d.valuation.dcf?Math.round(d.valuation.dcf*10)/10:null},{l:"Precio Objetivo",v:d.valuation.targetConsensus},{l:"Margen de Seguridad 15%",v:d.valuation.fairByPerMed?Math.round(d.valuation.fairByPerMed*0.85*10)/10:null},{l:"Margen de Seguridad 30%",v:d.valuation.fairByPerMed?Math.round(d.valuation.fairByPerMed*0.7*10)/10:null}].map((r,i)=>
-            <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,.06)"}}>
+            <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid var(--subtle-bg2)"}}>
               <span style={{fontSize:11,color:i>=2?"#c9972e":"var(--text-secondary)",fontFamily:"var(--fm)",fontWeight:i>=2?600:400}}>{r.l}</span>
               <span style={{fontSize:14,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{r.v?`${sym}${_sf(r.v,2)}`:"—"}</span>
             </div>)}
@@ -262,7 +262,7 @@ function DSTTab() {
     {/* 21. PUNTUACIÓN TOTAL */}
     <div style={{...chartCard,marginBottom:16,padding:20}}>
       <div style={hd}>Puntuación Total</div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:24}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(250px, 1fr))",gap:24}}>
         {[{t:"SOLIDEZ",items:d.scoring.solidez,labels:{intangibles:"Intangibles",deudaNeta:"Deuda Neta",liquidez:"Liquidez",reservas:"Reservas",autonomia:"Autonomía Fin."}},
           {t:"RENTABILIDAD",items:d.scoring.rentabilidad,labels:{ventas:"Ventas",margenNeto:"Margen Neto",ratios:"ROE/ROCE/ROA"}},
           {t:"DIVIDENDO",items:d.scoring.dividendo,labels:{dividendo:"Dividendo",crecimiento:"Crecimiento",payout:"Payout",recompras:"Recompras",cashFlow:"Cash Flow"}}
@@ -280,7 +280,7 @@ function DSTTab() {
     {d.estimates?.length > 0 && <div style={{...chartCard,marginBottom:16,padding:20}}>
       <div style={hd}>Próximos Resultados / Estimaciones</div>
       <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
-        {d.estimates.map((e,i)=><div key={i} style={{flex:"1 1 140px",padding:14,background:"rgba(255,255,255,.02)",borderRadius:10,border:"1px solid rgba(255,255,255,.04)"}}>
+        {d.estimates.map((e,i)=><div key={i} style={{flex:"1 1 140px",padding:14,background:"var(--row-alt)",borderRadius:10,border:"1px solid var(--subtle-border)"}}>
           <div style={{fontSize:14,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginBottom:6}}>{e.year}</div>
           <div style={{fontSize:9,color:"var(--text-tertiary)"}}>BPA Estimado ({sym})</div>
           <div style={{fontSize:18,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{sym}{_sf(e.epsEst,2)}</div>
@@ -290,7 +290,7 @@ function DSTTab() {
       </div>
     </div>}
 
-    <div style={{fontSize:9,color:"var(--text-tertiary)",textAlign:"center",padding:20,fontFamily:"var(--fm)",borderTop:"1px solid rgba(255,255,255,.06)"}}>Datos: Financial Modeling Prep · Actualizado: {d.updated?.slice(0,10)} · No constituye asesoramiento financiero</div>
+    <div style={{fontSize:9,color:"var(--text-tertiary)",textAlign:"center",padding:20,fontFamily:"var(--fm)",borderTop:"1px solid var(--subtle-bg2)"}}>Datos: Financial Modeling Prep · Actualizado: {d.updated?.slice(0,10)} · No constituye asesoramiento financiero</div>
   </div>;
 }
 

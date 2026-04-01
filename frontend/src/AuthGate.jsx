@@ -105,7 +105,7 @@ export default function AuthGate({ children }) {
             autoFocus
             style={styles.input}
             onFocus={e => { e.target.style.borderColor = 'rgba(200,164,78,.4)'; e.target.style.boxShadow = '0 0 0 3px rgba(200,164,78,.08)'; }}
-            onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,.06)'; e.target.style.boxShadow = 'none'; }}
+            onBlur={e => { e.target.style.borderColor = 'var(--subtle-bg2)'; e.target.style.boxShadow = 'none'; }}
           />
           <button type="submit" style={styles.btn}
             onMouseEnter={e => e.target.style.background = '#d4a94e'}
@@ -130,7 +130,7 @@ const styles = {
   box: {
     textAlign: 'center', padding: '48px 44px',
     background: 'rgba(22,22,22,.8)', backdropFilter: 'blur(20px)',
-    border: '1px solid rgba(255,255,255,.06)', borderRadius: '24px',
+    border: '1px solid var(--subtle-bg2)', borderRadius: '24px',
     minWidth: '340px', animation: 'fadeUp .6s cubic-bezier(.16,1,.3,1)',
   },
   logoWrap: {
@@ -153,7 +153,7 @@ const styles = {
   },
   form: { display: 'flex', flexDirection: 'column', gap: '12px' },
   input: {
-    background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.06)', borderRadius: '12px',
+    background: 'var(--subtle-bg)', border: '1px solid var(--subtle-bg2)', borderRadius: '12px',
     padding: '14px 16px', color: '#f5f5f7', fontSize: '14px',
     fontFamily: 'inherit', outline: 'none', textAlign: 'center',
     letterSpacing: '3px', transition: 'all .2s ease',

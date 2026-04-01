@@ -28,7 +28,7 @@ export default function OptionsChainTab() {
     fetch(`${API_URL}/api/options-chain?symbol=${ticker}&dte=${dte}`)
       .then(r => r.json())
       .then(d => { setChainData(d); setChainLoading(false); })
-      .catch(e => { setChainLoading(false); });
+      .catch(() => { setChainData(null); setChainLoading(false); });
   };
 
   const hd = { fontSize: 13, fontWeight: 700, color: "var(--gold)", fontFamily: "var(--fd)", marginBottom: 10, paddingBottom: 6, borderBottom: "2px solid rgba(200,164,78,.2)" };
@@ -104,7 +104,7 @@ export default function OptionsChainTab() {
                   const isATM = Math.abs(dist) < 2;
                   return (
                     <tr key={c.strike || i}
-                      style={{ borderBottom: "1px solid rgba(255,255,255,.04)", background: isATM ? "rgba(200,164,78,.06)" : c.itm ? (showPuts ? "rgba(191,90,242,.03)" : "rgba(48,209,88,.03)") : "transparent" }}
+                      style={{ borderBottom: "1px solid var(--subtle-border)", background: isATM ? "rgba(200,164,78,.06)" : c.itm ? (showPuts ? "rgba(191,90,242,.03)" : "rgba(48,209,88,.03)") : "transparent" }}
                       onMouseEnter={e => e.currentTarget.style.background = "var(--card-hover)"}
                       onMouseLeave={e => e.currentTarget.style.background = isATM ? "rgba(200,164,78,.06)" : c.itm ? (showPuts ? "rgba(191,90,242,.03)" : "rgba(48,209,88,.03)") : "transparent"}>
                       <td style={{ padding: "5px 8px", textAlign: "right", fontWeight: 700, fontFamily: "var(--fm)", color: isATM ? "var(--gold)" : "var(--text-primary)" }}>
@@ -119,7 +119,7 @@ export default function OptionsChainTab() {
                       <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "var(--fm)", color: "var(--text-secondary)", fontSize: 10 }}>{c.volume || "—"}</td>
                       <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "var(--fm)", color: c.oi > 500 ? "var(--green)" : c.oi > 100 ? "var(--text-secondary)" : "var(--text-tertiary)", fontSize: 10 }}>{c.oi || "—"}</td>
                       <td style={{ padding: "5px 8px", textAlign: "center" }}>
-                        <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: c.itm ? "rgba(48,209,88,.1)" : "rgba(255,255,255,.04)", color: c.itm ? "var(--green)" : "var(--text-tertiary)", fontWeight: 600, fontFamily: "var(--fm)" }}>{c.itm ? "ITM" : "OTM"}</span>
+                        <span style={{ fontSize: 8, padding: "1px 5px", borderRadius: 3, background: c.itm ? "rgba(48,209,88,.1)" : "var(--subtle-border)", color: c.itm ? "var(--green)" : "var(--text-tertiary)", fontWeight: 600, fontFamily: "var(--fm)" }}>{c.itm ? "ITM" : "OTM"}</span>
                       </td>
                       <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "var(--fm)", fontSize: 10, color: Math.abs(dist) < 5 ? "var(--gold)" : "var(--text-tertiary)" }}>
                         {dist >= 0 ? "+" : ""}{_sf(dist, 1)}%

@@ -16,14 +16,14 @@ export default function SettingsPanel() {
   <div style={{fontSize:11,color:"var(--text-secondary)",marginBottom:8}}>Datos cargados via Claude + Web Search. Empresas guardadas: {portfolio.length}.</div>
 
   {/* FX Rates Panel */}
-  <div style={{marginBottom:14,padding:12,borderRadius:10,background:"rgba(255,255,255,.02)",border:"1px solid rgba(255,255,255,.04)"}}>
+  <div style={{marginBottom:14,padding:12,borderRadius:10,background:"var(--row-alt)",border:"1px solid var(--subtle-border)"}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
       <span style={{fontSize:10,color:"var(--gold)",fontWeight:700,fontFamily:"var(--fm)"}}>💱 TIPOS DE CAMBIO (base USD)</span>
       <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{fxLastUpdate ? `Act: ${new Date(fxLastUpdate).toLocaleString('es-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}` : "Sin datos"}</span>
     </div>
     <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
       {Object.entries(fxRates).filter(([k])=>k!=="USD"&&k!=="GBX").map(([ccy,rate])=>(
-        <div key={ccy} style={{padding:"4px 8px",borderRadius:6,background:"rgba(255,255,255,.03)",fontSize:10,fontFamily:"var(--fm)",color:"var(--text-secondary)"}}>
+        <div key={ccy} style={{padding:"4px 8px",borderRadius:6,background:"var(--subtle-bg)",fontSize:10,fontFamily:"var(--fm)",color:"var(--text-secondary)"}}>
           <span style={{fontSize:9,marginRight:3}}>{CURRENCIES[ccy]?.flag||""}</span>
           <span style={{color:"var(--text-primary)",fontWeight:600}}>{ccy}</span>
           <span style={{color:"var(--text-tertiary)",margin:"0 3px"}}>=</span>
