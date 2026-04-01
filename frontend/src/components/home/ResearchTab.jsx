@@ -149,8 +149,8 @@ export default function ResearchTab() {
                     {withData.map((item,i) => {
                       const ip = !!POS_STATIC[item.symbol];
                       const fr = item.fmpRating || {};
-                      return <tr key={item.symbol} style={{background:i%2?"rgba(255,255,255,.01)":"transparent",cursor:"pointer"}}
-                        onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"} onMouseLeave={e=>e.currentTarget.style.background=i%2?"rgba(255,255,255,.01)":"transparent"}
+                      return <tr key={item.symbol} style={{background:i%2?"var(--row-alt)":"transparent",cursor:"pointer"}}
+                        onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"} onMouseLeave={e=>e.currentTarget.style.background=i%2?"var(--row-alt)":"transparent"}
                         onClick={()=>openAnalysis(item.symbol)}>
                         <td style={{...cs,textAlign:"center"}}><span style={{padding:"2px 7px",borderRadius:4,background:`${sc(item.score)}18`,color:sc(item.score),fontWeight:800,fontSize:11}}>{item.score}</span></td>
                         <td style={{...cs,fontWeight:700,color:ip?"var(--gold)":"var(--text-primary)"}}>{ip?"● ":""}{item.symbol}<span style={{fontSize:7,marginLeft:4,padding:"1px 4px",borderRadius:3,fontWeight:500,background:item.capSize==="Mega Cap"?"rgba(52,211,153,.1)":item.capSize==="Large Cap"?"rgba(96,165,250,.1)":item.capSize==="Mid Cap"?"rgba(214,158,46,.1)":"rgba(248,113,113,.1)",color:item.capSize==="Mega Cap"?"#34d399":item.capSize==="Large Cap"?"#60a5fa":item.capSize==="Mid Cap"?"#d69e2e":"#f87171",verticalAlign:"middle"}}>{item.capSize==="Mega Cap"?"MEGA":item.capSize==="Large Cap"?"LARGE":item.capSize==="Mid Cap"?"MID":item.capSize==="Small Cap"?"SMALL":"MICRO"}</span></td>

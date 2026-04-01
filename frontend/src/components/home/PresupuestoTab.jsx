@@ -603,7 +603,7 @@ export default function PresupuestoTab() {
         <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
             <thead>
-              <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+              <tr style={{ background: 'var(--row-alt)' }}>
                 <th style={th}>Cat</th>
                 <th style={{ ...th, textAlign: 'left' }}>Nombre</th>
                 <th style={th}>Banco</th>
@@ -630,7 +630,7 @@ export default function PresupuestoTab() {
                     <>
                       {showCatHeader && (
                         <tr key={`hdr-${item.categoria}`}>
-                          <td colSpan={displayCcy !== 'EUR' ? 10 : 9} style={{ padding: '8px 12px', fontSize: 11, fontWeight: 700, color: cat.color, background: 'rgba(255,255,255,0.015)', borderBottom: '1px solid var(--border)' }}>
+                          <td colSpan={displayCcy !== 'EUR' ? 10 : 9} style={{ padding: '8px 12px', fontSize: 11, fontWeight: 700, color: cat.color, background: 'var(--row-alt)', borderBottom: '1px solid var(--border)' }}>
                             {cat.ico} {CAT_LABELS[item.categoria]}
                             <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: 8, fontSize: 10 }}>
                               {fmtEur(totals.byCat[item.categoria] || 0)}/mes
@@ -639,7 +639,7 @@ export default function PresupuestoTab() {
                         </tr>
                       )}
                       <tr key={item.id} style={{ borderBottom: '1px solid var(--border)', background: alert ? 'rgba(214,158,46,0.04)' : 'transparent' }}
-                          onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}
+                          onMouseEnter={e => e.currentTarget.style.background = 'var(--row-alt)'}
                           onMouseLeave={e => e.currentTarget.style.background = alert ? 'rgba(214,158,46,0.04)' : 'transparent'}>
                         <td style={{ ...td, textAlign: 'center' }}>{cat.ico}</td>
                         <td style={{ ...td, fontWeight: 600, color: 'var(--text)' }}>
@@ -650,7 +650,7 @@ export default function PresupuestoTab() {
                         </td>
                         <td style={{ ...td, color: 'var(--text-tertiary)', textAlign: 'center' }}>{item.banco || '—'}</td>
                         <td style={{ ...td, textAlign: 'center' }}>
-                          <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: item.frecuencia === 'MENSUAL' ? 'rgba(100,210,255,0.1)' : item.frecuencia === 'ANUAL' ? 'rgba(214,158,46,0.1)' : 'rgba(255,255,255,0.05)', color: item.frecuencia === 'MENSUAL' ? '#64d2ff' : item.frecuencia === 'ANUAL' ? 'var(--gold)' : 'var(--text-tertiary)' }}>
+                          <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: item.frecuencia === 'MENSUAL' ? 'rgba(100,210,255,0.1)' : item.frecuencia === 'ANUAL' ? 'rgba(214,158,46,0.1)' : 'var(--subtle-bg2)', color: item.frecuencia === 'MENSUAL' ? '#64d2ff' : item.frecuencia === 'ANUAL' ? 'var(--gold)' : 'var(--text-tertiary)' }}>
                             {item.frecuencia}
                           </span>
                         </td>

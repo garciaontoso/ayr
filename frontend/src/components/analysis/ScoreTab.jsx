@@ -80,7 +80,7 @@ export default function ScoreTab() {
             </div>
           </Card>
 
-          <Card title="Buyback / Dilución" icon="🔄" badge={advancedMetrics.buybackCAGR != null ? <span style={{fontSize:11,fontWeight:700,color:advancedMetrics.buybackCAGR<-0.01?"#30d158":advancedMetrics.buybackCAGR>0.01?"#ff453a":"#888",background:advancedMetrics.buybackCAGR<-0.01?"rgba(48,209,88,.12)":advancedMetrics.buybackCAGR>0.01?"rgba(255,69,58,.12)":"rgba(255,255,255,.06)",padding:"4px 12px",borderRadius:100,border:"1px solid var(--border-hover)"}}>{advancedMetrics.buybackLabel}</span> : null}>
+          <Card title="Buyback / Dilución" icon="🔄" badge={advancedMetrics.buybackCAGR != null ? <span style={{fontSize:11,fontWeight:700,color:advancedMetrics.buybackCAGR<-0.01?"#30d158":advancedMetrics.buybackCAGR>0.01?"#ff453a":"#888",background:advancedMetrics.buybackCAGR<-0.01?"rgba(48,209,88,.12)":advancedMetrics.buybackCAGR>0.01?"rgba(255,69,58,.12)":"var(--subtle-bg2)",padding:"4px 12px",borderRadius:100,border:"1px solid var(--border-hover)"}}>{advancedMetrics.buybackLabel}</span> : null}>
             <div style={{textAlign:"center",padding:"8px 0"}}>
               <div style={{fontSize:28,fontWeight:800,color:advancedMetrics.buybackCAGR!=null?(advancedMetrics.buybackCAGR<-0.01?"var(--green)":advancedMetrics.buybackCAGR>0.01?"var(--red)":"var(--text-primary)"):"var(--text-tertiary)",fontFamily:"var(--fm)"}}>
                 {advancedMetrics.buybackCAGR != null ? `${(advancedMetrics.buybackCAGR*100)>0?"+":""}${_sf(advancedMetrics.buybackCAGR*100,1)}%` : "—"}
@@ -117,7 +117,7 @@ export default function ScoreTab() {
               }}>{ssd.aiDisruptionScore}</div>
               <div style={{fontSize:11,color:"var(--text-secondary)",marginTop:2}}>{ssd.aiDisruptionLevel==="Low"?"Bajo riesgo de disrupción":ssd.aiDisruptionLevel==="Medium"?"Riesgo moderado":ssd.aiDisruptionLevel==="High"?"Alto riesgo":"Riesgo crítico"}</div>
             </div>
-            {ssd.aiDisruptionAssessment && <div style={{fontSize:11,color:"var(--text-secondary)",lineHeight:1.7,marginTop:8,padding:"10px 12px",background:"rgba(255,255,255,.02)",borderRadius:8}}>{ssd.aiDisruptionAssessment}</div>}
+            {ssd.aiDisruptionAssessment && <div style={{fontSize:11,color:"var(--text-secondary)",lineHeight:1.7,marginTop:8,padding:"10px 12px",background:"var(--row-alt)",borderRadius:8}}>{ssd.aiDisruptionAssessment}</div>}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:10}}>
               {ssd.aiDisruptionThreats?.length > 0 && (
                 <div style={{padding:"10px",background:"rgba(255,69,58,.04)",borderRadius:8,border:"1px solid rgba(255,69,58,.08)"}}>

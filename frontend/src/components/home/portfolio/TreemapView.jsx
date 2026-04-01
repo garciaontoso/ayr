@@ -179,7 +179,7 @@ export default function TreemapView({ positions, openAnalysis, hide }) {
                   </text>
                   <text x={r.x + r.w / 2} y={r.y + r.h / 2 + 22}
                     textAnchor="middle" dominantBaseline="middle"
-                    fill="rgba(255,255,255,.4)" fontSize={9} fontFamily="var(--fm)">
+                    fill="var(--text-tertiary)" fontSize={9} fontFamily="var(--fm)">
                     ${_sf(r.lastPrice || 0, 2)}
                   </text>
                 </>

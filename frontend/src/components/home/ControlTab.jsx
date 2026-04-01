@@ -39,6 +39,10 @@ export default function ControlTab() {
     }
   }, [ctrlLog, fxRates, setCtrlForm]);
 
+  if (!ctrlLog || ctrlLog.length === 0) {
+    return <EmptyState icon="🎛️" title="Sin snapshots de control" subtitle="Registra tu primer snapshot mensual con datos de cuentas bancarias, brokerage e inversiones." action="+ Nuevo Snapshot" onAction={() => { prefillForm(); setCtrlShowForm(true); }} />;
+  }
+
   return (
 <div style={{display:"flex",flexDirection:"column",gap:12}}>
   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>

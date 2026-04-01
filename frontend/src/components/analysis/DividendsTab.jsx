@@ -145,7 +145,7 @@ export default function DividendsTab() {
               {l:"CAGR 5 Años",v:S.growthLast5y,sub:"anualizado"},
               {l:"CAGR 10 Años",v:S.growthLast10y,sub:"anualizado"},
             ].map((x,i)=>(
-              <div key={i} style={{textAlign:"center",padding:"14px",background:"rgba(255,255,255,.025)",borderRadius:10,border:"1px solid var(--subtle-border)"}}>
+              <div key={i} style={{textAlign:"center",padding:"14px",background:"var(--row-alt)",borderRadius:10,border:"1px solid var(--subtle-border)"}}>
                 <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textTransform:"uppercase",letterSpacing:.5}}>{x.l}</div>
                 <div style={{fontSize:28,fontWeight:800,color:x.v!=null&&x.v!==0?(x.v>=0?cGreen:cRed):"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:6}}>{x.v!=null&&x.v!==0?`${_sf(x.v*100,1)}%`:"—"}</div>
                 {x.sub && <div style={{fontSize:9,color:"var(--text-tertiary)",marginTop:2}}>{x.sub}</div>}

@@ -374,7 +374,7 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
                 {/* Grid lines */}
                 {gridLines.map((g, i) => (
                   <g key={i}>
-                    <line x1={padL} y1={g.y} x2={W - padR} y2={g.y} stroke="rgba(255,255,255,0.06)" strokeWidth="1" />
+                    <line x1={padL} y1={g.y} x2={W - padR} y2={g.y} stroke="var(--subtle-bg2)" strokeWidth="1" />
                     <text x={padL - 6} y={g.y + 3} textAnchor="end" fill="var(--text-tertiary)" fontSize="8" fontFamily="var(--fm)">
                       {g.val >= 1e6 ? `$${(g.val/1e6).toFixed(1)}M` : `$${(g.val/1e3).toFixed(0)}K`}
                     </text>
@@ -478,7 +478,7 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
             <div style={{ overflowX: 'auto' }}>
               <svg width="100%" viewBox={`0 0 ${bW} ${bH}`} style={{ display: 'block', maxWidth: '100%' }}>
                 {/* Zero line */}
-                <line x1={bPadL} y1={midY} x2={bW - bPadR} y2={midY} stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+                <line x1={bPadL} y1={midY} x2={bW - bPadR} y2={midY} stroke="var(--border-hover)" strokeWidth="1" />
 
                 {bars.map((b, i) => {
                   const x = bPadL + i * barGap + (barGap - barWidth) / 2;
@@ -553,7 +553,7 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
             <tbody>
               {projection.map((r, i) => {
                 const isRetiro = r.year === retiroRow.year;
-                const bg = isRetiro ? 'rgba(255,159,10,.06)' : i % 2 ? 'rgba(255,255,255,.01)' : 'transparent';
+                const bg = isRetiro ? 'rgba(255,159,10,.06)' : i % 2 ? 'var(--row-alt)' : 'transparent';
                 const td = { padding: '5px 8px', textAlign: 'right', fontFamily: 'var(--fm)', borderBottom: '1px solid var(--subtle-bg)' };
                 return (
                   <tr key={r.year} style={{ background: bg }}>
@@ -775,7 +775,7 @@ return (
         <div style={{display:"flex",height:8,borderRadius:6,overflow:"hidden",background:"var(--subtle-bg)"}}>
           <div style={{width:`${brokerPct}%`,background:"var(--gold)",transition:"width .5s"}}/>
           <div style={{width:`${bankPct}%`,background:"#64d2ff",transition:"width .5s"}}/>
-          {otherPct > 1 && <div style={{width:`${otherPct}%`,background:"rgba(255,255,255,.1)"}}/>}
+          {otherPct > 1 && <div style={{width:`${otherPct}%`,background:"var(--border-hover)"}}/>}
         </div>
         <div style={{display:"flex",gap:16,marginTop:6,fontSize:10,fontFamily:"var(--fm)"}}>
           <span style={{color:"var(--gold)"}}>● Brokers ${fDol(latest.br||0)} ({_sf(brokerPct,0)}%)</span>
@@ -839,7 +839,7 @@ return (
                 const showLabel = labelBars.has(i);
                 const barColor = isLast ? "var(--gold)" : "rgba(201,169,80,0.5)";
                 return (
-                  <div key={d.d} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%",borderLeft:isYearStart?"1px solid rgba(255,255,255,.1)":"none",position:"relative",cursor:"pointer"}}
+                  <div key={d.d} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%",borderLeft:isYearStart?"1px solid var(--border-hover)":"none",position:"relative",cursor:"pointer"}}
                     onMouseEnter={()=>setHoveredBar(i)} onMouseLeave={()=>setHoveredBar(null)}>
                     {hoveredBar===i && (
                       <div style={{position:"absolute",bottom:`${Math.max(h,10)+5}%`,left:"50%",transform:"translateX(-50%)",background:"#1c1c1e",border:"1px solid var(--gold)",borderRadius:8,padding:"6px 10px",zIndex:10,whiteSpace:"nowrap",boxShadow:"0 4px 12px rgba(0,0,0,.5)",fontSize:10,fontFamily:"var(--fm)"}}>
@@ -928,7 +928,7 @@ return (
         </tr></thead>
         <tbody>
           {[...data].reverse().map((d, i) => {
-            const bg = i%2 ? "rgba(255,255,255,.01)" : "transparent";
+            const bg = i%2 ? "var(--row-alt)" : "transparent";
             return (
               <tr key={d.d} style={{background:bg}} onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"} onMouseLeave={e=>e.currentTarget.style.background=bg}>
                 <td style={{padding:"6px 12px",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)",fontWeight:500}}>{d.d}</td>

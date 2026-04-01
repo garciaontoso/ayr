@@ -179,7 +179,7 @@ export default function CostBasisView() {
                   const isSell = t.type==="sell";
                   const isDiv = t.type==="dividend";
                   const isOpt = t.type==="option";
-                  const rowBg = isDiv?"rgba(48,209,88,.02)":isOpt?"rgba(100,210,255,.02)":i%2?"rgba(255,255,255,.012)":"transparent";
+                  const rowBg = isDiv?"rgba(48,209,88,.02)":isOpt?"rgba(100,210,255,.02)":i%2?"var(--row-alt)":"transparent";
                   return (
                     <tr key={t.id||i} style={{background:rowBg}}
                       onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"} onMouseLeave={e=>e.currentTarget.style.background=rowBg}>

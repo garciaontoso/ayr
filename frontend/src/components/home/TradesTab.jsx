@@ -143,9 +143,9 @@ export default function TradesTab() {
               const tColor = typeColors[r.tipo] || "var(--text-secondary)";
               const isNeg = (r.shares||0) < 0;
               return (
-              <tr key={r.id||i} style={{background:i%2?"rgba(255,255,255,.012)":"transparent",transition:"background .15s"}}
+              <tr key={r.id||i} style={{background:i%2?"var(--row-alt)":"transparent",transition:"background .15s"}}
                 onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"}
-                onMouseLeave={e=>e.currentTarget.style.background=i%2?"rgba(255,255,255,.012)":"transparent"}>
+                onMouseLeave={e=>e.currentTarget.style.background=i%2?"var(--row-alt)":"transparent"}>
                 <td style={{padding:"5px 10px",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)",fontSize:11}}>{r.fecha}</td>
                 <td style={{padding:"5px 10px",fontWeight:700,fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)",cursor:"pointer"}} onClick={()=>openCostBasis(r.ticker)}>{r.ticker}</td>
                 <td style={{padding:"5px 10px",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>

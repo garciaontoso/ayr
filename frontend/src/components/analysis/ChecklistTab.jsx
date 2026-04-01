@@ -73,7 +73,7 @@ export default function ChecklistTab() {
             <div style={{textAlign:"center"}}>
               <div style={{position:"relative",width:120,height:120}}>
                 <svg viewBox="0 0 120 120" style={{width:120,height:120}}>
-                  <circle cx={60} cy={60} r={52} fill="none" stroke="rgba(255,255,255,.06)" strokeWidth={8}/>
+                  <circle cx={60} cy={60} r={52} fill="none" stroke="var(--subtle-bg2)" strokeWidth={8}/>
                   <circle cx={60} cy={60} r={52} fill="none" stroke={verdictColor} strokeWidth={8} strokeDasharray={`${pct*327} 327`} strokeLinecap="round" transform="rotate(-90 60 60)" style={{transition:"stroke-dasharray .8s"}}/>
                 </svg>
                 <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",textAlign:"center"}}>

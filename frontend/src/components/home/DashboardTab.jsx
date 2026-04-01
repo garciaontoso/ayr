@@ -1274,7 +1274,7 @@ return (
     </div>
     {corrOpen && (
       corrLoading ? (
-        <div style={{textAlign:"center",padding:20,color:"var(--text-tertiary)",fontSize:12,fontFamily:"var(--fm)"}}>Cargando datos de correlación...</div>
+        <InlineLoading message="Cargando datos de correlacion..." />
       ) : corrData && corrData.tickers.length >= 3 ? (() => {
         const { tickers: ct, matrix: cm, score, avgCorr, bestPair, worstPair } = corrData;
         const n = ct.length;

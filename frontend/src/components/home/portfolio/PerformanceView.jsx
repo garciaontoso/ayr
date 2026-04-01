@@ -131,7 +131,7 @@ export default function PerformanceView({ positions, openAnalysis, hide }) {
               {/* 52W Range bar */}
               <div style={{ display: "flex", alignItems: "center", gap: 4, paddingLeft: 4 }}>
                 <span style={{ fontSize: 8, color: "var(--text-tertiary)", fontFamily: "var(--fm)", minWidth: 25 }}>{low52 > 0 ? _sf(low52, 0) : "—"}</span>
-                <div style={{ flex: 1, height: 6, background: "rgba(255,255,255,.06)", borderRadius: 3, position: "relative", overflow: "hidden" }}>
+                <div style={{ flex: 1, height: 6, background: "var(--subtle-bg2)", borderRadius: 3, position: "relative", overflow: "hidden" }}>
                   <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.min(rangePct, 100)}%`, background: `linear-gradient(90deg, var(--red), var(--gold), var(--green))`, borderRadius: 3, opacity: .7 }} />
                   <div style={{ position: "absolute", left: `calc(${Math.min(rangePct, 100)}% - 2px)`, top: -1, width: 4, height: 8, background: "#fff", borderRadius: 2 }} />
                 </div>

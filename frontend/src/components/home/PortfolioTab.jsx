@@ -58,6 +58,11 @@ export default function PortfolioTab() {
     setHomeTab,
   } = useHome();
 
+  const [portfolioView, setPortfolioView] = useState(() => {
+    try { return localStorage.getItem(VIEW_STORAGE_KEY) || "tabla"; } catch { return "tabla"; }
+  });
+  const changeView = useCallback((v) => { setPortfolioView(v); try { localStorage.setItem(VIEW_STORAGE_KEY, v); } catch {} }, []);
+
   const [quickFilter, setQuickFilter] = useState("");
   const [listSort, setListSort] = useState("value");
   const searchRef = useRef(null);
@@ -224,8 +229,48 @@ export default function PortfolioTab() {
             </div>
           </div>
         )}
+        {/* View Mode Selector */}
+        {portfolioList.length > 0 && (
+          <div style={{display:"flex",gap:3,padding:"4px 0",marginBottom:2,alignItems:"center"}}>
+            {VIEW_MODES.map(v=>(
+              <button key={v.id} onClick={()=>changeView(v.id)}
+                style={{
+                  padding:"4px 10px",borderRadius:6,border:`1px solid ${portfolioView===v.id?"var(--gold)":"var(--border)"}`,
+                  background:portfolioView===v.id?"var(--gold-dim)":"transparent",
+                  color:portfolioView===v.id?"var(--gold)":"var(--text-tertiary)",
+                  fontSize:10,fontWeight:portfolioView===v.id?700:500,cursor:"pointer",fontFamily:"var(--fm)",
+                  transition:"all .15s",display:"flex",alignItems:"center",gap:4,
+                }}
+                onMouseEnter={e=>{if(portfolioView!==v.id)e.currentTarget.style.borderColor="rgba(200,164,78,.3)";}}
+                onMouseLeave={e=>{if(portfolioView!==v.id)e.currentTarget.style.borderColor="var(--border)";}}>
+                <span style={{fontSize:11,lineHeight:1}}>{v.icon}</span>
+                <span className="ar-hide-mobile">{v.lbl}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {portfolioList.length===0 && <div style={{textAlign:"center",padding:60,color:"var(--text-tertiary)"}}><div style={{fontSize:48,marginBottom:16}}>💼</div>Portfolio vacío. Añade tu primera empresa arriba.</div>}
-        {(() => {
+
+        {/* Non-table views */}
+        {portfolioView === "dividendos" && portfolioTotals.positions?.length > 0 && (
+          <DividendView positions={portfolioTotals.positions} openAnalysis={openAnalysis} hide={hide} POS_STATIC={POS_STATIC} />
+        )}
+        {portfolioView === "mapa" && portfolioTotals.positions?.length > 0 && (
+          <TreemapView positions={portfolioTotals.positions} openAnalysis={openAnalysis} hide={hide} />
+        )}
+        {portfolioView === "burbujas" && portfolioTotals.positions?.length > 0 && (
+          <BubbleView positions={portfolioTotals.positions} openAnalysis={openAnalysis} hide={hide} />
+        )}
+        {portfolioView === "sectores" && portfolioTotals.positions?.length > 0 && (
+          <SectorView positions={portfolioTotals.positions} openAnalysis={openAnalysis} hide={hide} />
+        )}
+        {portfolioView === "rendimiento" && portfolioTotals.positions?.length > 0 && (
+          <PerformanceView positions={portfolioTotals.positions} openAnalysis={openAnalysis} hide={hide} />
+        )}
+
+        {/* Table view (default) */}
+        {portfolioView === "tabla" && (() => {
           const all = portfolioTotals.positions || [];
           const filtered = all.filter(p => {
             if (countryFilter && getCountry(p.ticker, p.currency) !== countryFilter) return false;

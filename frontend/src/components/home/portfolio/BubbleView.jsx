@@ -71,12 +71,12 @@ export default function BubbleView({ positions, openAnalysis, hide }) {
           <line key={"xg" + v} x1={toX(v)} y1={PAD} x2={toX(v)} y2={H - PAD} stroke="var(--subtle-border)" strokeWidth={1} />
         ))}
         {[-40, -20, 0, 20, 40, 60, 80, 100].filter(v => v >= yMin && v <= yMax).map(v => (
-          <line key={"yg" + v} x1={PAD} y1={toY(v)} x2={W - PAD} y2={toY(v)} stroke={v === 0 ? "rgba(255,255,255,.12)" : "var(--subtle-border)"} strokeWidth={v === 0 ? 1.5 : 1} />
+          <line key={"yg" + v} x1={PAD} y1={toY(v)} x2={W - PAD} y2={toY(v)} stroke={v === 0 ? "var(--border-hover)" : "var(--subtle-border)"} strokeWidth={v === 0 ? 1.5 : 1} />
         ))}
 
         {/* Axes */}
-        <line x1={PAD} y1={H - PAD} x2={W - PAD} y2={H - PAD} stroke="rgba(255,255,255,.15)" strokeWidth={1} />
-        <line x1={PAD} y1={PAD} x2={PAD} y2={H - PAD} stroke="rgba(255,255,255,.15)" strokeWidth={1} />
+        <line x1={PAD} y1={H - PAD} x2={W - PAD} y2={H - PAD} stroke="var(--border-hover)" strokeWidth={1} />
+        <line x1={PAD} y1={PAD} x2={PAD} y2={H - PAD} stroke="var(--border-hover)" strokeWidth={1} />
 
         {/* Axis labels */}
         <text x={W / 2} y={H - 10} textAnchor="middle" fill="var(--text-tertiary)" fontSize={10} fontFamily="var(--fm)">Dividend Yield %</text>

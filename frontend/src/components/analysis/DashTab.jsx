@@ -98,9 +98,9 @@ export default function DashTab() {
               <svg viewBox={`0 0 ${W} ${H+25}`} style={{width:"100%",height:"auto"}}>
                 <defs><linearGradient id="priceGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={col} stopOpacity=".2"/><stop offset="100%" stopColor={col} stopOpacity="0"/></linearGradient></defs>
                 {/* Grid lines */}
-                {gridPrices.map((p,i) => {const yPos = H - ((p-minP)/range)*H; return <g key={i}><line x1={PAD} y1={yPos} x2={W} y2={yPos} stroke="var(--subtle-border)" strokeWidth="0.5"/><text x={PAD-4} y={yPos+3} fill="rgba(255,255,255,.25)" fontSize="8" fontFamily="var(--fm)" textAnchor="end">{Math.round(p)}</text></g>;})}
+                {gridPrices.map((p,i) => {const yPos = H - ((p-minP)/range)*H; return <g key={i}><line x1={PAD} y1={yPos} x2={W} y2={yPos} stroke="var(--subtle-border)" strokeWidth="0.5"/><text x={PAD-4} y={yPos+3} fill="var(--text-tertiary)" fontSize="8" fontFamily="var(--fm)" textAnchor="end">{Math.round(p)}</text></g>;})}
                 {/* Year lines */}
-                {years.map((y,i) => <g key={i}><line x1={y.x} y1={0} x2={y.x} y2={H} stroke="rgba(255,255,255,.06)" strokeWidth="0.5"/><text x={y.x} y={H+16} fill="rgba(255,255,255,.35)" fontSize="9" fontFamily="var(--fm)" textAnchor="middle">{y.yr}</text></g>)}
+                {years.map((y,i) => <g key={i}><line x1={y.x} y1={0} x2={y.x} y2={H} stroke="var(--subtle-bg2)" strokeWidth="0.5"/><text x={y.x} y={H+16} fill="var(--text-tertiary)" fontSize="9" fontFamily="var(--fm)" textAnchor="middle">{y.yr}</text></g>)}
                 {/* Area + Line */}
                 <polygon points={`${PAD},${H} ${points} ${W-1},${H}`} fill="url(#priceGrad)"/>
                 <polyline points={points} fill="none" stroke={col} strokeWidth="2" strokeLinejoin="round"/>
@@ -155,7 +155,7 @@ export default function DashTab() {
               <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginBottom:6}}>
                 <span>${_sf(lo52,2)}</span><span>${_sf(hi52,2)}</span>
               </div>
-              <div style={{position:"relative",height:8,background:"rgba(255,255,255,.06)",borderRadius:4,overflow:"hidden"}}>
+              <div style={{position:"relative",height:8,background:"var(--subtle-bg2)",borderRadius:4,overflow:"hidden"}}>
                 <div style={{position:"absolute",left:0,top:0,height:"100%",width:`${Math.max(2,Math.min(98,pctInRange*100))}%`,background:`linear-gradient(90deg,#ff453a,#ffd60a,#30d158)`,borderRadius:4,transition:"width .3s"}}/>
               </div>
               <div style={{position:"relative",marginTop:-2}}>
@@ -177,7 +177,7 @@ export default function DashTab() {
                 </div>}
               </div>
               {avg5yYield != null && curYield != null && (
-                <div style={{marginTop:10,paddingTop:8,borderTop:"1px solid rgba(255,255,255,.05)"}}>
+                <div style={{marginTop:10,paddingTop:8,borderTop:"1px solid var(--subtle-bg2)"}}>
                   <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:4}}>YIELD vs 5Y AVG</div>
                   <div style={{display:"flex",gap:12,fontSize:11,fontFamily:"var(--fm)"}}>
                     <span style={{color:curYield>avg5yYield?"#30d158":"#ff9f0a"}}>{_sf(curYield*100,1)}% actual</span>
@@ -209,11 +209,11 @@ export default function DashTab() {
                       <span style={{fontSize:8,color:"var(--text-tertiary)"}}>{cfg.ticker}</span>
                     </div>
                     <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
-                      <div style={{width:"100%",background:"rgba(255,255,255,.15)",borderRadius:3,height:Math.min(40,Math.max(8,(20/30)*40))}}/>
+                      <div style={{width:"100%",background:"var(--border-hover)",borderRadius:3,height:Math.min(40,Math.max(8,(20/30)*40))}}/>
                       <span style={{fontSize:8,color:"var(--text-tertiary)"}}>Sector</span>
                     </div>
                     <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
-                      <div style={{width:"100%",background:"rgba(255,255,255,.08)",borderRadius:3,height:Math.min(40,Math.max(8,(21/30)*40))}}/>
+                      <div style={{width:"100%",background:"var(--subtle-bg2)",borderRadius:3,height:Math.min(40,Math.max(8,(21/30)*40))}}/>
                       <span style={{fontSize:8,color:"var(--text-tertiary)"}}>S&P</span>
                     </div>
                   </div>
@@ -347,7 +347,7 @@ export default function DashTab() {
           ssd.aiDisruptionLevel ? <span style={{fontSize:11,fontWeight:700,
             color:ssd.aiDisruptionLevel==="Low"?"#30d158":ssd.aiDisruptionLevel==="Medium"?"#ffd60a":ssd.aiDisruptionLevel==="High"?"#ff9f0a":"#ff453a",
             background:ssd.aiDisruptionLevel==="Low"?"rgba(48,209,88,.12)":ssd.aiDisruptionLevel==="Medium"?"rgba(255,214,10,.12)":ssd.aiDisruptionLevel==="High"?"rgba(255,159,10,.12)":"rgba(255,69,58,.12)",
-            padding:"4px 12px",borderRadius:100,border:"1px solid rgba(255,255,255,.1)"
+            padding:"4px 12px",borderRadius:100,border:"1px solid var(--border-hover)"
           }}>{ssd.aiDisruptionLevel} ({ssd.aiDisruptionScore}/100)</span> : null
         }>
           {ssd.aiDisruptionLevel ? (

@@ -1367,7 +1367,7 @@ export default {
         if (!symbol) return json({ error: "Missing ?symbol=" }, corsHeaders, 400);
         const from = url.searchParams.get("from") || new Date(Date.now()-10*365.25*86400000).toISOString().slice(0,10);
         try {
-          const resp = await fetch(`${FMP_BASE}/historical-price-eod/full?symbol=${encodeURIComponent(symbol)}&from=${from}&apikey=${FMP_KEY}`);
+          const resp = await fetchWithRetry(`${FMP_BASE}/historical-price-eod/full?symbol=${encodeURIComponent(symbol)}&from=${from}&apikey=${FMP_KEY}`, {}, { maxRetries: 2, baseDelay: 2000 });
           if (!resp.ok) return json({ error: "FMP error", status: resp.status }, corsHeaders, 502);
           const data = await resp.json();
           return json(data, corsHeaders);
@@ -1479,7 +1479,7 @@ export default {
               // Fetch chain for that expiration
               let options = result.options?.[0] || {};
               if (bestExp && bestExp !== expirations[0]) {
-                const resp2 = await fetch(`${baseUrl}?date=${bestExp}`, { headers });
+                const resp2 = await fetchYahoo(`${baseUrl}?date=${bestExp}`);
                 if (resp2.ok) {
                   const data2 = await resp2.json();
                   options = data2?.optionChain?.result?.[0]?.options?.[0] || options;
@@ -1548,12 +1548,10 @@ export default {
         for (const sym of symbols) {
           try {
             const apiUrl = `https://api.polygon.io/v3/snapshot/options/${encodeURIComponent(sym)}?contract_type=call&expiration_date.gte=${minExp}&expiration_date.lte=${maxExp}&limit=250&apiKey=${MASSIVE_KEY}`;
-            const resp = await fetch(apiUrl);
+            const resp = await fetchWithRetry(apiUrl, {}, { maxRetries: 2, baseDelay: 12000 });
             if (!resp.ok) {
               const errText = await resp.text().catch(() => "");
               results[sym] = { error: resp.status, msg: errText.slice(0, 200) };
-              // Rate limit: wait and continue
-              if (resp.status === 429) await new Promise(r => setTimeout(r, 12000));
               continue;
             }
             const data = await resp.json();

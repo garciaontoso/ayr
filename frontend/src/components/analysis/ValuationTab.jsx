@@ -113,7 +113,7 @@ export default function ValuationTab() {
                   {fmpExtra.estimates.slice(0,3).map((e,i) => {
                     const revG = e.revenueAvg && fmpExtra.estimates[i+1]?.revenueAvg ? (e.revenueAvg / fmpExtra.estimates[i+1].revenueAvg - 1) : null;
                     return (
-                      <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 8px",borderRadius:6,background:i===0?"rgba(200,164,78,.06)":"rgba(255,255,255,.02)"}}>
+                      <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 8px",borderRadius:6,background:i===0?"rgba(200,164,78,.06)":"var(--row-alt)"}}>
                         <span style={{fontSize:10,fontWeight:600,color:i===0?"var(--gold)":"var(--text-secondary)",fontFamily:"var(--fm)"}}>{e.date?.slice(0,4) || "—"}</span>
                         <div style={{textAlign:"right"}}>
                           <div style={{fontSize:10,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>EPS: {e.epsAvg ? fC(e.epsAvg) : "—"}</div>
@@ -135,24 +135,24 @@ export default function ValuationTab() {
             {comps.map((c,i)=>(
               <div key={i} style={{display:"flex",gap:6,alignItems:"center"}}>
                 <input placeholder="Nombre" value={c.name} onChange={e=>{const nc=[...comps];nc[i]={...nc[i],name:e.target.value};setComps(nc);}}
-                  style={{flex:2,padding:"6px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:11,outline:"none",fontFamily:"var(--fm)"}}
+                  style={{flex:2,padding:"6px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:11,outline:"none",fontFamily:"var(--fm)"}}
                   onFocus={e=>e.target.style.borderColor="var(--gold)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/>
                 <input placeholder="P/E" type="number" value={c.pe||""} onChange={e=>{const nc=[...comps];nc[i]={...nc[i],pe:parseFloat(e.target.value)||0};setComps(nc);}}
-                  style={{flex:1,padding:"6px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:11,outline:"none",fontFamily:"var(--fm)",textAlign:"right"}}
+                  style={{flex:1,padding:"6px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:11,outline:"none",fontFamily:"var(--fm)",textAlign:"right"}}
                   onFocus={e=>e.target.style.borderColor="var(--gold)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/>
                 <input placeholder="EV/EBITDA" type="number" value={c.evEbitda||""} onChange={e=>{const nc=[...comps];nc[i]={...nc[i],evEbitda:parseFloat(e.target.value)||0};setComps(nc);}}
-                  style={{flex:1,padding:"6px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:11,outline:"none",fontFamily:"var(--fm)",textAlign:"right"}}
+                  style={{flex:1,padding:"6px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:11,outline:"none",fontFamily:"var(--fm)",textAlign:"right"}}
                   onFocus={e=>e.target.style.borderColor="var(--gold)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/>
                 <button onClick={()=>setComps(comps.filter((_,j)=>j!==i))} style={{padding:"4px 8px",background:"rgba(255,69,58,.1)",border:"1px solid rgba(255,69,58,.2)",borderRadius:6,color:"var(--red)",fontSize:10,cursor:"pointer"}}>✕</button>
               </div>
             ))}
           </div>
-          <button onClick={()=>setComps([...comps,{name:"",pe:0,evEbitda:0}])} style={{padding:"6px 14px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-secondary)",fontSize:11,cursor:"pointer",fontFamily:"var(--fm)"}}>+ Añadir competidor</button>
+          <button onClick={()=>setComps([...comps,{name:"",pe:0,evEbitda:0}])} style={{padding:"6px 14px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-secondary)",fontSize:11,cursor:"pointer",fontFamily:"var(--fm)"}}>+ Añadir competidor</button>
           
           {comps.some(c=>c.name&&(c.pe||c.evEbitda)) && (
             <div style={{marginTop:12,display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:8}}>
               {[{name:cfg.ticker||"Empresa",pe:LD.eps>0?cfg.price/LD.eps:null,evEbitda:L.eve,isSelf:true},...comps.filter(c=>c.name)].map((c,i)=>(
-                <div key={i} style={{padding:"10px 12px",borderRadius:10,background:c.isSelf?"var(--gold-glow)":"rgba(255,255,255,.03)",border:`1px solid ${c.isSelf?"var(--gold-dim)":"var(--border)"}`}}>
+                <div key={i} style={{padding:"10px 12px",borderRadius:10,background:c.isSelf?"var(--gold-glow)":"var(--subtle-bg)",border:`1px solid ${c.isSelf?"var(--gold-dim)":"var(--border)"}`}}>
                   <div style={{fontSize:10,fontWeight:600,color:c.isSelf?"var(--gold)":"var(--text-secondary)",marginBottom:6}}>{c.name}</div>
                   <div style={{display:"flex",justifyContent:"space-between"}}>
                     <div><div style={{fontSize:8,color:"var(--text-tertiary)"}}>P/E</div><div style={{fontSize:14,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{c.pe?_sf(c.pe,1)+"x":"—"}</div></div>
@@ -169,9 +169,9 @@ export default function ValuationTab() {
           <Card title="Peers (FMP auto-detectados)" icon="🔗" style={{marginTop:12}}>
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
               {fmpExtra.peers.map((p,i)=>(
-                <div key={i} style={{padding:"10px 10px",borderRadius:8,background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.04)",cursor:"pointer",transition:"all .2s"}}
+                <div key={i} style={{padding:"10px 10px",borderRadius:8,background:"var(--subtle-bg)",border:"1px solid var(--subtle-border)",cursor:"pointer",transition:"all .2s"}}
                   onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--gold)";e.currentTarget.style.background="var(--gold-glow)";}}
-                  onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,.04)";e.currentTarget.style.background="rgba(255,255,255,.03)";}}>
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--subtle-border)";e.currentTarget.style.background="var(--subtle-bg)";}}>
                   <div style={{fontSize:11,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>{p.symbol}</div>
                   <div style={{fontSize:9.5,color:"var(--text-secondary)",marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{p.companyName}</div>
                   <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>

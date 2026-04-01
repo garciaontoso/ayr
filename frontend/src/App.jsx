@@ -1785,7 +1785,7 @@ function buildPositionsFromCB() {
             const lo = p.fiftyTwoWeekLow, hi = p.fiftyTwoWeekHigh, cur = p.lastPrice||0;
             const pct = hi > lo ? Math.min(Math.max((cur - lo) / (hi - lo), 0), 1) : 0.5;
             const barCol = pct > 0.7 ? "var(--green)" : pct < 0.3 ? "var(--red)" : "var(--gold)";
-            return <div title={`52w: ${origSym}${lo.toFixed(2)} — ${origSym}${hi.toFixed(2)}`} style={{height:2,background:"rgba(255,255,255,.06)",borderRadius:1,marginTop:2,position:"relative",width:"100%"}}>
+            return <div title={`52w: ${origSym}${lo.toFixed(2)} — ${origSym}${hi.toFixed(2)}`} style={{height:2,background:"var(--subtle-bg2)",borderRadius:1,marginTop:2,position:"relative",width:"100%"}}>
               <div style={{position:"absolute",left:0,top:0,height:"100%",width:`${pct*100}%`,background:barCol,borderRadius:1,transition:"width .3s"}}/>
             </div>;
           })()}

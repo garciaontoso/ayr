@@ -153,12 +153,12 @@ export default function DividendView({ positions, openAnalysis, hide, POS_STATIC
             <div key={p.ticker} onClick={() => openAnalysis(p.ticker)} style={{
               display: "grid", gridTemplateColumns: "28px 58px 1fr 52px 48px 48px 65px 58px 55px 60px", gap: 4,
               padding: "6px 8px", borderRadius: 8, cursor: "pointer",
-              background: "rgba(255,255,255,.01)",
+              background: "var(--row-alt)",
               borderLeft: `3px solid ${yc}`,
               transition: "all .15s",
             }}
             onMouseEnter={e => { e.currentTarget.style.background = "rgba(200,164,78,.05)"; }}
-            onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,.01)"; }}>
+            onMouseLeave={e => { e.currentTarget.style.background = "var(--row-alt)"; }}>
               {/* Logo */}
               <div style={{ display: "flex", alignItems: "center" }}>
                 <img src={`https://assets.parqet.com/logos/symbol/${p.ticker}?format=jpg`} alt="" width={22} height={22} style={{ borderRadius: 6, background: "#1a1a2e" }} onError={e => { e.target.style.display = "none"; }} />

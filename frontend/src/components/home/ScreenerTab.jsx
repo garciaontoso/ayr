@@ -1,5 +1,6 @@
 import { useHome } from '../../context/HomeContext';
 import { _sf } from '../../utils/formatters.js';
+import { InlineLoading, EmptyState } from '../ui/EmptyState.jsx';
 
 export default function ScreenerTab() {
   const {
@@ -111,7 +112,7 @@ export default function ScreenerTab() {
     </div>}
 
     {/* Results table */}
-    {screenerLoading ? <div style={{padding:40,textAlign:"center",color:"var(--text-tertiary)",fontSize:12}}>Cargando screener...</div> :
+    {screenerLoading ? <InlineLoading message="Cargando screener..." /> :
      items.length === 0 ? <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:16,padding:40,textAlign:"center"}}>
       <div style={{fontSize:14,color:"var(--text-secondary)",fontFamily:"var(--fd)",marginBottom:8}}>Sin datos todavia</div>
       <div style={{fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Pulsa "Analizar Mi Portfolio" para descargar fundamentales de tus {portfolioUS.length} posiciones US</div>

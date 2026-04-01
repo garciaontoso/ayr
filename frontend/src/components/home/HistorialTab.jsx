@@ -1,5 +1,6 @@
 import { useHome } from '../../context/HomeContext';
 import { _sf } from '../../utils/formatters.js';
+import { EmptyState } from '../ui/EmptyState.jsx';
 
 export default function HistorialTab() {
   const {
