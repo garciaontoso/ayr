@@ -51,6 +51,7 @@ export const HOME_TABS = [
   {id:"portfolio",lbl:"Portfolio",ico:"💼"},
   {id:"covered-calls",lbl:"CC Income",ico:"📞"},
   {id:"income-lab",lbl:"Income Lab",ico:"🧪"},
+  {id:"nomina",lbl:"Mi Nomina",ico:"💸"},
   {id:"dividendos",lbl:"Dividendos",ico:"💰"},
   {id:"screener",lbl:"Screener",ico:"🔬"},
   {id:"advisor",lbl:"Advisor",ico:"🧭"},

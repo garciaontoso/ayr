@@ -200,7 +200,7 @@ function MonthlyTracker({ DIV_BY_MONTH }) {
 /* ═══════════════════════════════════════════════════════════════
    📅 CalendarioSection — Mac Calendar-style dividend calendar
    ═══════════════════════════════════════════════════════════════ */
-function CalendarioSection({ divLog, POS_STATIC }) {
+function CalendarioSection({ divLog, POS_STATIC, ownedTickers, soloActuales }) {
   const now = new Date();
   const [calMonth, setCalMonth] = useState({ year: now.getFullYear(), month: now.getMonth() });
   const [selectedDay, setSelectedDay] = useState(null);
@@ -238,22 +238,24 @@ function CalendarioSection({ divLog, POS_STATIC }) {
   const DOW = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
   const MNAMES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 
-  // Group divs by date
+  // Group divs by date (filter to owned tickers when soloActuales)
   const divByDate = useMemo(() => {
     const map = {};
     divLog.forEach(d => {
       if (!d.date) return;
+      if (soloActuales && d.ticker && !ownedTickers.has(d.ticker)) return;
       if (!map[d.date]) map[d.date] = [];
       map[d.date].push(d);
     });
     return map;
-  }, [divLog]);
+  }, [divLog, soloActuales, ownedTickers]);
 
   // Projected future dividends from frequency
   const projectedDivs = useMemo(() => {
     const tickerDates = {};
     divLog.forEach(d => {
       if (!d.date || !d.ticker) return;
+      if (soloActuales && !ownedTickers.has(d.ticker)) return;
       if (!tickerDates[d.ticker]) tickerDates[d.ticker] = [];
       tickerDates[d.ticker].push({ date: d.date, gross: d.gross || 0, net: d.net || 0 });
     });
@@ -283,7 +285,7 @@ function CalendarioSection({ divLog, POS_STATIC }) {
       }
     }
     return projected;
-  }, [divLog]);
+  }, [divLog, soloActuales, ownedTickers]);
 
   // Merge real + projected for display
   const allDivsByDate = useMemo(() => {
@@ -637,27 +639,55 @@ export default function DividendosTab() {
     addDivEntry, deleteDivEntry,
     POS_STATIC,
     DIV_BY_YEAR, DIV_BY_MONTH,
+    portfolioTotals,
   } = useHome();
 
   const [section, setSection] = useState("dashboard");
+  const [soloActuales, setSoloActuales] = useState(true);
+
+  // Set of tickers currently owned (sh > 0)
+  const ownedTickers = useMemo(() => {
+    const set = new Set();
+    for (const [t, pos] of Object.entries(POS_STATIC || {})) {
+      if (pos && pos.sh > 0) set.add(t);
+    }
+    return set;
+  }, [POS_STATIC]);
+
+  const divTTM = portfolioTotals?.totalDivUSD || 0;
 
   return (
 <div style={{display:"flex",flexDirection:"column",gap:12}}>
+  {/* Desglose TTM */}
+  {divTTM > 0 && (
+    <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 14px",background:"rgba(200,164,78,.06)",border:"1px solid rgba(200,164,78,.15)",borderRadius:10,flexWrap:"wrap"}}>
+      <span style={{fontSize:11,fontWeight:700,color:"#c8a44e",fontFamily:"var(--fm)"}}>{"Dividendos TTM: $"+_sf(divTTM,0)+"/ano"}</span>
+      <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>
+        {"$"+_sf(divTTM/12,0)+"/mes \u00b7 $"+_sf(divTTM/365,2)+"/dia \u00b7 $"+_sf(divTTM/8760,3)+"/hora \u00b7 $"+_sf(divTTM/525600,4)+"/min"}
+      </span>
+    </div>
+  )}
+
   {/* Sub-tab toggle */}
-  <div style={{display:"flex",gap:6}}>
+  <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
     {[{id:"dashboard",lbl:"📊 Dashboard"},{id:"calendario",lbl:"📅 Calendario"}].map(t=>(
       <button key={t.id} onClick={()=>setSection(t.id)} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${section===t.id?"var(--gold)":"transparent"}`,background:section===t.id?"var(--gold-dim)":"transparent",color:section===t.id?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:section===t.id?700:500,cursor:"pointer",fontFamily:"var(--fb)",transition:"all .15s"}}>{t.lbl}</button>
     ))}
+    <div style={{marginLeft:"auto"}}/>
+    <button onClick={()=>setSoloActuales(!soloActuales)} style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${soloActuales?"rgba(48,209,88,.4)":"var(--border)"}`,background:soloActuales?"rgba(48,209,88,.08)":"transparent",color:soloActuales?"var(--green)":"var(--text-tertiary)",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)",transition:"all .15s"}}>
+      {soloActuales?"✓ Solo actuales":"◯ Todas"}
+    </button>
   </div>
 
   {/* Calendario Section */}
-  {section === "calendario" && <CalendarioSection divLog={divLog} POS_STATIC={POS_STATIC} />}
+  {section === "calendario" && <CalendarioSection divLog={divLog} POS_STATIC={POS_STATIC} ownedTickers={ownedTickers} soloActuales={soloActuales} />}
 
   {/* Dashboard Section */}
   {section === "dashboard" && (() => {
     if (divLoading) return <div style={{padding:40,textAlign:"center",color:"var(--text-tertiary)"}}>⏳ Cargando dividendos...</div>;
     if (divLog.length === 0) return <div style={{padding:40,textAlign:"center",color:"var(--text-tertiary)"}}><div style={{fontSize:36,marginBottom:12}}>💰</div>Sin datos de dividendos. Espera un momento o importa tu historial.</div>;
     const filtered = divLog.filter(d => {
+      if (soloActuales && d.ticker && !ownedTickers.has(d.ticker)) return false;
       if (divFilter.year !== "all" && !d.date?.startsWith(divFilter.year)) return false;
       if (divFilter.month && divFilter.month !== "all" && !d.date?.startsWith(divFilter.month)) return false;
       if (divFilter.ticker && !d.ticker?.toUpperCase().includes(divFilter.ticker.toUpperCase())) return false;
@@ -668,7 +698,7 @@ export default function DividendosTab() {
     const totalTax = totalGross - totalNet;
     const taxRate = totalGross > 0 ? (totalTax / totalGross * 100) : 0;
     const uniqueTickers = new Set(filtered.map(d=>d.ticker)).size;
-    const all = divLog.filter(d => d.date && d.gross);
+    const all = divLog.filter(d => d.date && d.gross && (!soloActuales || !d.ticker || ownedTickers.has(d.ticker)));
     const byYear = {}; all.forEach(d => { const y=d.date.slice(0,4); if(!byYear[y])byYear[y]={g:0,n:0,c:0}; byYear[y].g+=d.gross||0; byYear[y].n+=d.net||0; byYear[y].c++; });
     const yearKeys = Object.keys(byYear).sort();
     const maxYearG = Math.max(...yearKeys.map(y=>byYear[y].g),1);
@@ -719,10 +749,10 @@ export default function DividendosTab() {
         </div>
       </div>
       {/* Annual Dividend Horizontal Bar Chart */}
-      <AnnualDivBarChart DIV_BY_YEAR={DIV_BY_YEAR} />
+      <AnnualDivBarChart DIV_BY_YEAR={soloActuales ? byYear : DIV_BY_YEAR} />
 
       {/* Monthly Cumulative Tracker: this year vs last year */}
-      <MonthlyTracker DIV_BY_MONTH={DIV_BY_MONTH} />
+      <MonthlyTracker DIV_BY_MONTH={soloActuales ? byMonth : DIV_BY_MONTH} />
 
       {/* Filters */}
       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
@@ -757,7 +787,7 @@ export default function DividendosTab() {
         {(() => {
           const mNF = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
           const byYM = {};
-          Object.entries(DIV_BY_MONTH).forEach(([ym, dd]) => {
+          Object.entries(soloActuales ? byMonth : DIV_BY_MONTH).forEach(([ym, dd]) => {
             const yy = ym.slice(0,4), mm = parseInt(ym.slice(5), 10)-1;
             if (!byYM[yy]) byYM[yy] = new Array(12).fill(null);
             byYM[yy][mm] = dd;

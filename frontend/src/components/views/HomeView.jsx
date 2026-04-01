@@ -19,6 +19,7 @@ import AdvisorTab from '../home/AdvisorTab';
 import ResearchTab from '../home/ResearchTab';
 import CoveredCallsTab from '../home/CoveredCallsTab';
 import IncomeLabTab from '../home/IncomeLabTab';
+import NominaTab from '../home/NominaTab';
 import PresupuestoTab from '../home/PresupuestoTab';
 import SettingsPanel from '../home/SettingsPanel';
 
@@ -464,6 +465,7 @@ export default function HomeView() {
       {homeTab==="research" && <ResearchTab />}
       {homeTab==="covered-calls" && <CoveredCallsTab />}
       {homeTab==="income-lab" && <IncomeLabTab />}
+      {homeTab==="nomina" && <NominaTab />}
       {homeTab==="presupuesto" && <PresupuestoTab />}
     </ErrorBoundary>
 

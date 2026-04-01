@@ -3,7 +3,7 @@ import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 
 // ─── Your Number Calculator ───
-function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, fxEurUsd, fireCcy }) {
+function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA, fxEurUsd, fireCcy }) {
   const isUSD = fireCcy === "USD";
   const sym = isUSD ? "$" : "€";
   const toD = v => isUSD ? v : v / fxEurUsd;
@@ -37,7 +37,20 @@ function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, fxEurUsd,
       inflationRetired: 3.6,
     },
     {
-      name: "🇪🇸 Solo España",
+      name: "🎯 Base Real",
+      lifestyleCost: Math.round(baseRealA > 0 ? baseRealA : 40000),
+      guaranteedIncome: Math.round(divNetA > 0 ? divNetA : 6000),
+      inflation: 3.6,
+      yearsBefore: 10,
+      yearsIn: 40,
+      capitalToday: Math.round(pat > 0 ? pat : 600000),
+      savePerYear: 12000,
+      returnWorking: 7,
+      returnRetired: 5,
+      inflationRetired: 3.6,
+    },
+    {
+      name: "🇪🇸 Solo Espana",
       lifestyleCost: Math.round(espRealistaA > 0 ? espRealistaA : 45000),
       guaranteedIncome: Math.round(divNetA > 0 ? divNetA : 6000),
       inflation: 3.6,
@@ -472,6 +485,7 @@ export default function FireTab() {
     gastosLog,
     CTRL_DATA, INCOME_DATA, GASTOS_MONTH,
     ibData,
+    FI_TRACK, DIV_BY_YEAR, portfolioTotals,
   } = useHome();
 
   // === FX RATES ===
@@ -539,6 +553,11 @@ const espRealistaA = espRealistaM * 12;
 const espBaseM = isUSD ? avgEurAll * fxEurUsd : avgEurAll;
 const espBaseA = espBaseM * 12;
 
+// Base Real = España + China obligatorio (ALQ, UCH, UTI — gastos que tendras siempre)
+const cnyChinaObligEur = avgCnyChinaOnly * fxCnyEur;
+const baseRealM = isUSD ? (avgEurAll + cnyChinaObligEur) * fxEurUsd : avgEurAll + cnyChinaObligEur;
+const baseRealA = baseRealM * 12;
+
 // === DIVIDENDOS (USD from IB) ===
 const all = divLog.filter(d => d.date && d.gross);
 const divByMonth = {};
@@ -564,12 +583,15 @@ const sueldoM = isUSD ? sueldoMUSD : sueldoMUSD / fxEurUsd;
 const divCoversPct = gastosAvg>0 ? (divNetM/gastosAvg*100) : 0;
 const espCoversPct = espRealistaM>0 ? (divNetM/espRealistaM*100) : 0;
 const espBasePct = espBaseM>0 ? (divNetM/espBaseM*100) : 0;
+const baseRealCoversPct = baseRealM>0 ? (divNetM/baseRealM*100) : 0;
 const fireRet = pat>0 ? (gastosAnnual/pat*100) : 0;
 const gapM = divNetM - gastosAvg;
 const savingsM = divNetM + sueldoM - gastosAvg;
 const savingsRate = (divNetM+sueldoM)>0 ? (savingsM/(divNetM+sueldoM)*100) : 0;
 const swr35 = gastosAnnual > 0 ? gastosAnnual / 0.035 : 0;
+const swr35BaseReal = baseRealA > 0 ? baseRealA / 0.035 : 0;
 const yearsToFire = (()=>{ if(!pat||!savingsM||!gastosAnnual||isNaN(pat)||isNaN(swr35)) return 99; if(pat>=swr35) return 0; let p=pat; for(let y=1;y<=50;y++){p=p*1.07+savingsM*12;if(p*0.035>=gastosAnnual)return y;} return 99; })();
+const yearsToFireBaseReal = (()=>{ if(!pat||!savingsM||!baseRealA||isNaN(pat)||isNaN(swr35BaseReal)) return 99; if(pat>=swr35BaseReal) return 0; let p=pat; for(let y=1;y<=50;y++){p=p*1.07+savingsM*12;if(p*0.035>=baseRealA)return y;} return 99; })();
 
 // Div by year
 const divByYear={}; all.forEach(d=>{const y=d.date.slice(0,4);if(!divByYear[y])divByYear[y]={g:0,n:0};divByYear[y].g+=d.gross||0;divByYear[y].n+=d.net||0;});
@@ -579,6 +601,15 @@ const retCol = v => v>0?"var(--green)":v<0?"var(--red)":"var(--text-secondary)";
 const fK = v => Math.abs(v)>=1000?`${_sf(v/1000,1)}K`:_sf(Math.abs(v),0);
 
 const [fireSection, setFireSection] = useState("dashboard");
+const [useBaseReal, setUseBaseReal] = useState(false);
+// When toggle is on, use base real (Spain + China obligatorio) for FIRE calcs
+const activeGastosM = useBaseReal ? baseRealM : gastosAvg;
+const activeGastosA = useBaseReal ? baseRealA : gastosAnnual;
+const activeSwr35 = useBaseReal ? swr35BaseReal : swr35;
+const activeYearsToFire = useBaseReal ? yearsToFireBaseReal : yearsToFire;
+const activeFireRet = pat>0 ? (activeGastosA/pat*100) : 0;
+const activeGapM = divNetM - activeGastosM;
+const activeDivCoversPct = activeGastosM>0 ? (divNetM/activeGastosM*100) : 0;
 
 return (
 <div style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -589,12 +620,178 @@ return (
         <button key={t.id} onClick={()=>setFireSection(t.id)} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${fireSection===t.id?"var(--gold)":"var(--border)"}`,background:fireSection===t.id?"var(--gold-dim)":"transparent",color:fireSection===t.id?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:fireSection===t.id?700:500,cursor:"pointer",fontFamily:"var(--fb)"}}>{t.lbl}</button>
       ))}
     </div>
-    <div style={{display:"flex",borderRadius:8,border:"1px solid var(--border)",overflow:"hidden"}}>
-      {["EUR","USD"].map(c=><button key={c} onClick={()=>setFireCcy(c)} style={{padding:"6px 16px",border:"none",background:fireCcy===c?"var(--gold-dim)":"transparent",color:fireCcy===c?"var(--gold)":"var(--text-tertiary)",fontSize:12,fontWeight:fireCcy===c?700:500,cursor:"pointer",fontFamily:"var(--fm)"}}>{c==="EUR"?"€ EUR":"$ USD"}</button>)}
+    <div style={{display:"flex",gap:8,alignItems:"center"}}>
+      <button onClick={()=>setUseBaseReal(!useBaseReal)} title="Base real = Espana + China obligatorio. Excluye gastos voluntarios de China." style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${useBaseReal?"var(--gold)":"var(--border)"}`,background:useBaseReal?"var(--gold-dim)":"transparent",color:useBaseReal?"var(--gold)":"var(--text-tertiary)",fontSize:10,fontWeight:useBaseReal?700:500,cursor:"pointer",fontFamily:"var(--fm)",whiteSpace:"nowrap"}}>
+        {useBaseReal ? "🎯 Base Real" : "🌏 Todos Gastos"}
+      </button>
+      <div style={{display:"flex",borderRadius:8,border:"1px solid var(--border)",overflow:"hidden"}}>
+        {["EUR","USD"].map(c=><button key={c} onClick={()=>setFireCcy(c)} style={{padding:"6px 16px",border:"none",background:fireCcy===c?"var(--gold-dim)":"transparent",color:fireCcy===c?"var(--gold)":"var(--text-tertiary)",fontSize:12,fontWeight:fireCcy===c?700:500,cursor:"pointer",fontFamily:"var(--fm)"}}>{c==="EUR"?"€ EUR":"$ USD"}</button>)}
+      </div>
     </div>
   </div>
 
-  {fireSection === "yournumber" && <YourNumberSection pat={pat} divNetA={divNetA} gastosAnnual={gastosAnnual} espRealistaA={espRealistaA} fxEurUsd={fxEurUsd} fireCcy={fireCcy} />}
+  {/* Base Real comparison banner */}
+  {useBaseReal && (
+    <div style={{padding:"12px 16px",background:"rgba(214,158,46,.06)",borderRadius:12,border:"1px solid rgba(214,158,46,.15)",display:"flex",flexWrap:"wrap",gap:12,alignItems:"center",justifyContent:"center"}}>
+      <div style={{textAlign:"center",flex:"1 1 140px"}}>
+        <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600}}>FIRE TODOS GASTOS</div>
+        <div style={{fontSize:14,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{sym}{fK(swr35)}</div>
+        <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{sym}{gastosAvg.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</div>
+      </div>
+      <div style={{fontSize:14,color:"var(--text-tertiary)"}}>vs</div>
+      <div style={{textAlign:"center",flex:"1 1 140px"}}>
+        <div style={{fontSize:8,color:"var(--gold)",fontFamily:"var(--fm)",fontWeight:700}}>FIRE BASE REAL</div>
+        <div style={{fontSize:14,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>{sym}{fK(swr35BaseReal)}</div>
+        <div style={{fontSize:9,color:"var(--gold)",fontFamily:"var(--fm)"}}>{sym}{baseRealM.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</div>
+      </div>
+      <div style={{textAlign:"center",flex:"1 1 140px"}}>
+        <div style={{fontSize:8,color:"var(--green)",fontFamily:"var(--fm)",fontWeight:600}}>AHORRO</div>
+        <div style={{fontSize:14,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)"}}>{sym}{fK(swr35 - swr35BaseReal)}</div>
+        <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontStyle:"italic"}}>sin China voluntario</div>
+      </div>
+    </div>
+  )}
+
+  {/* FI_TRACK sync warning */}
+  {(() => {
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    const latestFI = FI_TRACK && FI_TRACK.length > 0
+      ? [...FI_TRACK].sort((a,b) => (a.m||"").localeCompare(b.m||"")).slice(-1)[0]?.m
+      : null;
+    if (!latestFI || latestFI < currentMonth) {
+      const missingLabel = latestFI
+        ? (() => { const [y,m] = currentMonth.split('-'); const mNames = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]; return `${mNames[parseInt(m,10)-1]} ${y}`; })()
+        : "desconocido";
+      return (
+        <div style={{padding:"10px 14px",background:"rgba(255,159,10,.08)",border:"1px solid rgba(255,159,10,.25)",borderRadius:10,display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:14}}>&#9888;&#65039;</span>
+          <span style={{fontSize:11,color:"var(--orange)",fontFamily:"var(--fm)",fontWeight:600}}>
+            Datos de {missingLabel} no sincronizados
+          </span>
+          <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginLeft:4}}>
+            ({latestFI ? `ultimo: ${latestFI}` : "sin datos FI_TRACK"})
+          </span>
+        </div>
+      );
+    }
+    return null;
+  })()}
+
+  {/* DIVIDENDOS vs GASTOS — Comparison Card */}
+  {(() => {
+    const divTTM = portfolioTotals?.totalDivUSD || 0;
+    const divMonthlyUSD = divTTM / 12;
+    const divMonthly = isUSD ? divMonthlyUSD : divMonthlyUSD / fxEurUsd;
+    const divAnnual = divMonthly * 12;
+    const coveragePct = gastosAvg > 0 ? (divMonthly / gastosAvg * 100) : 0;
+
+    // Dividend CAGR from DIV_BY_YEAR (net, last 3+ years)
+    const dYears = Object.keys(DIV_BY_YEAR || {}).sort();
+    let divCAGR = null;
+    let yearsUsed = 0;
+    let projYears = null;
+    if (dYears.length >= 3) {
+      const first = dYears[0];
+      const last = dYears[dYears.length - 1];
+      const n = parseInt(last) - parseInt(first);
+      const vFirst = DIV_BY_YEAR[first]?.n || 0;
+      const vLast = DIV_BY_YEAR[last]?.n || 0;
+      if (n > 0 && vFirst > 0 && vLast > 0) {
+        divCAGR = (Math.pow(vLast / vFirst, 1 / n) - 1) * 100;
+        yearsUsed = n;
+        // Project years to cover expenses: divAnnualUSD * (1+cagr)^Y >= gastosAnnualUSD
+        const divAnnualUSD = divTTM;
+        const gastosAnnualUSD = isUSD ? gastosAnnual : gastosAnnual * fxEurUsd;
+        if (divAnnualUSD > 0 && gastosAnnualUSD > divAnnualUSD && divCAGR > 0) {
+          const cagr = divCAGR / 100;
+          projYears = Math.ceil(Math.log(gastosAnnualUSD / divAnnualUSD) / Math.log(1 + cagr));
+        } else if (divAnnualUSD >= gastosAnnualUSD) {
+          projYears = 0;
+        }
+      }
+    }
+
+    // Bar widths
+    const maxBar = Math.max(divMonthly, gastosAvg, 1);
+
+    return (
+      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:16,padding:20}}>
+        <div style={{fontSize:14,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:16}}>
+          Dividendos vs Gastos Mensuales
+        </div>
+
+        {/* Side-by-side bars */}
+        <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
+          {/* Dividends bar */}
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+              <span style={{fontSize:10,color:"var(--green)",fontFamily:"var(--fm)",fontWeight:600}}>Dividendos (TTM)</span>
+              <span style={{fontSize:14,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)"}}>{sym}{divMonthly.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</span>
+            </div>
+            <div style={{height:20,background:"rgba(255,255,255,.04)",borderRadius:6,overflow:"hidden",position:"relative"}}>
+              <div style={{width:`${Math.min(divMonthly/maxBar*100,100)}%`,height:"100%",background:"linear-gradient(90deg, rgba(48,209,88,.3), rgba(48,209,88,.6))",borderRadius:6,transition:"width .3s"}} />
+            </div>
+          </div>
+          {/* Expenses bar */}
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+              <span style={{fontSize:10,color:"var(--red)",fontFamily:"var(--fm)",fontWeight:600}}>Gastos</span>
+              <span style={{fontSize:14,fontWeight:700,color:"var(--red)",fontFamily:"var(--fm)"}}>{sym}{gastosAvg.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</span>
+            </div>
+            <div style={{height:20,background:"rgba(255,255,255,.04)",borderRadius:6,overflow:"hidden",position:"relative"}}>
+              <div style={{width:`${Math.min(gastosAvg/maxBar*100,100)}%`,height:"100%",background:"linear-gradient(90deg, rgba(255,69,58,.3), rgba(255,69,58,.6))",borderRadius:6,transition:"width .3s"}} />
+            </div>
+          </div>
+        </div>
+
+        {/* Coverage result */}
+        <div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:16,padding:"14px 0",borderTop:"1px solid var(--border)",borderBottom:"1px solid var(--border)",flexWrap:"wrap"}}>
+          <div style={{textAlign:"center"}}>
+            <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,marginBottom:2}}>COBERTURA</div>
+            <div style={{fontSize:32,fontWeight:800,color:coveragePct>=100?"var(--green)":coveragePct>=50?"var(--gold)":"var(--red)",fontFamily:"var(--fm)",lineHeight:1}}>{_sf(coveragePct,1)}%</div>
+          </div>
+          <div style={{width:1,height:40,background:"var(--border)"}} />
+          <div style={{textAlign:"center"}}>
+            <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,marginBottom:2}}>GAP MENSUAL</div>
+            <div style={{fontSize:20,fontWeight:700,color:(divMonthly-gastosAvg)>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)"}}>{(divMonthly-gastosAvg)>=0?"+":""}{sym}{(divMonthly-gastosAvg).toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+          </div>
+          {divCAGR !== null && (
+            <>
+              <div style={{width:1,height:40,background:"var(--border)"}} />
+              <div style={{textAlign:"center"}}>
+                <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,marginBottom:2}}>DIV CAGR ({yearsUsed}a)</div>
+                <div style={{fontSize:20,fontWeight:700,color:divCAGR>0?"var(--green)":"var(--red)",fontFamily:"var(--fm)"}}>{_sf(divCAGR,1)}%</div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Trajectory projection */}
+        {divCAGR !== null && divCAGR > 0 && (
+          <div style={{marginTop:14,padding:"12px 16px",background:projYears===0?"rgba(48,209,88,.06)":"rgba(214,158,46,.06)",borderRadius:10,textAlign:"center"}}>
+            {projYears === 0 ? (
+              <div style={{fontSize:12,fontWeight:600,color:"var(--green)",fontFamily:"var(--fm)"}}>
+                Los dividendos ya cubren los gastos
+              </div>
+            ) : projYears !== null ? (
+              <div style={{fontSize:12,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>
+                A un <span style={{fontWeight:700,color:"var(--gold)"}}>{_sf(divCAGR,1)}% CAGR</span>, los dividendos cubriran los gastos en{' '}
+                <span style={{fontWeight:700,color:"var(--gold)"}}>{projYears} {projYears===1?"ano":"anos"}</span>
+                <span style={{fontSize:10,color:"var(--text-tertiary)",marginLeft:6}}>(~{new Date().getFullYear()+projYears})</span>
+              </div>
+            ) : (
+              <div style={{fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>
+                Crecimiento {_sf(divCAGR,1)}% anual ({yearsUsed} anos de datos)
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  })()}
+
+  {fireSection === "yournumber" && <YourNumberSection pat={pat} divNetA={divNetA} gastosAnnual={gastosAnnual} espRealistaA={espRealistaA} baseRealA={baseRealA} fxEurUsd={fxEurUsd} fireCcy={fireCcy} />}
   {fireSection === "dashboard" && <>
 
   {/* GASTOS MENSUALES POR DIVISA — con filtro año */}
@@ -681,22 +878,29 @@ return (
     </div>
   </div>
 
-  {/* BANNER — 3 escenarios cobertura dividendos */}
-  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:10}}>
+  {/* BANNER — 4 escenarios cobertura dividendos */}
+  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10}}>
     <div style={{padding:"20px",background:"rgba(255,159,10,.04)",border:"1px solid rgba(255,159,10,.15)",borderRadius:16,textAlign:"center"}}>
-      <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,marginBottom:6}}>VIDA ACTUAL (CHINA + ESPAÑA)</div>
+      <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,marginBottom:6}}>VIDA ACTUAL (CHINA + ESPANA)</div>
       <div style={{fontSize:42,fontWeight:700,color:divCoversPct>=100?"var(--green)":"var(--orange)",fontFamily:"var(--fm)",lineHeight:1}}>{_sf(divCoversPct,0)}%</div>
       <div style={{maxWidth:200,margin:"10px auto 0",height:6,background:"rgba(255,255,255,.06)",borderRadius:3,overflow:"hidden"}}><div style={{width:`${Math.min(divCoversPct,100)}%`,height:"100%",background:divCoversPct>=100?"var(--green)":"var(--orange)",borderRadius:3}}/></div>
       <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:6}}>{sym}{gastosAvg.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</div>
     </div>
+    <div style={{padding:"20px",background:`rgba(214,158,46,${useBaseReal?".08":".04"})`,border:`1px solid rgba(214,158,46,${useBaseReal?".3":".12"})`,borderRadius:16,textAlign:"center"}}>
+      <div style={{fontSize:9,color:useBaseReal?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,marginBottom:6,fontWeight:useBaseReal?700:400}}>BASE REAL (FIRE)</div>
+      <div style={{fontSize:42,fontWeight:700,color:baseRealCoversPct>=100?"var(--green)":"var(--gold)",fontFamily:"var(--fm)",lineHeight:1}}>{_sf(baseRealCoversPct,0)}%</div>
+      <div style={{maxWidth:200,margin:"10px auto 0",height:6,background:"rgba(255,255,255,.06)",borderRadius:3,overflow:"hidden"}}><div style={{width:`${Math.min(baseRealCoversPct,100)}%`,height:"100%",background:baseRealCoversPct>=100?"var(--green)":"var(--gold)",borderRadius:3}}/></div>
+      <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:6}}>{sym}{baseRealM.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</div>
+      <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2,fontStyle:"italic"}}>Espana + China oblig.</div>
+    </div>
     <div style={{padding:"20px",background:"rgba(48,209,88,.04)",border:"1px solid rgba(48,209,88,.15)",borderRadius:16,textAlign:"center"}}>
-      <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,marginBottom:6}}>🇪🇸 VIDA EN ESPAÑA (REALISTA)</div>
+      <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,marginBottom:6}}>VIDA EN ESPANA (REALISTA)</div>
       <div style={{fontSize:42,fontWeight:700,color:espCoversPct>=100?"var(--green)":"#d69e2e",fontFamily:"var(--fm)",lineHeight:1}}>{_sf(espCoversPct,0)}%</div>
       <div style={{maxWidth:200,margin:"10px auto 0",height:6,background:"rgba(255,255,255,.06)",borderRadius:3,overflow:"hidden"}}><div style={{width:`${Math.min(espCoversPct,100)}%`,height:"100%",background:espCoversPct>=100?"var(--green)":"#d69e2e",borderRadius:3}}/></div>
       <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:6}}>{sym}{espRealistaM.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</div>
     </div>
     <div style={{padding:"20px",background:"rgba(100,210,255,.04)",border:"1px solid rgba(100,210,255,.12)",borderRadius:16,textAlign:"center"}}>
-      <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,marginBottom:6}}>🇪🇸 GASTOS FIJOS ESPAÑA</div>
+      <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,marginBottom:6}}>GASTOS FIJOS ESPANA</div>
       <div style={{fontSize:42,fontWeight:700,color:espBasePct>=100?"var(--green)":"var(--text-secondary)",fontFamily:"var(--fm)",lineHeight:1}}>{_sf(espBasePct,0)}%</div>
       <div style={{maxWidth:200,margin:"10px auto 0",height:6,background:"rgba(255,255,255,.06)",borderRadius:3,overflow:"hidden"}}><div style={{width:`${Math.min(espBasePct,100)}%`,height:"100%",background:espBasePct>=100?"var(--green)":"var(--text-secondary)",borderRadius:3}}/></div>
       <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:6}}>{sym}{espBaseM.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</div>
@@ -731,8 +935,8 @@ return (
     <div style={{flex:"1 1 400px",display:"flex",gap:10,flexWrap:"wrap"}}>
       {[
         {l:"PATRIMONIO",v:`${sym}${fDol(pat)}`,c:"var(--text-primary)"},
-        {l:"RENT. NECESARIA",v:`${_sf(fireRet,1)}%`,sub:"sobre patrimonio",c:fireRet<4?"var(--green)":fireRet<7?"var(--gold)":"var(--red)"},
-        {l:"AÑOS PARA FIRE",v:yearsToFire===0?"✓ YA":yearsToFire>=50?"50+":String(yearsToFire),sub:"@3.5% + 7% return",c:yearsToFire===0?"var(--green)":yearsToFire<5?"var(--gold)":"var(--orange)"},
+        {l:"RENT. NECESARIA",v:`${_sf(activeFireRet,1)}%`,sub:useBaseReal?"base real":"sobre patrimonio",c:activeFireRet<4?"var(--green)":activeFireRet<7?"var(--gold)":"var(--red)"},
+        {l:"AÑOS PARA FIRE",v:activeYearsToFire===0?"✓ YA":activeYearsToFire>=50?"50+":String(activeYearsToFire),sub:useBaseReal?"base real @3.5%":"@3.5% + 7% return",c:activeYearsToFire===0?"var(--green)":activeYearsToFire<5?"var(--gold)":"var(--orange)"},
         {l:"TASA DE AHORRO",v:`${_sf(savingsRate,0)}%`,sub:`${savingsM>=0?"+":""}${sym}${fK(savingsM)}/mes`,c:savingsRate>30?"var(--green)":savingsRate>15?"var(--gold)":"var(--red)"},
       ].map((k,i)=>(<div key={i} style={{flex:"1 1 130px",padding:"12px 14px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:12}}><div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,fontWeight:600,marginBottom:4}}>{k.l}</div><div style={{fontSize:20,fontWeight:700,color:k.c,fontFamily:"var(--fm)"}}>{k.v}</div>{k.sub&&<div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>{k.sub}</div>}</div>))}
     </div>
@@ -809,7 +1013,7 @@ return (
   <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
     <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:12}}>🎯 Freedom Numbers ({fireCcy})</div>
     <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-      {[{l:"@3%",fn:gastosAnnual/0.03},{l:"@3.5%",fn:swr35},{l:"@4%",fn:gastosAnnual/0.04},{l:"ESPAÑA @3.5%",fn:espRealistaA/0.035,sub:"solo EUR"},{l:"LEAN @3.5%",fn:gastosAnnual*0.7/0.035,sub:"70%"}].map((f,i)=>{const pct=f.fn>0?(pat/f.fn*100):0;const dP=f.fn>0?(divNetA/(f.fn*0.035)*100):0;return(<div key={i} style={{flex:"1 1 110px",padding:"12px",background:"rgba(255,255,255,.02)",borderRadius:10,border:"1px solid rgba(255,255,255,.04)"}}><div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,marginBottom:4}}>{f.l}{f.sub?` (${f.sub})`:""}</div><div style={{fontSize:16,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>{sym}{fK(f.fn)}</div><div style={{height:5,background:"rgba(255,255,255,.06)",borderRadius:3,marginTop:6,overflow:"hidden"}}><div style={{width:`${Math.min(pct,100)}%`,height:"100%",background:pct>=100?"var(--green)":"var(--gold)",borderRadius:3}}/></div><div style={{display:"flex",justifyContent:"space-between",marginTop:4}}><span style={{fontSize:9,fontWeight:600,color:pct>=100?"var(--green)":"var(--gold)",fontFamily:"var(--fm)"}}>{_sf(pct,0)}%</span><span style={{fontSize:9,color:dP>=100?"var(--green)":"var(--text-tertiary)",fontFamily:"var(--fm)"}}>div {_sf(dP,0)}%</span></div></div>);})}
+      {[{l:"@3%",fn:activeGastosA/0.03},{l:"@3.5%",fn:activeSwr35},{l:"@4%",fn:activeGastosA/0.04},{l:"BASE REAL @3.5%",fn:baseRealA/0.035,sub:"ESP+CN oblig",hl:useBaseReal},{l:"ESPANA @3.5%",fn:espRealistaA/0.035,sub:"solo EUR"},{l:"LEAN @3.5%",fn:activeGastosA*0.7/0.035,sub:"70%"}].map((f,i)=>{const pct=f.fn>0?(pat/f.fn*100):0;const dP=f.fn>0?(divNetA/(f.fn*0.035)*100):0;return(<div key={i} style={{flex:"1 1 110px",padding:"12px",background:f.hl?"rgba(214,158,46,.06)":"rgba(255,255,255,.02)",borderRadius:10,border:`1px solid ${f.hl?"rgba(214,158,46,.2)":"rgba(255,255,255,.04)"}`}}><div style={{fontSize:9,color:f.hl?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,marginBottom:4}}>{f.l}{f.sub?` (${f.sub})`:""}</div><div style={{fontSize:16,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>{sym}{fK(f.fn)}</div><div style={{height:5,background:"rgba(255,255,255,.06)",borderRadius:3,marginTop:6,overflow:"hidden"}}><div style={{width:`${Math.min(pct,100)}%`,height:"100%",background:pct>=100?"var(--green)":"var(--gold)",borderRadius:3}}/></div><div style={{display:"flex",justifyContent:"space-between",marginTop:4}}><span style={{fontSize:9,fontWeight:600,color:pct>=100?"var(--green)":"var(--gold)",fontFamily:"var(--fm)"}}>{_sf(pct,0)}%</span><span style={{fontSize:9,color:dP>=100?"var(--green)":"var(--text-tertiary)",fontFamily:"var(--fm)"}}>div {_sf(dP,0)}%</span></div></div>);})}
     </div>
   </div>
 
@@ -825,7 +1029,7 @@ return (
   <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
     <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:10}}>🧪 Escenarios</div>
     <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:450}}><thead><tr>{["","GASTOS","FREEDOM","PAT","DIV","GAP"].map((h,i)=><th key={i} style={{padding:"5px 8px",textAlign:i?"right":"left",color:"var(--text-tertiary)",fontSize:8,fontWeight:600,fontFamily:"var(--fm)",borderBottom:"1px solid var(--border)"}}>{h}</th>)}</tr></thead><tbody>
-      {[{l:"🌏 Actual",g:gastosAnnual},{l:"🇪🇸 España",g:espRealistaA},{l:"🔻 Lean (70%)",g:gastosAnnual*0.7},{l:"🔻🔻 Ultra (50%)",g:gastosAnnual*0.5},{l:"🔺 Fat (+30%)",g:gastosAnnual*1.3}].map((s,i)=>{const fn=s.g/0.035;const pp=fn>0?(pat/fn*100):0;const dp=s.g>0?(divNetA/s.g*100):0;const gap=divNetA-s.g;return(<tr key={i} style={{background:i%2?"rgba(255,255,255,.01)":"transparent"}}><td style={{padding:"5px 8px",fontWeight:600,fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{s.l}</td><td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--red)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{sym}{fK(s.g)}</td><td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{sym}{fK(fn)}</td><td style={{padding:"5px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:pp>=100?"var(--green)":"var(--orange)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{_sf(pp,0)}%</td><td style={{padding:"5px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:dp>=100?"var(--green)":"var(--orange)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{_sf(dp,0)}%</td><td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,fontFamily:"var(--fm)",color:gap>=0?"var(--green)":"var(--red)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{gap>=0?"+":""}{sym}{fK(gap)}</td></tr>);})}
+      {[{l:"🌏 Actual",g:gastosAnnual},{l:"🎯 Base Real",g:baseRealA,hl:true},{l:"🇪🇸 Espana",g:espRealistaA},{l:"🔻 Lean (70%)",g:gastosAnnual*0.7},{l:"🔻🔻 Ultra (50%)",g:gastosAnnual*0.5},{l:"🔺 Fat (+30%)",g:gastosAnnual*1.3}].map((s,i)=>{const fn=s.g/0.035;const pp=fn>0?(pat/fn*100):0;const dp=s.g>0?(divNetA/s.g*100):0;const gap=divNetA-s.g;return(<tr key={i} style={{background:s.hl?"rgba(214,158,46,.06)":i%2?"rgba(255,255,255,.01)":"transparent"}}><td style={{padding:"5px 8px",fontWeight:s.hl?700:600,fontFamily:"var(--fm)",color:s.hl?"var(--gold)":"var(--text-primary)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{s.l}</td><td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--red)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{sym}{fK(s.g)}</td><td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{sym}{fK(fn)}</td><td style={{padding:"5px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:pp>=100?"var(--green)":"var(--orange)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{_sf(pp,0)}%</td><td style={{padding:"5px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:dp>=100?"var(--green)":"var(--orange)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{_sf(dp,0)}%</td><td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,fontFamily:"var(--fm)",color:gap>=0?"var(--green)":"var(--red)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>{gap>=0?"+":""}{sym}{fK(gap)}</td></tr>);})}
     </tbody></table></div>
   </div>
 

@@ -39,8 +39,30 @@ const inp = {
 };
 const sel = { ...inp, appearance: 'auto' };
 
+// ─── Mapping presupuesto categories → gastos catCodes ───
+const PRESU_TO_GASTO_CATS = {
+  CASA: ['HOM', 'ALQ', 'HIP'],
+  UTILITYS: ['UTI', 'UCH'],
+  COCHES: ['TRA', 'COC'],
+  BARCO: ['BAR'],
+  COMIDA_ROPA: ['SUP', 'COM', 'ROP'],
+  SALUD: ['HEA', 'MED', 'MAS'],
+  DEPORTE: ['DEP'],
+  SUBSCRIPCIONES: ['SUB'],
+  OTROS: ['OTH', 'CAP', 'REG', 'VIA', 'ENT', 'EDU', 'SBL', 'AVI'],
+};
+const GASTO_CAT_TO_PRESU = {};
+for (const [presu, codes] of Object.entries(PRESU_TO_GASTO_CATS)) {
+  for (const code of codes) GASTO_CAT_TO_PRESU[code] = presu;
+}
+
+// ─── Warning/info section styles ───
+const warningCard = { ...card, background: 'rgba(214,158,46,0.06)', borderColor: 'rgba(214,158,46,0.3)' };
+const dangerCard = { ...card, background: 'rgba(255,107,107,0.06)', borderColor: 'rgba(255,107,107,0.3)' };
+const infoCard = { ...card, background: 'rgba(100,210,255,0.06)', borderColor: 'rgba(100,210,255,0.3)' };
+
 export default function PresupuestoTab() {
-  const { displayCcy, fxRates, privacyMode, hide, hideN } = useHome();
+  const { displayCcy, fxRates, privacyMode, hide, hideN, gastosLog } = useHome();
 
   // ─── State ───
   const [items, setItems] = useState([]);
@@ -121,6 +143,162 @@ export default function PresupuestoTab() {
     setShowForm(true);
   };
 
+  // ─── Expense increase detection ───
+  const expenseIncreases = useMemo(() => {
+    if (!gastosLog || gastosLog.length === 0 || items.length === 0) return [];
+    const increases = [];
+    for (const item of items) {
+      const nameLower = (item.nombre || '').toLowerCase().trim();
+      // Find gastos that match this budget item by name (detail field)
+      const matching = gastosLog.filter(g => {
+        const detailLower = (g.detail || '').toLowerCase().trim();
+        // Match by name substring (e.g. "Netflix" matches detail containing "netflix")
+        return detailLower.includes(nameLower) || nameLower.includes(detailLower);
+      });
+      if (matching.length === 0) continue;
+      // Sort by date descending to find latest
+      const sorted = [...matching].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      const latest = sorted[0];
+      const latestAmount = Math.abs(latest.amount);
+      // Convert budget to per-charge amount based on frequency
+      const budgetPerCharge = item.importe; // importe is already per-frequency
+      if (budgetPerCharge <= 0) continue;
+      const pctChange = ((latestAmount - budgetPerCharge) / budgetPerCharge) * 100;
+      if (pctChange > 5) {
+        increases.push({
+          itemId: item.id,
+          nombre: item.nombre,
+          categoria: item.categoria,
+          budgetAmount: budgetPerCharge,
+          actualAmount: latestAmount,
+          pctChange,
+          date: latest.date,
+          frecuencia: item.frecuencia,
+        });
+      }
+    }
+    return increases;
+  }, [gastosLog, items]);
+
+  // ─── YoY comparison by category ───
+  const yoyComparison = useMemo(() => {
+    if (!gastosLog || gastosLog.length === 0) return [];
+    const now = new Date();
+    const thisYear = now.getFullYear();
+    const lastYear = thisYear - 1;
+    // Group spending by presupuesto category and year
+    const byYearCat = {};
+    for (const g of gastosLog) {
+      if (!g.date) continue;
+      const year = parseInt(g.date.substring(0, 4), 10);
+      if (year !== thisYear && year !== lastYear) continue;
+      const presuCat = GASTO_CAT_TO_PRESU[g.catCode] || 'OTROS';
+      const key = `${year}_${presuCat}`;
+      byYearCat[key] = (byYearCat[key] || 0) + Math.abs(g.amount);
+    }
+    const results = [];
+    // Calculate months elapsed this year for pro-rating
+    const monthsThisYear = now.getMonth() + 1;
+    for (const cat of CATEGORIAS) {
+      const thisYearTotal = byYearCat[`${thisYear}_${cat.id}`] || 0;
+      const lastYearTotal = byYearCat[`${lastYear}_${cat.id}`] || 0;
+      if (lastYearTotal === 0 && thisYearTotal === 0) continue;
+      // Annualize this year's spending
+      const thisYearAnnualized = monthsThisYear > 0 ? (thisYearTotal / monthsThisYear) * 12 : 0;
+      const pctChange = lastYearTotal > 0
+        ? ((thisYearAnnualized - lastYearTotal) / lastYearTotal) * 100
+        : (thisYearTotal > 0 ? 100 : 0);
+      results.push({
+        categoria: cat.id,
+        thisYear: thisYearTotal,
+        lastYear: lastYearTotal,
+        thisYearAnnualized,
+        pctChange,
+      });
+    }
+    return results.filter(r => r.lastYear > 0 || r.thisYear > 0);
+  }, [gastosLog]);
+
+  // ─── Missing recurring expenses ───
+  const missingExpenses = useMemo(() => {
+    if (!gastosLog || gastosLog.length === 0 || items.length === 0) return [];
+    const now = new Date();
+    const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+    // Find expenses that repeat (same detail appears 2+ times in last 6 months)
+    const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+    const recentGastos = gastosLog.filter(g => g.date && new Date(g.date) >= sixMonthsAgo);
+    // Group by detail text (normalized)
+    const byDetail = {};
+    for (const g of recentGastos) {
+      const detail = (g.detail || '').trim();
+      if (!detail || detail.length < 3) continue;
+      if (!byDetail[detail]) byDetail[detail] = [];
+      byDetail[detail].push(g);
+    }
+    // Find recurring ones (2+ occurrences)
+    const recurring = [];
+    for (const [detail, entries] of Object.entries(byDetail)) {
+      if (entries.length < 2) continue;
+      // Check it's not already in presupuesto
+      const detailLower = detail.toLowerCase();
+      const inBudget = items.some(item => {
+        const nameLower = (item.nombre || '').toLowerCase();
+        return detailLower.includes(nameLower) || nameLower.includes(detailLower);
+      });
+      if (inBudget) continue;
+      // Calculate average monthly amount
+      const amounts = entries.map(e => Math.abs(e.amount));
+      const avgAmount = amounts.reduce((s, a) => s + a, 0) / amounts.length;
+      const catCode = entries[0].catCode;
+      recurring.push({
+        detail,
+        avgAmount: Math.round(avgAmount * 100) / 100,
+        occurrences: entries.length,
+        catCode,
+        presuCat: GASTO_CAT_TO_PRESU[catCode] || 'OTROS',
+        currency: entries[0].currency || 'EUR',
+      });
+    }
+    // Sort by avg amount descending
+    return recurring.sort((a, b) => b.avgAmount - a.avgAmount);
+  }, [gastosLog, items]);
+
+  // ─── Update budget item to new amount ───
+  const updateBudgetAmount = useCallback(async (itemId, newAmount) => {
+    const item = items.find(i => i.id === itemId);
+    if (!item) return;
+    try {
+      const res = await fetch(`${API_URL}/api/presupuesto/${itemId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...item, importe: newAmount }),
+      });
+      if (!res.ok) throw new Error(res.status);
+      fetchItems();
+      fetchAlerts();
+    } catch (e) { console.error('Update budget error:', e); }
+  }, [items, fetchItems, fetchAlerts]);
+
+  // ─── Add missing expense to budget ───
+  const addMissingToBudget = useCallback(async (expense) => {
+    try {
+      const res = await fetch(`${API_URL}/api/presupuesto`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: expense.detail,
+          categoria: expense.presuCat,
+          banco: '',
+          frecuencia: 'MENSUAL',
+          importe: expense.avgAmount,
+          notas: `Auto-detectado (${expense.occurrences} cargos recientes)`,
+        }),
+      });
+      if (!res.ok) throw new Error(res.status);
+      fetchItems();
+    } catch (e) { console.error('Add missing budget item error:', e); }
+  }, [fetchItems]);
+
   // ─── Computed ───
   const fxEurUsd = fxRates?.EUR ? 1 / fxRates.EUR : 1.177;
 
@@ -190,6 +368,96 @@ export default function PresupuestoTab() {
                 {a.cambio_pct > 0 ? '▲' : '▼'} {Math.abs(a.cambio_pct).toFixed(1)}%
               </span>
               <span style={{ color: 'var(--text-tertiary)', fontSize: 9 }}>{a.fecha}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ═══ Subidas detectadas ═══ */}
+      {expenseIncreases.length > 0 && (
+        <div style={warningCard}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#d69e2e', marginBottom: 8 }}>
+            ⚠️ Subidas detectadas
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 8 }}>
+            Estos gastos recientes superan el presupuesto en mas del 5%
+          </div>
+          {expenseIncreases.map((inc, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)', minWidth: 100 }}>{inc.nombre}</span>
+              <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                presupuesto <span style={{ fontFamily: 'var(--fm)' }}>{fmtEur(inc.budgetAmount)}</span>
+              </span>
+              <span style={{ color: 'var(--text-tertiary)' }}>→</span>
+              <span style={{ fontSize: 11, color: '#ff6b6b', fontWeight: 600, fontFamily: 'var(--fm)' }}>
+                real {fmtEur(inc.actualAmount)}
+              </span>
+              <span style={{ fontSize: 10, color: '#ff6b6b', fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(255,107,107,0.1)' }}>
+                +{inc.pctChange.toFixed(0)}%
+              </span>
+              <span style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>{inc.date}</span>
+              <button
+                onClick={() => updateBudgetAmount(inc.itemId, inc.actualAmount)}
+                style={{ ...btn(false), padding: '3px 8px', fontSize: 9, color: '#d69e2e', borderColor: 'rgba(214,158,46,0.4)', marginLeft: 'auto' }}>
+                Actualizar presupuesto
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ═══ YoY Comparison ═══ */}
+      {yoyComparison.length > 0 && (
+        <div style={{ ...card, marginBottom: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>
+            📊 Comparativa interanual
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 6 }}>
+            {yoyComparison.map((yoy, i) => {
+              const cat = catOf(yoy.categoria);
+              const isUp = yoy.pctChange > 0;
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 8, background: isUp ? 'rgba(255,107,107,0.04)' : 'rgba(81,207,102,0.04)', border: `1px solid ${isUp ? 'rgba(255,107,107,0.15)' : 'rgba(81,207,102,0.15)'}` }}>
+                  <span style={{ fontSize: 13 }}>{cat.ico}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text)' }}>{CAT_LABELS[yoy.categoria]}</div>
+                    <div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>
+                      {fmtEur(yoy.thisYear)} este año · {fmtEur(yoy.lastYear)} en {new Date().getFullYear() - 1}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: isUp ? '#ff6b6b' : '#51cf66', fontFamily: 'var(--fm)' }}>
+                    {isUp ? '+' : ''}{yoy.pctChange.toFixed(0)}%
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ═══ Gastos faltantes ═══ */}
+      {missingExpenses.length > 0 && (
+        <div style={infoCard}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#64d2ff', marginBottom: 6 }}>
+            📋 Gastos faltantes
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 8 }}>
+            Estos gastos recurrentes no estan en tu presupuesto
+          </div>
+          {missingExpenses.slice(0, 15).map((exp, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)', minWidth: 140 }}>{exp.detail}</span>
+              <span style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>
+                ~{exp.currency === 'EUR' ? '€' : '$'}{exp.avgAmount.toFixed(2)}/mes
+              </span>
+              <span style={{ fontSize: 9, color: 'var(--text-tertiary)', padding: '1px 5px', borderRadius: 3, background: 'rgba(100,210,255,0.1)' }}>
+                {exp.occurrences}x en 6m
+              </span>
+              <button
+                onClick={() => addMissingToBudget(exp)}
+                style={{ ...btn(false), padding: '3px 8px', fontSize: 9, color: '#64d2ff', borderColor: 'rgba(100,210,255,0.4)', marginLeft: 'auto' }}>
+                + Anadir al presupuesto
+              </button>
             </div>
           ))}
         </div>

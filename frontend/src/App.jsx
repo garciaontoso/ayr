@@ -939,7 +939,7 @@ function buildPositionsFromCB() {
     if (dataLoaded && gastosLog.length === 0) loadGastos();
   }, [dataLoaded, loadGastos]);
   useEffect(() => {
-    if (homeTab === "gastos" && gastosLog.length === 0) loadGastos();
+    if ((homeTab === "gastos" || homeTab === "presupuesto") && gastosLog.length === 0) loadGastos();
   }, [homeTab, gastosLog.length, loadGastos]);
   
   // ── Control Mensual (monthly patrimony snapshots) ──
