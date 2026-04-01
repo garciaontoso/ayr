@@ -1,10 +1,21 @@
 import { API_URL } from '../constants/index.js';
+import { loadCompanyFromStorage } from '../utils/storage.js';
 
 export async function fetchViaFMP(ticker, { forceRefresh = false } = {}) {
   const refreshParam = forceRefresh ? "&refresh=1" : "";
   const resp = await fetch(`${API_URL}/api/fundamentals?symbol=${encodeURIComponent(ticker)}${refreshParam}`);
   if (!resp.ok) throw new Error(`API error ${resp.status}`);
   const data = await resp.json();
+
+  // Handle SW offline response — try localStorage fallback
+  if (data && data.error === "offline") {
+    const stored = await loadCompanyFromStorage(ticker);
+    if (stored && stored.fin && Object.keys(stored.fin).length > 0) {
+      console.info(`[FMP] ${ticker}: usando datos offline de localStorage`);
+      return stored;
+    }
+    throw new Error(`${ticker}: sin conexion y sin datos en cache local`);
+  }
 
   if (!data.income || data.income.length === 0) throw new Error(`No hay datos de FMP para ${ticker}. ¿Es un ticker US?`);
 

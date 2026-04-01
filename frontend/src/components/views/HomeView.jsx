@@ -26,57 +26,139 @@ const Loading = () => <div style={{display:'flex',justifyContent:'center',alignI
 
 function AirplaneMode({ portfolioList }) {
   const [dlOpen, setDlOpen] = useState(false);
-  const [dlProgress, setDlProgress] = useState("");
+  const [dlPhase, setDlPhase] = useState("");
+  const [dlCurrent, setDlCurrent] = useState(0);
+  const [dlTotal, setDlTotal] = useState(0);
   const [dlDone, setDlDone] = useState(false);
+  const [dlDownloading, setDlDownloading] = useState(false);
+
   const download = async () => {
-    setDlOpen(true); setDlDone(false);
+    setDlOpen(true); setDlDone(false); setDlDownloading(true);
     const API = API_URL;
-    const tickers = portfolioList.map(p => p.ticker).filter(t => !t.includes(":"));
+    const allTickers = portfolioList.map(p => p.ticker);
+    const usTickers = allTickers.filter(t => !t.includes(":"));
     const cache = await caches.open("ayr-offline-data");
+    let errors = 0;
 
-    setDlProgress("Cargando datos generales...");
-    const mainUrls = ["/api/positions","/api/patrimonio","/api/ingresos","/api/dividendos","/api/dividendos/resumen","/api/dividendos/mensual","/api/gastos/mensual","/api/gastos","/api/holdings","/api/fire","/api/pl","/api/categorias","/api/fx","/api/cash/latest","/api/margin-interest","/api/alerts","/api/ib-nlv-history?limit=365","/api/costbasis/all?limit=500"];
-    for (const url of mainUrls) {
-      try { const r = await fetch(API + url); await cache.put(API + url, r.clone()); } catch {}
+    const cacheFetch = async (url) => {
+      try {
+        const r = await fetch(url);
+        if (r.ok) await cache.put(url, r.clone());
+        return r;
+      } catch { errors++; return null; }
+    };
+
+    // ── Phase 1: Main data endpoints ──
+    const mainUrls = [
+      "/api/positions", "/api/patrimonio", "/api/ingresos",
+      "/api/dividendos", "/api/dividendos/resumen", "/api/dividendos/mensual",
+      "/api/gastos/mensual", "/api/gastos", "/api/holdings",
+      "/api/fire", "/api/pl", "/api/config", "/api/categorias",
+      "/api/fx", "/api/cash/latest", "/api/margin-interest",
+      "/api/alerts", "/api/ib-nlv-history?limit=365", "/api/ib-nlv-history?limit=90",
+      "/api/costbasis/all?limit=9999", "/api/trades",
+      "/api/screener", "/api/presupuesto", "/api/presupuesto/alerts",
+      "/api/data-status",
+    ];
+    setDlTotal(mainUrls.length); setDlCurrent(0);
+    setDlPhase("Datos generales");
+    for (let i = 0; i < mainUrls.length; i++) {
+      await cacheFetch(API + mainUrls[i]);
+      setDlCurrent(i + 1);
     }
 
-    let done = 0;
-    for (let i = 0; i < tickers.length; i += 5) {
-      const batch = tickers.slice(i, i + 5);
-      setDlProgress(`Fundamentales: ${done}/${tickers.length} (${batch.join(", ")})`);
-      await Promise.all(batch.map(async t => {
-        try {
-          const url = `${API}/api/fundamentals?symbol=${t}`;
-          const r = await fetch(url);
-          await cache.put(url, r.clone());
-        } catch {}
-        done++;
-      }));
+    // ── Phase 2: Price snapshot ──
+    setDlPhase("Snapshot de precios");
+    setDlTotal(3); setDlCurrent(0);
+    if (usTickers.length > 0) {
+      const sorted = [...usTickers].sort().join(",");
+      // Cache price snapshot - SW normalizes URLs so these will match future requests
+      await cacheFetch(`${API}/api/prices?tickers=${sorted}`);
+      setDlCurrent(1);
+      await cacheFetch(`${API}/api/prices?tickers=${sorted}&live=1`);
+      setDlCurrent(2);
+      // VIX + SPY for CoveredCalls
+      await cacheFetch(`${API}/api/prices?tickers=%5EVIX,SPY&live=1`);
+      setDlCurrent(3);
     }
 
-    setDlProgress("Historial de precios...");
-    const from = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
-    for (let i = 0; i < tickers.length; i += 10) {
-      const batch = tickers.slice(i, i + 10);
-      await Promise.all(batch.map(async t => {
-        try {
-          const url = `${API}/api/price-history?symbol=${t}&from=${from}`;
-          const r = await fetch(url);
-          await cache.put(url, r.clone());
-        } catch {}
-      }));
+    // ── Phase 3: Fundamentals per ticker ──
+    setDlTotal(usTickers.length); setDlCurrent(0);
+    setDlPhase("Fundamentales");
+    for (let i = 0; i < usTickers.length; i += 5) {
+      const batch = usTickers.slice(i, i + 5);
+      await Promise.all(batch.map(t => cacheFetch(`${API}/api/fundamentals?symbol=${t}`)));
+      setDlCurrent(Math.min(i + 5, usTickers.length));
     }
 
-    setDlProgress(`${tickers.length} empresas descargadas · ${mainUrls.length} endpoints · Listo para offline`);
+    // ── Phase 4: Price history (30 days to save space) ──
+    const from = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    setDlTotal(usTickers.length); setDlCurrent(0);
+    setDlPhase("Historial precios");
+    for (let i = 0; i < usTickers.length; i += 10) {
+      const batch = usTickers.slice(i, i + 10);
+      await Promise.all(batch.map(t => cacheFetch(`${API}/api/price-history?symbol=${t}&from=${from}`)));
+      setDlCurrent(Math.min(i + 10, usTickers.length));
+    }
+
+    // ── Phase 5: Dividend calendar + streaks ──
+    setDlPhase("Dividendos y earnings");
+    setDlTotal(3); setDlCurrent(0);
+    const tickersBatch = usTickers.join(",");
+    await cacheFetch(`${API}/api/dividend-calendar?symbols=${tickersBatch}`);
+    setDlCurrent(1);
+    // Streak in batches of 30
+    for (let i = 0; i < usTickers.length; i += 30) {
+      const b = usTickers.slice(i, i + 30).join(",");
+      await cacheFetch(`${API}/api/dividend-streak?symbols=${b}`);
+    }
+    setDlCurrent(2);
+    // Earnings batch
+    await cacheFetch(`${API}/api/earnings-batch?symbols=${tickersBatch}`);
+    setDlCurrent(3);
+
+    // ── Phase 6: Tax report current year ──
+    setDlPhase("Informes fiscales");
+    setDlTotal(2); setDlCurrent(0);
+    const yr = new Date().getFullYear();
+    await cacheFetch(`${API}/api/tax-report?year=${yr}`);
+    setDlCurrent(1);
+    await cacheFetch(`${API}/api/tax-report?year=${yr - 1}`);
+    setDlCurrent(2);
+
+    // Save timestamp for offline banner
+    localStorage.setItem('ayr-offline-timestamp', new Date().toISOString());
+    localStorage.setItem('ayr-offline-tickers', JSON.stringify(usTickers));
+
+    setDlPhase(errors > 0
+      ? `Listo (${errors} errores) · ${usTickers.length} empresas`
+      : `${usTickers.length} empresas · Listo para offline`);
     setDlDone(true);
+    setDlDownloading(false);
   };
+
+  const pct = dlTotal > 0 ? Math.round((dlCurrent / dlTotal) * 100) : 0;
+  const offlineTs = typeof localStorage !== 'undefined' ? localStorage.getItem('ayr-offline-timestamp') : null;
+  const offlineLabel = offlineTs ? new Date(offlineTs).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : null;
+
   return <>
-    <button onClick={()=>dlOpen?setDlOpen(false):download()} title="Modo Avión — descargar todo para offline"
-      style={{padding:"4px 7px",borderRadius:6,border:`1px solid ${dlDone?"rgba(48,209,88,.4)":"var(--border)"}`,background:dlDone?"rgba(48,209,88,.06)":"transparent",color:dlDone?"var(--green)":"var(--text-tertiary)",fontSize:10,cursor:"pointer"}}>✈️</button>
-    {dlOpen && dlProgress && (
-      <div style={{position:"fixed",bottom:20,left:"50%",transform:"translateX(-50%)",background:"var(--surface, #1c1c1e)",border:"1px solid var(--border)",borderRadius:10,padding:"10px 20px",fontSize:11,fontFamily:"var(--fm)",color:dlDone?"var(--green)":"var(--text-primary)",zIndex:9999,boxShadow:"0 8px 30px rgba(0,0,0,.4)",maxWidth:400}}>
-        {dlProgress}
-        {dlDone && <button onClick={()=>setDlOpen(false)} style={{marginLeft:10,border:"none",background:"transparent",color:"var(--text-tertiary)",cursor:"pointer",fontSize:10}}>✕</button>}
+    <button onClick={() => dlDownloading ? null : (dlDone ? setDlOpen(false) : download())}
+      title={offlineLabel ? `Offline listo (${offlineLabel}) — click para actualizar` : "Modo avion — descargar todo para offline"}
+      style={{ padding: "4px 7px", borderRadius: 6, border: `1px solid ${dlDone || offlineLabel ? "rgba(48,209,88,.4)" : "var(--border)"}`, background: dlDone || offlineLabel ? "rgba(48,209,88,.06)" : "transparent", color: dlDownloading ? "#64d2ff" : (dlDone || offlineLabel) ? "var(--green)" : "var(--text-tertiary)", fontSize: 10, cursor: dlDownloading ? "wait" : "pointer" }}>
+      {dlDownloading ? "..." : "✈️"}
+    </button>
+    {dlOpen && (dlDownloading || dlDone) && (
+      <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "var(--surface, #1c1c1e)", border: `1px solid ${dlDone ? "rgba(48,209,88,.3)" : "rgba(100,210,255,.3)"}`, borderRadius: 12, padding: "12px 20px", fontSize: 11, fontFamily: "var(--fm)", color: dlDone ? "var(--green)" : "var(--text-primary)", zIndex: 9999, boxShadow: "0 8px 30px rgba(0,0,0,.5)", minWidth: 300, maxWidth: 420 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: dlDone ? 0 : 6 }}>
+          <span>{dlDone ? "✅" : "✈️"} {dlPhase}</span>
+          {!dlDone && <span style={{ color: "var(--text-tertiary)", fontSize: 10 }}>{dlCurrent}/{dlTotal}</span>}
+          {dlDone && <button onClick={() => setDlOpen(false)} style={{ border: "none", background: "transparent", color: "var(--text-tertiary)", cursor: "pointer", fontSize: 12, marginLeft: 8 }}>✕</button>}
+        </div>
+        {!dlDone && (
+          <div style={{ height: 3, background: "rgba(255,255,255,.06)", borderRadius: 2, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${pct}%`, background: "linear-gradient(90deg, #64d2ff, #30d158)", borderRadius: 2, transition: "width .3s" }} />
+          </div>
+        )}
       </div>
     )}
   </>;

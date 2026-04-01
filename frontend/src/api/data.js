@@ -1,11 +1,18 @@
 import { API_URL } from '../constants/index.js';
 
 // Safe fetch: returns data on success, fallback on failure, and tracks errors
+// Handles SW offline response {error:"offline"} gracefully
 async function safeFetch(path, fallback) {
   try {
     const r = await fetch(API_URL + path);
     if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-    return { data: await r.json(), error: null };
+    const data = await r.json();
+    // Service Worker returns {error:"offline"} when both network and cache miss
+    if (data && typeof data === 'object' && data.error === "offline") {
+      console.warn(`[API] ${path}: offline (no cache)`);
+      return { data: fallback, error: `${path}: offline` };
+    }
+    return { data, error: null };
   } catch (e) {
     console.warn(`[API] ${path} failed:`, e.message);
     return { data: fallback, error: `${path}: ${e.message}` };

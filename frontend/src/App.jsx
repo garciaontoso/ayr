@@ -106,6 +106,16 @@ export default function ARApp() {
   const [dataLoaded, setDataLoaded] = useState(false);
   const [dataError, setDataError] = useState(null);
   const [apiData, setApiData] = useState(null);
+  const [isOffline, setIsOffline] = useState(typeof navigator !== 'undefined' ? !navigator.onLine : false);
+
+  // Offline detection
+  useEffect(() => {
+    const goOff = () => setIsOffline(true);
+    const goOn = () => setIsOffline(false);
+    window.addEventListener('offline', goOff);
+    window.addEventListener('online', goOn);
+    return () => { window.removeEventListener('offline', goOff); window.removeEventListener('online', goOn); };
+  }, []);
 
   useEffect(() => {
     fetchAllData().then(result => {
@@ -1196,14 +1206,14 @@ function buildPositionsFromCB() {
     } catch {}
   }, [portfolioList]);
 
-  // Auto-refresh live prices every 10 seconds
+  // Auto-refresh live prices every 10 seconds (skip when offline)
   useEffect(() => {
-    if (!dataLoaded || !portfolioList.length) return;
+    if (!dataLoaded || !portfolioList.length || isOffline) return;
     const interval = setInterval(() => {
       if (document.visibilityState === "visible") refreshLivePrices();
     }, 10000);
     return () => clearInterval(interval);
-  }, [dataLoaded, portfolioList.length, refreshLivePrices]);
+  }, [dataLoaded, portfolioList.length, refreshLivePrices, isOffline]);
 
   // Request notification permission (for push on iPhone/desktop)
   useEffect(() => {
@@ -1799,8 +1809,8 @@ function buildPositionsFromCB() {
     openAnalysis, goHome, openCostBasis,
     getCountry, FLAGS, POS_STATIC,
     HOME_TABS, CompanyRow,
-    // UI Zoom
-    uiZoom, changeZoom,
+    // UI Zoom + Offline
+    uiZoom, changeZoom, isOffline,
     // Settings/analysis bridge
     loadFromAPI, fmpLoading, fmpError, setTab, setCfg,
     removePosition, deleteCompany, importTransactions,
@@ -1903,6 +1913,15 @@ function buildPositionsFromCB() {
     </div>
   ) : (
     <div style={{display:"flex",flexDirection:"column",minHeight:"100vh",background:"var(--bg)",color:"var(--text-primary)",fontFamily:"var(--fb)",zoom:uiZoom/100}}>
+      {isOffline && (() => {
+        const ts = localStorage.getItem('ayr-offline-timestamp');
+        const label = ts ? new Date(ts).toLocaleDateString('es-ES', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : null;
+        return (
+          <div style={{margin:"0 24px",padding:"8px 16px",background:"rgba(255,214,10,.08)",border:"1px solid rgba(255,214,10,.2)",borderRadius:10,display:"flex",alignItems:"center",gap:8,marginTop:8}}>
+            <span style={{fontSize:12,color:"#ffd60a",fontFamily:"var(--fm)",fontWeight:600}}>✈️ Modo offline{label ? ` — datos del ${label}` : ""}</span>
+          </div>
+        );
+      })()}
       {dataError && (
         <div style={{margin:"0 24px",padding:"10px 16px",background:"rgba(255,69,58,.1)",border:"1px solid rgba(255,69,58,.25)",borderRadius:10,display:"flex",alignItems:"center",gap:10,marginTop:8}}>
           <span style={{fontSize:13,color:"var(--red)",fontFamily:"var(--fm)"}}>{dataError}</span>
