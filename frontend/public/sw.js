@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ayr-v3.2';
+const CACHE_NAME = 'ayr-v3.3';
 const OFFLINE_CACHE = 'ayr-offline-data';
 const STATIC_ASSETS = ['/', '/index.html', '/favicon.svg', '/apple-touch-icon.png'];
 
@@ -53,6 +53,11 @@ self.addEventListener('push', e => {
       data: { url: data.url || '/' },
     })
   );
+});
+
+// Listen for SKIP_WAITING message from main thread
+self.addEventListener('message', e => {
+  if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 // Click on notification
