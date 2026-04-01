@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { _CURRENT_YEAR, API_URL } from '../../constants/index.js';
+import { EmptyState, LoadingSkeleton } from '../ui/EmptyState.jsx';
 
 export default function DashboardTab() {
   const [nlvHistory, setNlvHistory] = useState([]);
@@ -174,11 +175,15 @@ const ss = {fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marg
 const secTitle = (ico,text) => <div style={{fontSize:15,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fd)",marginBottom:16}}>{ico} {text}</div>;
 const card = {background:"var(--card)",border:"1px solid var(--border)",borderRadius:16,padding:20};
 
+if (!portfolioList || portfolioList.length === 0) {
+  return <EmptyState icon="📊" title="Dashboard sin datos" subtitle="El dashboard necesita datos de portfolio para mostrar metricas, rendimiento y analisis." action="Cargar datos" onAction={() => {}} />;
+}
+
 return (
 <div style={{display:"flex",flexDirection:"column",gap:16}}>
   {/* ── IB Live Status ── */}
   {ibData?.loaded && ibData?.summary?.nlv?.amount > 0 && (
-    <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:10}}>
+    <div className="ar-dash-ib-grid" style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:10}}>
       {[
         {l:"NLV (IB)",v:hide(`$${fDol(ibData.summary.nlv.amount)}`),c:"#64d2ff"},
         {l:"BUYING POWER",v:hide(`$${fDol(ibData.summary.buyingPower?.amount||0)}`),c:"var(--green)"},
@@ -495,7 +500,7 @@ return (
       </div>
       {earningsOpen && (
         <div style={{padding:"0 20px 20px"}}>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 220px",gap:16}}>
+          <div className="ar-dash-earnings" style={{display:"grid",gridTemplateColumns:"1fr 220px",gap:16}}>
             {/* Earnings list */}
             <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:320,overflowY:"auto"}}>
               {upcoming.map(e => {
@@ -581,7 +586,7 @@ return (
   })()}
 
   {/* ── Account Allocation Donut + Margin Gauge ── */}
-  <div style={{display:"grid",gridTemplateColumns: ibData?.loaded && ibData?.summary?.nlv?.amount > 0 ? "1fr 1fr" : "1fr", gap:10}}>
+  <div className="ar-dash-allocation" style={{display:"grid",gridTemplateColumns: ibData?.loaded && ibData?.summary?.nlv?.amount > 0 ? "1fr 1fr" : "1fr", gap:10}}>
     {/* Account Allocation Donut */}
     {pieData.length > 0 && (
       <div style={card}>
@@ -737,7 +742,7 @@ return (
       </svg>;
     };
     return (
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(260px, 1fr))",gap:10}}>
       <div style={card}>
         <div style={ls}>MARKET CAP</div>
         <div style={{display:"flex",alignItems:"center",gap:10}}>

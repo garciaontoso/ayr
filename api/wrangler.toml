@@ -7,3 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 binding = "DB"
 database_name = "aar-finanzas"
 database_id = "d9dc97c1-1ea5-4e05-b637-89e52229d099"
+
+# IB auto-sync: daily at 9:00 UTC (11:00 Madrid) Mon-Fri
+[triggers]
+crons = ["0 9 * * 1-5"]

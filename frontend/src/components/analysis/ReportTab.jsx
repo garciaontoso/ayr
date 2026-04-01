@@ -27,7 +27,8 @@ function ARReport() {
 
   const PriceSvg = () => {
     if(prices.length<10) return null;
-    const mn=Math.min(...prices)*.95,mx=Math.max(...prices)*1.02,rg=mx-mn||1,W=500,H=80;
+    const validPrices=prices.filter(p=>p>0); if(!validPrices.length) return null;
+    const mn=Math.min(...validPrices)*.95,mx=Math.max(...validPrices)*1.02,rg=mx-mn||1,W=500,H=80;
     const pts=weekly.map((p,i)=>`${i/(weekly.length-1)*W},${H-((p.close-mn)/rg)*H}`).join(" ");
     const col=prices[prices.length-1]>=prices[0]?"#34d399":"#f87171";
     return <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:80}}><defs><linearGradient id="rpg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={col} stopOpacity=".15"/><stop offset="100%" stopColor={col} stopOpacity="0"/></linearGradient></defs><polygon points={`0,${H} ${pts} ${W},${H}`} fill="url(#rpg)"/><polyline points={pts} fill="none" stroke={col} strokeWidth="1.5"/></svg>;

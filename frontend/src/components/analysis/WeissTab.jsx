@@ -79,7 +79,8 @@ export default function WeissTab() {
     // Yield line path
     const yieldPath = yieldData.map((d, i) => `${i===0?"M":"L"}${xScale(d.y)},${yScale(d.yld)}`).join(" ");
     // DPS bars
-    const dpsMax = Math.max(...yieldData.map(d => d.dps));
+    const dpsVals = yieldData.map(d => d.dps);
+    const dpsMax = dpsVals.length ? Math.max(...dpsVals) : 1;
 
     return (
       <div>

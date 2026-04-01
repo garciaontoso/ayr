@@ -10,19 +10,32 @@
 }
 
 /* ═══ iPad-specific improvements ═══ */
-@media (min-width: 769px) and (max-width: 1024px) {
-  main { padding: 14px 16px !important; }
+@media (min-width: 769px) and (max-width: 1199px) {
   .ar-company-row {
-    padding: 5px 8px !important;
-    gap: 4px !important;
+    padding: 6px 8px !important;
+    gap: 3px !important;
   }
   .ar-company-row * {
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .ar-home-tabs button {
-    padding: 5px 10px !important;
-    font-size: 11px !important;
+
+  /* ── Dashboard grids: 3-col instead of 6 ── */
+  .ar-dash-ib-grid { grid-template-columns: repeat(3, 1fr) !important; }
+  .ar-dash-earnings { grid-template-columns: 1fr !important; }
+  .ar-dash-allocation { grid-template-columns: 1fr !important; }
+
+  /* ── Skeleton loading grid: 2-col ── */
+  .ar-skeleton-grid { grid-template-columns: repeat(2, 1fr) !important; padding: 0 16px !important; }
+
+  /* ── Generic utility: overflow scroll containers ── */
+  .ar-overflow-scroll { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+
+  /* ── Touch-friendly controls ── */
+  .ar-controls-group > button,
+  .ar-controls-group > select {
+    min-height: 36px;
+    padding: 6px 10px;
   }
 }
 

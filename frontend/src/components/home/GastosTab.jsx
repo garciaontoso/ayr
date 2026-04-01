@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { CURRENCIES, API_URL } from '../../constants/index.js';
+import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
 
 const PENDING_KEY = 'ayr-pending-gastos';
 
@@ -641,7 +642,9 @@ export default function GastosTab() {
   {/* Gastos table (multi-currency aware) */}
   <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
     {gastosLoading ? (
-      <div style={{padding:40,textAlign:"center",color:"var(--text-tertiary)"}}>Cargando gastos...</div>
+      <InlineLoading message="Cargando gastos..." />
+    ) : gastosLog.length === 0 ? (
+      <EmptyState icon="🧾" title="Sin gastos registrados" subtitle="Empieza a registrar tus gastos o importa un CSV con tu historial." action="Registrar gasto" onAction={() => setGastosShowForm(true)} />
     ) : (
       <div style={{overflowX:"auto"}}>
         {(() => {

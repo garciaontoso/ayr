@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { API_URL } from '../../constants/index.js';
+import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
 
 /* ═══════════════════════════════════════════════════════════════
    📊 AnnualDivBarChart — horizontal bar chart from DIV_BY_YEAR
@@ -715,8 +716,8 @@ export default function DividendosTab() {
 
   {/* Dashboard Section */}
   {section === "dashboard" && (() => {
-    if (divLoading) return <div style={{padding:40,textAlign:"center",color:"var(--text-tertiary)"}}>⏳ Cargando dividendos...</div>;
-    if (divLog.length === 0) return <div style={{padding:40,textAlign:"center",color:"var(--text-tertiary)"}}><div style={{fontSize:36,marginBottom:12}}>💰</div>Sin datos de dividendos. Espera un momento o importa tu historial.</div>;
+    if (divLoading) return <InlineLoading message="Cargando dividendos..." />;
+    if (divLog.length === 0) return <EmptyState icon="💰" title="Sin datos de dividendos" subtitle="No se encontraron cobros de dividendos. Sincroniza con IB o espera a que se importen los datos." action="Sincronizar IB" onAction={() => {}} />;
     const filtered = divLog.filter(d => {
       if (soloActuales && d.ticker && !ownedTickers.has(d.ticker)) return false;
       if (divFilter.year !== "all" && !d.date?.startsWith(divFilter.year)) return false;

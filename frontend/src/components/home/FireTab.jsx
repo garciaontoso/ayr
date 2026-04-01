@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
+import { EmptyState } from '../ui/EmptyState.jsx';
 
 // ─── Your Number Calculator ───
 function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA, fxEurUsd, fireCcy }) {
@@ -610,6 +611,10 @@ const activeYearsToFire = useBaseReal ? yearsToFireBaseReal : yearsToFire;
 const activeFireRet = pat>0 ? (activeGastosA/pat*100) : 0;
 const activeGapM = divNetM - activeGastosM;
 const activeDivCoversPct = activeGastosM>0 ? (divNetM/activeGastosM*100) : 0;
+
+if (!pat && !gastosAnnual && divLog.length === 0) {
+  return <EmptyState icon="🔥" title="Sin datos para calcular FIRE" subtitle="Se necesitan datos de patrimonio, gastos y dividendos para generar las proyecciones de independencia financiera." action="Cargar datos" onAction={() => {}} />;
+}
 
 return (
 <div style={{display:"flex",flexDirection:"column",gap:14}}>

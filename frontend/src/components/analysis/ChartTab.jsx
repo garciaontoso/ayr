@@ -1,5 +1,4 @@
 import { useAnalysis } from '../../context/AnalysisContext';
-import { div } from '../../utils/formatters.js';
 
 export default function ChartTab() {
   const { cfg } = useAnalysis();

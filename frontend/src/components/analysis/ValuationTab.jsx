@@ -34,13 +34,13 @@ export default function ValuationTab() {
         <Card style={{overflowX:"auto",padding:0}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5}}>
             <thead><tr>
-              <th style={{position:"sticky",left:0,background:"var(--surface)",padding:"10px 14px",textAlign:"left",color:"var(--gold)",fontWeight:600,borderBottom:"2px solid #30363d",minWidth:160,fontFamily:"var(--fm)",fontSize:10}}>MÚLTIPLO</th>
-              {yrs.map(y=><th key={y} style={{padding:"10px 6px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid #30363d",minWidth:72,fontFamily:"var(--fm)",fontSize:10}}>{y}</th>)}
+              <th style={{position:"sticky",left:0,background:"var(--surface)",padding:"10px 14px",textAlign:"left",color:"var(--gold)",fontWeight:600,borderBottom:"2px solid var(--table-border)",minWidth:160,fontFamily:"var(--fm)",fontSize:10}}>MÚLTIPLO</th>
+              {yrs.map(y=><th key={y} style={{padding:"10px 6px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid var(--table-border)",minWidth:72,fontFamily:"var(--fm)",fontSize:10}}>{y}</th>)}
             </tr></thead>
             <tbody>{metrics.map((m,i)=>(
-              <tr key={m.k} style={{background:i%2?"rgba(255,255,255,.02)":"transparent"}}>
-                <td style={{position:"sticky",left:0,background:i%2?"#0a0a0a":"#000",padding:"7px 14px",color:"var(--text-primary)",fontWeight:500,borderBottom:"1px solid #21262d"}}>{m.l}</td>
-                {yrs.map(y=><td key={y} style={{padding:"7px 6px",textAlign:"right",color:"var(--text-primary)",borderBottom:"1px solid #21262d",fontFamily:"var(--fm)"}}>{m.f(comp[y]?.[m.k])}</td>)}
+              <tr key={m.k} style={{background:i%2?"var(--row-alt)":"transparent"}}>
+                <td style={{position:"sticky",left:0,background:i%2?"var(--card)":"var(--bg)",padding:"7px 14px",color:"var(--text-primary)",fontWeight:500,borderBottom:"1px solid var(--table-border)"}}>{m.l}</td>
+                {yrs.map(y=><td key={y} style={{padding:"7px 6px",textAlign:"right",color:"var(--text-primary)",borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)"}}>{m.f(comp[y]?.[m.k])}</td>)}
               </tr>
             ))}</tbody>
           </table>

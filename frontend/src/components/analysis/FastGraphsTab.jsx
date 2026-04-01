@@ -46,7 +46,8 @@ export default function FastGraphsTab() {
     const allPrices = [cfg.price, ...epsFair].filter(v => v != null && v > 0);
     if (allPrices.length === 0) allPrices.push(100); // fallback to avoid -Infinity
     const rawMax = Math.max(...allPrices) * 1.15;
-    const rawMin = Math.max(0, Math.min(...allPrices.filter(v => v > 0)) * 0.5);
+    const positivePrices = allPrices.filter(v => v > 0);
+    const rawMin = Math.max(0, (positivePrices.length ? Math.min(...positivePrices) : 0) * 0.5);
     const yScale = v => PADT + chartH - ((v - rawMin) / (rawMax - rawMin || 1)) * chartH;
     const yNice = v => Math.round(v / 5) * 5;
 

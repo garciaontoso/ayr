@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
+import { EmptyState, LoadingSkeleton } from '../ui/EmptyState.jsx';
 
 const ALERTS_KEY = "ayr_price_alerts";
 
@@ -86,6 +87,19 @@ export default function PortfolioTab() {
       }
     });
   }, [portfolioTotals?.positions]);
+
+  // Empty portfolio state
+  if (!portfolioList || portfolioList.length === 0) {
+    return pricesLoading
+      ? <LoadingSkeleton rows={6} cards={4} message="Cargando portfolio..." />
+      : <EmptyState
+          icon="📂"
+          title="Tu portfolio esta vacio"
+          subtitle="Anade posiciones para empezar a hacer seguimiento de tu cartera de inversiones."
+          action="Sincronizar IB"
+          onAction={() => {/* trigger IB sync if available */}}
+        />;
+  }
 
   return (
       <div style={{display:"flex",flexDirection:"column",gap:6}}>
@@ -251,14 +265,13 @@ export default function PortfolioTab() {
                       background:pnlColor,opacity:0.55,
                       pointerEvents:"none",zIndex:1,
                     }}/>
-                    {/* Sector dot — positioned over the logo area */}
+                    {/* Sector indicator — bottom accent line */}
                     {sectorColor && (
                       <div title={p.sector} style={{
-                        position:"absolute",top:3,left:20,
-                        width:5,height:5,borderRadius:"50%",
-                        background:sectorColor,opacity:0.7,
+                        position:"absolute",bottom:0,left:4,right:4,
+                        height:2,borderRadius:"0 0 3px 3px",
+                        background:`linear-gradient(90deg, ${sectorColor}55, transparent)`,
                         pointerEvents:"none",zIndex:2,
-                        boxShadow:`0 0 3px ${sectorColor}40`,
                       }}/>
                     )}
                     <div style={{position:"relative",zIndex:1}}>

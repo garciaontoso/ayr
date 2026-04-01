@@ -162,10 +162,370 @@ async function ensureMigrations(env) {
       last_used TEXT
     )`).run();
 
+    // ─── Performance indexes ───────────────────────────
+    const indexes = [
+      "CREATE INDEX IF NOT EXISTS idx_gastos_fecha ON gastos(fecha)",
+      "CREATE INDEX IF NOT EXISTS idx_gastos_categoria ON gastos(categoria)",
+      "CREATE INDEX IF NOT EXISTS idx_gastos_divisa ON gastos(divisa)",
+      "CREATE INDEX IF NOT EXISTS idx_dividendos_fecha ON dividendos(fecha)",
+      "CREATE INDEX IF NOT EXISTS idx_dividendos_ticker ON dividendos(ticker)",
+      "CREATE INDEX IF NOT EXISTS idx_cost_basis_ticker ON cost_basis(ticker)",
+      "CREATE INDEX IF NOT EXISTS idx_cost_basis_fecha ON cost_basis(fecha)",
+      "CREATE INDEX IF NOT EXISTS idx_nlv_history_fecha ON nlv_history(fecha)",
+      "CREATE INDEX IF NOT EXISTS idx_alerts_fecha ON alerts(fecha)",
+      "CREATE INDEX IF NOT EXISTS idx_alerts_leida ON alerts(leida)",
+    ];
+    for (const ddl of indexes) {
+      try { await env.DB.prepare(ddl).run(); } catch(e) { /* index may already exist or table missing */ }
+    }
+
     _migrated = true;
   } catch(e) {
     console.error("Migration error:", e.message);
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Input validation helpers
+// ═══════════════════════════════════════════════════════════════
+
+const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function validateFecha(fecha, fieldName = 'fecha') {
+  if (!fecha) return `Missing required field: ${fieldName}`;
+  if (typeof fecha !== 'string' || !FECHA_RE.test(fecha)) return `${fieldName} must be YYYY-MM-DD format`;
+  const [y, m, d] = fecha.split('-').map(Number);
+  if (m < 1 || m > 12 || d < 1 || d > 31) return `${fieldName} has invalid month/day`;
+  return null;
+}
+
+function validateNumber(value, fieldName) {
+  if (value === undefined || value === null) return `Missing required field: ${fieldName}`;
+  const n = Number(value);
+  if (isNaN(n) || !isFinite(n)) return `${fieldName} must be a valid number`;
+  return null;
+}
+
+function validateRequired(value, fieldName) {
+  if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+    return `Missing required field: ${fieldName}`;
+  }
+  return null;
+}
+
+function validateId(raw) {
+  const id = parseInt(raw, 10);
+  if (isNaN(id) || id <= 0) return null;
+  return id;
+}
+
+function validationError(msg, corsHeaders) {
+  return new Response(JSON.stringify({ error: msg }), {
+    status: 400,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Rate-limit-aware fetch helpers
+// ═══════════════════════════════════════════════════════════════
+
+async function fetchWithRetry(url, options = {}, { maxRetries = 3, baseDelay = 1000 } = {}) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const resp = await fetch(url, options);
+    if (resp.status === 429) {
+      if (attempt === maxRetries) return resp;
+      const retryAfter = parseInt(resp.headers.get('Retry-After') || '0', 10);
+      const delay = retryAfter > 0 ? retryAfter * 1000 : baseDelay * Math.pow(2, attempt);
+      await new Promise(r => setTimeout(r, Math.min(delay, 30000)));
+      continue;
+    }
+    return resp;
+  }
+}
+
+async function fetchYahoo(url, { maxRetries = 2 } = {}) {
+  return fetchWithRetry(url, { headers: { "User-Agent": "Mozilla/5.0" } }, { maxRetries, baseDelay: 1500 });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// IB OAuth 1.0a helpers (module-level for reuse by fetch + scheduled)
+// ═══════════════════════════════════════════════════════════════
+
+function _modPow(base, exp, m) {
+  let result = 1n;
+  base = ((base % m) + m) % m;
+  while (exp > 0n) {
+    if (exp & 1n) result = (result * base) % m;
+    exp >>= 1n;
+    base = (base * base) % m;
+  }
+  return result;
+}
+function _bigIntToBytes(n) {
+  let hex = n.toString(16);
+  if (hex.length % 2) hex = "0" + hex;
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+  if (bytes[0] >= 0x80) {
+    const padded = new Uint8Array(bytes.length + 1);
+    padded.set(bytes, 1);
+    return padded;
+  }
+  return bytes;
+}
+function _bytesToHex(bytes) { return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join(""); }
+function _hexToBytes(hex) {
+  if (hex.length % 2) hex = "0" + hex;
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return bytes;
+}
+function _bytesToBigInt(bytes) { return BigInt("0x" + _bytesToHex(bytes)); }
+function _b64ToBytes(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+function _bytesToB64(bytes) { return btoa(String.fromCharCode(...bytes)); }
+function _pemToDer(pem) {
+  const lines = pem.split("\n").filter(l => !l.startsWith("-----")).join("");
+  return _b64ToBytes(lines);
+}
+function _extractDhPrime(pem) {
+  const der = _pemToDer(pem);
+  let offset = 0;
+  if (der[offset] !== 0x30) throw new Error("Not a SEQUENCE");
+  offset++;
+  let seqLen = der[offset]; offset++;
+  if (seqLen & 0x80) { const lenBytes = seqLen & 0x7f; seqLen = 0; for (let i = 0; i < lenBytes; i++) { seqLen = (seqLen << 8) | der[offset]; offset++; } }
+  if (der[offset] !== 0x02) throw new Error("Not an INTEGER");
+  offset++;
+  let intLen = der[offset]; offset++;
+  if (intLen & 0x80) { const lenBytes = intLen & 0x7f; intLen = 0; for (let i = 0; i < lenBytes; i++) { intLen = (intLen << 8) | der[offset]; offset++; } }
+  const primeBytes = der.slice(offset, offset + intLen);
+  const start = primeBytes[0] === 0 ? 1 : 0;
+  return _bytesToBigInt(primeBytes.slice(start));
+}
+function _buildParamStr(params) {
+  return Object.keys(params).sort().map(k => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`).join("&");
+}
+function _buildBaseString(method, url, params, prepend = "") {
+  const paramStr = _buildParamStr(params);
+  return prepend + method.toUpperCase() + "&" + encodeURIComponent(url) + "&" + encodeURIComponent(paramStr);
+}
+async function _rsaSign(privateKeyPem, data) {
+  const der = _pemToDer(privateKeyPem);
+  const key = await crypto.subtle.importKey("pkcs8", der, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(data));
+  return _bytesToB64(new Uint8Array(sig));
+}
+async function _rsaDecrypt(privateKeyPem, ciphertextB64) {
+  const ciphertext = _b64ToBytes(ciphertextB64);
+  try {
+    const { privateDecrypt, constants } = await import("node:crypto");
+    const { Buffer } = await import("node:buffer");
+    const decrypted = privateDecrypt(
+      { key: privateKeyPem, padding: constants.RSA_PKCS1_PADDING },
+      Buffer.from(ciphertext)
+    );
+    return new Uint8Array(decrypted);
+  } catch(e) {
+    throw new Error("RSA decrypt failed: " + e.message);
+  }
+}
+async function _hmacSHA1(keyBytes, dataBytes) {
+  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, dataBytes);
+  return new Uint8Array(sig);
+}
+async function _hmacSHA256Sign(keyBytes, data) {
+  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
+  return _bytesToB64(new Uint8Array(sig));
+}
+
+async function getIBSession(env) {
+  const consumerKey = env.IB_CONSUMER_KEY;
+  const accessToken = env.IB_ACCESS_TOKEN;
+  const accessTokenSecret = env.IB_ACCESS_TOKEN_SECRET;
+  const sigKeyPem = env.IB_SIGNATURE_KEY;
+  const encKeyPem = env.IB_ENCRYPTION_KEY;
+  const dhParamPem = env.IB_DH_PARAM;
+  if (!consumerKey || !accessToken) throw new Error("IB credentials not configured");
+
+  const IB_BASE = "https://api.ibkr.com/v1/api";
+  const decryptedATS = await _rsaDecrypt(encKeyPem, accessTokenSecret);
+  const prepend = _bytesToHex(decryptedATS);
+  const dhPrime = _extractDhPrime(dhParamPem);
+  const rb = new Uint8Array(32); crypto.getRandomValues(rb);
+  const a = _bytesToBigInt(rb);
+  const A = _modPow(2n, a, dhPrime);
+
+  const lstUrl = IB_BASE + "/oauth/live_session_token";
+  const ts = Math.floor(Date.now() / 1000).toString();
+  const nonce = crypto.randomUUID().replace(/-/g, "");
+  const oauthP = { oauth_consumer_key: consumerKey, oauth_token: accessToken, oauth_signature_method: "RSA-SHA256", oauth_timestamp: ts, oauth_nonce: nonce, diffie_hellman_challenge: A.toString(16) };
+  const sig = await _rsaSign(sigKeyPem, _buildBaseString("POST", lstUrl, oauthP, prepend));
+  const auth = "OAuth " + Object.entries({ ...oauthP, oauth_signature: sig }).map(([k, v]) => `${encodeURIComponent(k)}="${encodeURIComponent(v)}"`).join(", ");
+
+  const lstResp = await fetch(lstUrl, { method: "POST", headers: { "Authorization": auth, "Content-Length": "0", "User-Agent": "AyR/1.0" } });
+  if (!lstResp.ok) throw new Error("LST failed: " + lstResp.status);
+  const lstData = await lstResp.json();
+
+  const K = _modPow(BigInt("0x" + lstData.diffie_hellman_response), a, dhPrime);
+  const lst = await _hmacSHA1(_bigIntToBytes(K), decryptedATS);
+
+  const verify = await _hmacSHA1(lst, new TextEncoder().encode(consumerKey));
+  if (_bytesToHex(verify) !== lstData.live_session_token_signature) throw new Error("LST verification failed");
+
+  const ts2 = Math.floor(Date.now() / 1000).toString();
+  const nonce2 = crypto.randomUUID().replace(/-/g, "");
+  const initP = { oauth_consumer_key: consumerKey, oauth_token: accessToken, oauth_signature_method: "HMAC-SHA256", oauth_timestamp: ts2, oauth_nonce: nonce2 };
+  const initSig = await _hmacSHA256Sign(lst, _buildBaseString("POST", IB_BASE + "/iserver/auth/ssodh/init", initP));
+  const initAuth = "OAuth " + Object.entries({ ...initP, oauth_signature: initSig }).map(([k, v]) => `${encodeURIComponent(k)}="${encodeURIComponent(v)}"`).join(", ");
+  await fetch(IB_BASE + "/iserver/auth/ssodh/init", { method: "POST", headers: { "Authorization": initAuth, "Content-Type": "application/json", "User-Agent": "AyR/1.0" }, body: JSON.stringify({ publish: true, compete: true }) });
+
+  return { lst, consumerKey, accessToken };
+}
+
+async function ibAuthFetch(lst, consumerKey, accessToken, method, endpoint, body = null) {
+  const IB_BASE = "https://api.ibkr.com/v1/api";
+  const fullUrl = IB_BASE + endpoint;
+  const [baseUrl, queryStr] = fullUrl.split("?");
+  const ts = Math.floor(Date.now() / 1000).toString();
+  const nonce = crypto.randomUUID().replace(/-/g, "");
+  const params = { oauth_consumer_key: consumerKey, oauth_token: accessToken, oauth_signature_method: "HMAC-SHA256", oauth_timestamp: ts, oauth_nonce: nonce };
+  if (queryStr) {
+    for (const part of queryStr.split("&")) {
+      const [k, v] = part.split("=");
+      params[decodeURIComponent(k)] = decodeURIComponent(v || "");
+    }
+  }
+  const sig = await _hmacSHA256Sign(lst, _buildBaseString(method, baseUrl, params));
+  const auth = "OAuth " + Object.entries({
+    oauth_consumer_key: params.oauth_consumer_key, oauth_token: params.oauth_token,
+    oauth_signature_method: params.oauth_signature_method, oauth_timestamp: params.oauth_timestamp,
+    oauth_nonce: params.oauth_nonce, oauth_signature: sig
+  }).map(([k, v]) => `${encodeURIComponent(k)}="${encodeURIComponent(v)}"`).join(", ");
+  const opts = { method, headers: { "Authorization": auth, "User-Agent": "AyR/1.0", "Accept": "application/json" } };
+  if (body) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+  const resp = await fetch(fullUrl, opts);
+  const text = await resp.text();
+  try { return JSON.parse(text); } catch { return { _raw: text, _status: resp.status }; }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Auto-sync: fetch recent trades, dividends, and NLV from IB OAuth API
+// Used by POST /api/ib-auto-sync and the scheduled cron trigger
+// ═══════════════════════════════════════════════════════════════
+
+async function performAutoSync(env) {
+  const errors = [];
+  let tradesImported = 0, tradesSkipped = 0;
+  let divsImported = 0, divsSkipped = 0;
+  let nlvUpdated = false;
+
+  const { lst, consumerKey, accessToken } = await getIBSession(env);
+  const ib = (m, e, b) => ibAuthFetch(lst, consumerKey, accessToken, m, e, b);
+
+  // 1. Get account IDs
+  const accounts = await ib("GET", "/portfolio/accounts");
+  const accountIds = (Array.isArray(accounts) ? accounts : []).map(a => a.accountId || a.id).filter(Boolean);
+  if (!accountIds.length) throw new Error("No IB accounts found");
+
+  // 2. Fetch recent trades (last 7 days) and import into cost_basis
+  try {
+    let allTrades = [];
+    for (const acctId of accountIds) {
+      const trades = await ib("GET", `/iserver/account/trades?days=7&accountId=${acctId}`);
+      if (Array.isArray(trades)) allTrades.push(...trades);
+    }
+    if (!allTrades.length) {
+      const trades = await ib("GET", "/iserver/account/trades?days=7");
+      if (Array.isArray(trades)) allTrades = trades;
+    }
+
+    const tradeStmts = [];
+    for (const t of allTrades) {
+      if (!t.symbol || !t.trade_time_r) continue;
+      const fecha = new Date(t.trade_time_r).toISOString().slice(0, 10);
+      const qty = parseFloat(t.size) || 0;
+      const price = parseFloat(t.price) || 0;
+      const commission = parseFloat(t.comission) || 0; // IB typo
+      const netAmount = parseFloat(t.net_amount) || 0;
+      const secType = t.sec_type || "STK";
+      const tipo = secType === "OPT" ? "OPTION" : "EQUITY";
+
+      // Dedup: INSERT OR IGNORE with unique constraint, or check manually
+      tradeStmts.push(env.DB.prepare(
+        `INSERT INTO cost_basis (ticker, fecha, tipo, shares, precio, comision, coste)
+         SELECT ?,?,?,?,?,?,?
+         WHERE NOT EXISTS (
+           SELECT 1 FROM cost_basis
+           WHERE ticker=? AND fecha=? AND ABS(shares - ?) < 0.001 AND ABS(precio - ?) < 0.001
+         )`
+      ).bind(t.symbol, fecha, tipo, qty, price, commission, netAmount,
+             t.symbol, fecha, qty, price));
+    }
+
+    for (let i = 0; i < tradeStmts.length; i += 80) {
+      const batch = tradeStmts.slice(i, i + 80);
+      try {
+        const results = await env.DB.batch(batch);
+        for (const r of results) {
+          if (r.meta?.changes > 0) tradesImported++;
+          else tradesSkipped++;
+        }
+      } catch(e) {
+        tradesSkipped += batch.length;
+        errors.push("Trade batch error: " + e.message);
+      }
+    }
+  } catch(e) {
+    errors.push("Trades fetch error: " + e.message);
+  }
+
+  // 3. Fetch account summary and save NLV
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    let totalNlv = 0, totalCash = 0, totalGross = 0, totalMargin = 0;
+    const get = (summary, field) => summary?.[field]?.amount || 0;
+
+    for (const accountId of accountIds) {
+      const summary = await ib("GET", `/portfolio/${accountId}/summary`);
+      totalNlv += get(summary, "netliquidation");
+      totalCash += get(summary, "totalcashvalue");
+      totalGross += get(summary, "grosspositionvalue");
+      totalMargin += get(summary, "initmarginreq");
+    }
+
+    if (totalNlv > 0) {
+      await env.DB.prepare(
+        "INSERT OR REPLACE INTO nlv_history (fecha, nlv, cash, positions_value, margin_used, accounts, positions_count) VALUES (?,?,?,?,?,?,?)"
+      ).bind(today, totalNlv, totalCash, totalGross, totalMargin, accountIds.length, 0).run();
+      nlvUpdated = true;
+    }
+  } catch(e) {
+    errors.push("NLV save error: " + e.message);
+  }
+
+  // 4. Fetch recent dividends from IB orders/transactions
+  // IB OAuth doesn't have a direct dividends endpoint, but we can check
+  // the trades endpoint for dividend-related entries. For comprehensive dividend
+  // sync we rely on the existing loadIBData flow + manual Flex imports.
+  // However, we can check cost_basis for recent option assignments that generated dividends.
+
+  return {
+    ok: true,
+    timestamp: new Date().toISOString(),
+    trades_imported: tradesImported,
+    trades_skipped: tradesSkipped,
+    nlv_updated: nlvUpdated,
+    accounts: accountIds.length,
+    errors: errors.length ? errors : undefined,
+  };
 }
 
 export default {
@@ -203,7 +563,11 @@ export default {
       // POST /api/patrimonio — añadir snapshot
       if (path === "/api/patrimonio" && request.method === "POST") {
         const body = await parseBody(request);
-        const { results } = await env.DB.prepare(
+        const fechaErr = validateFecha(body.fecha);
+        if (fechaErr) return validationError(fechaErr, corsHeaders);
+        const numErr = validateNumber(body.total_usd, 'total_usd') || validateNumber(body.total_eur, 'total_eur');
+        if (numErr) return validationError(numErr, corsHeaders);
+        await env.DB.prepare(
           `INSERT INTO patrimonio (fecha, fx_eur_usd, bank, broker, fondos, crypto, hipoteca, total_usd, total_eur, salary, notas)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(body.fecha, body.fx_eur_usd, body.bank, body.broker, body.fondos, body.crypto, body.hipoteca, body.total_usd, body.total_eur, body.salary, body.notas).run();
@@ -258,6 +622,10 @@ export default {
       // POST /api/dividendos — añadir dividendo (con dedup)
       if (path === "/api/dividendos" && request.method === "POST") {
         const body = await parseBody(request);
+        const fechaErr = validateFecha(body.fecha);
+        if (fechaErr) return validationError(fechaErr, corsHeaders);
+        const reqErr = validateRequired(body.ticker, 'ticker') || validateNumber(body.bruto, 'bruto');
+        if (reqErr) return validationError(reqErr, corsHeaders);
         const dup = await env.DB.prepare(
           "SELECT id FROM dividendos WHERE fecha=? AND ticker=? AND ABS(bruto - ?) < 0.01"
         ).bind(body.fecha, body.ticker, body.bruto).first();
@@ -299,6 +667,10 @@ export default {
       // POST /api/gastos — añadir gasto
       if (path === "/api/gastos" && request.method === "POST") {
         const body = await parseBody(request);
+        const fechaErr = validateFecha(body.fecha);
+        if (fechaErr) return validationError(fechaErr, corsHeaders);
+        const reqErr = validateRequired(body.categoria, 'categoria') || validateNumber(body.importe, 'importe');
+        if (reqErr) return validationError(reqErr, corsHeaders);
         // Convention: gastos are always stored as negative amounts
         const amt = -Math.abs(parseFloat(body.importe) || 0);
         await env.DB.prepare(
@@ -1230,198 +1602,8 @@ export default {
         return json(results, corsHeaders);
       }
 
-      // ─── IB OAuth 1.0a helpers ───
-      // BigInt modular exponentiation: base^exp mod m
-      function modPow(base, exp, m) {
-        let result = 1n;
-        base = ((base % m) + m) % m;
-        while (exp > 0n) {
-          if (exp & 1n) result = (result * base) % m;
-          exp >>= 1n;
-          base = (base * base) % m;
-        }
-        return result;
-      }
-      function bigIntToBytes(n) {
-        let hex = n.toString(16);
-        if (hex.length % 2) hex = "0" + hex;
-        const bytes = new Uint8Array(hex.length / 2);
-        for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
-        // Add leading zero byte if high bit set (Java BigInteger compatibility)
-        if (bytes[0] >= 0x80) {
-          const padded = new Uint8Array(bytes.length + 1);
-          padded.set(bytes, 1);
-          return padded;
-        }
-        return bytes;
-      }
-      function bytesToHex(bytes) { return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join(""); }
-      function hexToBytes(hex) {
-        if (hex.length % 2) hex = "0" + hex;
-        const bytes = new Uint8Array(hex.length / 2);
-        for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
-        return bytes;
-      }
-      function bytesToBigInt(bytes) { return BigInt("0x" + bytesToHex(bytes)); }
-      function b64ToBytes(b64) {
-        const bin = atob(b64);
-        const bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        return bytes;
-      }
-      function bytesToB64(bytes) { return btoa(String.fromCharCode(...bytes)); }
-
-      // Parse PEM to DER bytes
-      function pemToDer(pem) {
-        const lines = pem.split("\n").filter(l => !l.startsWith("-----")).join("");
-        return b64ToBytes(lines);
-      }
-
-      // Extract DH prime from dhparam.pem (ASN.1 DER: SEQUENCE { INTEGER prime, INTEGER generator })
-      function extractDhPrime(pem) {
-        const der = pemToDer(pem);
-        // Simple ASN.1 parser for DH params: SEQUENCE > INTEGER (prime)
-        let offset = 0;
-        if (der[offset] !== 0x30) throw new Error("Not a SEQUENCE");
-        offset++;
-        // Length
-        let seqLen = der[offset]; offset++;
-        if (seqLen & 0x80) { const lenBytes = seqLen & 0x7f; seqLen = 0; for (let i = 0; i < lenBytes; i++) { seqLen = (seqLen << 8) | der[offset]; offset++; } }
-        // First INTEGER = prime
-        if (der[offset] !== 0x02) throw new Error("Not an INTEGER");
-        offset++;
-        let intLen = der[offset]; offset++;
-        if (intLen & 0x80) { const lenBytes = intLen & 0x7f; intLen = 0; for (let i = 0; i < lenBytes; i++) { intLen = (intLen << 8) | der[offset]; offset++; } }
-        const primeBytes = der.slice(offset, offset + intLen);
-        // Skip leading zero byte if present
-        const start = primeBytes[0] === 0 ? 1 : 0;
-        return bytesToBigInt(primeBytes.slice(start));
-      }
-
-      // IB OAuth: build sorted parameter string
-      function buildParamStr(params) {
-        return Object.keys(params).sort().map(k => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`).join("&");
-      }
-
-      // IB OAuth: build base string with optional prepend
-      function buildBaseString(method, url, params, prepend = "") {
-        const paramStr = buildParamStr(params);
-        return prepend + method.toUpperCase() + "&" + encodeURIComponent(url) + "&" + encodeURIComponent(paramStr);
-      }
-
-      // RSA-SHA256 sign
-      async function rsaSign(privateKeyPem, data) {
-        const der = pemToDer(privateKeyPem);
-        const key = await crypto.subtle.importKey("pkcs8", der, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
-        const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, new TextEncoder().encode(data));
-        return bytesToB64(new Uint8Array(sig));
-      }
-
-      // RSA decrypt (PKCS1v1.5) — for decrypting access token secret
-      async function rsaDecrypt(privateKeyPem, ciphertextB64) {
-        const ciphertext = b64ToBytes(ciphertextB64);
-        try {
-          const { privateDecrypt, constants } = await import("node:crypto");
-          const { Buffer } = await import("node:buffer");
-          const decrypted = privateDecrypt(
-            { key: privateKeyPem, padding: constants.RSA_PKCS1_PADDING },
-            Buffer.from(ciphertext)
-          );
-          return new Uint8Array(decrypted);
-        } catch(e) {
-          throw new Error("RSA decrypt failed: " + e.message);
-        }
-      }
-
-      // HMAC-SHA1
-      async function hmacSHA1(keyBytes, dataBytes) {
-        const key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
-        const sig = await crypto.subtle.sign("HMAC", key, dataBytes);
-        return new Uint8Array(sig);
-      }
-
-      // HMAC-SHA256 sign for base string
-      async function hmacSHA256Sign(keyBytes, data) {
-        const key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-        const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
-        return bytesToB64(new Uint8Array(sig));
-      }
-
-      // ─── IB shared session helper ───
-      async function getIBSession() {
-        const consumerKey = env.IB_CONSUMER_KEY;
-        const accessToken = env.IB_ACCESS_TOKEN;
-        const accessTokenSecret = env.IB_ACCESS_TOKEN_SECRET;
-        const sigKeyPem = env.IB_SIGNATURE_KEY;
-        const encKeyPem = env.IB_ENCRYPTION_KEY;
-        const dhParamPem = env.IB_DH_PARAM;
-        if (!consumerKey || !accessToken) throw new Error("IB credentials not configured");
-
-        const IB_BASE = "https://api.ibkr.com/v1/api";
-        const decryptedATS = await rsaDecrypt(encKeyPem, accessTokenSecret);
-        const prepend = bytesToHex(decryptedATS);
-        const dhPrime = extractDhPrime(dhParamPem);
-        const rb = new Uint8Array(32); crypto.getRandomValues(rb);
-        const a = bytesToBigInt(rb);
-        const A = modPow(2n, a, dhPrime);
-
-        const lstUrl = IB_BASE + "/oauth/live_session_token";
-        const ts = Math.floor(Date.now() / 1000).toString();
-        const nonce = crypto.randomUUID().replace(/-/g, "");
-        const oauthP = { oauth_consumer_key: consumerKey, oauth_token: accessToken, oauth_signature_method: "RSA-SHA256", oauth_timestamp: ts, oauth_nonce: nonce, diffie_hellman_challenge: A.toString(16) };
-        const sig = await rsaSign(sigKeyPem, buildBaseString("POST", lstUrl, oauthP, prepend));
-        const auth = "OAuth " + Object.entries({ ...oauthP, oauth_signature: sig }).map(([k, v]) => `${encodeURIComponent(k)}="${encodeURIComponent(v)}"`).join(", ");
-
-        const lstResp = await fetch(lstUrl, { method: "POST", headers: { "Authorization": auth, "Content-Length": "0", "User-Agent": "AyR/1.0" } });
-        if (!lstResp.ok) throw new Error("LST failed: " + lstResp.status);
-        const lstData = await lstResp.json();
-
-        const K = modPow(BigInt("0x" + lstData.diffie_hellman_response), a, dhPrime);
-        const lst = await hmacSHA1(bigIntToBytes(K), decryptedATS);
-
-        // Verify
-        const verify = await hmacSHA1(lst, new TextEncoder().encode(consumerKey));
-        if (bytesToHex(verify) !== lstData.live_session_token_signature) throw new Error("LST verification failed");
-
-        // Init brokerage session
-        const ts2 = Math.floor(Date.now() / 1000).toString();
-        const nonce2 = crypto.randomUUID().replace(/-/g, "");
-        const initP = { oauth_consumer_key: consumerKey, oauth_token: accessToken, oauth_signature_method: "HMAC-SHA256", oauth_timestamp: ts2, oauth_nonce: nonce2 };
-        const initSig = await hmacSHA256Sign(lst, buildBaseString("POST", IB_BASE + "/iserver/auth/ssodh/init", initP));
-        const initAuth = "OAuth " + Object.entries({ ...initP, oauth_signature: initSig }).map(([k, v]) => `${encodeURIComponent(k)}="${encodeURIComponent(v)}"`).join(", ");
-        await fetch(IB_BASE + "/iserver/auth/ssodh/init", { method: "POST", headers: { "Authorization": initAuth, "Content-Type": "application/json", "User-Agent": "AyR/1.0" }, body: JSON.stringify({ publish: true, compete: true }) });
-
-        return { lst, consumerKey, accessToken };
-      }
-
-      // Authenticated IB fetch helper
-      async function ibAuthFetch(lst, consumerKey, accessToken, method, endpoint, body = null) {
-        const IB_BASE = "https://api.ibkr.com/v1/api";
-        const fullUrl = IB_BASE + endpoint;
-        // Split URL and query params for OAuth signing
-        const [baseUrl, queryStr] = fullUrl.split("?");
-        const ts = Math.floor(Date.now() / 1000).toString();
-        const nonce = crypto.randomUUID().replace(/-/g, "");
-        const params = { oauth_consumer_key: consumerKey, oauth_token: accessToken, oauth_signature_method: "HMAC-SHA256", oauth_timestamp: ts, oauth_nonce: nonce };
-        // Include query params in OAuth signature (per OAuth spec)
-        if (queryStr) {
-          for (const part of queryStr.split("&")) {
-            const [k, v] = part.split("=");
-            params[decodeURIComponent(k)] = decodeURIComponent(v || "");
-          }
-        }
-        const sig = await hmacSHA256Sign(lst, buildBaseString(method, baseUrl, params));
-        const auth = "OAuth " + Object.entries({
-          oauth_consumer_key: params.oauth_consumer_key, oauth_token: params.oauth_token,
-          oauth_signature_method: params.oauth_signature_method, oauth_timestamp: params.oauth_timestamp,
-          oauth_nonce: params.oauth_nonce, oauth_signature: sig
-        }).map(([k, v]) => `${encodeURIComponent(k)}="${encodeURIComponent(v)}"`).join(", ");
-        const opts = { method, headers: { "Authorization": auth, "User-Agent": "AyR/1.0", "Accept": "application/json" } };
-        if (body) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
-        const resp = await fetch(fullUrl, opts);
-        const text = await resp.text();
-        try { return JSON.parse(text); } catch { return { _raw: text, _status: resp.status }; }
-      }
+      // ─── IB OAuth helpers — delegates to top-level functions ───
+      // (Actual implementations extracted to module scope for reuse by scheduled handler)
 
       // GET /api/ib-session — obtain IB live session token (called internally, cached)
       if (path === "/api/ib-session" && request.method === "GET") {
@@ -1547,7 +1729,7 @@ export default {
       // GET /api/ib-options?symbols=AAPL,MSFT&dte=30&otm=5 — IB options via OAuth (greeks, IV, bid/ask)
       if (path === "/api/ib-options" && request.method === "GET") {
         try {
-          const { lst, consumerKey, accessToken } = await getIBSession();
+          const { lst, consumerKey, accessToken } = await getIBSession(env);
           const ib = (m, e, b) => ibAuthFetch(lst, consumerKey, accessToken, m, e, b);
 
           const symbols = (url.searchParams.get("symbols") || "").split(",").filter(Boolean).map(s => s.trim().toUpperCase()).slice(0, 10);
@@ -1640,7 +1822,7 @@ export default {
       // GET /api/ib-portfolio — real IB positions from ALL accounts with live prices, P&L, avg cost
       if (path === "/api/ib-portfolio" && request.method === "GET") {
         try {
-          const { lst, consumerKey, accessToken } = await getIBSession();
+          const { lst, consumerKey, accessToken } = await getIBSession(env);
           const ib = (m, e, b) => ibAuthFetch(lst, consumerKey, accessToken, m, e, b);
 
           // Get ALL accounts
@@ -1694,7 +1876,7 @@ export default {
       // GET /api/ib-ledger — cash balances per currency (ALL accounts)
       if (path === "/api/ib-ledger" && request.method === "GET") {
         try {
-          const { lst, consumerKey, accessToken } = await getIBSession();
+          const { lst, consumerKey, accessToken } = await getIBSession(env);
           const ib = (m, e, b) => ibAuthFetch(lst, consumerKey, accessToken, m, e, b);
 
           const accounts = await ib("GET", "/portfolio/accounts");
@@ -1738,7 +1920,7 @@ export default {
       // GET /api/ib-summary — account summary (ALL accounts aggregated)
       if (path === "/api/ib-summary" && request.method === "GET") {
         try {
-          const { lst, consumerKey, accessToken } = await getIBSession();
+          const { lst, consumerKey, accessToken } = await getIBSession(env);
           const ib = (m, e, b) => ibAuthFetch(lst, consumerKey, accessToken, m, e, b);
 
           const accounts = await ib("GET", "/portfolio/accounts");
@@ -1793,7 +1975,7 @@ export default {
       // GET /api/ib-pnl — daily P&L from IB (partitioned by position)
       if (path === "/api/ib-pnl" && request.method === "GET") {
         try {
-          const { lst, consumerKey, accessToken } = await getIBSession();
+          const { lst, consumerKey, accessToken } = await getIBSession(env);
           const ib = (m, e, b) => ibAuthFetch(lst, consumerKey, accessToken, m, e, b);
           const pnl = await ib("GET", "/iserver/account/pnl/partitioned");
           return json(pnl, corsHeaders);
@@ -1803,7 +1985,7 @@ export default {
       // GET /api/ib-trades — recent trades (up to 7 days)
       if (path === "/api/ib-trades" && request.method === "GET") {
         try {
-          const { lst, consumerKey, accessToken } = await getIBSession();
+          const { lst, consumerKey, accessToken } = await getIBSession(env);
           const ib = (m, e, b) => ibAuthFetch(lst, consumerKey, accessToken, m, e, b);
 
           // Must call /portfolio/accounts first per IB docs
@@ -2228,7 +2410,7 @@ export default {
       // POST /api/positions/sync-ib — update positions from IB data
       if (path === "/api/positions/sync-ib" && request.method === "POST") {
         try {
-          const { lst, consumerKey, accessToken } = await getIBSession();
+          const { lst, consumerKey, accessToken } = await getIBSession(env);
           const ib = (m, e, b) => ibAuthFetch(lst, consumerKey, accessToken, m, e, b);
 
           const accounts = await ib("GET", "/portfolio/accounts");
@@ -3588,6 +3770,17 @@ export default {
         }, corsHeaders);
       }
 
+      // POST /api/ib-auto-sync — cloud-based trade/NLV sync (replaces Mac cron dependency)
+      if (path === "/api/ib-auto-sync" && request.method === "POST") {
+        try {
+          await ensureMigrations(env);
+          const result = await performAutoSync(env);
+          return json(result, corsHeaders);
+        } catch(e) {
+          return json({ error: "Auto-sync error: " + e.message }, corsHeaders, 500);
+        }
+      }
+
       // 404
       return new Response(JSON.stringify({ error: "Not found", path }), {
         status: 404,
@@ -3600,6 +3793,17 @@ export default {
         status,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+  },
+
+  // Cloudflare Cron Trigger — runs daily at 9:00 UTC (11:00 Madrid) Mon-Fri
+  async scheduled(event, env, ctx) {
+    try {
+      await ensureMigrations(env);
+      const result = await performAutoSync(env);
+      console.log("IB auto-sync completed:", JSON.stringify(result));
+    } catch(e) {
+      console.error("IB auto-sync cron failed:", e.message);
     }
   },
 };

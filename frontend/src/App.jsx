@@ -229,8 +229,8 @@ export default function ARApp() {
   const [theme, setTheme] = useState(() => localStorage.getItem("ayr_theme") || "dark");
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
-    document.body.style.background = theme === "light" ? "#f5f5f7" : "#000";
-    document.body.style.color = theme === "light" ? "#1d1d1f" : "#f5f5f7";
+    document.body.style.background = "var(--bg)";
+    document.body.style.color = "var(--text-primary)";
     localStorage.setItem("ayr_theme", theme);
   }, [theme]);
   const toggleTheme = () => setTheme(t => t === "dark" ? "light" : "dark");
@@ -292,13 +292,35 @@ export default function ARApp() {
 
   // refreshLivePrices defined after portfolioList (see deferred effects section)
 
-  // Auto-sync IB data once per session (must be after loadIBData declaration)
+  // IB cloud sync status message
+  const [ibSyncMsg, setIbSyncMsg] = useState(null);
+
+  // Auto-sync IB data once per session: call cloud sync endpoint + load IB data
   useEffect(() => {
     if (!dataLoaded) return;
     const syncKey = 'ib-sync-' + new Date().toISOString().slice(0, 10);
     if (sessionStorage.getItem(syncKey)) return;
     sessionStorage.setItem(syncKey, '1');
+
+    // 1. Load IB live data (portfolio, ledger, summary, trades)
     loadIBData();
+
+    // 2. Cloud auto-sync: import recent trades + save NLV (background, non-blocking)
+    setIbSyncMsg("Sincronizando IB...");
+    fetch(`${API_URL}/api/ib-auto-sync`, { method: "POST" })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          setIbSyncMsg(null);
+        } else {
+          const parts = [];
+          if (data.trades_imported > 0) parts.push(`${data.trades_imported} trades`);
+          if (data.nlv_updated) parts.push("NLV");
+          setIbSyncMsg(parts.length ? `IB sync: ${parts.join(", ")}` : "IB sincronizado");
+          setTimeout(() => setIbSyncMsg(null), 5000);
+        }
+      })
+      .catch(() => setIbSyncMsg(null));
   }, [dataLoaded, loadIBData]);
 
   // Alerts + divStreaks state (useEffects that use these are placed after portfolioTotals)
@@ -1723,12 +1745,12 @@ function buildPositionsFromCB() {
     const badge = capBadge ? <span style={{fontSize:7,fontWeight:700,padding:"1px 4px",borderRadius:3,background:capBadge.bg,color:capBadge.c,letterSpacing:.3}}>{capBadge.l}</span> : null;
     return (
       <div className="ar-company-row" onClick={()=>onOpen(p.ticker)} style={{display:"grid",gridTemplateColumns:showPos?"24px 1fr 65px 48px 45px 50px 50px 45px 40px 58px 45px 24px":"24px 1fr 65px 65px 24px",gap:2,alignItems:"center",padding:"4px 6px",border:"1px solid var(--border)",borderRadius:7,cursor:"pointer"}}>
-        {/* Logo */}
-        <div style={{width:20,height:20,borderRadius:5,overflow:"hidden",background:"var(--card)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+        {/* Logo with styled letter fallback */}
+        <div style={{width:22,height:22,borderRadius:6,overflow:"hidden",background:"var(--card)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
           <img src={`https://images.financialmodelingprep.com/symbol/${p.ticker.replace(':','.')}.png`} alt=""
-            style={{width:20,height:20,objectFit:"contain",borderRadius:5}}
+            style={{width:22,height:22,objectFit:"contain",borderRadius:6}}
             onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}/>
-          <div style={{display:"none",width:20,height:20,borderRadius:5,background:"linear-gradient(135deg,#d69e2e,#8B6914)",alignItems:"center",justifyContent:"center",fontSize:6,fontWeight:800,color:"#000",fontFamily:"var(--fm)"}}>{p.ticker.slice(0,3)}</div>
+          <div style={{display:"none",width:22,height:22,borderRadius:6,background:`linear-gradient(135deg, ${(() => {const h = p.ticker.split('').reduce((a,c)=>a+c.charCodeAt(0),0) % 360; return `hsl(${h},55%,45%), hsl(${h},55%,30%)`;})()})`,alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:"#fff",fontFamily:"var(--fm)",letterSpacing:-.5,textShadow:"0 1px 2px rgba(0,0,0,.3)"}}>{p.ticker.charAt(0)}</div>
         </div>
         {/* Name: flag + name + ticker + badge + sparkline — all inline */}
         <div style={{minWidth:0,display:"flex",alignItems:"center",gap:3,overflow:"hidden"}}>
@@ -1739,16 +1761,34 @@ function buildPositionsFromCB() {
           {p.dataSource==="IB" && <span style={{fontSize:6,fontWeight:700,padding:"1px 3px",borderRadius:3,background:"rgba(100,210,255,.1)",color:"#64d2ff",flexShrink:0}}>IB</span>}
           {divStreaks[p.ticker]?.streak >= 5 && <span style={{fontSize:6,fontWeight:700,padding:"1px 3px",borderRadius:3,background:divStreaks[p.ticker].streak>=25?"rgba(200,164,78,.15)":divStreaks[p.ticker].streak>=10?"rgba(48,209,88,.1)":"rgba(255,214,10,.08)",color:divStreaks[p.ticker].streak>=25?"var(--gold)":divStreaks[p.ticker].streak>=10?"var(--green)":"#ffd60a",flexShrink:0}} title={`${divStreaks[p.ticker].streak} años subiendo dividendo`}>{divStreaks[p.ticker].streak}y</span>}
           {p.notes && <span style={{fontSize:7,flexShrink:0,opacity:.5}} title={p.notes.length > 80 ? p.notes.slice(0,80)+'...' : p.notes}>📝</span>}
-          {/* Sparkline inline */}
+          {/* Sparkline inline — gradient fill + hover tooltip */}
           {(p.spark||[]).length >= 2 && (() => {
             const s = p.spark, mn = Math.min(...s), mx = Math.max(...s), r = mx-mn||1;
-            const pts = s.map((v,i)=>`${(i/(s.length-1))*30},${12-((v-mn)/r)*10}`).join(" ");
-            return <svg viewBox="0 0 30 12" style={{width:30,height:12,flexShrink:0,marginLeft:"auto"}}><polyline points={pts} fill="none" stroke={s[s.length-1]>=s[0]?"#30d158":"#ff453a"} strokeWidth="1.2" strokeLinejoin="round"/></svg>;
+            const isUp = s[s.length-1]>=s[0];
+            const col = isUp?"#30d158":"#ff453a";
+            const uid = "sp_"+p.ticker.replace(/[^a-zA-Z0-9]/g,"");
+            const pts = s.map((v,i)=>`${(i/(s.length-1))*40},${14-((v-mn)/r)*11}`).join(" ");
+            const areaPts = `0,14 ${pts} 40,14`;
+            return <svg viewBox="0 0 40 16" style={{width:40,height:14,flexShrink:0,marginLeft:"auto",opacity:.85,transition:"opacity .15s"}} onMouseEnter={e=>e.currentTarget.style.opacity="1"} onMouseLeave={e=>e.currentTarget.style.opacity=".85"}>
+              <title>{`${s[0].toFixed(2)} → ${s[s.length-1].toFixed(2)} (${isUp?"+":""}${((s[s.length-1]-s[0])/s[0]*100).toFixed(1)}%)`}</title>
+              <defs><linearGradient id={uid} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={col} stopOpacity=".3"/><stop offset="100%" stopColor={col} stopOpacity="0"/></linearGradient></defs>
+              <polygon points={areaPts} fill={`url(#${uid})`}/>
+              <polyline points={pts} fill="none" stroke={col} strokeWidth="1.3" strokeLinejoin="round" strokeLinecap="round"/>
+              <circle cx={(s.length-1)/(s.length-1)*40} cy={14-((s[s.length-1]-mn)/r)*11} r="1.5" fill={col}/>
+            </svg>;
           })()}
         </div>
-        {/* Price */}
+        {/* Price + 52w range */}
         <div style={{textAlign:"right",fontFamily:"var(--fm)"}}>
           <div style={{fontSize:12,fontWeight:700,color:"var(--text-primary)"}}>{origSym}{(isGBX?(p.lastPrice||0)/100:(p.lastPrice||0)).toFixed(2)}</div>
+          {p.fiftyTwoWeekHigh > 0 && p.fiftyTwoWeekLow > 0 && (() => {
+            const lo = p.fiftyTwoWeekLow, hi = p.fiftyTwoWeekHigh, cur = p.lastPrice||0;
+            const pct = hi > lo ? Math.min(Math.max((cur - lo) / (hi - lo), 0), 1) : 0.5;
+            const barCol = pct > 0.7 ? "var(--green)" : pct < 0.3 ? "var(--red)" : "var(--gold)";
+            return <div title={`52w: ${origSym}${lo.toFixed(2)} — ${origSym}${hi.toFixed(2)}`} style={{height:2,background:"rgba(255,255,255,.06)",borderRadius:1,marginTop:2,position:"relative",width:"100%"}}>
+              <div style={{position:"absolute",left:0,top:0,height:"100%",width:`${pct*100}%`,background:barCol,borderRadius:1,transition:"width .3s"}}/>
+            </div>;
+          })()}
         </div>
         {showPos && <>
           {/* Daily Change $ */}
@@ -1763,14 +1803,20 @@ function buildPositionsFromCB() {
           <div className="ar-hide-mobile" style={{textAlign:"right",fontSize:10,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":p.shares?(p.shares||0).toLocaleString():"—"}</div>
           {/* Cost */}
           <div className="ar-hide-mobile" style={{textAlign:"right",fontSize:10,fontWeight:600,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":origSym+_sf(p.adjustedBasis||p.avgCost||0,2)}</div>
-          {/* P&L total */}
-          <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:pnlPct>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":(pnlPct>=0?"+":"")+_sf(pnlPct*100,0)+"%"}</div>
+          {/* P&L total — special treatment for large gains/losses */}
+          <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:pnlPct>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)",position:"relative",display:"flex",alignItems:"center",justifyContent:"flex-end",gap:1}}>
+            {!privacyMode && pnlPct >= 0.5 && <span style={{fontSize:7,lineHeight:1}} title="50%+ gain">&#9733;</span>}
+            <span style={{...(pnlPct >= 0.5 ? {background:"linear-gradient(90deg,rgba(48,209,88,.12),transparent)",padding:"0 3px",borderRadius:3,color:"#4ade80"} : pnlPct <= -0.3 ? {background:"rgba(255,69,58,.1)",padding:"0 3px",borderRadius:3,color:"#ff6b6b"} : {})}}>{privacyMode?"•••":(pnlPct>=0?"+":"")+_sf(pnlPct*100,0)+"%"}</span>
+          </div>
           {/* Weight */}
           <div className="ar-hide-mobile" style={{textAlign:"right",fontSize:9,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fm)"}}>{_sf(weight*100,1)}%</div>
           {/* Value */}
           <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":valSym+(valShow>=1e3?_sf(valShow/1e3,1)+"K":_sf(valShow,0))}</div>
-          {/* Div */}
-          <div className="ar-hide-mobile" style={{textAlign:"right",fontSize:10,fontWeight:600,color:dpsUSD>0?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":(dpsUSD>0?"$"+_sf(dpsUSD,0):"—")}</div>
+          {/* Div + yield badge */}
+          <div className="ar-hide-mobile" style={{textAlign:"right",fontSize:10,fontWeight:600,color:dpsUSD>0?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",display:"flex",alignItems:"center",justifyContent:"flex-end",gap:2}}>
+            {!privacyMode && (() => { const yld = p.divYield || (p.dps && p.lastPrice ? p.dps / p.lastPrice : 0); return yld >= 0.05 ? <span style={{fontSize:6,fontWeight:700,padding:"0 3px",borderRadius:2,background:"rgba(214,158,46,.18)",color:"var(--gold)",lineHeight:"12px",flexShrink:0}} title={`Yield ${(yld*100).toFixed(1)}%`}>{(yld*100).toFixed(0)}%</span> : null; })()}
+            <span>{privacyMode?"•••":(dpsUSD>0?"$"+_sf(dpsUSD,0):"—")}</span>
+          </div>
         </>}
         {!showPos && <>
           <div style={{textAlign:"right",fontSize:12,fontWeight:700,color:p.targetPrice&&p.lastPrice<=p.targetPrice?"var(--green)":"var(--text-secondary)",fontFamily:"var(--fm)"}}>{p.targetPrice?"$"+_sf(toUSD(p.targetPrice,ccy)||0,2):"—"}</div>
@@ -1935,35 +1981,35 @@ function buildPositionsFromCB() {
   }, [globalQuery, portfolioList, watchlistList]);
 
   return !dataLoaded ? (
-    <div style={{display:"flex",flexDirection:"column",minHeight:"100vh",background:"#000",fontFamily:"'DM Sans',sans-serif"}}>
+    <div style={{display:"flex",flexDirection:"column",minHeight:"100vh",background:"var(--bg)",fontFamily:"'DM Sans',sans-serif"}}>
       {/* Skeleton header */}
       <div style={{padding:"16px 36px",display:"flex",gap:10,alignItems:"center"}}>
         <div style={{width:32,height:32,borderRadius:8,background:"linear-gradient(135deg,#d69e2e,#b8860b)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"#000"}}>A&R</div>
-        {[80,70,60,50,70,80,70].map((w,i)=><div key={i} style={{width:w,height:28,borderRadius:6,background:"#161616",animation:"pulse 1.5s infinite",animationDelay:`${i*0.1}s`}}/>)}
+        {[80,70,60,50,70,80,70].map((w,i)=><div key={i} style={{width:w,height:28,borderRadius:6,background:"var(--skeleton-bg)",animation:"pulse 1.5s infinite",animationDelay:`${i*0.1}s`}}/>)}
       </div>
       {/* Skeleton summary cards */}
       <div style={{padding:"0 36px",display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:16}}>
-        {[0,1,2,3].map(i=><div key={i} style={{background:"#161616",borderRadius:18,padding:"20px",height:100,animation:"pulse 1.5s infinite",animationDelay:`${i*0.15}s`}}>
-          <div style={{width:80,height:8,background:"#222",borderRadius:4,marginBottom:12}}/>
-          <div style={{width:120,height:24,background:"#222",borderRadius:6}}/>
+        {[0,1,2,3].map(i=><div key={i} style={{background:"var(--skeleton-bg)",borderRadius:18,padding:"20px",height:100,animation:"pulse 1.5s infinite",animationDelay:`${i*0.15}s`}}>
+          <div style={{width:80,height:8,background:"var(--skeleton-inner)",borderRadius:4,marginBottom:12}}/>
+          <div style={{width:120,height:24,background:"var(--skeleton-inner)",borderRadius:6}}/>
         </div>)}
       </div>
       {/* Skeleton rows */}
       <div style={{padding:"0 36px",display:"flex",flexDirection:"column",gap:8}}>
-        {[0,1,2,3,4,5].map(i=><div key={i} style={{display:"flex",gap:12,alignItems:"center",background:"#161616",borderRadius:16,padding:"12px 16px",animation:"pulse 1.5s infinite",animationDelay:`${i*0.1}s`}}>
-          <div style={{width:42,height:42,borderRadius:10,background:"#222",flexShrink:0}}/>
+        {[0,1,2,3,4,5].map(i=><div key={i} style={{display:"flex",gap:12,alignItems:"center",background:"var(--skeleton-bg)",borderRadius:16,padding:"12px 16px",animation:"pulse 1.5s infinite",animationDelay:`${i*0.1}s`}}>
+          <div style={{width:42,height:42,borderRadius:10,background:"var(--skeleton-inner)",flexShrink:0}}/>
           <div style={{flex:1}}>
-            <div style={{width:100+i*10,height:12,background:"#222",borderRadius:4,marginBottom:6}}/>
-            <div style={{width:50,height:8,background:"#1a1a1a",borderRadius:3}}/>
+            <div style={{width:100+i*10,height:12,background:"var(--skeleton-inner)",borderRadius:4,marginBottom:6}}/>
+            <div style={{width:50,height:8,background:"var(--progress-track)",borderRadius:3}}/>
           </div>
-          <div style={{width:60,height:16,background:"#222",borderRadius:4}}/>
-          <div style={{width:40,height:16,background:"#222",borderRadius:4}}/>
-          <div style={{width:50,height:16,background:"#222",borderRadius:4}}/>
+          <div style={{width:60,height:16,background:"var(--skeleton-inner)",borderRadius:4}}/>
+          <div style={{width:40,height:16,background:"var(--skeleton-inner)",borderRadius:4}}/>
+          <div style={{width:50,height:16,background:"var(--skeleton-inner)",borderRadius:4}}/>
         </div>)}
       </div>
       {/* Loading indicator */}
       <div style={{display:"flex",justifyContent:"center",marginTop:24}}>
-        <div style={{width:160,height:3,background:"#1a1a1a",borderRadius:3,overflow:"hidden"}}>
+        <div style={{width:160,height:3,background:"var(--progress-track)",borderRadius:3,overflow:"hidden"}}>
           <div style={{width:"60%",height:"100%",background:"linear-gradient(90deg,#d69e2e,#b8860b)",borderRadius:3,animation:"pulse 1s infinite"}}/>
         </div>
       </div>
@@ -2005,7 +2051,7 @@ function buildPositionsFromCB() {
       ) : (
         <>
           {/* ═══ ANALYSIS HEADER ═══ */}
-          <header style={{position:"sticky",top:0,zIndex:20,background:"rgba(0,0,0,.85)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",borderBottom:"1px solid var(--border)"}}>
+          <header style={{position:"sticky",top:0,zIndex:20,background:"var(--header-bg)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",borderBottom:"1px solid var(--border)"}}>
             {/* Row 1: Back + Config */}
             <div className="ar-analysis-header" style={{display:"flex",alignItems:"center",gap:10,padding:"8px 24px 4px",flexWrap:"wrap"}}>
               <button onClick={goHome} style={{padding:"5px 12px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:11,cursor:"pointer",fontFamily:"var(--fm)",fontWeight:600,flexShrink:0}}>← Inicio</button>
@@ -2071,13 +2117,13 @@ function buildPositionsFromCB() {
                 onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.target.blur(); } }}
                 placeholder="Por que compraste esta empresa?"
                 rows={1}
-                style={{flex:1,maxWidth:600,minHeight:24,maxHeight:80,padding:"3px 8px",borderRadius:6,border:"1px solid var(--border)",background:"rgba(255,255,255,.03)",color:"var(--text-secondary)",fontSize:10,fontFamily:"var(--fm)",resize:"vertical",lineHeight:1.4,outline:"none",transition:"border-color .2s"}}
+                style={{flex:1,maxWidth:600,minHeight:24,maxHeight:80,padding:"3px 8px",borderRadius:6,border:"1px solid var(--border)",background:"var(--subtle-bg)",color:"var(--text-secondary)",fontSize:10,fontFamily:"var(--fm)",resize:"vertical",lineHeight:1.4,outline:"none",transition:"border-color .2s"}}
                 onFocus={e => e.target.style.borderColor = "var(--gold)"}
               />
               {notesSaved && <span style={{fontSize:9,color:"var(--green)",fontFamily:"var(--fm)",paddingTop:4,flexShrink:0,animation:"fadeUp .3s"}}>Guardado</span>}
             </div>}
             {/* Row 2: Analysis Tabs */}
-            <div ref={tabsRef} className="ar-tabs-scroll" style={{display:"flex",gap:2,padding:"0 24px",overflowX:"auto",overflowY:"hidden",borderTop:"1px solid rgba(255,255,255,.03)"}}>
+            <div ref={tabsRef} className="ar-tabs-scroll" style={{display:"flex",gap:2,padding:"0 24px",overflowX:"auto",overflowY:"hidden",borderTop:"1px solid var(--row-border)"}}>
               {TABS.map(t=>(
                 <button key={t.id} className="ar-tab-btn" data-active={tab===t.id?"true":"false"} onClick={()=>setTab(t.id)}
                   style={{display:"flex",alignItems:"center",gap:4,padding:"7px 12px",border:"none",background:"transparent",cursor:"pointer",color:tab===t.id?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:tab===t.id?700:500,fontFamily:"var(--fb)",transition:"color .2s",flexShrink:0}}
@@ -2104,7 +2150,7 @@ function buildPositionsFromCB() {
       <ScrollToTop/>
       {/* Global Search Overlay (Cmd+K) */}
       {globalSearch && (
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",backdropFilter:"blur(4px)",zIndex:9999,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:120}}
+        <div style={{position:"fixed",inset:0,background:"var(--overlay-bg)",backdropFilter:"blur(4px)",zIndex:9999,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:120}}
           onClick={()=>setGlobalSearch(false)}>
           <div style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:14,width:"100%",maxWidth:500,overflow:"hidden",boxShadow:"0 20px 60px rgba(0,0,0,.5)"}}
             onClick={e=>e.stopPropagation()}>
@@ -2119,7 +2165,7 @@ function buildPositionsFromCB() {
                     else openAnalysis(r.ticker);
                     setGlobalSearch(false);
                   }}
-                    style={{padding:"10px 18px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,borderBottom:"1px solid rgba(255,255,255,.03)"}}
+                    style={{padding:"10px 18px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,borderBottom:"1px solid var(--row-border)"}}
                     onMouseEnter={e=>e.currentTarget.style.background="var(--card-hover)"}
                     onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                     <span style={{fontSize:9,padding:"2px 6px",borderRadius:4,fontFamily:"var(--fm)",fontWeight:600,

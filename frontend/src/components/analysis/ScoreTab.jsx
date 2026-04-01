@@ -89,7 +89,7 @@ export default function ScoreTab() {
             </div>
             <div style={{display:"flex",gap:3,alignItems:"flex-end",height:40,marginTop:8}}>
               {DATA_YEARS.slice().reverse().filter(y=>fin[y]?.sharesOut>0).map((y,i,arr)=>{
-                const v=fin[y].sharesOut; const max=Math.max(...arr.map(yy=>fin[yy].sharesOut));
+                const v=fin[y].sharesOut; const shares=arr.map(yy=>fin[yy].sharesOut).filter(s=>s>0); const max=shares.length?Math.max(...shares):1;
                 return <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%"}}>
                   <div style={{width:"100%",maxWidth:18,height:`${v/max*100}%`,background:i===arr.length-1?"var(--gold)":"rgba(100,210,255,.4)",borderRadius:"2px 2px 0 0",minHeight:3}}/>
                   <span style={{fontSize:6,color:"var(--text-tertiary)",marginTop:1,fontFamily:"var(--fm)"}}>{String(y).slice(2)}</span>

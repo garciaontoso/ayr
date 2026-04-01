@@ -326,7 +326,8 @@ export default function DashTab() {
             {waterfall ? (
               <div style={{display:"flex",alignItems:"flex-end",gap:1,height:120,padding:"0 2px"}}>
                 {waterfall.map((step,i)=>{
-                  const maxVal = Math.max(...waterfall.filter(s=>s.value>0).map(s=>s.value));
+                  const posVals = waterfall.filter(s=>s.value>0).map(s=>s.value);
+                  const maxVal = posVals.length ? Math.max(...posVals) : 1;
                   const h = Math.abs(step.value)/maxVal * 100;
                   return (
                     <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%"}}>
