@@ -127,7 +127,7 @@ export async function fetchAllData() {
         sh: p.shares, c: p.currency, fx: p.fx, tg: p.strategy, cat: p.category,
         ls: p.list, mv: p.market_value, uv: p.usd_value, ti: p.total_invested,
         pnl: p.pnl_pct, pnlAbs: p.pnl_abs, divTTM: p.div_ttm, dy: p.div_yield,
-        yoc: p.yoc, mc: p.market_cap, sec: p.sector,
+        yoc: p.yoc, mc: p.market_cap, sec: p.sector, notes: p.notes || '',
       };
       return acc;
     }, {});

@@ -123,6 +123,456 @@ function PositionCard({ item, onClick, expanded, onToggle }) {
 }
 
 
+// ═══════════════════════════════════════
+// What-If Scenario Simulator Component
+// ═══════════════════════════════════════
+
+const wifInputStyle = {
+  padding: '8px 12px', borderRadius: 8,
+  border: `1px solid var(--border)`, background: 'rgba(255,255,255,.03)',
+  color: 'var(--text-primary)', fontSize: 12, fontFamily: 'var(--fm)',
+  outline: 'none', width: '100%',
+};
+
+const wifLabelStyle = { fontSize: 9, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', letterSpacing: .5, textTransform: 'uppercase', marginBottom: 4 };
+
+const wifResultRow = (label, value, color = 'var(--text-secondary)') => (
+  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,.03)' }}>
+    <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>{label}</span>
+    <span style={{ fontSize: 12, fontWeight: 700, color, fontFamily: 'var(--fm)' }}>{value}</span>
+  </div>
+);
+
+function WhatIfSimulator({
+  portfolioList, portfolioTotals, analysis, hide, hideN, fxRates, displayCcy,
+  wifMode, setWifMode,
+  wifSellTicker, setWifSellTicker, wifSellShares, setWifSellShares,
+  wifBuyTicker, setWifBuyTicker, wifBuyAmount, setWifBuyAmount,
+  wifSwapSellTicker, setWifSwapSellTicker, wifSwapBuyTicker, setWifSwapBuyTicker,
+  wifSwapPct, setWifSwapPct,
+}) {
+  const activePositions = useMemo(() =>
+    portfolioList.filter(p => (p.shares || 0) > 0).sort((a, b) => (b.usdValue || 0) - (a.usdValue || 0)),
+    [portfolioList]
+  );
+
+  const nlv = portfolioTotals?.nlv || portfolioTotals?.totalValue || 1;
+  const totalDiv = portfolioTotals?.totalDiv || portfolioList.reduce((s, p) => s + ((p.divTTM || 0) * (p.shares || 0)), 0);
+
+  // ── Sell simulation ──
+  const sellSim = useMemo(() => {
+    if (!wifSellTicker) return null;
+    const pos = activePositions.find(p => p.ticker === wifSellTicker);
+    if (!pos) return null;
+    const sharesToSell = Math.min(Math.max(0, parseInt(wifSellShares) || 0), pos.shares || 0);
+    if (sharesToSell <= 0) return { pos, sharesToSell: 0, preview: true };
+    const price = pos.lastPrice || 0;
+    const valueFreed = sharesToSell * price;
+    const divPerShare = pos.divTTM || 0;
+    const divLost = sharesToSell * divPerShare;
+    const remainingShares = (pos.shares || 0) - sharesToSell;
+    const remainingValue = remainingShares * price;
+    const newNlv = nlv; // NLV stays the same (cash replaces equity)
+    const oldWeight = (pos.usdValue || 0) / nlv * 100;
+    const newWeight = remainingValue / nlv * 100;
+    return {
+      pos, sharesToSell, preview: false,
+      currentShares: pos.shares, currentValue: pos.usdValue || 0,
+      currentWeight: oldWeight, currentAnnualDiv: (pos.divTTM || 0) * (pos.shares || 0),
+      valueFreed, divLost, remainingShares, remainingValue, newWeight,
+    };
+  }, [wifSellTicker, wifSellShares, activePositions, nlv]);
+
+  // ── Buy simulation ──
+  const buySim = useMemo(() => {
+    if (!wifBuyTicker) return null;
+    const amount = parseFloat(wifBuyAmount) || 0;
+    // Try to find in portfolio first
+    const existing = activePositions.find(p => p.ticker === wifBuyTicker.toUpperCase());
+    const price = existing?.lastPrice || 0;
+    const divPerShare = existing?.divTTM || 0;
+    const divYield = existing?.divYield || 0;
+    if (!price || amount <= 0) return { ticker: wifBuyTicker.toUpperCase(), existing, price, needsPrice: !price, preview: true };
+    const newShares = Math.floor(amount / price);
+    if (newShares <= 0) return { ticker: wifBuyTicker.toUpperCase(), existing, price, preview: true };
+    const actualCost = newShares * price;
+    const newDivIncome = newShares * divPerShare;
+    const existingShares = existing?.shares || 0;
+    const existingValue = existing?.usdValue || 0;
+    const totalShares = existingShares + newShares;
+    const totalValue = existingValue + actualCost;
+    const newWeight = totalValue / nlv * 100;
+    const oldWeight = existingValue / nlv * 100;
+    const oldPortfolioYield = nlv > 0 ? totalDiv / nlv * 100 : 0;
+    const newPortfolioYield = nlv > 0 ? (totalDiv + newDivIncome) / nlv * 100 : 0;
+    return {
+      ticker: wifBuyTicker.toUpperCase(), existing, price, preview: false,
+      amount, newShares, actualCost, newDivIncome, divYield,
+      existingShares, totalShares, oldWeight, newWeight, totalValue,
+      oldPortfolioYield, newPortfolioYield,
+    };
+  }, [wifBuyTicker, wifBuyAmount, activePositions, nlv, totalDiv]);
+
+  // ── Swap simulation ──
+  const swapSim = useMemo(() => {
+    if (!wifSwapSellTicker || !wifSwapBuyTicker) return null;
+    const sellPos = activePositions.find(p => p.ticker === wifSwapSellTicker);
+    const buyPos = activePositions.find(p => p.ticker === wifSwapBuyTicker.toUpperCase());
+    if (!sellPos) return null;
+    const pct = Math.max(0, Math.min(100, wifSwapPct));
+    const sellValue = (sellPos.usdValue || 0) * pct / 100;
+    const sellShares = Math.floor((sellPos.shares || 0) * pct / 100);
+    const sellDivLost = sellShares * (sellPos.divTTM || 0);
+    const buyPrice = buyPos?.lastPrice || 0;
+    if (!buyPrice) return { sellPos, buyTicker: wifSwapBuyTicker.toUpperCase(), needsPrice: true };
+    const buyShares = Math.floor(sellValue / buyPrice);
+    const buyDivGained = buyShares * (buyPos?.divTTM || 0);
+    const netDivChange = buyDivGained - sellDivLost;
+    const sellRemaining = (sellPos.shares || 0) - sellShares;
+    const sellNewWeight = (sellRemaining * (sellPos.lastPrice || 0)) / nlv * 100;
+    const buyExistingShares = buyPos?.shares || 0;
+    const buyTotalShares = buyExistingShares + buyShares;
+    const buyNewWeight = (buyTotalShares * buyPrice) / nlv * 100;
+    const sellOldYield = sellPos.divYield || 0;
+    const buyNewYield = buyPos?.divYield || 0;
+    // Sector diversification
+    const sellSector = sellPos.sector || 'Otros';
+    const buySector = buyPos?.sector || 'Otros';
+    const sameSector = sellSector === buySector;
+    return {
+      sellPos, buyPos, buyTicker: wifSwapBuyTicker.toUpperCase(), pct,
+      sellValue, sellShares, sellDivLost, buyPrice, buyShares, buyDivGained,
+      netDivChange, sellRemaining, sellNewWeight, buyExistingShares,
+      buyTotalShares, buyNewWeight, sellOldYield, buyNewYield,
+      sellSector, buySector, sameSector, needsPrice: false,
+    };
+  }, [wifSwapSellTicker, wifSwapBuyTicker, wifSwapPct, activePositions, nlv]);
+
+  const tabBtn = (mode, label, icon) => (
+    <button onClick={() => setWifMode(mode)} style={{
+      padding: '8px 18px', borderRadius: 8, border: `1px solid ${wifMode === mode ? GOLD + '50' : 'var(--border)'}`,
+      background: wifMode === mode ? GOLD_DIM : 'transparent',
+      color: wifMode === mode ? GOLD : 'var(--text-tertiary)',
+      fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: FM,
+      transition: 'all .2s',
+    }}>
+      {icon} {label}
+    </button>
+  );
+
+  const posSelect = (value, onChange, label) => (
+    <div style={{ flex: 1 }}>
+      <div style={wifLabelStyle}>{label}</div>
+      <select value={value} onChange={e => onChange(e.target.value)} style={{ ...wifInputStyle, cursor: 'pointer', appearance: 'auto' }}>
+        <option value="">— Seleccionar —</option>
+        {activePositions.map(p => (
+          <option key={p.ticker} value={p.ticker}>
+            {p.ticker} — {_sf(p.shares, 0)} acc — ${_sl(p.usdValue || 0)}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+
+  return (
+    <div style={{
+      ...card({ padding: '24px 28px' }),
+      background: 'linear-gradient(135deg, rgba(214,158,46,.02) 0%, rgba(0,0,0,0) 60%)',
+      border: `1px solid ${GOLD}12`,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+        <div style={sectionTitle}>{"\u00bfQu\u00e9 pasar\u00eda si...?"}</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {tabBtn('sell', 'Vender', '\u{1F4E4}')}
+          {tabBtn('buy', 'Comprar', '\u{1F6D2}')}
+          {tabBtn('swap', 'Rotar', '\u{1F504}')}
+        </div>
+      </div>
+
+      {/* ── SELL MODE ── */}
+      {wifMode === 'sell' && (
+        <div>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+            {posSelect(wifSellTicker, setWifSellTicker, 'Posicion a vender')}
+            <div style={{ width: 140 }}>
+              <div style={wifLabelStyle}>Acciones a vender</div>
+              <input type="number" min="0" max={sellSim?.pos?.shares || 9999}
+                value={wifSellShares} onChange={e => setWifSellShares(e.target.value)}
+                placeholder={sellSim?.pos ? `Max: ${sellSim.pos.shares}` : '0'}
+                style={wifInputStyle} />
+            </div>
+            {sellSim?.pos && (
+              <div style={{ display: 'flex', gap: 4, alignItems: 'flex-end', paddingBottom: 2 }}>
+                {[25, 50, 75, 100].map(pct => (
+                  <button key={pct} onClick={() => setWifSellShares(String(Math.floor((sellSim.pos.shares || 0) * pct / 100)))}
+                    style={{
+                      padding: '5px 8px', borderRadius: 5, fontSize: 9, fontWeight: 600,
+                      border: `1px solid ${BORDER}`, background: 'rgba(255,255,255,.02)',
+                      color: 'var(--text-tertiary)', cursor: 'pointer', fontFamily: FM,
+                    }}>
+                    {pct}%
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {sellSim && !sellSim.preview && (
+            <div style={{ padding: '16px 20px', borderRadius: 12, background: 'rgba(248,113,113,.04)', border: `1px solid ${RED}15` }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: RED, fontFamily: FM, marginBottom: 12 }}>
+                Si vendes {sellSim.sharesToSell} acciones de {wifSellTicker}:
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: FM, textTransform: 'uppercase', letterSpacing: .5 }}>Ahora</div>
+                  {wifResultRow('Acciones', hideN ? '***' : _sl(sellSim.currentShares))}
+                  {wifResultRow('Valor', hideN ? '***' : `$${_sl(sellSim.currentValue)}`)}
+                  {wifResultRow('Peso', `${_sf(sellSim.currentWeight, 2)}%`)}
+                  {wifResultRow('Div/ano', hideN ? '***' : `$${_sl(sellSim.currentAnnualDiv)}`)}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: FM, textTransform: 'uppercase', letterSpacing: .5 }}>Despues</div>
+                  {wifResultRow('Acciones', hideN ? '***' : _sl(sellSim.remainingShares), sellSim.remainingShares === 0 ? RED : 'var(--text-secondary)')}
+                  {wifResultRow('Valor', hideN ? '***' : `$${_sl(sellSim.remainingValue)}`, sellSim.remainingValue === 0 ? RED : 'var(--text-secondary)')}
+                  {wifResultRow('Peso', `${_sf(sellSim.newWeight, 2)}%`, sellSim.newWeight === 0 ? RED : 'var(--text-secondary)')}
+                  {wifResultRow('Div/ano', hideN ? '***' : `$${_sl(sellSim.currentAnnualDiv - sellSim.divLost)}`, RED)}
+                </div>
+              </div>
+              <div style={{ marginTop: 14, padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,.02)', display: 'flex', gap: 20, justifyContent: 'center' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: FM, textTransform: 'uppercase' }}>Capital liberado</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: GREEN, fontFamily: FM }}>{hideN ? '***' : `$${_sl(sellSim.valueFreed)}`}</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: FM, textTransform: 'uppercase' }}>Dividendo perdido/ano</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: RED, fontFamily: FM }}>{hideN ? '***' : `-$${_sl(sellSim.divLost)}`}</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: FM, textTransform: 'uppercase' }}>Cambio de peso</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: YELLOW, fontFamily: FM }}>-{_sf(sellSim.currentWeight - sellSim.newWeight, 2)}%</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {sellSim?.preview && wifSellTicker && (
+            <div style={{ padding: '14px 18px', borderRadius: 10, background: 'rgba(255,255,255,.02)', border: `1px solid var(--border)` }}>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: FM }}>
+                <strong style={{ color: GOLD }}>{wifSellTicker}</strong>: {hideN ? '***' : `${_sl(sellSim.pos?.shares || 0)} acciones`} — Valor: {hideN ? '***' : `$${_sl(sellSim.pos?.usdValue || 0)}`} — Peso: {_sf((sellSim.pos?.usdValue || 0) / nlv * 100, 2)}% — Div/ano: {hideN ? '***' : `$${_sl((sellSim.pos?.divTTM || 0) * (sellSim.pos?.shares || 0))}`}
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: FM, marginTop: 6 }}>Introduce el numero de acciones a vender para ver la simulacion</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── BUY MODE ── */}
+      {wifMode === 'buy' && (
+        <div>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+            <div style={{ flex: 1 }}>
+              <div style={wifLabelStyle}>Ticker a comprar</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input type="text" value={wifBuyTicker}
+                  onChange={e => setWifBuyTicker(e.target.value.toUpperCase())}
+                  placeholder="Ej: AAPL"
+                  style={{ ...wifInputStyle, width: 100, flex: 'none' }} />
+                <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {activePositions.slice(0, 10).map(p => (
+                    <button key={p.ticker} onClick={() => setWifBuyTicker(p.ticker)}
+                      style={{
+                        padding: '3px 7px', borderRadius: 4, fontSize: 8, fontWeight: 600,
+                        border: `1px solid ${wifBuyTicker === p.ticker ? GOLD + '50' : 'var(--border)'}`,
+                        background: wifBuyTicker === p.ticker ? GOLD_DIM : 'transparent',
+                        color: wifBuyTicker === p.ticker ? GOLD : 'var(--text-tertiary)',
+                        cursor: 'pointer', fontFamily: FM,
+                      }}>
+                      {p.ticker}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div style={{ width: 160 }}>
+              <div style={wifLabelStyle}>Monto a invertir ($)</div>
+              <input type="number" min="0" value={wifBuyAmount}
+                onChange={e => setWifBuyAmount(e.target.value)}
+                placeholder="Ej: 5000"
+                style={wifInputStyle} />
+            </div>
+            <div style={{ display: 'flex', gap: 4, alignItems: 'flex-end', paddingBottom: 2 }}>
+              {[1000, 5000, 10000, 25000].map(amt => (
+                <button key={amt} onClick={() => setWifBuyAmount(String(amt))}
+                  style={{
+                    padding: '5px 8px', borderRadius: 5, fontSize: 9, fontWeight: 600,
+                    border: `1px solid ${BORDER}`, background: 'rgba(255,255,255,.02)',
+                    color: 'var(--text-tertiary)', cursor: 'pointer', fontFamily: FM,
+                  }}>
+                  ${amt >= 1000 ? `${amt / 1000}K` : amt}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {buySim && !buySim.preview && (
+            <div style={{ padding: '16px 20px', borderRadius: 12, background: 'rgba(52,211,153,.04)', border: `1px solid ${GREEN}15` }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: GREEN, fontFamily: FM, marginBottom: 12 }}>
+                Si compras ${_sl(buySim.actualCost)} de {buySim.ticker}:
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: FM, textTransform: 'uppercase', letterSpacing: .5 }}>Compra</div>
+                  {wifResultRow('Acciones nuevas', `+${_sl(buySim.newShares)}`)}
+                  {wifResultRow('Precio', `$${_sf(buySim.price, 2)}`)}
+                  {wifResultRow('Coste real', hideN ? '***' : `$${_sl(buySim.actualCost)}`)}
+                  {wifResultRow('Yield del ticker', `${_sf(buySim.divYield, 2)}%`, GOLD)}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: FM, textTransform: 'uppercase', letterSpacing: .5 }}>Posicion resultante</div>
+                  {wifResultRow('Total acciones', hideN ? '***' : _sl(buySim.totalShares))}
+                  {wifResultRow('Valor total', hideN ? '***' : `$${_sl(buySim.totalValue)}`)}
+                  {wifResultRow('Peso anterior', `${_sf(buySim.oldWeight, 2)}%`)}
+                  {wifResultRow('Peso nuevo', `${_sf(buySim.newWeight, 2)}%`, buySim.newWeight > 8 ? YELLOW : GREEN)}
+                </div>
+              </div>
+              <div style={{ marginTop: 14, padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,.02)', display: 'flex', gap: 20, justifyContent: 'center' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: FM, textTransform: 'uppercase' }}>Div. nuevo / ano</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: GREEN, fontFamily: FM }}>{hideN ? '***' : `+$${_sl(buySim.newDivIncome)}`}</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: FM, textTransform: 'uppercase' }}>Yield cartera antes</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-secondary)', fontFamily: FM }}>{_sf(buySim.oldPortfolioYield, 2)}%</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: FM, textTransform: 'uppercase' }}>Yield cartera despues</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: buySim.newPortfolioYield > buySim.oldPortfolioYield ? GREEN : RED, fontFamily: FM }}>{_sf(buySim.newPortfolioYield, 2)}%</div>
+                </div>
+              </div>
+              {buySim.newWeight > 8 && (
+                <div style={{ marginTop: 10, padding: '6px 12px', borderRadius: 6, background: 'rgba(245,158,11,.06)', border: `1px solid ${YELLOW}20`, fontSize: 9, color: YELLOW, fontFamily: FM }}>
+                  Peso resultante {_sf(buySim.newWeight, 1)}% — considera si la concentracion es adecuada
+                </div>
+              )}
+            </div>
+          )}
+
+          {buySim?.preview && wifBuyTicker && (
+            <div style={{ padding: '14px 18px', borderRadius: 10, background: 'rgba(255,255,255,.02)', border: `1px solid var(--border)` }}>
+              {buySim.needsPrice ? (
+                <div style={{ fontSize: 10, color: YELLOW, fontFamily: FM }}>
+                  <strong>{buySim.ticker}</strong> no esta en tu cartera — solo se pueden simular compras de posiciones existentes (se necesita precio en vivo)
+                </div>
+              ) : (
+                <div style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: FM }}>
+                  <strong style={{ color: GOLD }}>{buySim.ticker}</strong> @ ${_sf(buySim.price, 2)} — Introduce un monto para ver la simulacion
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── SWAP MODE ── */}
+      {wifMode === 'swap' && (
+        <div>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginBottom: 16 }}>
+            {posSelect(wifSwapSellTicker, setWifSwapSellTicker, 'Vender')}
+            <div style={{ fontSize: 18, color: 'var(--text-tertiary)', paddingBottom: 8 }}>{'\u2192'}</div>
+            <div style={{ flex: 1 }}>
+              <div style={wifLabelStyle}>Comprar</div>
+              <select value={wifSwapBuyTicker} onChange={e => setWifSwapBuyTicker(e.target.value)} style={{ ...wifInputStyle, cursor: 'pointer', appearance: 'auto' }}>
+                <option value="">— Seleccionar —</option>
+                {activePositions.filter(p => p.ticker !== wifSwapSellTicker).map(p => (
+                  <option key={p.ticker} value={p.ticker}>
+                    {p.ticker} — Yield {_sf(p.divYield || 0, 1)}% — ${_sl(p.lastPrice || 0)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div style={{ width: 120 }}>
+              <div style={wifLabelStyle}>% a rotar: {wifSwapPct}%</div>
+              <input type="range" min="10" max="100" step="5" value={wifSwapPct}
+                onChange={e => setWifSwapPct(Number(e.target.value))}
+                style={{ width: '100%', accentColor: GOLD }} />
+            </div>
+          </div>
+
+          {swapSim && !swapSim.needsPrice && (
+            <div style={{ padding: '16px 20px', borderRadius: 12, background: 'rgba(214,158,46,.04)', border: `1px solid ${GOLD}15` }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: GOLD, fontFamily: FM, marginBottom: 12 }}>
+                Vender {_sf(swapSim.pct, 0)}% de {wifSwapSellTicker} y comprar {swapSim.buyTicker}:
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+                {/* Sell side */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <div style={{ fontSize: 8, color: RED, fontFamily: FM, textTransform: 'uppercase', letterSpacing: .5, fontWeight: 700 }}>Vendes ({wifSwapSellTicker})</div>
+                  {wifResultRow('Acciones', hideN ? '***' : _sl(swapSim.sellShares))}
+                  {wifResultRow('Valor', hideN ? '***' : `$${_sl(swapSim.sellValue)}`)}
+                  {wifResultRow('Quedan', hideN ? '***' : `${_sl(swapSim.sellRemaining)} acc`)}
+                  {wifResultRow('Peso nuevo', `${_sf(swapSim.sellNewWeight, 2)}%`)}
+                  {wifResultRow('Div. perdido', hideN ? '***' : `-$${_sl(swapSim.sellDivLost)}/a`, RED)}
+                </div>
+                {/* Buy side */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <div style={{ fontSize: 8, color: GREEN, fontFamily: FM, textTransform: 'uppercase', letterSpacing: .5, fontWeight: 700 }}>Compras ({swapSim.buyTicker})</div>
+                  {wifResultRow('Acciones', `+${_sl(swapSim.buyShares)}`)}
+                  {wifResultRow('Total acc.', hideN ? '***' : _sl(swapSim.buyTotalShares))}
+                  {wifResultRow('Peso nuevo', `${_sf(swapSim.buyNewWeight, 2)}%`)}
+                  {wifResultRow('Yield', `${_sf(swapSim.buyNewYield, 2)}%`, GOLD)}
+                  {wifResultRow('Div. ganado', hideN ? '***' : `+$${_sl(swapSim.buyDivGained)}/a`, GREEN)}
+                </div>
+                {/* Net result */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, justifyContent: 'center', padding: '10px 14px', background: 'rgba(255,255,255,.02)', borderRadius: 10 }}>
+                  <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: FM, textTransform: 'uppercase', letterSpacing: .5, fontWeight: 700 }}>Resultado neto</div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: FM, textTransform: 'uppercase' }}>Cambio div/ano</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: swapSim.netDivChange >= 0 ? GREEN : RED, fontFamily: FM }}>
+                      {hideN ? '***' : `${swapSim.netDivChange >= 0 ? '+' : ''}$${_sl(swapSim.netDivChange)}`}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: FM, textTransform: 'uppercase' }}>Yield: {_sf(swapSim.sellOldYield, 1)}% {'\u2192'} {_sf(swapSim.buyNewYield, 1)}%</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: swapSim.buyNewYield >= swapSim.sellOldYield ? GREEN : RED, fontFamily: FM }}>
+                      {swapSim.buyNewYield >= swapSim.sellOldYield ? '\u2191' : '\u2193'} {_sf(Math.abs(swapSim.buyNewYield - swapSim.sellOldYield), 2)}%
+                    </div>
+                  </div>
+                  {!swapSim.sameSector && (
+                    <div style={{ textAlign: 'center', marginTop: 4 }}>
+                      <div style={{ fontSize: 8, color: GREEN, fontFamily: FM, textTransform: 'uppercase' }}>Diversificacion</div>
+                      <div style={{ fontSize: 9, color: 'var(--text-secondary)', fontFamily: FM }}>{swapSim.sellSector} {'\u2192'} {swapSim.buySector}</div>
+                    </div>
+                  )}
+                  {swapSim.sameSector && (
+                    <div style={{ textAlign: 'center', marginTop: 4 }}>
+                      <div style={{ fontSize: 8, color: YELLOW, fontFamily: FM }}>Mismo sector ({swapSim.sellSector})</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {swapSim?.needsPrice && (
+            <div style={{ padding: '12px 16px', borderRadius: 8, background: 'rgba(245,158,11,.06)', border: `1px solid ${YELLOW}20` }}>
+              <span style={{ fontSize: 10, color: YELLOW, fontFamily: FM }}>
+                {swapSim.buyTicker} no tiene precio disponible — selecciona una posicion existente
+              </span>
+            </div>
+          )}
+
+          {(!wifSwapSellTicker || !wifSwapBuyTicker) && (
+            <div style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: FM, textAlign: 'center', padding: 16 }}>
+              Selecciona una posicion a vender y otra a comprar para simular la rotacion
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 export default function AdvisorTab() {
   const {
     portfolioList, portfolioTotals, screenerData,

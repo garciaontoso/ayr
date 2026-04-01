@@ -9,6 +9,8 @@ export default function DashboardTab() {
   const [corrData, setCorrData] = useState(null);
   const [corrLoading, setCorrLoading] = useState(false);
   const [corrOpen, setCorrOpen] = useState(false);
+  const [earningsData, setEarningsData] = useState(null);
+  const [earningsOpen, setEarningsOpen] = useState(true);
   useEffect(() => {
     fetch(`${API_URL}/api/ib-nlv-history?limit=90`)
       .then(r => r.json())
@@ -27,6 +29,86 @@ export default function DashboardTab() {
     CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_CAT, CASH_DATA, MARGIN_INTEREST_DATA, FI_TRACK, FIRE_PROJ, FIRE_PARAMS, ANNUAL_PL,
     ibData, ibDiscrepancies,
   } = useHome();
+
+  // ── Earnings Calendar: fetch upcoming earnings for portfolio tickers ──
+  useEffect(() => {
+    if (!portfolioList?.length) return;
+    const tickers = portfolioList.map(p => p.ticker).filter(t => t && !t.includes(":")).slice(0, 50);
+    if (!tickers.length) return;
+    fetch(`${API_URL}/api/earnings-batch?symbols=${tickers.join(",")}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data && !data.error) setEarningsData(data);
+      })
+      .catch(() => {});
+  }, [portfolioList]);
+
+  // ── Correlation matrix: fetch top-15 positions price history on expand ──
+  const fetchCorrelation = useCallback(async () => {
+    if (corrData || corrLoading || !portfolioList.length) return;
+    setCorrLoading(true);
+    try {
+      const top15 = [...portfolioList]
+        .filter(p => p.weight > 0 && !p.ticker.includes(":"))
+        .sort((a, b) => (b.weight || 0) - (a.weight || 0))
+        .slice(0, 15);
+      const from = new Date(Date.now() - 100 * 86400000).toISOString().slice(0, 10);
+      const fetches = top15.map(p =>
+        fetch(`${API_URL}/api/price-history?symbol=${encodeURIComponent(p.ticker)}&from=${from}`)
+          .then(r => r.json())
+          .then(d => ({ ticker: p.ticker, prices: (d.historical || d || []).reverse() }))
+          .catch(() => ({ ticker: p.ticker, prices: [] }))
+      );
+      const results = await Promise.all(fetches);
+      // Build daily returns map aligned by date
+      const returnsByTicker = {};
+      const allDates = new Set();
+      results.forEach(({ ticker, prices }) => {
+        if (prices.length < 10) return;
+        const rm = {};
+        for (let i = 1; i < prices.length; i++) {
+          const prev = prices[i - 1].close || prices[i - 1].adjClose;
+          const cur = prices[i].close || prices[i].adjClose;
+          if (prev > 0 && cur > 0) {
+            const dt = prices[i].date;
+            rm[dt] = (cur - prev) / prev;
+            allDates.add(dt);
+          }
+        }
+        if (Object.keys(rm).length >= 10) returnsByTicker[ticker] = rm;
+      });
+      const tickers = Object.keys(returnsByTicker);
+      if (tickers.length < 3) { setCorrData({ tickers: [], matrix: [], score: 0, bestPair: null, worstPair: null }); setCorrLoading(false); return; }
+      const dates = [...allDates].sort();
+      // Pearson correlation
+      const corr = (a, b) => {
+        const common = dates.filter(d => a[d] !== undefined && b[d] !== undefined);
+        if (common.length < 10) return 0;
+        const ma = common.reduce((s, d) => s + a[d], 0) / common.length;
+        const mb = common.reduce((s, d) => s + b[d], 0) / common.length;
+        let num = 0, da2 = 0, db2 = 0;
+        common.forEach(d => { const x = a[d] - ma, y = b[d] - mb; num += x * y; da2 += x * x; db2 += y * y; });
+        const denom = Math.sqrt(da2) * Math.sqrt(db2);
+        return denom > 0 ? num / denom : 0;
+      };
+      const matrix = tickers.map(t1 => tickers.map(t2 => t1 === t2 ? 1 : corr(returnsByTicker[t1], returnsByTicker[t2])));
+      // Find best/worst pairs
+      let maxCorr = -2, minCorr = 2, bestPair = null, worstPair = null;
+      let sumCorr = 0, pairCount = 0;
+      for (let i = 0; i < tickers.length; i++) {
+        for (let j = i + 1; j < tickers.length; j++) {
+          const v = matrix[i][j];
+          sumCorr += v; pairCount++;
+          if (v > maxCorr) { maxCorr = v; bestPair = [tickers[i], tickers[j], v]; }
+          if (v < minCorr) { minCorr = v; worstPair = [tickers[i], tickers[j], v]; }
+        }
+      }
+      const avgCorr = pairCount > 0 ? sumCorr / pairCount : 0;
+      const score = Math.round(Math.max(0, Math.min(100, (1 - avgCorr) * 100)));
+      setCorrData({ tickers, matrix, score, avgCorr, bestPair, worstPair });
+    } catch (e) { console.warn("Correlation fetch failed:", e); }
+    setCorrLoading(false);
+  }, [corrData, corrLoading, portfolioList]);
 
   const ctrlWithData = CTRL_DATA.filter(c => c.pu > 0).sort((a,b) => (a.d||"").localeCompare(b.d||""));
 const latest = ctrlWithData[ctrlWithData.length - 1] || {};
@@ -351,6 +433,123 @@ return (
         <span>{outperform >= 0 ? "✅ Superando al S&P 500" : "📉 Por debajo del S&P 500"}</span>
         <span>{lastPort.date?.slice(0,7)}</span>
       </div>
+    </div>);
+  })()}
+
+  {/* ── Earnings Calendar ── */}
+  {earningsData && (() => {
+    const now = new Date();
+    const in30 = new Date(now.getTime() + 30 * 86400000);
+    const endOfWeek = new Date(now);
+    endOfWeek.setDate(endOfWeek.getDate() + (7 - endOfWeek.getDay()));
+    // Build list of upcoming earnings within 30 days
+    const upcoming = [];
+    Object.entries(earningsData).forEach(([ticker, info]) => {
+      if (!info?.next?.date) return;
+      const d = new Date(info.next.date + "T12:00:00");
+      if (d >= now && d <= in30) {
+        const name = POS_STATIC[ticker]?.nm || POS_STATIC[ticker]?.name || ticker;
+        upcoming.push({
+          ticker,
+          name,
+          date: info.next.date,
+          dateObj: d,
+          epsEst: info.next.epsEstimated ?? null,
+          revEst: info.next.revenueEstimated ?? null,
+          time: info.next.time || null,
+          thisWeek: d <= endOfWeek,
+        });
+      }
+    });
+    upcoming.sort((a, b) => a.dateObj - b.dateObj);
+    if (!upcoming.length) return null;
+
+    // Mini calendar for current month
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const earningsDates = new Set(upcoming.filter(e => {
+      const ed = e.dateObj;
+      return ed.getMonth() === month && ed.getFullYear() === year;
+    }).map(e => e.dateObj.getDate()));
+    const today = now.getDate();
+    const monthNames = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+    const dayLabels = ["Do","Lu","Ma","Mi","Ju","Vi","Sa"];
+    const calCells = [];
+    for (let i = 0; i < firstDay; i++) calCells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) calCells.push(d);
+
+    return (
+    <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:16,overflow:"hidden"}}>
+      <div
+        onClick={() => setEarningsOpen(!earningsOpen)}
+        style={{padding:"12px 20px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",userSelect:"none"}}
+      >
+        <span style={{fontSize:13,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fd)"}}>
+          {"\uD83D\uDCCA"} Earnings ({upcoming.length} pr{"\u00F3"}ximos)
+        </span>
+        <span style={{fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)",transform:earningsOpen?"rotate(180deg)":"rotate(0deg)",transition:"transform .2s"}}>
+          {"\u25BC"}
+        </span>
+      </div>
+      {earningsOpen && (
+        <div style={{padding:"0 20px 20px"}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 220px",gap:16}}>
+            {/* Earnings list */}
+            <div style={{display:"flex",flexDirection:"column",gap:4,maxHeight:320,overflowY:"auto"}}>
+              {upcoming.map(e => {
+                const dateStr = new Date(e.date + "T12:00:00").toLocaleDateString("es-ES", {weekday:"short",day:"numeric",month:"short"});
+                const timeBadge = e.time === "bmo" ? "Pre-Market" : e.time === "amc" ? "After-Hours" : null;
+                return (
+                  <div key={e.ticker} style={{
+                    display:"flex",alignItems:"center",gap:10,padding:"8px 12px",borderRadius:10,
+                    background:e.thisWeek?"rgba(255,214,10,.04)":"rgba(255,255,255,.02)",
+                    border:e.thisWeek?"1px solid rgba(255,214,10,.2)":"1px solid rgba(255,255,255,.04)",
+                  }}>
+                    <div style={{width:70,fontSize:10,color:e.thisWeek?"#ffd60a":"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600}}>{dateStr}</div>
+                    <div style={{width:55,fontSize:12,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)",cursor:"pointer"}} onClick={() => openAnalysis && openAnalysis(e.ticker)}>{e.ticker}</div>
+                    <div style={{flex:1,fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.name}</div>
+                    {e.epsEst != null && <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",whiteSpace:"nowrap"}}>EPS: <b style={{color:"var(--text-primary)"}}>${_sf(e.epsEst,2)}</b></div>}
+                    {e.revEst != null && <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",whiteSpace:"nowrap"}}>Rev: <b style={{color:"var(--text-primary)"}}>${e.revEst >= 1e9 ? _sf(e.revEst/1e9,1)+"B" : e.revEst >= 1e6 ? _sf(e.revEst/1e6,0)+"M" : _sf(e.revEst,0)}</b></div>}
+                    {timeBadge && <div style={{fontSize:8,padding:"2px 6px",borderRadius:4,fontWeight:600,fontFamily:"var(--fm)",
+                      background:e.time==="bmo"?"rgba(100,210,255,.1)":"rgba(191,90,242,.1)",
+                      color:e.time==="bmo"?"#64d2ff":"#bf5af2"
+                    }}>{timeBadge}</div>}
+                  </div>
+                );
+              })}
+            </div>
+            {/* Mini calendar */}
+            <div style={{padding:12,background:"rgba(255,255,255,.02)",borderRadius:12,border:"1px solid rgba(255,255,255,.04)"}}>
+              <div style={{fontSize:11,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)",textAlign:"center",marginBottom:8}}>{monthNames[month]} {year}</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,textAlign:"center"}}>
+                {dayLabels.map(d => <div key={d} style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,padding:"2px 0"}}>{d}</div>)}
+                {calCells.map((d, i) => {
+                  if (d === null) return <div key={"e"+i}/>;
+                  const hasEarnings = earningsDates.has(d);
+                  const isToday = d === today;
+                  return (
+                    <div key={d} style={{
+                      position:"relative",fontSize:10,fontFamily:"var(--fm)",padding:"4px 0",borderRadius:4,
+                      color:isToday?"var(--gold)":hasEarnings?"#ffd60a":"var(--text-tertiary)",
+                      fontWeight:isToday||hasEarnings?700:400,
+                      background:isToday?"rgba(200,164,78,.1)":"transparent",
+                    }}>
+                      {d}
+                      {hasEarnings && <div style={{position:"absolute",bottom:1,left:"50%",transform:"translateX(-50%)",width:4,height:4,borderRadius:2,background:"#ffd60a"}}/>}
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{display:"flex",gap:8,justifyContent:"center",marginTop:8,fontSize:8,fontFamily:"var(--fm)",color:"var(--text-tertiary)"}}>
+                <span style={{display:"flex",alignItems:"center",gap:3}}><span style={{width:4,height:4,borderRadius:2,background:"#ffd60a"}}/> Earnings</span>
+                <span style={{display:"flex",alignItems:"center",gap:3}}><span style={{width:8,height:8,borderRadius:2,background:"rgba(200,164,78,.1)",border:"1px solid rgba(200,164,78,.3)"}}/> Hoy</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>);
   })()}
 
@@ -1058,6 +1257,97 @@ return (
       </table>
     </div>
   </div>
+
+  {/* ── Correlacion del Portfolio ── */}
+  <div style={card}>
+    <div
+      style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",userSelect:"none"}}
+      onClick={() => { setCorrOpen(o => !o); if (!corrData && !corrLoading) fetchCorrelation(); }}
+    >
+      {secTitle("🔗","Correlación del Portfolio")}
+      <span style={{fontSize:12,color:"var(--text-tertiary)",transform:corrOpen?"rotate(180deg)":"rotate(0deg)",transition:"transform .2s"}}>▼</span>
+    </div>
+    {corrOpen && (
+      corrLoading ? (
+        <div style={{textAlign:"center",padding:20,color:"var(--text-tertiary)",fontSize:12,fontFamily:"var(--fm)"}}>Cargando datos de correlación...</div>
+      ) : corrData && corrData.tickers.length >= 3 ? (() => {
+        const { tickers: ct, matrix: cm, score, avgCorr, bestPair, worstPair } = corrData;
+        const n = ct.length;
+        const cellSz = Math.max(24, Math.min(36, 480 / n));
+        const labelW = 50;
+        const labelH = 50;
+        const w = labelW + n * cellSz;
+        const h = labelH + n * cellSz;
+        const corrColor = (v) => {
+          if (v >= 0.7) return `rgba(255,69,58,${0.3 + 0.7 * Math.min(1, (v - 0.5) / 0.5)})`;
+          if (v >= 0.3) return `rgba(255,159,10,${0.2 + 0.5 * ((v - 0.3) / 0.4)})`;
+          if (v >= -0.3) return `rgba(255,255,255,${0.05 + 0.1 * Math.abs(v)})`;
+          return `rgba(10,132,255,${0.3 + 0.7 * Math.min(1, Math.abs(v + 0.3) / 0.7)})`;
+        };
+        const scoreColor = score >= 70 ? "var(--green)" : score >= 40 ? "#ffd60a" : "var(--red)";
+        return <>
+          {/* Diversification score + highlights */}
+          <div style={{display:"flex",gap:16,marginBottom:16,flexWrap:"wrap"}}>
+            <div style={{padding:"12px 20px",background:"rgba(255,255,255,.02)",borderRadius:12,border:"1px solid var(--border)",textAlign:"center",minWidth:120}}>
+              <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,letterSpacing:.5}}>DIVERSIFICATION SCORE</div>
+              <div style={{fontSize:32,fontWeight:800,fontFamily:"var(--fm)",color:scoreColor,lineHeight:1.2}}>{score}</div>
+              <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Avg r = {_sf(avgCorr, 2)}</div>
+            </div>
+            {bestPair && (
+              <div style={{padding:"10px 16px",background:"rgba(255,69,58,.04)",borderRadius:12,border:"1px solid rgba(255,69,58,.15)",flex:1,minWidth:140}}>
+                <div style={{fontSize:9,color:"var(--red)",fontFamily:"var(--fm)",fontWeight:600,letterSpacing:.5}}>MAS CORRELADOS</div>
+                <div style={{fontSize:14,fontWeight:700,fontFamily:"var(--fm)",color:"var(--text-primary)",marginTop:2}}>{bestPair[0]} / {bestPair[1]}</div>
+                <div style={{fontSize:11,color:"var(--red)",fontFamily:"var(--fm)"}}>r = {_sf(bestPair[2], 3)}</div>
+              </div>
+            )}
+            {worstPair && (
+              <div style={{padding:"10px 16px",background:"rgba(10,132,255,.04)",borderRadius:12,border:"1px solid rgba(10,132,255,.15)",flex:1,minWidth:140}}>
+                <div style={{fontSize:9,color:"#0a84ff",fontFamily:"var(--fm)",fontWeight:600,letterSpacing:.5}}>MENOS CORRELADOS</div>
+                <div style={{fontSize:14,fontWeight:700,fontFamily:"var(--fm)",color:"var(--text-primary)",marginTop:2}}>{worstPair[0]} / {worstPair[1]}</div>
+                <div style={{fontSize:11,color:"#0a84ff",fontFamily:"var(--fm)"}}>r = {_sf(worstPair[2], 3)}</div>
+              </div>
+            )}
+          </div>
+          {/* Heatmap */}
+          <div style={{overflowX:"auto"}}>
+            <svg viewBox={`0 0 ${w} ${h}`} style={{width:Math.min(w, 600),height:"auto",display:"block",margin:"0 auto"}}>
+              {/* X-axis labels (rotated 45 degrees) */}
+              {ct.map((t, i) => (
+                <text key={`x${i}`} x={labelW + i * cellSz + cellSz / 2} y={labelH - 4} textAnchor="end"
+                  transform={`rotate(-45,${labelW + i * cellSz + cellSz / 2},${labelH - 4})`}
+                  style={{fontSize:Math.min(9, cellSz * 0.35),fill:"var(--text-secondary)",fontFamily:"var(--fm)",fontWeight:600}}>{t}</text>
+              ))}
+              {/* Y-axis labels */}
+              {ct.map((t, i) => (
+                <text key={`y${i}`} x={labelW - 4} y={labelH + i * cellSz + cellSz / 2 + 3} textAnchor="end"
+                  style={{fontSize:Math.min(9, cellSz * 0.35),fill:"var(--text-secondary)",fontFamily:"var(--fm)",fontWeight:600}}>{t}</text>
+              ))}
+              {/* Cells */}
+              {cm.map((row, i) => row.map((v, j) => (
+                <g key={`${i}-${j}`}>
+                  <rect x={labelW + j * cellSz} y={labelH + i * cellSz} width={cellSz - 1} height={cellSz - 1} rx={3}
+                    fill={i === j ? "rgba(255,255,255,.06)" : corrColor(v)} stroke="rgba(255,255,255,.03)" strokeWidth=".5"/>
+                  {cellSz >= 26 && <text x={labelW + j * cellSz + cellSz / 2} y={labelH + i * cellSz + cellSz / 2 + 3}
+                    textAnchor="middle" style={{fontSize:Math.min(8, cellSz * 0.28),fill:i === j ? "var(--text-tertiary)" : "var(--text-primary)",fontFamily:"var(--fm)",fontWeight:500}}>
+                    {i === j ? "1" : _sf(v, 2)}
+                  </text>}
+                </g>
+              )))}
+            </svg>
+          </div>
+          {/* Legend */}
+          <div style={{display:"flex",justifyContent:"center",gap:12,marginTop:10,fontSize:9,fontFamily:"var(--fm)",color:"var(--text-tertiary)"}}>
+            <span><span style={{display:"inline-block",width:10,height:10,borderRadius:2,background:"rgba(10,132,255,.6)",verticalAlign:"middle",marginRight:3}}></span>Negativa (diversifica)</span>
+            <span><span style={{display:"inline-block",width:10,height:10,borderRadius:2,background:"rgba(255,255,255,.1)",verticalAlign:"middle",marginRight:3}}></span>Sin correlación</span>
+            <span><span style={{display:"inline-block",width:10,height:10,borderRadius:2,background:"rgba(255,69,58,.7)",verticalAlign:"middle",marginRight:3}}></span>Alta positiva (riesgo)</span>
+          </div>
+        </>;
+      })() : corrData ? (
+        <div style={{padding:16,textAlign:"center",color:"var(--text-tertiary)",fontSize:11,fontFamily:"var(--fm)"}}>Datos insuficientes para calcular la matriz de correlación</div>
+      ) : null
+    )}
+  </div>
+
 </div>
 );
 }

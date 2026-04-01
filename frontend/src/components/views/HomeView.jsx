@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { CURRENCIES, DISPLAY_CCYS, APP_VERSION, API_URL } from '../../constants/index.js';
 import { PortfolioTab } from '../home';
@@ -24,6 +24,113 @@ import PresupuestoTab from '../home/PresupuestoTab';
 import SettingsPanel from '../home/SettingsPanel';
 
 // No lazy loading — all tabs in main bundle for reliable offline support
+
+// ─── Semi-circle gauge SVG ───
+function MiniGauge({ value, min, max, colors, size = 80, label }) {
+  const pct = Math.max(0, Math.min(1, (value - min) / (max - min)));
+  const R = 32, cx = 40, cy = 38, sw = 7;
+  // Arc from 180deg to 0deg (left to right)
+  const startAngle = Math.PI;
+  const endAngle = 0;
+  const arcLength = Math.PI;
+  // Background arc segments (colored zones)
+  const segments = colors.map((seg, i) => {
+    const a1 = startAngle - (seg.from / (max - min)) * arcLength;
+    const a2 = startAngle - (seg.to / (max - min)) * arcLength;
+    const x1 = cx + R * Math.cos(a1), y1 = cy - R * Math.sin(a1);
+    const x2 = cx + R * Math.cos(a2), y2 = cy - R * Math.sin(a2);
+    const large = (a1 - a2) > Math.PI ? 1 : 0;
+    return <path key={i} d={`M${x1},${y1} A${R},${R} 0 ${large} 1 ${x2},${y2}`}
+      fill="none" stroke={seg.color} strokeWidth={sw} strokeLinecap="round" opacity={0.25} />;
+  });
+  // Needle
+  const needleAngle = startAngle - pct * arcLength;
+  const needleLen = R - 4;
+  const nx = cx + needleLen * Math.cos(needleAngle);
+  const ny = cy - needleLen * Math.sin(needleAngle);
+  // Find active color
+  const activeColor = (colors.find(c => value >= c.from + min && value <= c.to + min) || colors[0]).color;
+
+  return (
+    <div style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 0 }}>
+      <svg width={size} height={size * 0.55} viewBox="0 0 80 46">
+        {segments}
+        {/* Needle */}
+        <line x1={cx} y1={cy} x2={nx} y2={ny} stroke={activeColor} strokeWidth={2} strokeLinecap="round" />
+        <circle cx={cx} cy={cy} r={2.5} fill={activeColor} />
+        {/* Value */}
+        <text x={cx} y={cy + 1} textAnchor="middle" fontSize="10" fontWeight="700" fill={activeColor}
+          fontFamily="var(--fm)">{typeof value === 'number' ? Math.round(value) : '—'}</text>
+      </svg>
+      {label && <span style={{ fontSize: 8, color: "var(--text-tertiary)", fontFamily: "var(--fm)", marginTop: -2 }}>{label}</span>}
+    </div>
+  );
+}
+
+function SentimentBar() {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    fetch(API_URL + "/api/market-sentiment")
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setData(d); })
+      .catch(() => {});
+  }, []);
+
+  if (!data || (!data.vix && !data.fearGreed)) return null;
+
+  const vix = data.vix;
+  const fg = data.fearGreed;
+
+  const vixColors = [
+    { from: 0, to: 15, color: "#30d158" },
+    { from: 15, to: 25, color: "#ffd60a" },
+    { from: 25, to: 35, color: "#ff9f0a" },
+    { from: 35, to: 60, color: "#ff453a" },
+  ];
+  const fgColors = [
+    { from: 0, to: 25, color: "#ff453a" },
+    { from: 25, to: 45, color: "#ff9f0a" },
+    { from: 45, to: 55, color: "#ffd60a" },
+    { from: 55, to: 75, color: "#30d158" },
+    { from: 75, to: 100, color: "#30d158" },
+  ];
+
+  const vixColor = vix ? (vix.price < 15 ? "#30d158" : vix.price < 25 ? "#ffd60a" : vix.price < 35 ? "#ff9f0a" : "#ff453a") : "var(--text-tertiary)";
+  const fgColor = fg ? (fg.score <= 25 ? "#ff453a" : fg.score <= 45 ? "#ff9f0a" : fg.score <= 55 ? "#ffd60a" : "#30d158") : "var(--text-tertiary)";
+
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 12, padding: "2px 8px",
+      background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8,
+      marginBottom: 4, fontSize: 10, fontFamily: "var(--fm)",
+    }}>
+      {vix && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <MiniGauge value={vix.price} min={0} max={60} colors={vixColors} size={70} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            <span style={{ fontSize: 9, color: "var(--text-tertiary)", fontWeight: 600 }}>VIX</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: vixColor }}>{vix.price.toFixed(1)}</span>
+            <span style={{ fontSize: 8, color: vix.change >= 0 ? "#ff453a" : "#30d158" }}>
+              {vix.change >= 0 ? "+" : ""}{vix.change.toFixed(1)} ({vix.changePct >= 0 ? "+" : ""}{vix.changePct.toFixed(1)}%)
+            </span>
+          </div>
+        </div>
+      )}
+      {vix && fg && <div style={{ width: 1, height: 28, background: "var(--border)" }} />}
+      {fg && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <MiniGauge value={fg.score} min={0} max={100} colors={fgColors} size={70} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            <span style={{ fontSize: 9, color: "var(--text-tertiary)", fontWeight: 600 }}>Fear & Greed</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: fgColor }}>{fg.score}</span>
+            <span style={{ fontSize: 8, color: fgColor }}>{fg.label}</span>
+          </div>
+        </div>
+      )}
+      {data.cached && <span style={{ fontSize: 7, color: "var(--text-tertiary)", opacity: 0.5, marginLeft: "auto" }}>cached</span>}
+    </div>
+  );
+}
 
 function AirplaneMode({ portfolioList }) {
   const [dlOpen, setDlOpen] = useState(false);
@@ -359,7 +466,9 @@ export default function HomeView() {
       </div>
     </div>
 
-    {/* Tab Content */}
+    {/* Market Sentiment Bar */}
+    <SentimentBar />
+
     {/* Alert Panel */}
     {showAlertPanel && (
       <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:14,marginBottom:8,maxHeight:300,overflowY:"auto"}}>

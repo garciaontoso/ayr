@@ -65,6 +65,9 @@ async function ensureMigrations(env) {
       try { await env.DB.prepare(`ALTER TABLE holdings ADD COLUMN ${col} TEXT`).run(); } catch(e) { /* already exists */ }
     }
 
+    // Add notes column to positions (idempotent)
+    try { await env.DB.prepare(`ALTER TABLE positions ADD COLUMN notes TEXT DEFAULT ''`).run(); } catch(e) { /* already exists */ }
+
     // cartera table (portfolio positions)
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS cartera (
       ticker TEXT PRIMARY KEY,
@@ -2182,6 +2185,17 @@ export default {
             ? await env.DB.prepare(query).bind(...params).all()
             : await env.DB.prepare(query).all();
           return json({ positions: results || [], count: (results||[]).length }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // PUT /api/positions/:ticker/notes — save position notes (buy thesis)
+      if (path.match(/^\/api\/positions\/[^/]+\/notes$/) && request.method === "PUT") {
+        try {
+          const ticker = decodeURIComponent(path.split("/")[3]);
+          const body = await request.json();
+          const notes = (body.notes ?? "").slice(0, 5000);
+          await env.DB.prepare("UPDATE positions SET notes = ?, updated_at = datetime('now') WHERE ticker = ?").bind(notes, ticker).run();
+          return json({ ok: true, ticker, notes }, corsHeaders);
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
       }
 
