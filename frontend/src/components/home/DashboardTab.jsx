@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { _CURRENT_YEAR, API_URL } from '../../constants/index.js';
@@ -6,6 +6,9 @@ import { _CURRENT_YEAR, API_URL } from '../../constants/index.js';
 export default function DashboardTab() {
   const [nlvHistory, setNlvHistory] = useState([]);
   const [spyHistory, setSpyHistory] = useState([]);
+  const [corrData, setCorrData] = useState(null);
+  const [corrLoading, setCorrLoading] = useState(false);
+  const [corrOpen, setCorrOpen] = useState(false);
   useEffect(() => {
     fetch(`${API_URL}/api/ib-nlv-history?limit=90`)
       .then(r => r.json())

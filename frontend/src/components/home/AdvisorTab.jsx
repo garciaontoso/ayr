@@ -143,6 +143,16 @@ export default function AdvisorTab() {
   const [showMantener, setShowMantener] = useState(false);
   const progressRef = useRef(null);
 
+  // ── What-If Simulator State ──
+  const [wifMode, setWifMode] = useState('sell'); // 'sell' | 'buy' | 'swap'
+  const [wifSellTicker, setWifSellTicker] = useState('');
+  const [wifSellShares, setWifSellShares] = useState('');
+  const [wifBuyTicker, setWifBuyTicker] = useState('');
+  const [wifBuyAmount, setWifBuyAmount] = useState('');
+  const [wifSwapSellTicker, setWifSwapSellTicker] = useState('');
+  const [wifSwapBuyTicker, setWifSwapBuyTicker] = useState('');
+  const [wifSwapPct, setWifSwapPct] = useState(100);
+
   // ── Screener map ──
   const sData = screenerData?.screener || [];
   const sMap = useMemo(() => {
@@ -817,6 +827,27 @@ export default function AdvisorTab() {
           </div>
         )}
       </div>
+
+      {/* ═══════════════════════════════════════
+          SECTION 7: What-If Scenario Simulator
+          ═══════════════════════════════════════ */}
+      <WhatIfSimulator
+        portfolioList={portfolioList}
+        portfolioTotals={portfolioTotals}
+        analysis={analysis}
+        hide={hide}
+        hideN={hideN}
+        fxRates={fxRates}
+        displayCcy={displayCcy}
+        wifMode={wifMode} setWifMode={setWifMode}
+        wifSellTicker={wifSellTicker} setWifSellTicker={setWifSellTicker}
+        wifSellShares={wifSellShares} setWifSellShares={setWifSellShares}
+        wifBuyTicker={wifBuyTicker} setWifBuyTicker={setWifBuyTicker}
+        wifBuyAmount={wifBuyAmount} setWifBuyAmount={setWifBuyAmount}
+        wifSwapSellTicker={wifSwapSellTicker} setWifSwapSellTicker={setWifSwapSellTicker}
+        wifSwapBuyTicker={wifSwapBuyTicker} setWifSwapBuyTicker={setWifSwapBuyTicker}
+        wifSwapPct={wifSwapPct} setWifSwapPct={setWifSwapPct}
+      />
     </div>
   );
 }

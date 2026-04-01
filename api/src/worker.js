@@ -869,6 +869,81 @@ export default {
         return json({ prices, errors, cached: false, updated: new Date().toISOString(), count: Object.keys(prices).length }, corsHeaders);
       }
 
+      // ─── MARKET SENTIMENT (VIX + CNN Fear & Greed) ────────────────
+      if (path === "/api/market-sentiment" && request.method === "GET") {
+        // Check D1 cache (1 hour TTL)
+        try {
+          const cached = await env.DB.prepare(
+            "SELECT data, updated_at FROM price_cache WHERE id = 'market-sentiment'"
+          ).first();
+          if (cached && cached.data) {
+            const age = Date.now() - new Date(cached.updated_at).getTime();
+            if (age < 3600 * 1000) {
+              return json({ ...JSON.parse(cached.data), cached: true, updated: cached.updated_at }, corsHeaders);
+            }
+          }
+        } catch(e) { console.error("sentiment cache read:", e.message); }
+
+        const result = { vix: null, fearGreed: null };
+
+        // 1) VIX from Yahoo Finance
+        try {
+          const resp = await fetch(
+            "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=5d",
+            { headers: { "User-Agent": "Mozilla/5.0" } }
+          );
+          if (resp.ok) {
+            const data = await resp.json();
+            const meta = data?.chart?.result?.[0]?.meta;
+            if (meta) {
+              const prevClose = meta.previousClose || meta.chartPreviousClose || meta.regularMarketPrice;
+              result.vix = {
+                price: Math.round(meta.regularMarketPrice * 100) / 100,
+                change: Math.round((meta.regularMarketPrice - prevClose) * 100) / 100,
+                changePct: prevClose ? Math.round((meta.regularMarketPrice - prevClose) / prevClose * 10000) / 100 : 0,
+              };
+            }
+          }
+        } catch(e) { console.error("VIX fetch:", e.message); }
+
+        // 2) CNN Fear & Greed
+        try {
+          const resp = await fetch("https://production.dataviz.cnn.io/index/fearandgreed/graphdata", {
+            headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" }
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            const score = data?.fear_and_greed?.score;
+            const prevScore = data?.fear_and_greed?.previous_close;
+            const getLabel = (s) => {
+              if (s == null) return "N/A";
+              if (s <= 25) return "Extreme Fear";
+              if (s <= 45) return "Fear";
+              if (s <= 55) return "Neutral";
+              if (s <= 75) return "Greed";
+              return "Extreme Greed";
+            };
+            if (score != null) {
+              result.fearGreed = {
+                score: Math.round(score),
+                label: getLabel(score),
+                previous: prevScore != null ? { score: Math.round(prevScore), label: getLabel(prevScore) } : null,
+              };
+            }
+          }
+        } catch(e) { console.error("CNN F&G fetch:", e.message); }
+
+        // Cache in D1 (reuse price_cache table)
+        try {
+          await env.DB.prepare(
+            `INSERT INTO price_cache (id, data, updated_at) VALUES ('market-sentiment', ?, datetime('now'))
+             ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
+          ).bind(JSON.stringify(result)).run();
+        } catch(e) { console.error("sentiment cache write:", e.message); }
+
+        return json({ ...result, cached: false, updated: new Date().toISOString() }, corsHeaders);
+      }
+
       // ─── FMP PROXY ────────────────────────────────
       const FMP_KEY = env.FMP_KEY;
       const FMP_BASE = "https://financialmodelingprep.com/stable";
