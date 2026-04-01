@@ -276,6 +276,90 @@ export default {
         return json({ success: true }, corsHeaders);
       }
 
+      // POST /api/gastos/import-csv — import from Wallet app CSV
+      if (path === "/api/gastos/import-csv" && request.method === "POST") {
+        const body = await parseBody(request);
+        const csvText = body.csv;
+        if (!csvText) return json({ error: "Missing csv field" }, corsHeaders, 400);
+
+        const CATEGORY_MAP = {
+          "SuperMercado": "SUP",
+          "Comidas y Cenas": "COM",
+          "Transporte, cargas, gasolina, Parking.": "TRA",
+          "Ropa": "ROP",
+          "Healthcare": "HEA",
+          "Subscripciones Casa": "SUB",
+          "Caprichos": "CAP",
+          "Deportes & Hobby's": "DEP",
+          "Utilities China": "UCH",
+          "Utility's Costa Brava": "UTI",
+          "Regalos": "REG",
+          "Educación": "EDU",
+          "Other": "OTH",
+        };
+
+        const SKIP_NOTES = ["To Interactive Brokers", "To FONDO", "Exchanged to"];
+
+        // Parse CSV respecting quoted fields
+        function parseCSVLine(line) {
+          const fields = [];
+          let current = "";
+          let inQuotes = false;
+          for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (ch === '"') { inQuotes = !inQuotes; continue; }
+            if (ch === ',' && !inQuotes) { fields.push(current.trim()); current = ""; continue; }
+            current += ch;
+          }
+          fields.push(current.trim());
+          return fields;
+        }
+
+        const lines = csvText.split("\n").filter(l => l.trim());
+        // Skip header row
+        const dataLines = lines.slice(1);
+
+        let imported = 0, skipped = 0, duplicates = 0;
+
+        for (const line of dataLines) {
+          const fields = parseCSVLine(line);
+          if (fields.length < 9) { skipped++; continue; }
+
+          const [dateStr, wallet, type, categoryName, amountStr, currency, note] = fields;
+
+          // Skip income rows
+          if (type === "Income") { skipped++; continue; }
+
+          // Skip transfers between own accounts
+          if (note && SKIP_NOTES.some(s => note.includes(s))) { skipped++; continue; }
+          // Skip transfers to own IBANs (IBAN pattern)
+          if (note && /^[A-Z]{2}\d{2}[A-Z0-9]{4,}/.test(note.trim())) { skipped++; continue; }
+
+          const categoria = CATEGORY_MAP[categoryName] || "OTH";
+          const importe = Math.abs(parseFloat(amountStr));
+          if (isNaN(importe) || importe === 0) { skipped++; continue; }
+
+          const fecha = dateStr.substring(0, 10); // YYYY-MM-DD from ISO string
+          const divisa = currency || "EUR";
+          const isChina = wallet && wallet.toLowerCase().includes("china");
+          const descripcion = isChina ? `{china} ${note || categoryName}` : (note || categoryName);
+
+          // Check for duplicates
+          const dup = await env.DB.prepare(
+            `SELECT id FROM gastos WHERE fecha = ? AND categoria = ? AND importe = ? AND divisa = ? LIMIT 1`
+          ).bind(fecha, categoria, importe, divisa).first();
+
+          if (dup) { duplicates++; continue; }
+
+          await env.DB.prepare(
+            `INSERT INTO gastos (fecha, categoria, importe, divisa, descripcion) VALUES (?, ?, ?, ?, ?)`
+          ).bind(fecha, categoria, importe, divisa, descripcion).run();
+          imported++;
+        }
+
+        return json({ imported, skipped, duplicates }, corsHeaders);
+      }
+
       // GET /api/ingresos
       if (path === "/api/ingresos" && request.method === "GET") {
         const { results } = await env.DB.prepare(
@@ -356,7 +440,7 @@ export default {
         return json({
           tracking: tracking.results,
           proyecciones: proyecciones.results,
-          params: config ? JSON.parse(config.valor) : null,
+          params: config ? (() => { try { return JSON.parse(config.valor); } catch { return null; } })() : null,
         }, corsHeaders);
       }
 
@@ -372,7 +456,7 @@ export default {
       if (path === "/api/config" && request.method === "GET") {
         const { results } = await env.DB.prepare("SELECT * FROM config LIMIT 100").all();
         const obj = {};
-        results.forEach(r => { obj[r.clave] = JSON.parse(r.valor); });
+        results.forEach(r => { try { obj[r.clave] = JSON.parse(r.valor); } catch { obj[r.clave] = r.valor; } });
         return json(obj, corsHeaders);
       }
 
