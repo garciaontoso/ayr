@@ -1664,9 +1664,7 @@ function buildPositionsFromCB() {
     })();
     const badge = capBadge ? <span style={{fontSize:7,fontWeight:700,padding:"1px 4px",borderRadius:3,background:capBadge.bg,color:capBadge.c,letterSpacing:.3}}>{capBadge.l}</span> : null;
     return (
-      <div className="ar-company-row" onClick={()=>onOpen(p.ticker)} style={{display:"grid",gridTemplateColumns:showPos?"24px 1fr 65px 48px 45px 50px 50px 45px 40px 58px 45px 24px":"24px 1fr 65px 65px 24px",gap:2,alignItems:"center",padding:"3px 6px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:7,cursor:"pointer",transition:"all .12s"}}
-        onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--border-hover)";e.currentTarget.style.background="var(--card-hover)";}}
-        onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";e.currentTarget.style.background="var(--card)";}}>
+      <div className="ar-company-row" onClick={()=>onOpen(p.ticker)} style={{display:"grid",gridTemplateColumns:showPos?"24px 1fr 65px 48px 45px 50px 50px 45px 40px 58px 45px 24px":"24px 1fr 65px 65px 24px",gap:2,alignItems:"center",padding:"4px 6px",border:"1px solid var(--border)",borderRadius:7,cursor:"pointer"}}>
         {/* Logo */}
         <div style={{width:20,height:20,borderRadius:5,overflow:"hidden",background:"var(--card)",display:"flex",alignItems:"center",justifyContent:"center"}}>
           <img src={`https://images.financialmodelingprep.com/symbol/${p.ticker.replace(':','.')}.png`} alt=""

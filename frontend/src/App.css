@@ -47,9 +47,11 @@
 
 * { box-sizing: border-box; margin: 0; }
 
-::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 4px; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,.08); border-radius: 10px; transition: background .2s; }
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.08) transparent; }
+[data-theme="light"] * { scrollbar-color: rgba(0,0,0,.1) transparent; }
 
 input[type=number]::-webkit-inner-spin-button,
 input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
@@ -212,11 +214,16 @@ input[type=number] { -moz-appearance: textfield; }
 
 /* ═══ Portfolio row hover ═══ */
 .ar-company-row {
-  transition: background .15s ease, border-color .15s ease;
+  transition: background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease;
 }
 .ar-company-row:hover {
   background: var(--card-hover) !important;
   border-color: var(--border-hover) !important;
+  box-shadow: 0 1px 8px rgba(0,0,0,.18);
+  transform: translateX(2px);
+}
+[data-theme="light"] .ar-company-row:hover {
+  box-shadow: 0 1px 8px rgba(0,0,0,.06);
 }
 
 /* ═══ Card hover effects ═══ */
@@ -234,21 +241,36 @@ input[type=number] { -moz-appearance: textfield; }
 }
 .ar-home-tabs button:hover {
   color: var(--gold) !important;
-  border-color: rgba(200,164,78,.2) !important;
+  border-color: rgba(200,164,78,.25) !important;
+  background: rgba(200,164,78,.06) !important;
+}
+.ar-home-tabs button:active {
+  transform: scale(.97);
 }
 
 /* ═══ Better focus styles ═══ */
 button:focus-visible, select:focus-visible, input:focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--gold-glow);
+}
+a:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
 }
 
 /* ═══ Subtle row alternation ═══ */
 .ar-company-row:nth-child(even) {
-  background: rgba(255,255,255,.01);
+  background: rgba(255,255,255,.018);
+}
+.ar-company-row:nth-child(odd) {
+  background: var(--card);
 }
 [data-theme="light"] .ar-company-row:nth-child(even) {
-  background: rgba(0,0,0,.015);
+  background: rgba(0,0,0,.022);
+}
+[data-theme="light"] .ar-company-row:nth-child(odd) {
+  background: var(--card);
 }
 
 /* ═══ Smooth number transitions ═══ */
@@ -257,8 +279,22 @@ button:focus-visible, select:focus-visible, input:focus-visible {
 }
 
 /* ═══ Better scrollbar on hover ═══ */
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.2); }
-[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,.25); }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.18); }
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,.22); }
+
+/* ═══ Global button transitions ═══ */
+button, select {
+  transition: all .18s ease;
+}
+button:active:not(:disabled) {
+  transform: scale(.97);
+}
+
+/* ═══ Smooth selection ═══ */
+::selection {
+  background: rgba(200,164,78,.3);
+  color: var(--text-primary);
+}
 
 @media print {
   @page { size: A4 landscape; margin: 8mm; }

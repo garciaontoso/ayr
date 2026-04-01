@@ -207,7 +207,7 @@ export default function PortfolioTab() {
                 {!filtered.length && quickFilter && <span style={{marginLeft:8}}>— sin resultados para "{quickFilter}"</span>}
               </div>
             )}
-            <div style={{display:"flex",flexDirection:"column",gap:3}}>
+            <div className="ar-portfolio-rows" style={{display:"flex",flexDirection:"column",gap:2}}>
               {sorted.map(p=><CompanyRow key={p.ticker} p={p} showPos={true} onOpen={openAnalysis}/>)}
             </div>
           </>;

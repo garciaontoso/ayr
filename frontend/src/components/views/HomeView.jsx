@@ -214,9 +214,9 @@ export default function HomeView() {
 
       {/* Tabs — scrollable, same row */}
       <div style={{position:"relative",flex:1,minWidth:0}}>
-        <div className="ar-home-tabs" style={{display:"flex",alignItems:"center",gap:3,overflowX:"auto",flexWrap:"nowrap",scrollbarWidth:"none"}}>
+        <div className="ar-home-tabs" style={{display:"flex",alignItems:"center",gap:3,overflowX:"auto",flexWrap:"nowrap",scrollbarWidth:"none",padding:"2px 0"}}>
           {HOME_TABS.map(t=>(
-            <button key={t.id} onClick={()=>setHomeTab(t.id)} style={{display:"flex",alignItems:"center",gap:3,padding:"5px 9px",borderRadius:7,border:`1px solid ${homeTab===t.id?"var(--gold)":"transparent"}`,background:homeTab===t.id?"var(--gold-dim)":"transparent",color:homeTab===t.id?"var(--gold)":"var(--text-tertiary)",fontSize:12,fontWeight:homeTab===t.id?700:500,cursor:"pointer",fontFamily:"var(--fb)",transition:"all .15s",whiteSpace:"nowrap",flexShrink:0}}>
+            <button key={t.id} onClick={()=>setHomeTab(t.id)} style={{display:"flex",alignItems:"center",gap:3,padding:"5px 10px",borderRadius:7,border:`1px solid ${homeTab===t.id?"var(--gold)":"transparent"}`,background:homeTab===t.id?"var(--gold-dim)":"transparent",color:homeTab===t.id?"var(--gold)":"var(--text-tertiary)",fontSize:12,fontWeight:homeTab===t.id?700:500,cursor:"pointer",fontFamily:"var(--fb)",whiteSpace:"nowrap",flexShrink:0}}>
               <span style={{fontSize:12}}>{t.ico}</span>{t.lbl}
               {t.id==="portfolio" && portfolioList.length>0 && <span style={{fontSize:9,opacity:.7,fontFamily:"var(--fm)"}}>{portfolioList.length}</span>}
               {t.id==="watchlist" && watchlistList.length>0 && <span style={{fontSize:9,opacity:.7,fontFamily:"var(--fm)"}}>{watchlistList.length}</span>}
@@ -224,11 +224,11 @@ export default function HomeView() {
             </button>
           ))}
         </div>
-        <div style={{position:"absolute",right:0,top:0,bottom:0,width:32,background:"linear-gradient(to right, transparent, var(--bg, #000))",pointerEvents:"none"}}/>
+        <div className="ar-tabs-fade-right"/>
       </div>
 
       {/* Controls — compact */}
-      <div style={{display:"flex",gap:3,alignItems:"center",flexShrink:0}}>
+      <div className="ar-controls-group" style={{display:"flex",gap:4,alignItems:"center",flexShrink:0}}>
         {/* Currency selector */}
         <select value={displayCcy} onChange={e=>switchDisplayCcy(e.target.value)}
           style={{padding:"4px 4px 4px 8px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--gold)",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)",outline:"none",minWidth:36}}>

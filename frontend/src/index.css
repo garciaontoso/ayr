@@ -1,4 +1,4 @@
-/* Mobile responsive overrides */
+/* ═══ Mobile responsive overrides ═══ */
 @media (max-width: 768px) {
   main { padding: 12px 10px !important; }
   .ar-home-tabs { gap: 2px !important; }
@@ -9,6 +9,23 @@
   .ar-actions-bar { flex-direction: column !important; }
 }
 
+/* ═══ iPad-specific improvements ═══ */
+@media (min-width: 769px) and (max-width: 1024px) {
+  main { padding: 14px 16px !important; }
+  .ar-company-row {
+    padding: 5px 8px !important;
+    gap: 4px !important;
+  }
+  .ar-company-row * {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ar-home-tabs button {
+    padding: 5px 10px !important;
+    font-size: 11px !important;
+  }
+}
+
 /* Scrollbar styling */
 .ar-home-tabs::-webkit-scrollbar { display: none; }
 
@@ -16,4 +33,51 @@
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* ═══ Tab bar fade gradient ═══ */
+.ar-tabs-fade-right {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 48px;
+  background: linear-gradient(to right, transparent, var(--bg, #000) 85%);
+  pointer-events: none;
+  z-index: 2;
+}
+.ar-tabs-fade-left {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  background: linear-gradient(to left, transparent, var(--bg, #000) 85%);
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity .3s;
+}
+.ar-tabs-fade-left.visible {
+  opacity: 1;
+}
+
+/* ═══ Portfolio row separator line ═══ */
+.ar-portfolio-rows > .ar-company-row + .ar-company-row {
+  border-top: 1px solid rgba(255,255,255,.02);
+}
+[data-theme="light"] .ar-portfolio-rows > .ar-company-row + .ar-company-row {
+  border-top: 1px solid rgba(0,0,0,.03);
+}
+
+/* ═══ Controls group spacing ═══ */
+.ar-controls-group {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.ar-controls-group > button,
+.ar-controls-group > select {
+  min-height: 28px;
 }
