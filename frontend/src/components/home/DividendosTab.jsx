@@ -7,55 +7,72 @@ import { API_URL } from '../../constants/index.js';
    📊 AnnualDivBarChart — horizontal bar chart from DIV_BY_YEAR
    ═══════════════════════════════════════════════════════════════ */
 function AnnualDivBarChart({ DIV_BY_YEAR }) {
-  const years = useMemo(() => Object.keys(DIV_BY_YEAR || {}).sort(), [DIV_BY_YEAR]);
+  const years = useMemo(() => Object.keys(DIV_BY_YEAR || {}).sort().reverse(), [DIV_BY_YEAR]);
   const maxG = useMemo(() => Math.max(...years.map(y => DIV_BY_YEAR[y]?.g || 0), 1), [years, DIV_BY_YEAR]);
 
   if (years.length === 0) return null;
 
-  const barH = 26;
-  const labelW = 40;
-  const valueW = 70;
-  const gap = 4;
-  const svgH = years.length * (barH + gap) + 8;
-  const barArea = 300; // max bar width in SVG units
+  const barH = 30;
+  const labelW = 48;
+  const valueW = 80;
+  const gap = 6;
+  const svgH = years.length * (barH + gap) + 12;
+  const barArea = 300;
 
   return (
     <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
       <div style={{ fontSize: 13, fontWeight: 600, color: "var(--gold)", fontFamily: "var(--fd)", marginBottom: 12 }}>
-        📊 Dividendos Anuales
+        Dividendos Anuales
       </div>
       <svg width="100%" viewBox={`0 0 ${labelW + barArea + valueW + 16} ${svgH}`} style={{ display: "block" }}>
+        <defs>
+          <linearGradient id="barGradGold" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="rgba(200,164,78,0.9)" />
+            <stop offset="100%" stopColor="rgba(200,164,78,0.35)" />
+          </linearGradient>
+          <linearGradient id="barGradNet" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="rgba(48,209,88,0.7)" />
+            <stop offset="100%" stopColor="rgba(48,209,88,0.2)" />
+          </linearGradient>
+        </defs>
         {years.map((y, i) => {
           const d = DIV_BY_YEAR[y];
           const g = d?.g || 0;
           const n = d?.n || 0;
           const w = maxG > 0 ? (g / maxG) * barArea : 0;
-          const yy = i * (barH + gap) + 4;
-          const intensity = maxG > 0 ? 0.25 + (g / maxG) * 0.75 : 0.25;
+          const nw = maxG > 0 ? (n / maxG) * barArea : 0;
+          const yy = i * (barH + gap) + 6;
+          const isFirst = i === 0;
           return (
             <g key={y}>
-              <text x={labelW - 4} y={yy + barH / 2 + 4} textAnchor="end"
-                style={{ fontSize: 11, fontWeight: 700, fill: "var(--text-secondary)", fontFamily: "var(--fm)" }}>{y}</text>
-              <rect x={labelW} y={yy} width={Math.max(w, 2)} height={barH} rx={5} ry={5}
-                fill={`rgba(200,164,78,${intensity})`} />
+              <text x={labelW - 6} y={yy + barH / 2 + 5} textAnchor="end"
+                style={{ fontSize: isFirst ? 13 : 11, fontWeight: 700, fill: isFirst ? "var(--gold)" : "var(--text-secondary)", fontFamily: "var(--fm)" }}>{y}</text>
+              <rect x={labelW} y={yy} width={Math.max(w, 4)} height={barH} rx={6} ry={6}
+                fill="url(#barGradGold)" opacity={isFirst ? 1 : 0.7} />
               {n > 0 && (
-                <rect x={labelW} y={yy + barH - 5} width={Math.max((n / maxG) * barArea, 2)} height={5} rx={2} ry={2}
-                  fill="var(--green)" opacity={0.5} />
+                <rect x={labelW} y={yy + barH - 7} width={Math.max(nw, 4)} height={7} rx={3} ry={3}
+                  fill="url(#barGradNet)" />
               )}
-              <text x={labelW + Math.max(w, 2) + 6} y={yy + barH / 2 + 4}
-                style={{ fontSize: 11, fontWeight: 700, fill: "var(--gold)", fontFamily: "var(--fm)" }}>
+              <text x={labelW + Math.max(w, 4) + 8} y={yy + barH / 2 + 1}
+                style={{ fontSize: 12, fontWeight: 700, fill: isFirst ? "var(--gold)" : "var(--text-primary)", fontFamily: "var(--fm)" }}>
                 ${g >= 1000 ? _sf(g / 1000, 1) + "K" : _sf(g, 0)}
               </text>
+              {n > 0 && (
+                <text x={labelW + Math.max(w, 4) + 8} y={yy + barH / 2 + 13}
+                  style={{ fontSize: 9, fontWeight: 600, fill: "var(--green)", fontFamily: "var(--fm)", opacity: 0.8 }}>
+                  net ${n >= 1000 ? _sf(n / 1000, 1) + "K" : _sf(n, 0)}
+                </text>
+              )}
             </g>
           );
         })}
       </svg>
-      <div style={{ display: "flex", gap: 14, justifyContent: "center", marginTop: 8, fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>
-        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ width: 10, height: 10, borderRadius: 2, background: "var(--gold)", opacity: 0.7 }} /> Bruto
+      <div style={{ display: "flex", gap: 16, justifyContent: "center", marginTop: 10, fontSize: 10, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+          <span style={{ width: 12, height: 10, borderRadius: 3, background: "var(--gold)", opacity: 0.7 }} /> Bruto
         </span>
-        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ width: 10, height: 4, borderRadius: 2, background: "var(--green)", opacity: 0.5 }} /> Neto
+        <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+          <span style={{ width: 12, height: 5, borderRadius: 3, background: "var(--green)", opacity: 0.6 }} /> Neto
         </span>
       </div>
     </div>
@@ -91,11 +108,11 @@ function MonthlyTracker({ DIV_BY_MONTH }) {
   }, [DIV_BY_MONTH, curYear, prevYear]);
 
   const svgW = 420;
-  const svgH = 160;
-  const padL = 40;
-  const padR = 10;
-  const padT = 10;
-  const padB = 28;
+  const svgH = 180;
+  const padL = 46;
+  const padR = 14;
+  const padT = 14;
+  const padB = 32;
   const chartW = svgW - padL - padR;
   const chartH = svgH - padT - padB;
 
@@ -119,12 +136,12 @@ function MonthlyTracker({ DIV_BY_MONTH }) {
         <div style={{ fontSize: 13, fontWeight: 600, color: "var(--gold)", fontFamily: "var(--fd)" }}>
           📈 Acumulado Mensual: {prevYear} vs {curYear}
         </div>
-        <div style={{ display: "flex", gap: 12, fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <span style={{ width: 14, height: 2, borderRadius: 1, background: "var(--text-tertiary)", opacity: 0.5 }} /> {prevYear}
+        <div style={{ display: "flex", gap: 14, fontSize: 10, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <span style={{ width: 16, height: 2, borderRadius: 1, background: "var(--text-tertiary)", opacity: 0.5 }} /> {prevYear}
           </span>
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <span style={{ width: 14, height: 2, borderRadius: 1, background: "var(--gold)" }} /> {curYear}
+          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <span style={{ width: 16, height: 2, borderRadius: 1, background: "var(--gold)" }} /> {curYear}
           </span>
         </div>
       </div>
@@ -136,9 +153,9 @@ function MonthlyTracker({ DIV_BY_MONTH }) {
           return (
             <g key={i}>
               <line x1={padL} y1={y} x2={svgW - padR} y2={y} stroke="rgba(255,255,255,.06)" strokeWidth={1} />
-              <text x={padL - 4} y={y + 3} textAnchor="end"
-                style={{ fontSize: 8, fill: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>
-                {v >= 1000 ? `${_sf(v / 1000, 0)}K` : _sf(v, 0)}
+              <text x={padL - 6} y={y + 4} textAnchor="end"
+                style={{ fontSize: 9, fill: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>
+                ${v >= 1000 ? `${_sf(v / 1000, 0)}K` : _sf(v, 0)}
               </text>
             </g>
           );
@@ -163,8 +180,8 @@ function MonthlyTracker({ DIV_BY_MONTH }) {
         {MNAMES_SHORT.map((m, i) => {
           const x = padL + (i / 11) * chartW;
           return (
-            <text key={i} x={x} y={svgH - 4} textAnchor="middle"
-              style={{ fontSize: 8, fill: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>{m}</text>
+            <text key={i} x={x} y={svgH - 6} textAnchor="middle"
+              style={{ fontSize: 10, fontWeight: 500, fill: "var(--text-secondary)", fontFamily: "var(--fm)" }}>{m}</text>
           );
         })}
         {/* End values */}
@@ -178,14 +195,14 @@ function MonthlyTracker({ DIV_BY_MONTH }) {
           return (
             <>
               {cv > 0 && (
-                <text x={cx + 8} y={cy - 4}
-                  style={{ fontSize: 9, fontWeight: 700, fill: "var(--gold)", fontFamily: "var(--fm)" }}>
+                <text x={cx + 10} y={cy - 6}
+                  style={{ fontSize: 11, fontWeight: 700, fill: "var(--gold)", fontFamily: "var(--fm)" }}>
                   ${cv >= 1000 ? _sf(cv / 1000, 1) + "K" : _sf(cv, 0)}
                 </text>
               )}
               {pv > 0 && (
-                <text x={svgW - padR + 2} y={py + 3}
-                  style={{ fontSize: 8, fill: "var(--text-tertiary)", fontFamily: "var(--fm)", opacity: 0.6 }}>
+                <text x={svgW - padR + 4} y={py + 4}
+                  style={{ fontSize: 9, fill: "var(--text-tertiary)", fontFamily: "var(--fm)", opacity: 0.7 }}>
                   ${pv >= 1000 ? _sf(pv / 1000, 1) + "K" : _sf(pv, 0)}
                 </text>
               )}
@@ -496,8 +513,8 @@ function CalendarioSection({ divLog, POS_STATIC, ownedTickers, soloActuales }) {
                     <div key={di} onClick={() => setSelectedDay(day === selectedDay ? null : day)}
                       style={{
                         minHeight: 72, borderRadius: 8, padding: "4px 5px",
-                        border: `1px solid ${isSelected ? "var(--gold)" : isToday ? "rgba(200,164,78,.5)" : entries.length > 0 ? `rgba(200,164,78,${0.08 + intensity * 0.2})` : "rgba(255,255,255,.04)"}`,
-                        background: entries.length > 0 ? `rgba(200,164,78,${0.04 + intensity * 0.22})` : isWeekend ? "rgba(255,255,255,.01)" : "transparent",
+                        border: `1px solid ${isSelected ? "var(--gold)" : isToday ? "rgba(200,164,78,.5)" : entries.length > 0 ? `rgba(200,164,78,${0.1 + intensity * 0.3})` : "rgba(255,255,255,.04)"}`,
+                        background: entries.length > 0 ? `rgba(200,164,78,${0.06 + intensity * 0.3})` : isWeekend ? "rgba(255,255,255,.01)" : "transparent",
                         cursor: "pointer", transition: "all .12s", position: "relative",
                       }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
@@ -532,13 +549,13 @@ function CalendarioSection({ divLog, POS_STATIC, ownedTickers, soloActuales }) {
             {showProjected && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: "rgba(100,210,255,.2)" }} /> Estimado</span>}
             <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--gold)" }} /> Hoy</span>
             <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ fontSize: 8, color: "var(--text-tertiary)" }}>$0</span>
+              <span style={{ fontSize: 9, color: "var(--text-tertiary)" }}>$0</span>
               <span style={{ display: "flex", gap: 1 }}>
-                {[0.06, 0.1, 0.15, 0.2, 0.26].map((op, i) => (
-                  <span key={i} style={{ width: 10, height: 8, borderRadius: 1, background: `rgba(200,164,78,${op})` }} />
+                {[0.08, 0.15, 0.22, 0.32, 0.45].map((op, i) => (
+                  <span key={i} style={{ width: 12, height: 10, borderRadius: 2, background: `rgba(200,164,78,${op})` }} />
                 ))}
               </span>
-              <span style={{ fontSize: 8, color: "var(--gold)" }}>${maxDayAmount >= 1000 ? _sf(maxDayAmount / 1000, 1) + "K" : _sf(maxDayAmount, 0)}</span>
+              <span style={{ fontSize: 9, fontWeight: 600, color: "var(--gold)" }}>${maxDayAmount >= 1000 ? _sf(maxDayAmount / 1000, 1) + "K" : _sf(maxDayAmount, 0)}</span>
             </span>
           </div>
         </div>
@@ -660,11 +677,25 @@ export default function DividendosTab() {
 <div style={{display:"flex",flexDirection:"column",gap:12}}>
   {/* Desglose TTM */}
   {divTTM > 0 && (
-    <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 14px",background:"rgba(200,164,78,.06)",border:"1px solid rgba(200,164,78,.15)",borderRadius:10,flexWrap:"wrap"}}>
-      <span style={{fontSize:11,fontWeight:700,color:"#c8a44e",fontFamily:"var(--fm)"}}>{"Dividendos TTM: $"+_sf(divTTM,0)+"/ano"}</span>
-      <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>
-        {"$"+_sf(divTTM/12,0)+"/mes \u00b7 $"+_sf(divTTM/365,2)+"/dia \u00b7 $"+_sf(divTTM/8760,3)+"/hora \u00b7 $"+_sf(divTTM/525600,4)+"/min"}
-      </span>
+    <div style={{background:"var(--card)",border:"1px solid rgba(200,164,78,.2)",borderRadius:14,padding:"14px 18px"}}>
+      <div style={{fontSize:11,fontWeight:600,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:8}}>DIVIDENDOS TTM</div>
+      <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"baseline"}}>
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",padding:"6px 14px",background:"rgba(200,164,78,.08)",borderRadius:10,minWidth:80}}>
+          <span style={{fontSize:20,fontWeight:800,color:"var(--gold)",fontFamily:"var(--fm)"}}>${divTTM>=1000?_sf(divTTM/1000,1)+"K":_sf(divTTM,0)}</span>
+          <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>/ a&#241;o</span>
+        </div>
+        {[
+          {v:divTTM/12, u:"mes", d:0},
+          {v:divTTM/365, u:"d\u00eda", d:2},
+          {v:divTTM/8760, u:"hora", d:3},
+          {v:divTTM/525600, u:"min", d:4},
+        ].map((item,i) => (
+          <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",padding:"6px 10px",borderRadius:8,minWidth:60}}>
+            <span style={{fontSize:14,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>${_sf(item.v,item.d)}</span>
+            <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>/ {item.u}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )}
 
@@ -674,8 +705,8 @@ export default function DividendosTab() {
       <button key={t.id} onClick={()=>setSection(t.id)} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${section===t.id?"var(--gold)":"transparent"}`,background:section===t.id?"var(--gold-dim)":"transparent",color:section===t.id?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:section===t.id?700:500,cursor:"pointer",fontFamily:"var(--fb)",transition:"all .15s"}}>{t.lbl}</button>
     ))}
     <div style={{marginLeft:"auto"}}/>
-    <button onClick={()=>setSoloActuales(!soloActuales)} style={{padding:"5px 10px",borderRadius:6,border:`1px solid ${soloActuales?"rgba(48,209,88,.4)":"var(--border)"}`,background:soloActuales?"rgba(48,209,88,.08)":"transparent",color:soloActuales?"var(--green)":"var(--text-tertiary)",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)",transition:"all .15s"}}>
-      {soloActuales?"✓ Solo actuales":"◯ Todas"}
+    <button onClick={()=>setSoloActuales(!soloActuales)} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${soloActuales?"rgba(48,209,88,.5)":"var(--border)"}`,background:soloActuales?"rgba(48,209,88,.12)":"rgba(255,255,255,.03)",color:soloActuales?"var(--green)":"var(--text-tertiary)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)",transition:"all .15s",letterSpacing:.3}}>
+      {soloActuales?"\u2713 Solo actuales":"\u25CB Todas las posiciones"}
     </button>
   </div>
 
@@ -732,7 +763,7 @@ export default function DividendosTab() {
       <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
         {[{l:"GROSS",v:`$${totalGross.toLocaleString(undefined,{maximumFractionDigits:0})}`,c:"var(--gold)"},{l:"NET",v:`$${totalNet.toLocaleString(undefined,{maximumFractionDigits:0})}`,c:"var(--green)"},{l:"TAX",v:`${_sf(taxRate,0)}%`,c:"var(--red)"},{l:"COBROS",v:filtered.length,c:"var(--text-primary)"},{l:"TICKERS",v:uniqueTickers,c:"var(--text-secondary)"},{l:"NET/MES (12m)",v:`$${avgNetMonth.toLocaleString(undefined,{maximumFractionDigits:0})}`,c:avgNetMonth>=fireTarget?"var(--green)":"var(--orange)"}].map((k,i)=>(
           <div key={i} style={{flex:"1 1 85px",padding:"10px 14px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:12}}>
-            <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.6,fontWeight:600,marginBottom:3}}>{k.l}</div>
+            <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,fontWeight:600,marginBottom:3}}>{k.l}</div>
             <div style={{fontSize:16,fontWeight:700,color:k.c,fontFamily:"var(--fm)"}}>{k.v}</div></div>))}
       </div>
       {/* FIRE Bar */}
@@ -777,9 +808,9 @@ export default function DividendosTab() {
       </div></div>)}
       {/* Annual chart */}
       <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
-        <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:12}}>📈 Dividendos por Año</div>
-        <div style={{display:"flex",alignItems:"flex-end",gap:6,height:140}}>
-          {yearKeys.map((y,i)=>{const d=byYear[y];const h=d.g/maxYearG*100;const pY=yearKeys[i-1];const gr=pY&&byYear[pY].g>0?((d.g-byYear[pY].g)/byYear[pY].g*100):null;return(<div key={y} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%"}} title={`${y}: G$${_sf(d.g,0)} N$${_sf(d.n,0)} ${d.c}x`}>{gr!=null&&<div style={{fontSize:8,fontWeight:600,color:rc(gr),fontFamily:"var(--fm)",marginBottom:2}}>{gr>=0?"+":""}{_sf(gr,0)}%</div>}<div style={{fontSize:9,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fm)",marginBottom:2}}>${_sf(d.g/1000,1)}K</div><div style={{width:"100%",maxWidth:40,height:`${Math.max(h,4)}%`,background:"var(--gold)",borderRadius:"4px 4px 0 0",opacity:.7}}/><div style={{fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginTop:4,fontWeight:600}}>{y}</div></div>);})}
+        <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:14}}>Dividendos por A&#241;o</div>
+        <div style={{display:"flex",alignItems:"flex-end",gap:8,height:160,paddingTop:20}}>
+          {[...yearKeys].reverse().map((y,i,arr)=>{const d=byYear[y];const h=d.g/maxYearG*100;const nextOlder=arr[i+1];const gr=nextOlder&&byYear[nextOlder]?.g>0?((d.g-byYear[nextOlder].g)/byYear[nextOlder].g*100):null;const isFirst=i===0;return(<div key={y} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%",position:"relative"}} title={`${y}: G$${_sf(d.g,0)} N$${_sf(d.n,0)} ${d.c}x`}>{gr!=null&&<div style={{fontSize:9,fontWeight:700,color:rc(gr),fontFamily:"var(--fm)",marginBottom:3}}>{gr>=0?"+":""}{_sf(gr,0)}%</div>}<div style={{fontSize:10,fontWeight:700,color:isFirst?"var(--gold)":"var(--text-primary)",fontFamily:"var(--fm)",marginBottom:3}}>${d.g>=1000?_sf(d.g/1000,1)+"K":_sf(d.g,0)}</div><div style={{width:"100%",maxWidth:44,height:`${Math.max(h,4)}%`,background:isFirst?"linear-gradient(180deg, var(--gold), rgba(200,164,78,.3))":"linear-gradient(180deg, rgba(200,164,78,.6), rgba(200,164,78,.15))",borderRadius:"6px 6px 0 0"}}/><div style={{fontSize:11,color:isFirst?"var(--gold)":"var(--text-secondary)",fontFamily:"var(--fm)",marginTop:6,fontWeight:700}}>{y}</div></div>);})}
         </div>
       </div>
       {/* ── Calendar: Dividendos Mes a Mes (selector de año) ── */}
@@ -810,7 +841,7 @@ export default function DividendosTab() {
             <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
               {[{l:"INCOME",v:`$${yTot>=1000?_sf(yTot/1000,1)+"K":_sf(yTot,0)}`,c:"var(--gold)"},{l:"⌀ MES",v:`$${_sf(yAvg,0)}`,c:"var(--green)"},{l:"NET",v:`$${yNet>=1000?_sf(yNet/1000,1)+"K":_sf(yNet,0)}`,c:"var(--text-primary)"},...(prvT>0?[{l:"YoY",v:`${yGr>=0?"+":""}${_sf(yGr,0)}%`,c:yGr>=0?"var(--green)":"var(--red)"}]:[]),{l:"COBROS",v:String(yCnt),c:"var(--text-secondary)"}].map((k,ki) => <div key={ki} style={{padding:"8px 14px",background:`${k.c}08`,borderRadius:10,border:`1px solid ${k.c}22`}}><div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5}}>{k.l}</div><div style={{fontSize:18,fontWeight:800,color:k.c,fontFamily:"var(--fm)"}}>{k.v}</div></div>)}
             </div>
-            <div style={{display:"flex",gap:6,alignItems:"flex-end",height:220,paddingTop:30}}>
+            <div style={{display:"flex",gap:6,alignItems:"flex-end",height:220,paddingTop:24}}>
               {mths.map((dd, mi) => {
                 const gg = dd?.g || 0;
                 const cn = dd?.c || 0;
@@ -818,12 +849,13 @@ export default function DividendosTab() {
                 const pM = prvM?.[mi];
                 const pG = pM?.g || 0;
                 const mG = pG > 0 ? ((gg - pG) / pG * 100) : 0;
+                const isCurMonth = parseInt(selY,10) === new Date().getFullYear() && mi === new Date().getMonth();
                 return <div key={mi} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%",position:"relative"}}>
-                  {gg > 0 && <div style={{fontSize:9,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)",marginBottom:1,whiteSpace:"nowrap",transform:"rotate(-45deg)",transformOrigin:"bottom center",position:"absolute",top:0,left:"50%",marginLeft:-4}}>{gg>=1000?`${_sf(gg/1000,1)}K`:`$${_sf(gg,0)}`}</div>}
-                  {gg > 0 && pG > 0 && <div style={{fontSize:7,fontWeight:600,color:mG>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)",marginBottom:2}}>{mG>=0?"+":""}{_sf(mG,0)}%</div>}
-                  <div style={{width:"100%",maxWidth:36,height:`${Math.max(hh, gg>0?4:0)}%`,background:gg>0?"linear-gradient(180deg, var(--gold), rgba(200,164,78,.2))":"transparent",borderRadius:"4px 4px 0 0",minHeight:gg>0?4:0}}/>
-                  <div style={{fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginTop:5,fontWeight:600}}>{mNF[mi]}</div>
-                  {cn > 0 && <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{cn}x</div>}
+                  {gg > 0 && <div style={{fontSize:9,fontWeight:700,color:isCurMonth?"var(--gold)":"var(--text-primary)",fontFamily:"var(--fm)",marginBottom:2,whiteSpace:"nowrap"}}>{gg>=1000?`${_sf(gg/1000,1)}K`:`$${_sf(gg,0)}`}</div>}
+                  {gg > 0 && pG > 0 && <div style={{fontSize:8,fontWeight:600,color:mG>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)",marginBottom:2}}>{mG>=0?"+":""}{_sf(mG,0)}%</div>}
+                  <div style={{width:"100%",maxWidth:38,height:`${Math.max(hh, gg>0?4:0)}%`,background:gg>0?(isCurMonth?"linear-gradient(180deg, var(--gold), rgba(200,164,78,.3))":"linear-gradient(180deg, rgba(200,164,78,.6), rgba(200,164,78,.15))"):"transparent",borderRadius:"5px 5px 0 0",minHeight:gg>0?4:0}}/>
+                  <div style={{fontSize:10,color:isCurMonth?"var(--gold)":"var(--text-secondary)",fontFamily:"var(--fm)",marginTop:5,fontWeight:isCurMonth?700:600}}>{mNF[mi]}</div>
+                  {cn > 0 && <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{cn}x</div>}
                 </div>;
               })}
             </div>
@@ -833,8 +865,8 @@ export default function DividendosTab() {
       {/* YoY por mes */}
       <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
         <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:12}}>📊 Comparativa Mensual YoY ({prevYear} vs {curYear})</div>
-        <div style={{display:"flex",gap:4}}>
-          {["01","02","03","04","05","06","07","08","09","10","11","12"].map(mm=>{const cur=byCalMonth[curYear+"-"+mm]?.g||0;const prev=byCalMonth[prevYear+"-"+mm]?.g||0;const mx=Math.max(cur,prev,1);const gr=prev>0?((cur-prev)/prev*100):(cur>0?100:0);return(<div key={mm} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}} title={`${mNames[parseInt(mm, 10)-1]}: ${prevYear} $${_sf(prev,0)} → ${curYear} $${_sf(cur,0)}`}><div style={{fontSize:7,fontWeight:600,color:rc(gr),fontFamily:"var(--fm)"}}>{cur>0&&prev>0?`${gr>=0?"+":""}${_sf(gr,0)}%`:""}</div><div style={{display:"flex",gap:1,alignItems:"flex-end",height:60,width:"100%"}}><div style={{flex:1,height:`${prev/mx*100}%`,background:"var(--text-tertiary)",borderRadius:"2px 2px 0 0",opacity:.4,minHeight:prev>0?2:0}}/><div style={{flex:1,height:`${cur/mx*100}%`,background:cur>=prev?"var(--green)":"var(--red)",borderRadius:"2px 2px 0 0",opacity:.8,minHeight:cur>0?2:0}}/></div><div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{mNames[parseInt(mm, 10)-1]}</div></div>);})}
+        <div style={{display:"flex",gap:5}}>
+          {["01","02","03","04","05","06","07","08","09","10","11","12"].map(mm=>{const cur=byCalMonth[curYear+"-"+mm]?.g||0;const prev=byCalMonth[prevYear+"-"+mm]?.g||0;const mx=Math.max(cur,prev,1);const gr=prev>0?((cur-prev)/prev*100):(cur>0?100:0);return(<div key={mm} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}} title={`${mNames[parseInt(mm, 10)-1]}: ${prevYear} $${_sf(prev,0)} \u2192 ${curYear} $${_sf(cur,0)}`}><div style={{fontSize:8,fontWeight:700,color:rc(gr),fontFamily:"var(--fm)"}}>{cur>0&&prev>0?`${gr>=0?"+":""}${_sf(gr,0)}%`:""}</div><div style={{display:"flex",gap:2,alignItems:"flex-end",height:70,width:"100%"}}><div style={{flex:1,height:`${prev/mx*100}%`,background:"var(--text-tertiary)",borderRadius:"3px 3px 0 0",opacity:.4,minHeight:prev>0?3:0}}/><div style={{flex:1,height:`${cur/mx*100}%`,background:cur>=prev?"var(--green)":"var(--red)",borderRadius:"3px 3px 0 0",opacity:.8,minHeight:cur>0?3:0}}/></div><div style={{fontSize:9,color:"var(--text-secondary)",fontFamily:"var(--fm)",fontWeight:500}}>{mNames[parseInt(mm, 10)-1]}</div></div>);})}
         </div>
         <div style={{display:"flex",gap:12,justifyContent:"center",marginTop:8,fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}><span style={{display:"flex",alignItems:"center",gap:3}}><span style={{width:8,height:8,borderRadius:2,background:"var(--text-tertiary)",opacity:.4}}/>{prevYear}</span><span style={{display:"flex",alignItems:"center",gap:3}}><span style={{width:8,height:8,borderRadius:2,background:"var(--green)"}}/>{curYear}</span></div>
       </div>
@@ -857,7 +889,7 @@ export default function DividendosTab() {
             {/* Y Axis */}
             <div style={{display:"flex",flexDirection:"column",justifyContent:"space-between",height:chartH,paddingRight:6,flexShrink:0}}>
               {[...ySteps].reverse().map(v => (
-                <div key={v} style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"right",width:30,lineHeight:"1"}}>${v>=1000?_sf(v/1000,0)+"K":v}</div>
+                <div key={v} style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"right",width:34,lineHeight:"1"}}>${v>=1000?_sf(v/1000,0)+"K":v}</div>
               ))}
             </div>
             <div style={{flex:1,position:"relative"}}>
@@ -874,7 +906,7 @@ export default function DividendosTab() {
                   const isLast = i === monthKeys.length - 1;
                   const showVal = showValueAt.has(i) && d.g > 0;
                   return <div key={m} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%"}} title={`${m}: G$${_sf(d.g,0)} N$${_sf(d.n,0)} ${d.c}x`}>
-                    {showVal && <div style={{fontSize:7,fontWeight:600,color:isLast?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:1,whiteSpace:"nowrap"}}>{d.g>=1000?_sf(d.g/1000,1)+"K":_sf(d.g,0)}</div>}
+                    {showVal && <div style={{fontSize:8,fontWeight:700,color:isLast?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:2,whiteSpace:"nowrap"}}>${d.g>=1000?_sf(d.g/1000,1)+"K":_sf(d.g,0)}</div>}
                     <div style={{width:"100%",maxWidth:14,height:`${Math.max(h,3)}%`,background:isCur?"var(--gold)":"var(--green)",borderRadius:"2px 2px 0 0",opacity:isCur?1:.5}}/>
                   </div>;
                 })}
@@ -882,7 +914,7 @@ export default function DividendosTab() {
               {/* X axis */}
               <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
                 {monthKeys.filter((_,i) => i === 0 || i === monthKeys.length-1 || (i % 6 === 0)).map(m => (
-                  <span key={m} style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{m.slice(2)}</span>
+                  <span key={m} style={{fontSize:8,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{m.slice(2)}</span>
                 ))}
               </div>
             </div>
