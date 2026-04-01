@@ -487,7 +487,10 @@ function buildPositionsFromCB() {
     setComps([]);
     setFmpExtra({ rating: {}, dcf: {}, estimates: [], priceTarget: {}, keyMetrics: [], finGrowth: [], grades: {}, ownerEarnings: [], revSegments: [], geoSegments: [], peers: [], earnings: [], ptSummary: {}, profile: {} });
     setFmpError(null);
-    
+    // Load notes from positions data
+    setPositionNotes(positions[t]?.notes || POS_STATIC[t]?.notes || '');
+    setNotesSaved(false);
+
     const saved = await loadCompanyFromStorage(t);
     if (saved?.fin && Object.values(saved.fin).some(y => y.revenue > 0)) {
       // Has saved data with actual financials — use it
@@ -2057,6 +2060,21 @@ function buildPositionsFromCB() {
                 ))}
               </div>
             </div>
+            {/* Row 1.5: Position Notes (buy thesis) */}
+            {cfg.ticker && <div style={{padding:"2px 24px 0",display:"flex",alignItems:"flex-start",gap:8}}>
+              <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,paddingTop:4,flexShrink:0}}>Notas</span>
+              <textarea
+                value={positionNotes}
+                onChange={e => { setPositionNotes(e.target.value); setNotesSaved(false); }}
+                onBlur={() => { if (cfg.ticker) savePositionNotes(cfg.ticker, positionNotes); }}
+                onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.target.blur(); } }}
+                placeholder="Por que compraste esta empresa?"
+                rows={1}
+                style={{flex:1,maxWidth:600,minHeight:24,maxHeight:80,padding:"3px 8px",borderRadius:6,border:"1px solid var(--border)",background:"rgba(255,255,255,.03)",color:"var(--text-secondary)",fontSize:10,fontFamily:"var(--fm)",resize:"vertical",lineHeight:1.4,outline:"none",transition:"border-color .2s"}}
+                onFocus={e => e.target.style.borderColor = "var(--gold)"}
+              />
+              {notesSaved && <span style={{fontSize:9,color:"var(--green)",fontFamily:"var(--fm)",paddingTop:4,flexShrink:0,animation:"fadeUp .3s"}}>Guardado</span>}
+            </div>}
             {/* Row 2: Analysis Tabs */}
             <div ref={tabsRef} className="ar-tabs-scroll" style={{display:"flex",gap:2,padding:"0 24px",overflowX:"auto",overflowY:"hidden",borderTop:"1px solid rgba(255,255,255,.03)"}}>
               {TABS.map(t=>(
