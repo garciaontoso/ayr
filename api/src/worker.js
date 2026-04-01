@@ -269,10 +269,12 @@ export default {
       // POST /api/gastos — añadir gasto
       if (path === "/api/gastos" && request.method === "POST") {
         const body = await parseBody(request);
+        // Convention: gastos are always stored as negative amounts
+        const amt = -Math.abs(parseFloat(body.importe) || 0);
         await env.DB.prepare(
           `INSERT INTO gastos (fecha, categoria, importe, divisa, descripcion)
            VALUES (?, ?, ?, ?, ?)`
-        ).bind(body.fecha, body.categoria, body.importe, body.divisa || 'EUR', body.descripcion).run();
+        ).bind(body.fecha, body.categoria, amt, body.divisa || 'EUR', body.descripcion).run();
         return json({ success: true }, corsHeaders);
       }
 
@@ -336,7 +338,8 @@ export default {
           if (note && /^[A-Z]{2}\d{2}[A-Z0-9]{4,}/.test(note.trim())) { skipped++; continue; }
 
           const categoria = CATEGORY_MAP[categoryName] || "OTH";
-          const importe = Math.abs(parseFloat(amountStr));
+          // Convention: gastos stored as negative amounts
+          const importe = -Math.abs(parseFloat(amountStr));
           if (isNaN(importe) || importe === 0) { skipped++; continue; }
 
           const fecha = dateStr.substring(0, 10); // YYYY-MM-DD from ISO string
@@ -344,9 +347,9 @@ export default {
           const isChina = wallet && wallet.toLowerCase().includes("china");
           const descripcion = isChina ? `{china} ${note || categoryName}` : (note || categoryName);
 
-          // Check for duplicates
+          // Check for duplicates (match negative amount)
           const dup = await env.DB.prepare(
-            `SELECT id FROM gastos WHERE fecha = ? AND categoria = ? AND importe = ? AND divisa = ? LIMIT 1`
+            `SELECT id FROM gastos WHERE fecha = ? AND categoria = ? AND ABS(importe - ?) < 0.01 AND divisa = ? LIMIT 1`
           ).bind(fecha, categoria, importe, divisa).first();
 
           if (dup) { duplicates++; continue; }
