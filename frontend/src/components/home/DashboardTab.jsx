@@ -29,8 +29,9 @@ export default function DashboardTab() {
 const latest = ctrlWithData[ctrlWithData.length - 1] || {};
 const first = ctrlWithData[0] || {};
 const totalGrowth = latest.pu && first.pu ? ((latest.pu - first.pu) / first.pu * 100) : 0;
-const maxPat = Math.max(...ctrlWithData.map(c => c.pu || 0));
-const minPat = Math.min(...ctrlWithData.map(c => c.pu || 0));
+const patValues = ctrlWithData.map(c => c.pu || 0);
+const maxPat = patValues.length ? Math.max(...patValues) : 0;
+const minPat = patValues.length ? Math.min(...patValues) : 0;
 
 // Current year income
 const curYear = new Date().getFullYear().toString();
@@ -59,7 +60,8 @@ INCOME_DATA.forEach(d => {
 
 // Expense categories (top 10)
 const expCats = Object.entries(GASTOS_CAT).sort((a,b) => a[1] - b[1]).slice(0, 12);
-const maxExp = Math.min(...expCats.map(([,v]) => v), -1);
+const expValues = expCats.map(([,v]) => v);
+const maxExp = expValues.length ? Math.max(...expValues.map(Math.abs)) : 1;
 
 // Asset allocation
 const brokersUsd = latest.br || 0;
