@@ -99,17 +99,25 @@ function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, fxEurUsd,
     }
     const runsOut = bal > 0 ? false : true;
 
-    // Build trajectory
+    // Build full trajectory: working phase + retirement phase
     const trajectory = [];
+    const startYear = new Date().getFullYear();
+    // Working phase
+    let wBal = s.capitalToday;
+    for (let y = 0; y <= s.yearsBefore; y++) {
+      trajectory.push({ year: startYear + y, balance: wBal, phase: 'working' });
+      if (y < s.yearsBefore) wBal = wBal * (1 + s.returnWorking / 100) + s.savePerYear;
+    }
+    // Retirement phase
     let tBal = capital;
     let tCost = costAtRetirement;
     let tInc = guaranteedAtRetirement;
-    for (let y = 0; y <= Math.min(s.yearsIn, 50); y++) {
-      trajectory.push({ year: retirementYear + y, balance: tBal, cost: tCost, income: tInc });
+    for (let y = 1; y <= Math.min(s.yearsIn, 50); y++) {
       tBal = tBal * (1 + s.returnRetired / 100) - (tCost - tInc);
       tCost *= (1 + s.inflationRetired / 100);
       tInc *= (1 + s.inflationRetired / 100);
       if (tBal < 0) tBal = 0;
+      trajectory.push({ year: retirementYear + y, balance: tBal, phase: 'retired' });
     }
 
     const overUnder = capital - yourNumber;
@@ -239,34 +247,169 @@ function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, fxEurUsd,
         </div>
       </div>
 
-      {/* Trajectory chart */}
-      <div style={card}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--gold)', fontFamily: 'var(--fd)', marginBottom: 12 }}>
-          📈 Proyección de Capital en Jubilación — {s.name}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 160, padding: '0 4px' }}>
-          {r.trajectory.map((t, i) => {
-            const maxBal = Math.max(...r.trajectory.map(x => x.balance), 1);
-            const h = Math.max((t.balance / maxBal) * 100, 0);
-            const isNeg = t.balance <= 0;
-            const show = i === 0 || i === r.trajectory.length - 1 || i % Math.max(1, Math.floor(r.trajectory.length / 8)) === 0;
-            return (
-              <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%' }}>
-                {show && <div style={{ fontSize: 7, fontWeight: 600, color: isNeg ? 'var(--red)' : 'var(--green)', fontFamily: 'var(--fm)', marginBottom: 2, whiteSpace: 'nowrap' }}>
-                  {t.balance >= 1000 ? `${(t.balance / 1000).toFixed(0)}K` : '0'}
-                </div>}
-                <div style={{ width: '100%', maxWidth: 20, height: `${Math.max(h, 2)}%`, background: isNeg ? 'var(--red)' : t.balance > r.yourNumber ? 'var(--green)' : 'var(--gold)', borderRadius: '2px 2px 0 0', opacity: 0.6 }} />
-                {show && <div style={{ fontSize: 7, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', marginTop: 2 }}>{t.year}</div>}
-              </div>
-            );
-          })}
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 8 }}>
-          <span style={{ fontSize: 9, color: 'var(--green)', fontFamily: 'var(--fm)' }}>● Por encima de Your Number</span>
-          <span style={{ fontSize: 9, color: 'var(--gold)', fontFamily: 'var(--fm)' }}>● Por debajo</span>
-          <span style={{ fontSize: 9, color: 'var(--red)', fontFamily: 'var(--fm)' }}>● Sin dinero</span>
-        </div>
-      </div>
+      {/* SVG Trajectory chart */}
+      {(() => {
+        const traj = r.trajectory;
+        if (!traj || traj.length < 2) return null;
+        const W = 600, H = 250, PL = 55, PR = 15, PT = 20, PB = 32;
+        const cW = W - PL - PR, cH = H - PT - PB;
+        const maxBal = Math.max(...traj.map(t => t.balance), r.yourNumber * 1.1, 1);
+        const minYear = traj[0].year, maxYear = traj[traj.length - 1].year;
+        const ySpan = maxYear - minYear || 1;
+
+        const xOf = (yr) => PL + ((yr - minYear) / ySpan) * cW;
+        const yOf = (bal) => PT + cH - (Math.max(bal, 0) / maxBal) * cH;
+
+        // Build points
+        const pts = traj.map(t => ({ x: xOf(t.year), y: yOf(t.balance), bal: t.balance, yr: t.year, phase: t.phase }));
+
+        // Smooth bezier path
+        const bezier = (points) => {
+          if (points.length < 2) return '';
+          let d = `M${points[0].x},${points[0].y}`;
+          for (let i = 1; i < points.length; i++) {
+            const p0 = points[i - 1], p1 = points[i];
+            const cx = (p0.x + p1.x) / 2;
+            d += ` C${cx},${p0.y} ${cx},${p1.y} ${p1.x},${p1.y}`;
+          }
+          return d;
+        };
+
+        const linePath = bezier(pts);
+        // Area path (close to bottom)
+        const areaPath = linePath + ` L${pts[pts.length - 1].x},${PT + cH} L${pts[0].x},${PT + cH} Z`;
+
+        // Split into working/retired segments for coloring
+        const retireIdx = pts.findIndex(p => p.phase === 'retired');
+        const workPts = retireIdx > 0 ? pts.slice(0, retireIdx + 1) : pts;
+        const retPts = retireIdx > 0 ? pts.slice(retireIdx) : [];
+
+        const workArea = (() => {
+          const p = bezier(workPts);
+          if (!p) return '';
+          return p + ` L${workPts[workPts.length - 1].x},${PT + cH} L${workPts[0].x},${PT + cH} Z`;
+        })();
+        const retArea = (() => {
+          if (retPts.length < 2) return '';
+          const p = bezier(retPts);
+          return p + ` L${retPts[retPts.length - 1].x},${PT + cH} L${retPts[0].x},${PT + cH} Z`;
+        })();
+
+        // Target line Y
+        const targetY = yOf(r.yourNumber);
+
+        // Milestone markers
+        const milestones = [];
+        const steps = [500000, 1000000, 1500000, 2000000, 2500000, 3000000, 4000000, 5000000];
+        steps.forEach(m => {
+          if (m < maxBal * 0.95) {
+            // Find first point that crosses this milestone
+            for (let i = 1; i < traj.length; i++) {
+              if (traj[i - 1].balance < m && traj[i].balance >= m) {
+                const ratio = (m - traj[i - 1].balance) / (traj[i].balance - traj[i - 1].balance);
+                const mx = pts[i - 1].x + (pts[i].x - pts[i - 1].x) * ratio;
+                const my = yOf(m);
+                const label = m >= 1000000 ? `${(m / 1000000).toFixed(m % 1000000 === 0 ? 0 : 1)}M` : `${(m / 1000).toFixed(0)}K`;
+                milestones.push({ x: mx, y: my, label });
+                break;
+              }
+            }
+          }
+        });
+
+        // Y-axis labels
+        const yTicks = [];
+        const niceStep = maxBal > 2000000 ? 1000000 : maxBal > 500000 ? 500000 : maxBal > 200000 ? 100000 : 50000;
+        for (let v = 0; v <= maxBal; v += niceStep) {
+          yTicks.push(v);
+        }
+
+        // X-axis labels (every ~5 years)
+        const xStep = Math.max(1, Math.round(ySpan / 8));
+        const xTicks = [];
+        for (let yr = minYear; yr <= maxYear; yr += xStep) xTicks.push(yr);
+        if (xTicks[xTicks.length - 1] !== maxYear) xTicks.push(maxYear);
+
+        const fShort = v => v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : v >= 1000 ? `${(v / 1000).toFixed(0)}K` : String(Math.round(v));
+
+        return (
+          <div style={card}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--gold)', fontFamily: 'var(--fd)', marginBottom: 12 }}>
+              📈 Trayectoria de Capital — {s.name}
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+              <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxWidth: W, height: 'auto', fontFamily: 'var(--fm)' }}>
+                <defs>
+                  <linearGradient id="workGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#c8a44e" stopOpacity="0.4" />
+                    <stop offset="100%" stopColor="#c8a44e" stopOpacity="0.03" />
+                  </linearGradient>
+                  <linearGradient id="retGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#64d2ff" stopOpacity="0.3" />
+                    <stop offset="100%" stopColor="#64d2ff" stopOpacity="0.03" />
+                  </linearGradient>
+                  <clipPath id="aboveTarget">
+                    <rect x={PL} y={PT} width={cW} height={targetY - PT} />
+                  </clipPath>
+                  <clipPath id="belowTarget">
+                    <rect x={PL} y={targetY} width={cW} height={PT + cH - targetY} />
+                  </clipPath>
+                </defs>
+
+                {/* Grid lines */}
+                {yTicks.map((v, i) => (
+                  <g key={i}>
+                    <line x1={PL} y1={yOf(v)} x2={W - PR} y2={yOf(v)} stroke="rgba(255,255,255,.06)" strokeWidth="0.5" />
+                    <text x={PL - 4} y={yOf(v) + 3} textAnchor="end" fill="rgba(255,255,255,.3)" fontSize="7">{sym}{fShort(v)}</text>
+                  </g>
+                ))}
+
+                {/* Filled areas */}
+                {workArea && <path d={workArea} fill="url(#workGrad)" />}
+                {retArea && <path d={retArea} fill="url(#retGrad)" />}
+
+                {/* Line — green above target, gold below */}
+                <path d={linePath} fill="none" stroke="#30d158" strokeWidth="2" clipPath="url(#aboveTarget)" />
+                <path d={linePath} fill="none" stroke="#c8a44e" strokeWidth="2" clipPath="url(#belowTarget)" />
+
+                {/* Target dashed line */}
+                <line x1={PL} y1={targetY} x2={W - PR} y2={targetY} stroke="#c8a44e" strokeWidth="1" strokeDasharray="6,3" opacity="0.7" />
+                <rect x={PL + 2} y={targetY - 12} width={80} height={14} rx="3" fill="rgba(0,0,0,.7)" />
+                <text x={PL + 6} y={targetY - 3} fill="#c8a44e" fontSize="8" fontWeight="700">YOUR NUMBER {sym}{fShort(r.yourNumber)}</text>
+
+                {/* Retirement start vertical line */}
+                {retireIdx > 0 && (
+                  <g>
+                    <line x1={pts[retireIdx].x} y1={PT} x2={pts[retireIdx].x} y2={PT + cH} stroke="rgba(100,210,255,.3)" strokeWidth="1" strokeDasharray="3,3" />
+                    <text x={pts[retireIdx].x} y={PT + 10} textAnchor="middle" fill="#64d2ff" fontSize="7" fontWeight="600">Jubilacion</text>
+                  </g>
+                )}
+
+                {/* Milestone markers */}
+                {milestones.map((m, i) => (
+                  <g key={i}>
+                    <circle cx={m.x} cy={m.y} r="3.5" fill="var(--bg, #000)" stroke="#c8a44e" strokeWidth="1.5" />
+                    <text x={m.x} y={m.y - 7} textAnchor="middle" fill="rgba(255,255,255,.6)" fontSize="7" fontWeight="600">{sym}{m.label}</text>
+                  </g>
+                ))}
+
+                {/* X-axis labels */}
+                {xTicks.map((yr, i) => (
+                  <text key={i} x={xOf(yr)} y={H - 6} textAnchor="middle" fill="rgba(255,255,255,.35)" fontSize="8">{yr}</text>
+                ))}
+
+                {/* Axis lines */}
+                <line x1={PL} y1={PT + cH} x2={W - PR} y2={PT + cH} stroke="rgba(255,255,255,.1)" strokeWidth="0.5" />
+              </svg>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 6 }}>
+              <span style={{ fontSize: 9, color: '#30d158', fontFamily: 'var(--fm)' }}>━ Sobre Your Number</span>
+              <span style={{ fontSize: 9, color: '#c8a44e', fontFamily: 'var(--fm)' }}>━ Fase trabajo</span>
+              <span style={{ fontSize: 9, color: '#64d2ff', fontFamily: 'var(--fm)' }}>━ Fase jubilacion</span>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Sensitivity table */}
       <div style={card}>
@@ -580,14 +723,59 @@ return (
     </div>
   </div>
 
-  {/* METRICS */}
-  <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-    {[
-      {l:"PATRIMONIO",v:`${sym}${fDol(pat)}`,c:"var(--text-primary)"},
-      {l:"RENT. NECESARIA",v:`${_sf(fireRet,1)}%`,sub:"sobre patrimonio",c:fireRet<4?"var(--green)":fireRet<7?"var(--gold)":"var(--red)"},
-      {l:"AÑOS PARA FIRE",v:yearsToFire===0?"✓ YA":yearsToFire>=50?"50+":String(yearsToFire),sub:"@3.5% + 7% return",c:yearsToFire===0?"var(--green)":yearsToFire<5?"var(--gold)":"var(--orange)"},
-      {l:"TASA DE AHORRO",v:`${_sf(savingsRate,0)}%`,sub:`${savingsM>=0?"+":""}${sym}${fK(savingsM)}/mes`,c:savingsRate>30?"var(--green)":savingsRate>15?"var(--gold)":"var(--red)"},
-    ].map((k,i)=>(<div key={i} style={{flex:"1 1 130px",padding:"12px 14px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:12}}><div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,fontWeight:600,marginBottom:4}}>{k.l}</div><div style={{fontSize:20,fontWeight:700,color:k.c,fontFamily:"var(--fm)"}}>{k.v}</div>{k.sub&&<div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>{k.sub}</div>}</div>))}
+  {/* METRICS + FIRE GAUGE */}
+  <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"stretch"}}>
+    {/* KPI cards */}
+    <div style={{flex:"1 1 400px",display:"flex",gap:10,flexWrap:"wrap"}}>
+      {[
+        {l:"PATRIMONIO",v:`${sym}${fDol(pat)}`,c:"var(--text-primary)"},
+        {l:"RENT. NECESARIA",v:`${_sf(fireRet,1)}%`,sub:"sobre patrimonio",c:fireRet<4?"var(--green)":fireRet<7?"var(--gold)":"var(--red)"},
+        {l:"AÑOS PARA FIRE",v:yearsToFire===0?"✓ YA":yearsToFire>=50?"50+":String(yearsToFire),sub:"@3.5% + 7% return",c:yearsToFire===0?"var(--green)":yearsToFire<5?"var(--gold)":"var(--orange)"},
+        {l:"TASA DE AHORRO",v:`${_sf(savingsRate,0)}%`,sub:`${savingsM>=0?"+":""}${sym}${fK(savingsM)}/mes`,c:savingsRate>30?"var(--green)":savingsRate>15?"var(--gold)":"var(--red)"},
+      ].map((k,i)=>(<div key={i} style={{flex:"1 1 130px",padding:"12px 14px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:12}}><div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,fontWeight:600,marginBottom:4}}>{k.l}</div><div style={{fontSize:20,fontWeight:700,color:k.c,fontFamily:"var(--fm)"}}>{k.v}</div>{k.sub&&<div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>{k.sub}</div>}</div>))}
+    </div>
+    {/* FIRE Progress Gauge */}
+    {(() => {
+      const firePct = Math.min(swr35 > 0 ? (pat / swr35 * 100) : 0, 150);
+      const clampPct = Math.min(firePct, 100);
+      const gR = 70, gCx = 90, gCy = 80;
+      const startAngle = Math.PI;
+      const endAngle = 0;
+      const gaugeAngle = startAngle - (clampPct / 100) * Math.PI;
+      const arcEnd = (angle) => ({ x: gCx + gR * Math.cos(angle), y: gCy - gR * Math.sin(angle) });
+      const pStart = arcEnd(startAngle);
+      const pEnd = arcEnd(gaugeAngle);
+      const largeArc = clampPct > 50 ? 1 : 0;
+      // Color based on pct
+      const gaugeColor = clampPct >= 66 ? '#30d158' : clampPct >= 33 ? '#ffd60a' : '#ff453a';
+      const bgArcStart = arcEnd(startAngle);
+      const bgArcEnd = arcEnd(endAngle);
+      return (
+        <div style={{flex:"0 0 180px",padding:"14px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+          <svg viewBox="0 0 180 100" style={{width:180,height:100}}>
+            <defs>
+              <linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stopColor="#ff453a" />
+                <stop offset="50%" stopColor="#ffd60a" />
+                <stop offset="100%" stopColor="#30d158" />
+              </linearGradient>
+            </defs>
+            {/* Background arc */}
+            <path d={`M${bgArcStart.x},${bgArcStart.y} A${gR},${gR} 0 1,1 ${bgArcEnd.x},${bgArcEnd.y}`} fill="none" stroke="rgba(255,255,255,.08)" strokeWidth="10" strokeLinecap="round" />
+            {/* Colored arc */}
+            {clampPct > 0 && (
+              <path d={`M${pStart.x},${pStart.y} A${gR},${gR} 0 ${largeArc},1 ${pEnd.x},${pEnd.y}`} fill="none" stroke={gaugeColor} strokeWidth="10" strokeLinecap="round" />
+            )}
+            {/* Center text */}
+            <text x={gCx} y={gCy - 8} textAnchor="middle" fill={gaugeColor} fontSize="26" fontWeight="800" fontFamily="var(--fm)">{Math.round(firePct)}%</text>
+            <text x={gCx} y={gCy + 8} textAnchor="middle" fill="rgba(255,255,255,.4)" fontSize="8" fontWeight="600" fontFamily="var(--fm)">FIRE Progress</text>
+          </svg>
+          <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"center",marginTop:2}}>
+            {sym}{fK(pat)} / {sym}{fK(swr35)}
+          </div>
+        </div>
+      );
+    })()}
   </div>
 
   {/* MONTHLY NATIVE BREAKDOWN TABLE */}
