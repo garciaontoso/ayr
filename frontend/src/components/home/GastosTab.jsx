@@ -2,6 +2,113 @@ import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { CURRENCIES } from '../../constants/index.js';
 
+/* ── Category colors ── */
+const CAT_COLORS = {
+  SUP:"#30d158", COM:"#ff9f0a", TRA:"#64d2ff", ROP:"#bf5af2",
+  DEP:"#ffd60a", SUB:"#ff453a", HEA:"#ff375f", UCH:"#ac8e68", OTH:"#86868b",
+  // fallbacks for full-name cats
+  "Supermercado":"#30d158","Comida":"#ff9f0a","Transporte":"#64d2ff","Ropa":"#bf5af2",
+  "Deporte":"#ffd60a","Subscripción":"#ff453a","Suscripción":"#ff453a","Salud":"#ff375f",
+  "Uchu":"#ac8e68","Casa":"#ac8e68","Ocio":"#64d2ff","Educación":"#0a84ff",
+  "Viajes":"#bf5af2","Regalos":"#ffd60a","Tecnología":"#30d158","Belleza":"#ff9f0a",
+};
+const catColor = (cat) => CAT_COLORS[cat] || CAT_COLORS[(cat||"").slice(0,3)] || "#86868b";
+
+/* ── Multi-segment Donut Chart ── */
+const CategoryDonut = ({segments, size=150, strokeW=18}) => {
+  // segments: [{label, value, color}]
+  const total = segments.reduce((s,d) => s+d.value, 0);
+  if(!total) return null;
+  const r = (size-strokeW)/2;
+  const circ = 2*Math.PI*r;
+  let cumOffset = 0;
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:16}}>
+      <svg width={size} height={size} style={{transform:"rotate(-90deg)",flexShrink:0}}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#1a202c" strokeWidth={strokeW}/>
+        {segments.map((seg,i) => {
+          const pct = seg.value/total;
+          const dash = circ*pct;
+          const gap = circ-dash;
+          const offset = cumOffset;
+          cumOffset += dash;
+          return <circle key={i} cx={size/2} cy={size/2} r={r} fill="none"
+            stroke={seg.color} strokeWidth={strokeW}
+            strokeDasharray={`${dash} ${gap}`}
+            strokeDashoffset={-offset}
+            style={{transition:"stroke-dasharray .6s ease, stroke-dashoffset .6s ease"}}/>;
+        })}
+      </svg>
+      <div style={{display:"flex",flexDirection:"column",gap:3,minWidth:100}}>
+        {segments.map((seg,i) => (
+          <div key={i} style={{display:"flex",alignItems:"center",gap:5}}>
+            <div style={{width:8,height:8,borderRadius:2,background:seg.color,flexShrink:0}}/>
+            <span style={{fontSize:9,color:"var(--text-secondary)",fontFamily:"var(--fm)",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{seg.label}</span>
+            <span style={{fontSize:9,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{Math.round(seg.value/total*100)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+/* ── 12-month Trend Area Chart ── */
+const TrendAreaChart = ({monthData, w=320, h=120}) => {
+  // monthData: [{key:"2026-03", eur:1234}, ...] sorted ascending, up to 12
+  if(monthData.length < 2) return null;
+  const mNames = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+  const vals = monthData.map(d=>d.eur);
+  const mn = Math.min(...vals), mx = Math.max(...vals);
+  const rng = mx-mn || 1;
+  const padT = 16, padB = 22, padL = 4, padR = 4;
+  const cw = w-padL-padR, ch = h-padT-padB;
+  const pts = vals.map((v,i) => {
+    const x = padL + (i/(vals.length-1))*cw;
+    const y = padT + ch - ((v-mn)/rng)*ch;
+    return {x,y,v};
+  });
+  const line = pts.map(p=>`${p.x},${p.y}`).join(" ");
+  const area = `${padL},${padT+ch} ${line} ${padL+cw},${padT+ch}`;
+  const avg = vals.reduce((s,v)=>s+v,0)/vals.length;
+  const avgY = padT + ch - ((avg-mn)/rng)*ch;
+  return (
+    <div>
+      <svg width={w} height={h} style={{display:"block"}}>
+        <defs>
+          <linearGradient id="gastosAreaGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--gold)" stopOpacity=".25"/>
+            <stop offset="100%" stopColor="var(--gold)" stopOpacity="0"/>
+          </linearGradient>
+        </defs>
+        {/* grid lines */}
+        {[0,.25,.5,.75,1].map(p => {
+          const y = padT + ch*(1-p);
+          return <line key={p} x1={padL} y1={y} x2={w-padR} y2={y} stroke="rgba(255,255,255,.04)" strokeWidth={.5}/>;
+        })}
+        {/* avg line */}
+        <line x1={padL} y1={avgY} x2={w-padR} y2={avgY} stroke="var(--gold)" strokeWidth={.5} strokeDasharray="3 3" opacity={.4}/>
+        <text x={w-padR-2} y={avgY-3} fill="var(--gold)" fontSize={7} fontFamily="var(--fm)" textAnchor="end" opacity={.6}>media</text>
+        {/* area + line */}
+        <polygon points={area} fill="url(#gastosAreaGrad)"/>
+        <polyline points={line} fill="none" stroke="var(--gold)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/>
+        {/* dots */}
+        {pts.map((p,i) => <circle key={i} cx={p.x} cy={p.y} r={2.5} fill="var(--gold)" stroke="#1a202c" strokeWidth={1}/>)}
+        {/* month labels */}
+        {monthData.map((d,i) => {
+          const x = padL + (i/(vals.length-1))*cw;
+          const mi = parseInt(d.key.slice(5,7))-1;
+          return <text key={i} x={x} y={h-4} fill="var(--text-tertiary)" fontSize={7} fontFamily="var(--fm)" textAnchor="middle">{mNames[mi]}</text>;
+        })}
+        {/* value on last point */}
+        {pts.length > 0 && (() => {
+          const last = pts[pts.length-1];
+          return <text x={last.x} y={last.y-7} fill="var(--text-primary)" fontSize={8} fontWeight="600" fontFamily="var(--fm)" textAnchor="end">{"\u20AC"}{Math.round(last.v).toLocaleString()}</text>;
+        })()}
+      </svg>
+    </div>
+  );
+};
+
 export default function GastosTab() {
   const {
     gastosLog, gastosLoading, gastosShowForm, setGastosShowForm,
@@ -61,6 +168,12 @@ export default function GastosTab() {
     const topCats = Object.entries(byCat).sort((a,b) => b[1]-a[1]).slice(0,10);
     const maxCat = Math.max(...topCats.map(([,v])=>v), 1);
 
+    // Donut segments: top 8 + Otros
+    const donutTop = Object.entries(byCat).sort((a,b) => b[1]-a[1]);
+    const donutSegments = donutTop.slice(0,8).map(([cat,val]) => ({label:cat, value:val, color:catColor(cat)}));
+    const otrosVal = donutTop.slice(8).reduce((s,[,v]) => s+v, 0);
+    if(otrosVal > 0) donutSegments.push({label:"Otros", value:otrosVal, color:"#86868b"});
+
     // By currency breakdown
     const byCcy = {};
     expenses.forEach(g => {
@@ -85,6 +198,8 @@ export default function GastosTab() {
       else byMonth[m].eurNat += eurAmt;
     });
     const monthKeys = Object.keys(byMonth).sort().reverse();
+    // Last 12 months ascending for trend chart
+    const trendData = Object.entries(byMonth).sort((a,b)=>a[0].localeCompare(b[0])).slice(-12).map(([key,d])=>({key,eur:d.eur}));
 
     return <>
       {/* KPI cards */}
@@ -132,6 +247,26 @@ export default function GastosTab() {
         </div>
       </div>
 
+      {/* Visual charts row: Donut + Trend */}
+      {expenses.length > 0 && (
+        <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"flex-start"}}>
+          {/* Category donut */}
+          {donutSegments.length > 0 && (
+            <div style={{padding:"14px 16px",background:"rgba(255,255,255,.02)",borderRadius:12,border:"1px solid rgba(255,255,255,.04)",flex:"0 0 auto"}}>
+              <div style={{fontSize:9,fontWeight:600,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:10}}>GASTO POR CATEGORIA</div>
+              <CategoryDonut segments={donutSegments} size={140} strokeW={16}/>
+            </div>
+          )}
+          {/* 12-month trend */}
+          {trendData.length >= 2 && (
+            <div style={{padding:"14px 16px",background:"rgba(255,255,255,.02)",borderRadius:12,border:"1px solid rgba(255,255,255,.04)",flex:"1 1 320px",minWidth:280}}>
+              <div style={{fontSize:9,fontWeight:600,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:10}}>TENDENCIA MENSUAL</div>
+              <TrendAreaChart monthData={trendData} w={320} h={120}/>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Currency breakdown pills */}
       {Object.keys(byCcy).length > 1 && (
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -147,22 +282,39 @@ export default function GastosTab() {
         </div>
       )}
 
-      {/* Monthly breakdown grid */}
+      {/* Monthly breakdown with stacked bars */}
       {monthKeys.length > 1 && (() => {
         const mNames = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-        return <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:6}}>
+        const maxMonthEur = Math.max(...monthKeys.slice(0,12).map(m => byMonth[m]?.eur || 0), 1);
+        return <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:6}}>
           {monthKeys.slice(0,12).map(m => {
             const d = byMonth[m];
             const mi = parseInt(m.slice(5,7))-1;
             const yr = m.slice(0,4);
+            const pctTotal = (d.eur||0)/maxMonthEur*100;
+            const pctEur = d.eurNat/(d.eur||1)*100;
+            const pctCny = d.cny/(d.eur||1)*100;
+            const pctUsd = d.usd/(d.eur||1)*100;
             return (
               <div key={m} style={{padding:"8px 10px",background:"rgba(255,255,255,.02)",borderRadius:8,border:"1px solid rgba(255,255,255,.04)"}}>
-                <div style={{fontSize:10,fontWeight:600,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginBottom:4}}>{mNames[mi]} {yr}</div>
-                <div style={{fontSize:16,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>€{(d.eur||0).toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
+                  <span style={{fontSize:10,fontWeight:600,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{mNames[mi]} {yr}</span>
+                  <span style={{fontSize:14,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>€{(d.eur||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>
+                </div>
+                {/* stacked bar */}
+                <div style={{height:6,background:"rgba(255,255,255,.04)",borderRadius:3,overflow:"hidden",display:"flex",marginBottom:4}} title={`EUR: €${Math.round(d.eurNat)} | CNY: €${Math.round(d.cny)} | USD: €${Math.round(d.usd)}`}>
+                  {d.eurNat > 0 && <div style={{width:`${pctEur}%`,height:"100%",background:"#30d158",opacity:.7,transition:"width .4s ease"}}/>}
+                  {d.cny > 0 && <div style={{width:`${pctCny}%`,height:"100%",background:"#ff453a",opacity:.7,transition:"width .4s ease"}}/>}
+                  {d.usd > 0 && <div style={{width:`${pctUsd}%`,height:"100%",background:"#0a84ff",opacity:.7,transition:"width .4s ease"}}/>}
+                </div>
+                {/* overall bar vs max month */}
+                <div style={{height:3,background:"rgba(255,255,255,.03)",borderRadius:2,overflow:"hidden"}}>
+                  <div style={{width:`${pctTotal}%`,height:"100%",background:"var(--gold)",opacity:.3,borderRadius:2,transition:"width .4s ease"}}/>
+                </div>
                 {(d.cny > 0 || d.usd > 0) && <div style={{display:"flex",gap:3,marginTop:4,flexWrap:"wrap"}}>
-                  {d.eurNat > 0 && <span style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(48,209,88,.06)",color:"var(--green)",fontFamily:"var(--fm)"}}>EUR €{(d.eurNat||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
-                  {d.cny > 0 && <span style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(255,69,58,.06)",color:"var(--red)",fontFamily:"var(--fm)"}}>CNY €{(d.cny||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
-                  {d.usd > 0 && <span style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(10,132,255,.06)",color:"#0a84ff",fontFamily:"var(--fm)"}}>USD €{(d.usd||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
+                  {d.eurNat > 0 && <span style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(48,209,88,.08)",color:"#30d158",fontFamily:"var(--fm)"}}>EUR €{(d.eurNat||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
+                  {d.cny > 0 && <span style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(255,69,58,.08)",color:"#ff453a",fontFamily:"var(--fm)"}}>CNY €{(d.cny||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
+                  {d.usd > 0 && <span style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(10,132,255,.08)",color:"#0a84ff",fontFamily:"var(--fm)"}}>USD €{(d.usd||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
                 </div>}
               </div>
             );
@@ -170,15 +322,17 @@ export default function GastosTab() {
         </div>;
       })()}
 
-      {/* Category breakdown mini-bars (in EUR) */}
+      {/* Category breakdown mini-bars with colored indicators */}
       {topCats.length > 0 && <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
         {topCats.map(([cat,val]) => (
           <div key={cat} style={{flex:"1 1 220px",display:"flex",alignItems:"center",gap:6,padding:"5px 10px",background:"rgba(255,255,255,.02)",borderRadius:6}}>
-            <span style={{fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)",width:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cat}</span>
+            <div style={{width:4,height:20,borderRadius:2,background:catColor(cat),flexShrink:0,opacity:.7}}/>
+            <span style={{fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)",width:110,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cat}</span>
             <div style={{flex:1,height:6,background:"rgba(255,255,255,.04)",borderRadius:3,overflow:"hidden"}}>
-              <div style={{width:`${val/maxCat*100}%`,height:"100%",background:"var(--gold)",borderRadius:3,opacity:.5}}/>
+              <div style={{width:`${val/maxCat*100}%`,height:"100%",background:catColor(cat),borderRadius:3,opacity:.5,transition:"width .4s ease"}}/>
             </div>
             <span style={{fontSize:9,color:"var(--text-secondary)",fontFamily:"var(--fm)",width:60,textAlign:"right"}}>€{val.toLocaleString(undefined,{maximumFractionDigits:0})}</span>
+            <span style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",width:30,textAlign:"right"}}>{totalEur?Math.round(val/totalEur*100):0}%</span>
           </div>
         ))}
       </div>}

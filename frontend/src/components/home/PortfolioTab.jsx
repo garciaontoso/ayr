@@ -4,6 +4,23 @@ import { _sf, fDol } from '../../utils/formatters.js';
 
 const ALERTS_KEY = "ayr_price_alerts";
 
+const SECTOR_COLORS = {
+  "Technology":"#3b82f6","Information Technology":"#3b82f6","Tech":"#3b82f6",
+  "Real Estate":"#a855f7","REIT":"#a855f7",
+  "Financial Services":"#22c55e","Financials":"#22c55e","Finance":"#22c55e",
+  "Healthcare":"#06b6d4",
+  "Consumer Cyclical":"#f97316","Consumer Defensive":"#fb923c","Consumer Staples":"#fb923c","Consumer Discretionary":"#f97316",
+  "Energy":"#ef4444",
+  "Industrials":"#eab308",
+  "Communication Services":"#ec4899","Communication":"#ec4899",
+  "Utilities":"#14b8a6",
+  "Basic Materials":"#a78bfa","Materials":"#a78bfa",
+};
+const getSectorColor = (sector) => {
+  if (!sector || sector === "—") return null;
+  return SECTOR_COLORS[sector] || "#6b7280";
+};
+
 const SORT_OPTIONS = [
   {id:"name",lbl:"A-Z",fn:(a,b)=>(a.name||a.ticker).localeCompare(b.name||b.ticker)},
   {id:"value",lbl:"Valor",fn:(a,b)=>(b.valueUSD||0)-(a.valueUSD||0)},
@@ -208,7 +225,43 @@ export default function PortfolioTab() {
               </div>
             )}
             <div className="ar-portfolio-rows" style={{display:"flex",flexDirection:"column",gap:2}}>
-              {sorted.map(p=><CompanyRow key={p.ticker} p={p} showPos={true} onOpen={openAnalysis}/>)}
+              {sorted.map(p=>{
+                const weightPct = Math.min((p.weight||0)*100, 100);
+                const pnl = p.pnlPct||0;
+                const pnlColor = pnl > 0.001 ? "var(--green)" : pnl < -0.001 ? "var(--red)" : "var(--gold)";
+                const sectorColor = getSectorColor(p.sector);
+                return (
+                  <div key={p.ticker} style={{position:"relative",overflow:"hidden",borderRadius:6}}>
+                    {/* Weight background bar */}
+                    <div style={{
+                      position:"absolute",top:0,left:0,bottom:0,
+                      width:`${weightPct}%`,
+                      background:"linear-gradient(90deg, rgba(200,164,78,0.04), transparent)",
+                      pointerEvents:"none",zIndex:0,
+                    }}/>
+                    {/* P&L color bar — left edge */}
+                    <div style={{
+                      position:"absolute",top:1,left:0,bottom:1,
+                      width:3,borderRadius:"2px 0 0 2px",
+                      background:pnlColor,opacity:0.55,
+                      pointerEvents:"none",zIndex:1,
+                    }}/>
+                    {/* Sector dot — positioned over the logo area */}
+                    {sectorColor && (
+                      <div title={p.sector} style={{
+                        position:"absolute",top:3,left:20,
+                        width:5,height:5,borderRadius:"50%",
+                        background:sectorColor,opacity:0.7,
+                        pointerEvents:"none",zIndex:2,
+                        boxShadow:`0 0 3px ${sectorColor}40`,
+                      }}/>
+                    )}
+                    <div style={{position:"relative",zIndex:1}}>
+                      <CompanyRow p={p} showPos={true} onOpen={openAnalysis}/>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </>;
         })()}

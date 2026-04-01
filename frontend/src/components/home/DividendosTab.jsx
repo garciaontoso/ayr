@@ -1,7 +1,201 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { API_URL } from '../../constants/index.js';
+
+/* ═══════════════════════════════════════════════════════════════
+   📊 AnnualDivBarChart — horizontal bar chart from DIV_BY_YEAR
+   ═══════════════════════════════════════════════════════════════ */
+function AnnualDivBarChart({ DIV_BY_YEAR }) {
+  const years = useMemo(() => Object.keys(DIV_BY_YEAR || {}).sort(), [DIV_BY_YEAR]);
+  const maxG = useMemo(() => Math.max(...years.map(y => DIV_BY_YEAR[y]?.g || 0), 1), [years, DIV_BY_YEAR]);
+
+  if (years.length === 0) return null;
+
+  const barH = 26;
+  const labelW = 40;
+  const valueW = 70;
+  const gap = 4;
+  const svgH = years.length * (barH + gap) + 8;
+  const barArea = 300; // max bar width in SVG units
+
+  return (
+    <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--gold)", fontFamily: "var(--fd)", marginBottom: 12 }}>
+        📊 Dividendos Anuales
+      </div>
+      <svg width="100%" viewBox={`0 0 ${labelW + barArea + valueW + 16} ${svgH}`} style={{ display: "block" }}>
+        {years.map((y, i) => {
+          const d = DIV_BY_YEAR[y];
+          const g = d?.g || 0;
+          const n = d?.n || 0;
+          const w = maxG > 0 ? (g / maxG) * barArea : 0;
+          const yy = i * (barH + gap) + 4;
+          const intensity = maxG > 0 ? 0.25 + (g / maxG) * 0.75 : 0.25;
+          return (
+            <g key={y}>
+              <text x={labelW - 4} y={yy + barH / 2 + 4} textAnchor="end"
+                style={{ fontSize: 11, fontWeight: 700, fill: "var(--text-secondary)", fontFamily: "var(--fm)" }}>{y}</text>
+              <rect x={labelW} y={yy} width={Math.max(w, 2)} height={barH} rx={5} ry={5}
+                fill={`rgba(200,164,78,${intensity})`} />
+              {n > 0 && (
+                <rect x={labelW} y={yy + barH - 5} width={Math.max((n / maxG) * barArea, 2)} height={5} rx={2} ry={2}
+                  fill="var(--green)" opacity={0.5} />
+              )}
+              <text x={labelW + Math.max(w, 2) + 6} y={yy + barH / 2 + 4}
+                style={{ fontSize: 11, fontWeight: 700, fill: "var(--gold)", fontFamily: "var(--fm)" }}>
+                ${g >= 1000 ? _sf(g / 1000, 1) + "K" : _sf(g, 0)}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <div style={{ display: "flex", gap: 14, justifyContent: "center", marginTop: 8, fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ width: 10, height: 10, borderRadius: 2, background: "var(--gold)", opacity: 0.7 }} /> Bruto
+        </span>
+        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ width: 10, height: 4, borderRadius: 2, background: "var(--green)", opacity: 0.5 }} /> Neto
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   📈 MonthlyTracker — current year vs last year by month
+   ═══════════════════════════════════════════════════════════════ */
+function MonthlyTracker({ DIV_BY_MONTH }) {
+  const MNAMES_SHORT = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+  const curYear = new Date().getFullYear();
+  const prevYear = curYear - 1;
+
+  const { curData, prevData, maxVal } = useMemo(() => {
+    const cur = new Array(12).fill(0);
+    const prev = new Array(12).fill(0);
+    for (const [ym, d] of Object.entries(DIV_BY_MONTH || {})) {
+      const y = parseInt(ym.slice(0, 4), 10);
+      const m = parseInt(ym.slice(5, 7), 10) - 1;
+      if (y === curYear) cur[m] = d?.g || 0;
+      if (y === prevYear) prev[m] = d?.g || 0;
+    }
+    // Cumulative
+    const curCum = []; const prevCum = [];
+    let sc = 0, sp = 0;
+    for (let i = 0; i < 12; i++) {
+      sc += cur[i]; sp += prev[i];
+      curCum.push(sc); prevCum.push(sp);
+    }
+    const mx = Math.max(...curCum, ...prevCum, 1);
+    return { curData: curCum, prevData: prevCum, maxVal: mx };
+  }, [DIV_BY_MONTH, curYear, prevYear]);
+
+  const svgW = 420;
+  const svgH = 160;
+  const padL = 40;
+  const padR = 10;
+  const padT = 10;
+  const padB = 28;
+  const chartW = svgW - padL - padR;
+  const chartH = svgH - padT - padB;
+
+  const pts = (data) =>
+    data.map((v, i) => {
+      const x = padL + (i / 11) * chartW;
+      const y = padT + chartH - (v / maxVal) * chartH;
+      return `${x},${y}`;
+    }).join(" ");
+
+  const curPts = pts(curData);
+  const prevPts = pts(prevData);
+
+  // Grid lines
+  const gridLines = 4;
+  const gridStep = maxVal / gridLines;
+
+  return (
+    <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--gold)", fontFamily: "var(--fd)" }}>
+          📈 Acumulado Mensual: {prevYear} vs {curYear}
+        </div>
+        <div style={{ display: "flex", gap: 12, fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{ width: 14, height: 2, borderRadius: 1, background: "var(--text-tertiary)", opacity: 0.5 }} /> {prevYear}
+          </span>
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{ width: 14, height: 2, borderRadius: 1, background: "var(--gold)" }} /> {curYear}
+          </span>
+        </div>
+      </div>
+      <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{ display: "block" }}>
+        {/* Grid */}
+        {Array.from({ length: gridLines + 1 }, (_, i) => {
+          const v = i * gridStep;
+          const y = padT + chartH - (v / maxVal) * chartH;
+          return (
+            <g key={i}>
+              <line x1={padL} y1={y} x2={svgW - padR} y2={y} stroke="rgba(255,255,255,.06)" strokeWidth={1} />
+              <text x={padL - 4} y={y + 3} textAnchor="end"
+                style={{ fontSize: 8, fill: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>
+                {v >= 1000 ? `${_sf(v / 1000, 0)}K` : _sf(v, 0)}
+              </text>
+            </g>
+          );
+        })}
+        {/* Previous year line */}
+        <polyline points={prevPts} fill="none" stroke="var(--text-tertiary)" strokeWidth={1.5}
+          strokeDasharray="4,3" opacity={0.4} />
+        {/* Current year line */}
+        <polyline points={curPts} fill="none" stroke="var(--gold)" strokeWidth={2} />
+        {/* Area under current year */}
+        <polygon
+          points={`${padL},${padT + chartH} ${curPts} ${padL + chartW},${padT + chartH}`}
+          fill="var(--gold)" opacity={0.06} />
+        {/* Dots for current year */}
+        {curData.map((v, i) => {
+          if (v === 0) return null;
+          const x = padL + (i / 11) * chartW;
+          const y = padT + chartH - (v / maxVal) * chartH;
+          return <circle key={i} cx={x} cy={y} r={3} fill="var(--gold)" />;
+        })}
+        {/* Month labels */}
+        {MNAMES_SHORT.map((m, i) => {
+          const x = padL + (i / 11) * chartW;
+          return (
+            <text key={i} x={x} y={svgH - 4} textAnchor="middle"
+              style={{ fontSize: 8, fill: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>{m}</text>
+          );
+        })}
+        {/* End values */}
+        {(() => {
+          const curNow = new Date().getMonth();
+          const cv = curData[curNow];
+          const pv = prevData[11];
+          const cx = padL + (curNow / 11) * chartW;
+          const cy = padT + chartH - (cv / maxVal) * chartH;
+          const py = padT + chartH - (pv / maxVal) * chartH;
+          return (
+            <>
+              {cv > 0 && (
+                <text x={cx + 8} y={cy - 4}
+                  style={{ fontSize: 9, fontWeight: 700, fill: "var(--gold)", fontFamily: "var(--fm)" }}>
+                  ${cv >= 1000 ? _sf(cv / 1000, 1) + "K" : _sf(cv, 0)}
+                </text>
+              )}
+              {pv > 0 && (
+                <text x={svgW - padR + 2} y={py + 3}
+                  style={{ fontSize: 8, fill: "var(--text-tertiary)", fontFamily: "var(--fm)", opacity: 0.6 }}>
+                  ${pv >= 1000 ? _sf(pv / 1000, 1) + "K" : _sf(pv, 0)}
+                </text>
+              )}
+            </>
+          );
+        })()}
+      </svg>
+    </div>
+  );
+}
 
 /* ═══════════════════════════════════════════════════════════════
    📅 CalendarioSection — Mac Calendar-style dividend calendar
@@ -300,8 +494,8 @@ function CalendarioSection({ divLog, POS_STATIC }) {
                     <div key={di} onClick={() => setSelectedDay(day === selectedDay ? null : day)}
                       style={{
                         minHeight: 72, borderRadius: 8, padding: "4px 5px",
-                        border: `1px solid ${isSelected ? "var(--gold)" : isToday ? "rgba(200,164,78,.5)" : "rgba(255,255,255,.04)"}`,
-                        background: entries.length > 0 ? `rgba(200,164,78,${0.02 + intensity * 0.12})` : isWeekend ? "rgba(255,255,255,.01)" : "transparent",
+                        border: `1px solid ${isSelected ? "var(--gold)" : isToday ? "rgba(200,164,78,.5)" : entries.length > 0 ? `rgba(200,164,78,${0.08 + intensity * 0.2})` : "rgba(255,255,255,.04)"}`,
+                        background: entries.length > 0 ? `rgba(200,164,78,${0.04 + intensity * 0.22})` : isWeekend ? "rgba(255,255,255,.01)" : "transparent",
                         cursor: "pointer", transition: "all .12s", position: "relative",
                       }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
@@ -331,10 +525,19 @@ function CalendarioSection({ divLog, POS_STATIC }) {
           </div>
 
           {/* Legend */}
-          <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 10, fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>
+          <div style={{ display: "flex", gap: 12, justifyContent: "center", alignItems: "center", marginTop: 10, fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)", flexWrap: "wrap" }}>
             <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: "rgba(200,164,78,.3)" }} /> Cobrado</span>
             {showProjected && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: 2, background: "rgba(100,210,255,.2)" }} /> Estimado</span>}
             <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--gold)" }} /> Hoy</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ fontSize: 8, color: "var(--text-tertiary)" }}>$0</span>
+              <span style={{ display: "flex", gap: 1 }}>
+                {[0.06, 0.1, 0.15, 0.2, 0.26].map((op, i) => (
+                  <span key={i} style={{ width: 10, height: 8, borderRadius: 1, background: `rgba(200,164,78,${op})` }} />
+                ))}
+              </span>
+              <span style={{ fontSize: 8, color: "var(--gold)" }}>${maxDayAmount >= 1000 ? _sf(maxDayAmount / 1000, 1) + "K" : _sf(maxDayAmount, 0)}</span>
+            </span>
           </div>
         </div>
       )}
@@ -515,6 +718,12 @@ export default function DividendosTab() {
           <span>$0</span><span>Faltan ${Math.max(0,fireTarget-avgNetMonth).toLocaleString(undefined,{maximumFractionDigits:0})}/mes</span><span style={{color:"var(--green)"}}>${fireTarget.toLocaleString()}</span>
         </div>
       </div>
+      {/* Annual Dividend Horizontal Bar Chart */}
+      <AnnualDivBarChart DIV_BY_YEAR={DIV_BY_YEAR} />
+
+      {/* Monthly Cumulative Tracker: this year vs last year */}
+      <MonthlyTracker DIV_BY_MONTH={DIV_BY_MONTH} />
+
       {/* Filters */}
       <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
         <select value={divFilter.year} onChange={e=>setDivFilter(p=>({...p,year:e.target.value,month:"all"}))} style={{padding:"6px 10px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
