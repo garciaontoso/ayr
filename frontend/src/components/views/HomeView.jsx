@@ -52,6 +52,43 @@ function AirplaneMode({ portfolioList }) {
     const cache = await caches.open("ayr-offline-data");
     let errors = 0;
 
+    // ── Phase 0: Pre-cache all JS/CSS chunks for offline tab loading ──
+    setDlPhase("Assets de la app");
+    try {
+      const staticCache = await caches.open("ayr-v3.3");
+      // Get all JS/CSS asset URLs from the current page
+      const assetUrls = new Set();
+      // Scripts and modulepreload links already in the page
+      document.querySelectorAll('script[src], link[rel="modulepreload"], link[rel="stylesheet"]').forEach(el => {
+        const href = el.src || el.href;
+        if (href) assetUrls.add(href);
+      });
+      // Also fetch index.html to discover all chunk references
+      try {
+        const htmlResp = await fetch('/');
+        const html = await htmlResp.text();
+        // Extract all /assets/*.js and /assets/*.css references
+        const assetRx = /\/assets\/[^"'\s)]+\.(js|css)/g;
+        let m;
+        while ((m = assetRx.exec(html)) !== null) {
+          assetUrls.add(new URL(m[0], location.origin).href);
+        }
+        await staticCache.put(new Request('/'), new Response(html, { headers: { 'Content-Type': 'text/html' } }));
+        await staticCache.put(new Request('/index.html'), new Response(html, { headers: { 'Content-Type': 'text/html' } }));
+      } catch {}
+      setDlTotal(assetUrls.size); setDlCurrent(0);
+      let assetDone = 0;
+      for (const url of assetUrls) {
+        try {
+          const r = await fetch(url);
+          if (r.ok) await staticCache.put(url, r.clone());
+        } catch {}
+        assetDone++;
+        setDlCurrent(assetDone);
+      }
+    } catch {}
+
+
     const cacheFetch = async (url) => {
       try {
         const r = await fetch(url);
