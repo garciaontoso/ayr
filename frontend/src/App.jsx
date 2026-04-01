@@ -1442,38 +1442,40 @@ function buildPositionsFromCB() {
         }
       }
 
-      // Step 2: Generate qualitative report via Claude API
-      const report = await generateReport(t, data.fin, data.cfg, data.profile || {});
-      if (report) {
-        setSsd(prev => ({
-          ...prev,
-          moat: report.moat?.rating || prev.moat,
-          moatScore: report.moat?.score || prev.moatScore,
-          moatExplanation: report.moat?.explanation || "",
-          divSafetyScore: report.dividendSafety?.score || 0,
-          divSafetyAssessment: report.dividendSafety?.assessment || "",
-          finHealthScore: report.financialHealth?.score || 0,
-          finHealthAssessment: report.financialHealth?.assessment || "",
-          growthAssessment: report.growth?.assessment || "",
-          fcfTrend: report.growth?.fcfTrend || "",
-          valuationFairValue: report.valuation?.fairValue || 0,
-          valuationMethod: report.valuation?.method || "",
-          valuationUpside: report.valuation?.upside || 0,
-          valuationAssessment: report.valuation?.assessment || "",
-          risks: report.risks || [],
-          catalysts: report.catalysts || [],
-          aiDisruptionLevel: report.aiDisruption?.riskLevel || "",
-          aiDisruptionScore: report.aiDisruption?.score || 0,
-          aiDisruptionThreats: report.aiDisruption?.threats || [],
-          aiDisruptionDefenses: report.aiDisruption?.defenses || [],
-          aiDisruptionAssessment: report.aiDisruption?.assessment || "",
-          verdict: report.verdict?.action || "",
-          verdictSummary: report.verdict?.summary || "",
-          targetWeight: report.verdict?.targetWeight || "",
-          overallScore: report.overallScore || 0,
-          reportGenerated: new Date().toISOString(),
-        }));
-      }
+      // Step 2: Generate qualitative report via Claude API (optional — skip if offline)
+      try {
+        const report = await generateReport(t, data.fin, data.cfg, data.profile || {});
+        if (report) {
+          setSsd(prev => ({
+            ...prev,
+            moat: report.moat?.rating || prev.moat,
+            moatScore: report.moat?.score || prev.moatScore,
+            moatExplanation: report.moat?.explanation || "",
+            divSafetyScore: report.dividendSafety?.score || 0,
+            divSafetyAssessment: report.dividendSafety?.assessment || "",
+            finHealthScore: report.financialHealth?.score || 0,
+            finHealthAssessment: report.financialHealth?.assessment || "",
+            growthAssessment: report.growth?.assessment || "",
+            fcfTrend: report.growth?.fcfTrend || "",
+            valuationFairValue: report.valuation?.fairValue || 0,
+            valuationMethod: report.valuation?.method || "",
+            valuationUpside: report.valuation?.upside || 0,
+            valuationAssessment: report.valuation?.assessment || "",
+            risks: report.risks || [],
+            catalysts: report.catalysts || [],
+            aiDisruptionLevel: report.aiDisruption?.riskLevel || "",
+            aiDisruptionScore: report.aiDisruption?.score || 0,
+            aiDisruptionThreats: report.aiDisruption?.threats || [],
+            aiDisruptionDefenses: report.aiDisruption?.defenses || [],
+            aiDisruptionAssessment: report.aiDisruption?.assessment || "",
+            verdict: report.verdict?.action || "",
+            verdictSummary: report.verdict?.summary || "",
+            targetWeight: report.verdict?.targetWeight || "",
+            overallScore: report.overallScore || 0,
+            reportGenerated: new Date().toISOString(),
+          }));
+        }
+      } catch { /* Report generation failed (offline?) — fundamentals still available */ }
       
       // Save to persistent storage
       const saveData = { fin: data.fin, cfg: data.cfg, comps, ssd, report, fmpExtra: { rating: data.fmpRating, dcf: data.fmpDCF, estimates: data.fmpEstimates, priceTarget: data.fmpPriceTarget, keyMetrics: data.fmpKeyMetrics, finGrowth: data.fmpFinGrowth, grades: data.fmpGrades, ownerEarnings: data.fmpOwnerEarnings, revSegments: data.fmpRevSegments, geoSegments: data.fmpGeoSegments, peers: data.fmpPeers, earnings: data.fmpEarnings, ptSummary: data.fmpPtSummary } };
