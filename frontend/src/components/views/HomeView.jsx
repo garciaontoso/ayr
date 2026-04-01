@@ -34,6 +34,18 @@ function AirplaneMode({ portfolioList }) {
 
   const download = async () => {
     setDlOpen(true); setDlDone(false); setDlDownloading(true);
+
+    // Force SW update and activation before downloading
+    try {
+      const reg = await navigator.serviceWorker?.getRegistration();
+      if (reg) {
+        await reg.update();
+        if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+        // Wait a moment for new SW to activate
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    } catch {}
+
     const API = API_URL;
     const allTickers = portfolioList.map(p => p.ticker);
     const usTickers = allTickers.filter(t => !t.includes(":"));
@@ -126,13 +138,22 @@ function AirplaneMode({ portfolioList }) {
     await cacheFetch(`${API}/api/tax-report?year=${yr - 1}`);
     setDlCurrent(2);
 
+    // Verify cache was populated
+    let cacheCount = 0;
+    try {
+      const c = await caches.open("ayr-offline-data");
+      const keys = await c.keys();
+      cacheCount = keys.length;
+    } catch {}
+
     // Save timestamp for offline banner
     localStorage.setItem('ayr-offline-timestamp', new Date().toISOString());
     localStorage.setItem('ayr-offline-tickers', JSON.stringify(usTickers));
+    localStorage.setItem('ayr-offline-cache-count', String(cacheCount));
 
     setDlPhase(errors > 0
-      ? `Listo (${errors} errores) · ${usTickers.length} empresas`
-      : `${usTickers.length} empresas · Listo para offline`);
+      ? `Listo (${errors} err) · ${cacheCount} en cache · ${usTickers.length} empresas`
+      : `${usTickers.length} empresas · ${cacheCount} en cache · Listo para offline`);
     setDlDone(true);
     setDlDownloading(false);
   };
