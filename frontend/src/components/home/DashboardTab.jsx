@@ -67,17 +67,20 @@ const maxExp = expValues.length ? Math.max(...expValues.map(Math.abs)) : 1;
 const brokersUsd = latest.br || 0;
 const bancosEur = latest.bk || 0;
 const bancosUsd = bancosEur * (latest.fx || 1);
+const fondosEur = latest.fd || 0;
+const fondosUsd = fondosEur * (latest.fx || 1);
 const cryptoEur = latest.cr || 0;
 const cryptoUsd = cryptoEur * (latest.fx || 1);
 const totalUsd = latest.pu || 0;
 const pieData = [
-  {l:"Brokers",v:brokersUsd,c:"var(--gold)"},
-  {l:"Bancos",v:bancosUsd,c:"#64d2ff"},
-  {l:"Crypto",v:cryptoUsd,c:"#bf5af2"},
+  {l:"Broker",v:brokersUsd,c:"#c8a44e"},
+  {l:"Bancos",v:bancosUsd,c:"#30d158"},
+  {l:"Fondos",v:fondosUsd,c:"#64d2ff"},
+  {l:"Crypto",v:cryptoUsd,c:"#ff9f0a"},
 ].filter(d => d.v > 0);
 const pieTotal = pieData.reduce((s,d) => s + d.v, 0) || 1;
 
-const strats = [{k:"div",l:"Dividendos",c:"var(--gold)"},{k:"rop",l:"ROP",c:"var(--green)"},{k:"cs",l:"Credit Spreads",c:"#64d2ff"},{k:"roc",l:"ROC",c:"#bf5af2"},{k:"leaps",l:"LEAPs/Trades",c:"var(--orange)"},{k:"cal",l:"Calendars",c:"#ff6b9d"}];
+const strats = [{k:"div",l:"Dividendos",c:"#c8a44e"},{k:"cs",l:"Covered Calls",c:"#30d158"},{k:"rop",l:"ROP",c:"#5e5ce6"},{k:"roc",l:"ROC",c:"#bf5af2"},{k:"cal",l:"Calendar",c:"#64d2ff"},{k:"leaps",l:"LEAPs",c:"#ff9f0a"}];
 
 const cs = {padding:"16px 20px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:16,flex:1,minWidth:140};
 const ls = {fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.8,fontWeight:600,marginBottom:4};
@@ -375,6 +378,123 @@ return (
     );
   })()}
 
+  {/* ── Account Allocation Donut + Margin Gauge ── */}
+  <div style={{display:"grid",gridTemplateColumns: ibData?.loaded && ibData?.summary?.nlv?.amount > 0 ? "1fr 1fr" : "1fr", gap:10}}>
+    {/* Account Allocation Donut */}
+    {pieData.length > 0 && (
+      <div style={card}>
+        {secTitle("🍩","Asignacion por Cuenta")}
+        <div style={{display:"flex",alignItems:"center",gap:20}}>
+          <svg width={160} height={160} viewBox="0 0 160 160" style={{flexShrink:0}}>
+            {(() => {
+              const cx=80, cy=80, r=55, sw=22, circ=2*Math.PI*r;
+              let off=0;
+              return <>
+                {pieData.map((seg) => {
+                  const dash = seg.v / pieTotal * circ;
+                  const gap = circ - dash;
+                  const o = off;
+                  off += dash;
+                  return <circle key={seg.l} cx={cx} cy={cy} r={r} fill="none" stroke={seg.c} strokeWidth={sw} strokeDasharray={`${dash} ${gap}`} strokeDashoffset={-o} transform={`rotate(-90 ${cx} ${cy})`} opacity={0.85}/>;
+                })}
+                <circle cx={cx} cy={cy} r={r - sw/2 - 2} fill="var(--card)"/>
+                <text x={cx} y={cy-6} textAnchor="middle" fill="var(--text-tertiary)" fontSize="8" fontFamily="var(--fm)">TOTAL</text>
+                <text x={cx} y={cy+10} textAnchor="middle" fill="var(--text-primary)" fontSize="14" fontWeight="700" fontFamily="var(--fm)">{hide(`$${fDol(pieTotal)}`)}</text>
+              </>;
+            })()}
+          </svg>
+          <div style={{flex:1,display:"flex",flexDirection:"column",gap:8}}>
+            {pieData.map(seg => {
+              const pct = (seg.v / pieTotal * 100);
+              return <div key={seg.l}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6}}>
+                    <div style={{width:10,height:10,borderRadius:3,background:seg.c}}/>
+                    <span style={{fontSize:11,color:"var(--text-primary)",fontFamily:"var(--fm)",fontWeight:500}}>{seg.l}</span>
+                  </div>
+                  <span style={{fontSize:11,fontWeight:700,color:seg.c,fontFamily:"var(--fm)"}}>{_sf(pct,1)}%</span>
+                </div>
+                <div style={{height:5,background:"rgba(255,255,255,.04)",borderRadius:3,overflow:"hidden"}}>
+                  <div style={{width:`${pct}%`,height:"100%",background:seg.c,borderRadius:3,opacity:.7}}/>
+                </div>
+                <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>{hide(`$${fDol(seg.v)}`)}</div>
+              </div>;
+            })}
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Margin Utilization Gauge */}
+    {ibData?.loaded && ibData?.summary?.nlv?.amount > 0 && (() => {
+      const initMargin = ibData.summary?.initMargin?.amount || 0;
+      const nlv = ibData.summary?.nlv?.amount || 1;
+      const marginPct = Math.min((initMargin / nlv) * 100, 100);
+      const gaugeColor = marginPct > 50 ? "#ff453a" : marginPct > 30 ? "#ffd60a" : "#30d158";
+      const gaugeColorBg = marginPct > 50 ? "rgba(255,69,58,.1)" : marginPct > 30 ? "rgba(255,214,10,.1)" : "rgba(48,209,88,.1)";
+      // Semi-circle gauge: arc from 180deg to 0deg (left to right)
+      const cx = 100, cy = 90, r = 70, sw = 14;
+      const startAngle = Math.PI; // 180 deg
+      const endAngle = 0;        // 0 deg
+      const totalArc = Math.PI;
+      const fillAngle = startAngle - (marginPct / 100) * totalArc;
+      // Full arc (background)
+      const bgX1 = cx + r * Math.cos(startAngle), bgY1 = cy - r * Math.sin(startAngle);
+      const bgX2 = cx + r * Math.cos(endAngle), bgY2 = cy - r * Math.sin(endAngle);
+      const bgPath = `M ${bgX1} ${bgY1} A ${r} ${r} 0 0 1 ${bgX2} ${bgY2}`;
+      // Fill arc
+      const fX2 = cx + r * Math.cos(fillAngle), fY2 = cy - r * Math.sin(fillAngle);
+      const largeArc = marginPct > 50 ? 1 : 0;
+      const fillPath = `M ${bgX1} ${bgY1} A ${r} ${r} 0 ${largeArc} 1 ${fX2} ${fY2}`;
+      // Tick marks
+      const ticks = [0, 25, 50, 75, 100];
+
+      return (
+        <div style={card}>
+          {secTitle("📐","Utilizacion de Margen")}
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center"}}>
+            <svg width={200} height={120} viewBox="0 0 200 120">
+              {/* Background arc */}
+              <path d={bgPath} fill="none" stroke="rgba(255,255,255,.06)" strokeWidth={sw} strokeLinecap="round"/>
+              {/* Fill arc */}
+              {marginPct > 0 && <path d={fillPath} fill="none" stroke={gaugeColor} strokeWidth={sw} strokeLinecap="round" opacity={0.85}/>}
+              {/* Tick marks */}
+              {ticks.map(t => {
+                const a = startAngle - (t / 100) * totalArc;
+                const ix = cx + (r + sw/2 + 4) * Math.cos(a);
+                const iy = cy - (r + sw/2 + 4) * Math.sin(a);
+                return <text key={t} x={ix} y={iy+3} textAnchor="middle" fontSize="7" fill="var(--text-tertiary)" fontFamily="var(--fm)">{t}%</text>;
+              })}
+              {/* Center value */}
+              <text x={cx} y={cy-8} textAnchor="middle" fontSize="28" fontWeight="800" fill={gaugeColor} fontFamily="var(--fm)">{_sf(marginPct,1)}%</text>
+              <text x={cx} y={cy+8} textAnchor="middle" fontSize="9" fill="var(--text-tertiary)" fontFamily="var(--fm)">margen utilizado</text>
+            </svg>
+            <div style={{display:"flex",gap:16,marginTop:4}}>
+              <div style={{textAlign:"center"}}>
+                <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5}}>INIT MARGIN</div>
+                <div style={{fontSize:14,fontWeight:700,color:gaugeColor,fontFamily:"var(--fm)"}}>{hide(`$${fDol(initMargin)}`)}</div>
+              </div>
+              <div style={{textAlign:"center"}}>
+                <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5}}>NLV</div>
+                <div style={{fontSize:14,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{hide(`$${fDol(nlv)}`)}</div>
+              </div>
+              <div style={{textAlign:"center"}}>
+                <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5}}>DISPONIBLE</div>
+                <div style={{fontSize:14,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)"}}>{hide(`$${fDol(nlv - initMargin)}`)}</div>
+              </div>
+            </div>
+            {/* Color legend */}
+            <div style={{display:"flex",gap:12,marginTop:10,fontSize:9,fontFamily:"var(--fm)"}}>
+              <span style={{display:"flex",alignItems:"center",gap:3}}><span style={{width:8,height:8,borderRadius:2,background:"#30d158"}}/>{"< 30%"}</span>
+              <span style={{display:"flex",alignItems:"center",gap:3}}><span style={{width:8,height:8,borderRadius:2,background:"#ffd60a"}}/>30-50%</span>
+              <span style={{display:"flex",alignItems:"center",gap:3}}><span style={{width:8,height:8,borderRadius:2,background:"#ff453a"}}/>{"> 50%"}</span>
+            </div>
+          </div>
+        </div>
+      );
+    })()}
+  </div>
+
   {/* ── Market Cap & Type & Strategy Breakdown ── */}
   {portfolioTotals.positions?.length > 0 && (() => {
     const capBuckets = {Mega:0,Large:0,Mid:0,Small:0,Micro:0,ETF:0};
@@ -665,23 +785,37 @@ return (
   {/* ── Income by Strategy per Year ── */}
   <div style={card}>
     {secTitle("🎯","Ingresos por Estrategia (USD)")}
-    <div style={{display:"flex",flexDirection:"column",gap:12}}>
-      {(()=>{ const maxY = Math.max(...Object.values(incomeByYear).map(v => Math.abs(v.total||0)), 1); return Object.entries(incomeByYear).sort().map(([y, d]) => {
-        const bars = strats.map(s => ({...s, v: d[s.k]||0})).filter(s => s.v !== 0);
-        const positive = bars.filter(b => b.v > 0).reduce((s,b) => s+b.v, 0);
-        return <div key={y}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-            <span style={{fontSize:13,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{y}</span>
-            <span style={{fontSize:13,fontWeight:700,color:d.total>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)"}}>${(d.total||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>
-          </div>
-          <div style={{display:"flex",height:22,borderRadius:6,overflow:"hidden",background:"rgba(255,255,255,.03)",gap:1}}>
-            {bars.filter(b=>b.v>0).map(b => <div key={b.k} style={{width:`${b.v/positive*100}%`,background:b.c,minWidth:2}} title={`${b.l}: $${(b.v||0).toLocaleString(undefined,{maximumFractionDigits:0})}`}/>)}
-          </div>
-        </div>;
-      }); })()}
-      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginTop:4}}>
-        {strats.map(s => <div key={s.k} style={{display:"flex",alignItems:"center",gap:4,fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>
-          <div style={{width:8,height:8,borderRadius:2,background:s.c}}/>{s.l}
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      {(() => {
+        const yearEntries = Object.entries(incomeByYear).sort();
+        const maxTotal = Math.max(...yearEntries.map(([,d]) => Math.abs(d.total || 0)), 1);
+        return yearEntries.map(([y, d]) => {
+          const bars = strats.map(s => ({...s, v: d[s.k] || 0})).filter(s => s.v > 0);
+          const positive = bars.reduce((s, b) => s + b.v, 0) || 1;
+          const barWidth = Math.min((positive / maxTotal) * 100, 100);
+          return <div key={y}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+              <span style={{fontSize:13,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{y}</span>
+              <span style={{fontSize:13,fontWeight:700,color:d.total >= 0 ? "var(--green)" : "var(--red)",fontFamily:"var(--fm)"}}>{hide(`$${(d.total || 0).toLocaleString(undefined, {maximumFractionDigits: 0})}`)}</span>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
+              <div style={{flex:1,height:26,background:"rgba(255,255,255,.03)",borderRadius:6,overflow:"hidden",position:"relative"}}>
+                <div style={{display:"flex",height:"100%",width:`${barWidth}%`}}>
+                  {bars.map(b => (
+                    <div key={b.k} style={{width:`${b.v / positive * 100}%`,background:b.c,minWidth:2,position:"relative",overflow:"hidden"}} title={`${b.l}: $${(b.v || 0).toLocaleString(undefined, {maximumFractionDigits: 0})}`}>
+                      {b.v / positive > 0.12 && <span style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:700,color:"rgba(0,0,0,.7)",fontFamily:"var(--fm)",whiteSpace:"nowrap"}}>{_sf(b.v / 1000, 0)}K</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>;
+        });
+      })()}
+      {/* Legend */}
+      <div style={{display:"flex",flexWrap:"wrap",gap:12,marginTop:6,padding:"10px 0",borderTop:"1px solid var(--border)"}}>
+        {strats.map(s => <div key={s.k} style={{display:"flex",alignItems:"center",gap:5,fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>
+          <div style={{width:10,height:10,borderRadius:2,background:s.c}}/>{s.l}
         </div>)}
       </div>
     </div>

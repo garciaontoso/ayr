@@ -1,6 +1,7 @@
+import { useState, useRef } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
-import { CURRENCIES } from '../../constants/index.js';
+import { CURRENCIES, API_URL } from '../../constants/index.js';
 
 /* ── Category colors ── */
 const CAT_COLORS = {
@@ -117,8 +118,45 @@ export default function GastosTab() {
     GASTO_CAT_LIST, fxRates,
   } = useHome();
 
+  const csvRef = useRef(null);
+  const [csvToast, setCsvToast] = useState(null);
+  const [csvLoading, setCsvLoading] = useState(false);
+
+  const handleCsvImport = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCsvLoading(true);
+    try {
+      const text = await file.text();
+      const res = await fetch(`${API_URL}/api/gastos/import-csv`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ csv: text }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setCsvToast(`Importados: ${data.imported ?? 0} · Duplicados: ${data.duplicates ?? 0} · Omitidos: ${data.skipped ?? 0}`);
+      } else {
+        setCsvToast(`Error: ${data.error || "Fallo en importación"}`);
+      }
+    } catch (err) {
+      setCsvToast(`Error: ${err.message}`);
+    } finally {
+      setCsvLoading(false);
+      if (csvRef.current) csvRef.current.value = "";
+      setTimeout(() => setCsvToast(null), 6000);
+    }
+  };
+
   return (
 <div style={{display:"flex",flexDirection:"column",gap:12}}>
+  {/* CSV import toast */}
+  {csvToast && (
+    <div style={{padding:"8px 14px",background:"rgba(214,158,46,.12)",border:"1px solid var(--gold)",borderRadius:8,fontSize:11,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fm)",display:"flex",alignItems:"center",gap:8}}>
+      <span>📥</span><span>{csvToast}</span>
+      <button onClick={()=>setCsvToast(null)} style={{marginLeft:"auto",background:"none",border:"none",color:"var(--gold)",cursor:"pointer",fontSize:12,padding:0,lineHeight:1}}>✕</button>
+    </div>
+  )}
   {/* Summary + filters */}
   {(() => {
     // Helper: convert gasto amount to EUR
@@ -243,6 +281,10 @@ export default function GastosTab() {
           </button>
           <button onClick={()=>{setGastosForm(p=>({...p,isIngreso:true}));setGastosShowForm(!gastosShowForm||!gastosForm.isIngreso);}} style={{padding:"7px 14px",borderRadius:7,border:"1px solid var(--green)",background:gastosShowForm&&gastosForm.isIngreso?"var(--green)":"rgba(52,211,153,.1)",color:gastosShowForm&&gastosForm.isIngreso?"#000":"var(--green)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>
             {gastosShowForm&&gastosForm.isIngreso?"✕":"+ Ingreso"}
+          </button>
+          <input ref={csvRef} type="file" accept=".csv" onChange={handleCsvImport} style={{display:"none"}}/>
+          <button onClick={()=>csvRef.current?.click()} disabled={csvLoading} style={{padding:"7px 14px",borderRadius:7,border:"1px solid var(--gold)",background:"var(--gold-dim)",color:"var(--gold)",fontSize:11,fontWeight:600,cursor:csvLoading?"wait":"pointer",fontFamily:"var(--fm)",opacity:csvLoading?.5:1}}>
+            {csvLoading?"Importando...":"📥 Importar CSV"}
           </button>
         </div>
       </div>
