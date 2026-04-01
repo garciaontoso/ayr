@@ -2368,7 +2368,7 @@ export default {
             stmts.push(env.DB.prepare(
               `INSERT INTO positions (ticker, name, last_price, avg_price, cost_basis, shares, currency, category, list, market_value, usd_value, total_invested, pnl_pct, pnl_abs, sector, updated_at)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
-               ON CONFLICT(ticker) DO UPDATE SET last_price=excluded.last_price, shares=excluded.shares, market_value=excluded.market_value, usd_value=excluded.usd_value, pnl_abs=excluded.pnl_abs, updated_at=datetime('now')`
+               ON CONFLICT(ticker) DO UPDATE SET last_price=excluded.last_price, avg_price=excluded.avg_price, cost_basis=excluded.cost_basis, shares=excluded.shares, market_value=excluded.market_value, usd_value=excluded.usd_value, total_invested=excluded.total_invested, pnl_pct=excluded.pnl_pct, pnl_abs=excluded.pnl_abs, updated_at=datetime('now')`
             ).bind(
               ticker, p.name, p.mktPrice, p.avgCost, p.avgCost, p.shares, ccy, "COMPANY", "portfolio",
               p.mktValue, p.mktValue, p.avgCost * p.shares, p.shares > 0 && p.avgCost > 0 ? p.unrealizedPnl / (p.avgCost * p.shares) : 0,

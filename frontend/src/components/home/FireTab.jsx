@@ -722,9 +722,10 @@ return (
 
     return (
       <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:16,padding:20}}>
-        <div style={{fontSize:14,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:16}}>
+        <div style={{fontSize:14,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:4}}>
           Dividendos vs Gastos Mensuales
         </div>
+        <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:12}}>Gastos reales (media 12 meses, incluye China + Espa&ntilde;a)</div>
 
         {/* Side-by-side bars */}
         <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>

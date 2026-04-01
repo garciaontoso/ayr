@@ -42,7 +42,7 @@ const COL_DEFS = [
   { id:"shares", label:"SHARES", group:"Core", w:"46px", priv:true, defaultOn:true,
     val:p=>p.shares||0, fmt:v=>v>0?v.toLocaleString():"\u2014", sortV:p=>p.shares||0 },
   { id:"cost", label:"COSTE", group:"Core", w:"52px", priv:true, defaultOn:true,
-    val:p=>p.adjustedBasis||p.avgCost||0, fmt:(v,p)=>{const c=p.ccy||p.currency||"USD";const s=c==="GBX"?"\u00a3":c==="EUR"?"\u20ac":c==="GBP"?"\u00a3":"$";return s+_sf(v,2);}, sortV:p=>p.costUSD||0 },
+    val:p=>p.adjustedBasis||p.avgCost||0, fmt:(v,p)=>{if(!v)return "\u2014";const c=p.ccy||p.currency||"USD";const s=c==="GBX"?"\u00a3":c==="EUR"?"\u20ac":c==="GBP"?"\u00a3":"$";return s+_sf(v,2);}, color:v=>v?undefined:"var(--text-tertiary)", sortV:p=>p.costUSD||0 },
   { id:"pnl", label:"P&L%", group:"Core", w:"44px", priv:true, defaultOn:true,
     val:p=>(p.pnlPct||0)*100, fmt:v=>(v>=0?"+":"")+_sf(v,0)+"%", color:v=>v>=0?"var(--green)":"var(--red)", sortV:p=>p.pnlPct||0 },
   { id:"weight", label:"PESO", group:"Core", w:"38px", defaultOn:true,

@@ -79,7 +79,7 @@ function SentimentBar() {
   if (!data || (!data.vix && !data.fearGreed)) return null;
 
   const vix = data.vix;
-  const fg = data.fearGreed;
+  const fg = data.fearGreed || null;
 
   const vixColors = [
     { from: 0, to: 15, color: "#30d158" },
@@ -116,14 +116,23 @@ function SentimentBar() {
           </div>
         </div>
       )}
-      {vix && fg && <div style={{ width: 1, height: 28, background: "var(--border)" }} />}
-      {fg && (
+      {vix && <div style={{ width: 1, height: 28, background: "var(--border)" }} />}
+      {fg ? (
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <MiniGauge value={fg.score} min={0} max={100} colors={fgColors} size={70} />
           <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
             <span style={{ fontSize: 9, color: "var(--text-tertiary)", fontWeight: 600 }}>Fear & Greed</span>
             <span style={{ fontSize: 13, fontWeight: 700, color: fgColor }}>{fg.score}</span>
             <span style={{ fontSize: 8, color: fgColor }}>{fg.label}</span>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <MiniGauge value={50} min={0} max={100} colors={fgColors} size={70} label="" />
+          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            <span style={{ fontSize: 9, color: "var(--text-tertiary)", fontWeight: 600 }}>Fear & Greed</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-tertiary)" }}>—</span>
+            <span style={{ fontSize: 8, color: "var(--text-tertiary)" }}>No data</span>
           </div>
         </div>
       )}

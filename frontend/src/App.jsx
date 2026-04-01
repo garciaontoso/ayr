@@ -1802,7 +1802,7 @@ function buildPositionsFromCB() {
           {/* Shares */}
           <div className="ar-hide-mobile" style={{textAlign:"right",fontSize:10,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":p.shares?(p.shares||0).toLocaleString():"—"}</div>
           {/* Cost */}
-          <div className="ar-hide-mobile" style={{textAlign:"right",fontSize:10,fontWeight:600,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":origSym+_sf(p.adjustedBasis||p.avgCost||0,2)}</div>
+          <div className="ar-hide-mobile" style={{textAlign:"right",fontSize:10,fontWeight:600,color:(p.adjustedBasis||p.avgCost)?"var(--text-secondary)":"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":((p.adjustedBasis||p.avgCost)?origSym+_sf(p.adjustedBasis||p.avgCost,2):"—")}</div>
           {/* P&L total — special treatment for large gains/losses */}
           <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:pnlPct>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)",position:"relative",display:"flex",alignItems:"center",justifyContent:"flex-end",gap:1}}>
             {!privacyMode && pnlPct >= 0.5 && <span style={{fontSize:7,lineHeight:1}} title="50%+ gain">&#9733;</span>}
