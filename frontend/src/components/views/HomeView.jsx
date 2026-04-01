@@ -1,28 +1,28 @@
-import { lazy, Suspense, useState } from 'react';
+import { useState } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { CURRENCIES, DISPLAY_CCYS, APP_VERSION, API_URL } from '../../constants/index.js';
 import { PortfolioTab } from '../home';
 import { ErrorBoundary } from '../ui';
 
-// ─── Lazy-loaded home tabs ───
-const ScreenerTab = lazy(() => import('../home/ScreenerTab'));
-const TradesTab = lazy(() => import('../home/TradesTab'));
-const PatrimonioTab = lazy(() => import('../home/PatrimonioTab'));
-const DashboardTab = lazy(() => import('../home/DashboardTab'));
-const DividendosTab = lazy(() => import('../home/DividendosTab'));
-const FireTab = lazy(() => import('../home/FireTab'));
-const GastosTab = lazy(() => import('../home/GastosTab'));
-const ControlTab = lazy(() => import('../home/ControlTab'));
-const WatchlistTab = lazy(() => import('../home/WatchlistTab'));
-const HistorialTab = lazy(() => import('../home/HistorialTab'));
-const AdvisorTab = lazy(() => import('../home/AdvisorTab'));
-const ResearchTab = lazy(() => import('../home/ResearchTab'));
-const CoveredCallsTab = lazy(() => import('../home/CoveredCallsTab'));
-const IncomeLabTab = lazy(() => import('../home/IncomeLabTab'));
-const PresupuestoTab = lazy(() => import('../home/PresupuestoTab'));
-const SettingsPanel = lazy(() => import('../home/SettingsPanel'));
+// ─── Direct imports (no lazy loading — ensures offline works) ───
+import ScreenerTab from '../home/ScreenerTab';
+import TradesTab from '../home/TradesTab';
+import PatrimonioTab from '../home/PatrimonioTab';
+import DashboardTab from '../home/DashboardTab';
+import DividendosTab from '../home/DividendosTab';
+import FireTab from '../home/FireTab';
+import GastosTab from '../home/GastosTab';
+import ControlTab from '../home/ControlTab';
+import WatchlistTab from '../home/WatchlistTab';
+import HistorialTab from '../home/HistorialTab';
+import AdvisorTab from '../home/AdvisorTab';
+import ResearchTab from '../home/ResearchTab';
+import CoveredCallsTab from '../home/CoveredCallsTab';
+import IncomeLabTab from '../home/IncomeLabTab';
+import PresupuestoTab from '../home/PresupuestoTab';
+import SettingsPanel from '../home/SettingsPanel';
 
-const Loading = () => <div style={{display:'flex',justifyContent:'center',alignItems:'center',height:'50vh',color:'var(--text-secondary)'}}>Cargando...</div>;
+// No lazy loading — all tabs in main bundle for reliable offline support
 
 function AirplaneMode({ portfolioList }) {
   const [dlOpen, setDlOpen] = useState(false);
@@ -450,30 +450,26 @@ export default function HomeView() {
 
     {homeTab==="portfolio" && <PortfolioTab />}
     <ErrorBoundary>
-      <Suspense fallback={<Loading />}>
-        {homeTab==="screener" && <ScreenerTab />}
-        {homeTab==="trades" && <TradesTab />}
-        {homeTab==="patrimonio" && <PatrimonioTab />}
-        {homeTab==="dashboard" && <DashboardTab />}
-        {homeTab==="dividendos" && <DividendosTab />}
-        {homeTab==="fire" && <FireTab />}
-        {homeTab==="gastos" && <GastosTab />}
-        {homeTab==="control" && <ControlTab />}
-        {homeTab==="watchlist" && <WatchlistTab />}
-        {homeTab==="historial" && <HistorialTab />}
-        {homeTab==="advisor" && <AdvisorTab />}
-        {homeTab==="research" && <ResearchTab />}
-        {homeTab==="covered-calls" && <CoveredCallsTab />}
-        {homeTab==="income-lab" && <IncomeLabTab />}
-        {homeTab==="presupuesto" && <PresupuestoTab />}
-      </Suspense>
+      {homeTab==="screener" && <ScreenerTab />}
+      {homeTab==="trades" && <TradesTab />}
+      {homeTab==="patrimonio" && <PatrimonioTab />}
+      {homeTab==="dashboard" && <DashboardTab />}
+      {homeTab==="dividendos" && <DividendosTab />}
+      {homeTab==="fire" && <FireTab />}
+      {homeTab==="gastos" && <GastosTab />}
+      {homeTab==="control" && <ControlTab />}
+      {homeTab==="watchlist" && <WatchlistTab />}
+      {homeTab==="historial" && <HistorialTab />}
+      {homeTab==="advisor" && <AdvisorTab />}
+      {homeTab==="research" && <ResearchTab />}
+      {homeTab==="covered-calls" && <CoveredCallsTab />}
+      {homeTab==="income-lab" && <IncomeLabTab />}
+      {homeTab==="presupuesto" && <PresupuestoTab />}
     </ErrorBoundary>
 
     {/* Settings Panel */}
     <ErrorBoundary>
-      <Suspense fallback={<Loading />}>
-        {showSettings && <SettingsPanel />}
-      </Suspense>
+      {showSettings && <SettingsPanel />}
     </ErrorBoundary>
   </div>
   );
