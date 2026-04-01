@@ -344,8 +344,8 @@ export default function PortfolioTab() {
           </>;
         })()}
 
-        {/* Heatmap */}
-        {portfolioTotals.positions?.length > 0 && (() => {
+        {/* Heatmap (only in tabla view) */}
+        {portfolioView === "tabla" && portfolioTotals.positions?.length > 0 && (() => {
           const pos = portfolioTotals.positions;
           const totalVal = pos.reduce((s,p)=>s+(p.valueUSD||0),0) || 1;
           return (

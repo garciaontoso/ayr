@@ -15,7 +15,7 @@ export default function HistorialTab() {
           <div style={{fontSize:12,color:"var(--text-secondary)",lineHeight:1.6}}>{historialList.length} posiciones antiguas o no activas. Las shares pueden no estar actualizadas — lo fiable son los dividendos, opciones y transacciones registradas. Haz clic en 📋 para ver el detalle.</div>
         </div>
         {historialList.length===0 ? (
-          <div style={{textAlign:"center",padding:60,color:"var(--text-tertiary)"}}><div style={{fontSize:48,marginBottom:16}}>📦</div>Sin posiciones históricas.</div>
+          <EmptyState icon="📦" title="Sin posiciones historicas" subtitle="Aqui apareceran las posiciones que ya no tengas en cartera, con su historial completo de dividendos y opciones." />
         ) : (
           <div style={{display:"flex",flexDirection:"column",gap:6}}>
             {historialList.map(h => (

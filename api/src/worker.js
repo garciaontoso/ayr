@@ -1108,6 +1108,10 @@ export default {
       // POST /api/cash — insert cash balance entry
       if (path === "/api/cash" && request.method === "POST") {
         const b = await parseBody(request);
+        const fechaErr = validateFecha(b.fecha);
+        if (fechaErr) return validationError(fechaErr, corsHeaders);
+        const reqErr = validateRequired(b.cuenta, 'cuenta') || validateRequired(b.divisa, 'divisa') || validateNumber(b.cash_balance, 'cash_balance');
+        if (reqErr) return validationError(reqErr, corsHeaders);
         // Dedup: check if same fecha+cuenta+divisa exists
         const existing = await env.DB.prepare(
           "SELECT id FROM cash_balances WHERE fecha = ? AND cuenta = ? AND divisa = ?"
@@ -1938,6 +1942,10 @@ export default {
         try {
           const body = await request.json();
           const fecha = body.fecha || new Date().toISOString().slice(0, 10);
+          const fechaErr = validateFecha(fecha);
+          if (fechaErr) return validationError(fechaErr, corsHeaders);
+          const numErr = validateNumber(body.nlv, 'nlv');
+          if (numErr) return validationError(numErr, corsHeaders);
           await env.DB.prepare(
             "INSERT OR REPLACE INTO nlv_history (fecha, nlv, cash, positions_value, margin_used, accounts, positions_count) VALUES (?,?,?,?,?,?,?)"
           ).bind(fecha, body.nlv||0, body.cash||0, body.positionsValue||0, body.marginUsed||0, body.accounts||0, body.positionsCount||0).run();
@@ -3298,6 +3306,8 @@ export default {
       // POST /api/presupuesto — add new item
       if (path === "/api/presupuesto" && request.method === "POST") {
         const body = await parseBody(request);
+        const reqErr = validateRequired(body.nombre, 'nombre') || validateNumber(body.importe, 'importe');
+        if (reqErr) return validationError(reqErr, corsHeaders);
         const { results } = await env.DB.prepare(
           `INSERT INTO presupuesto (nombre, categoria, banco, frecuencia, importe, notas)
            VALUES (?, ?, ?, ?, ?, ?) RETURNING *`
@@ -3578,7 +3588,7 @@ export default {
       // POST /api/ai-analyze-portfolio — analyze all active positions
       if (path === "/api/ai-analyze-portfolio" && request.method === "POST") {
         const { results: positions } = await env.DB.prepare(
-          "SELECT ticker FROM positions WHERE shares > 0 ORDER BY usd_value DESC"
+          "SELECT ticker FROM positions WHERE shares > 0 ORDER BY usd_value DESC LIMIT 200"
         ).all();
         if (!positions.length) return json({ error: "No active positions found" }, corsHeaders, 400);
 

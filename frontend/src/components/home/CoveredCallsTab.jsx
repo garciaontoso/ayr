@@ -636,7 +636,7 @@ export default function CoveredCallsTab() {
                 onMouseEnter={e=>e.currentTarget.style.background="var(--card-hover)"}
                 onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                 <td style={{padding:"6px 4px",width:28}}>
-                  <img src={`https://images.financialmodelingprep.com/symbol/${p.ticker}.png`} alt="" style={{width:24,height:24,borderRadius:5,background:"#161b22"}} onError={e=>{e.target.style.display="none";}}/>
+                  <img src={`https://images.financialmodelingprep.com/symbol/${p.ticker}.png`} alt="" style={{width:24,height:24,borderRadius:5,background:"var(--card)"}} onError={e=>{e.target.style.display="none";}}/>
                 </td>
                 <td style={{padding:"6px 8px",fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",textAlign:"left"}}>
                   {p.ticker}

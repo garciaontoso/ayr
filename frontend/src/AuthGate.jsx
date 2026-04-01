@@ -123,13 +123,13 @@ export default function AuthGate({ children }) {
 const styles = {
   overlay: {
     position: 'fixed', inset: 0,
-    background: 'radial-gradient(ellipse at 50% 30%, rgba(200,164,78,.04) 0%, #000000 70%)',
+    background: 'radial-gradient(ellipse at 50% 30%, rgba(200,164,78,.04) 0%, var(--bg) 70%)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     fontFamily: "'IBM Plex Mono', 'DM Sans', -apple-system, monospace",
   },
   box: {
     textAlign: 'center', padding: '48px 44px',
-    background: 'rgba(22,22,22,.8)', backdropFilter: 'blur(20px)',
+    background: 'var(--header-bg)', backdropFilter: 'blur(20px)',
     border: '1px solid var(--subtle-bg2)', borderRadius: '24px',
     minWidth: '340px', animation: 'fadeUp .6s cubic-bezier(.16,1,.3,1)',
   },
@@ -139,12 +139,12 @@ const styles = {
     borderRadius: '16px', display: 'inline-block',
   },
   title: {
-    fontSize: '28px', fontWeight: 800, color: '#c8a44e',
+    fontSize: '28px', fontWeight: 800, color: 'var(--gold)',
     letterSpacing: '6px', marginBottom: '2px',
     fontFamily: "'Playfair Display', Georgia, serif",
   },
   sub: {
-    fontSize: '10px', color: '#86868b', letterSpacing: '3px',
+    fontSize: '10px', color: 'var(--text-secondary)', letterSpacing: '3px',
     textTransform: 'uppercase', marginBottom: '0',
   },
   divider: {
@@ -154,18 +154,18 @@ const styles = {
   form: { display: 'flex', flexDirection: 'column', gap: '12px' },
   input: {
     background: 'var(--subtle-bg)', border: '1px solid var(--subtle-bg2)', borderRadius: '12px',
-    padding: '14px 16px', color: '#f5f5f7', fontSize: '14px',
+    padding: '14px 16px', color: 'var(--text-primary)', fontSize: '14px',
     fontFamily: 'inherit', outline: 'none', textAlign: 'center',
     letterSpacing: '3px', transition: 'all .2s ease',
   },
   btn: {
-    background: '#c8a44e', color: '#000', border: 'none', borderRadius: '12px',
+    background: 'var(--gold)', color: '#000', border: 'none', borderRadius: '12px',
     padding: '12px', fontSize: '12px', fontWeight: 700, cursor: 'pointer',
     letterSpacing: '2px', fontFamily: 'inherit', transition: 'all .15s ease',
   },
-  error: { color: '#ff453a', fontSize: '11px', marginTop: '8px', animation: 'fadeIn .3s ease' },
+  error: { color: 'var(--red)', fontSize: '11px', marginTop: '8px', animation: 'fadeIn .3s ease' },
   footer: {
-    fontSize: '8px', color: '#48484a', letterSpacing: '1.5px',
+    fontSize: '8px', color: 'var(--text-tertiary)', letterSpacing: '1.5px',
     textTransform: 'uppercase', marginTop: '24px',
   },
 }
