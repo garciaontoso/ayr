@@ -132,6 +132,23 @@ async function ensureMigrations(env) {
       UNIQUE(fecha)
     )`).run();
 
+    // ai_analysis table (AI-powered company analysis)
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS ai_analysis (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      analysis_date TEXT DEFAULT (datetime('now')),
+      fundamentals TEXT,
+      dividend_safety TEXT,
+      valuation TEXT,
+      income_optimization TEXT,
+      verdict TEXT,
+      score INTEGER DEFAULT 0,
+      action TEXT DEFAULT 'HOLD',
+      summary TEXT,
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+    await env.DB.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_analysis_ticker_date ON ai_analysis(ticker, analysis_date)`).run();
+
     // push_subscriptions table (Web Push)
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS push_subscriptions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3336,6 +3353,152 @@ export default {
         return json({ ok: true }, corsHeaders);
       }
 
+      // ─── AI ANALYSIS (Claude-powered company analysis) ──────────────
+
+      // POST /api/ai-analyze — analyze one or more tickers
+      if (path === "/api/ai-analyze" && request.method === "POST") {
+        const body = await parseBody(request);
+        const tickers = body.tickers || (body.ticker ? [body.ticker] : []);
+        if (!tickers.length) return json({ error: "Missing ticker or tickers" }, corsHeaders, 400);
+
+        const results = [];
+        for (const ticker of tickers) {
+          try {
+            const analysis = await analyzeTickerWithAI(env, ticker);
+            results.push(analysis);
+          } catch (e) {
+            results.push({ ticker, error: e.message });
+          }
+        }
+        return json({ results, analyzed: results.filter(r => !r.error).length, errors: results.filter(r => r.error).length }, corsHeaders);
+      }
+
+      // GET /api/ai-analysis — retrieve stored analysis
+      if (path === "/api/ai-analysis" && request.method === "GET") {
+        const ticker = url.searchParams.get("ticker");
+        const action = url.searchParams.get("action");
+        let sql = "SELECT * FROM ai_analysis";
+        const params = [];
+        const conditions = [];
+        if (ticker) { conditions.push("ticker = ?"); params.push(ticker.toUpperCase()); }
+        if (action) { conditions.push("action = ?"); params.push(action.toUpperCase()); }
+        if (conditions.length) sql += " WHERE " + conditions.join(" AND ");
+        sql += " ORDER BY updated_at DESC";
+        const stmt = params.length ? env.DB.prepare(sql).bind(...params) : env.DB.prepare(sql);
+        const { results } = await stmt.all();
+        // Parse JSON fields
+        const parsed = results.map(r => ({
+          ...r,
+          fundamentals: r.fundamentals ? JSON.parse(r.fundamentals) : null,
+          dividend_safety: r.dividend_safety ? JSON.parse(r.dividend_safety) : null,
+          valuation: r.valuation ? JSON.parse(r.valuation) : null,
+          income_optimization: r.income_optimization ? JSON.parse(r.income_optimization) : null,
+          verdict: r.verdict ? JSON.parse(r.verdict) : null,
+        }));
+        return json({ analysis: parsed, count: parsed.length }, corsHeaders);
+      }
+
+      // POST /api/ai-analyze-portfolio — analyze all active positions
+      if (path === "/api/ai-analyze-portfolio" && request.method === "POST") {
+        const { results: positions } = await env.DB.prepare(
+          "SELECT ticker FROM positions WHERE shares > 0 ORDER BY usd_value DESC"
+        ).all();
+        if (!positions.length) return json({ error: "No active positions found" }, corsHeaders, 400);
+
+        const allTickers = positions.map(p => p.ticker);
+        const batchSize = 3;
+        const allResults = [];
+
+        for (let i = 0; i < allTickers.length; i += batchSize) {
+          const batch = allTickers.slice(i, i + batchSize);
+          const batchResults = await Promise.all(
+            batch.map(ticker => analyzeTickerWithAI(env, ticker).catch(e => ({ ticker, error: e.message })))
+          );
+          allResults.push(...batchResults);
+        }
+
+        const successful = allResults.filter(r => !r.error);
+        const actions = { HOLD: 0, TRIM: 0, SELL: 0, ADD: 0 };
+        for (const r of successful) {
+          const act = r.action || "HOLD";
+          actions[act] = (actions[act] || 0) + 1;
+        }
+
+        return json({
+          analyzed: successful.length,
+          errors: allResults.filter(r => r.error).length,
+          total: allTickers.length,
+          actions,
+          results: allResults,
+        }, corsHeaders);
+      }
+
+      // GET /api/ai-portfolio-summary — dashboard view of AI analysis
+      if (path === "/api/ai-portfolio-summary" && request.method === "GET") {
+        // Get latest analysis per ticker (most recent only)
+        const { results: analyses } = await env.DB.prepare(`
+          SELECT a.* FROM ai_analysis a
+          INNER JOIN (
+            SELECT ticker, MAX(updated_at) as max_date FROM ai_analysis GROUP BY ticker
+          ) latest ON a.ticker = latest.ticker AND a.updated_at = latest.max_date
+          ORDER BY a.score DESC
+        `).all();
+
+        if (!analyses.length) return json({ error: "No analysis data. Run POST /api/ai-analyze-portfolio first." }, corsHeaders, 404);
+
+        const groups = { HOLD: [], TRIM: [], SELL: [], ADD: [] };
+        let totalScore = 0;
+        const incomeOpps = [];
+        const alerts = [];
+
+        for (const row of analyses) {
+          const action = row.action || "HOLD";
+          const parsed = {
+            ticker: row.ticker,
+            score: row.score,
+            action,
+            summary: row.summary,
+            verdict: row.verdict ? JSON.parse(row.verdict) : null,
+            income_optimization: row.income_optimization ? JSON.parse(row.income_optimization) : null,
+            updated_at: row.updated_at,
+          };
+
+          if (!groups[action]) groups[action] = [];
+          groups[action].push(parsed);
+          totalScore += row.score || 0;
+
+          // Collect income optimization opportunities
+          if (parsed.income_optimization) {
+            const inc = parsed.income_optimization;
+            if (inc.enhancedYield && inc.currentYield && inc.enhancedYield > inc.currentYield) {
+              incomeOpps.push({
+                ticker: row.ticker,
+                currentYield: inc.currentYield,
+                enhancedYield: inc.enhancedYield,
+                strategy: inc.suggestedStrategy,
+                monthlyPremium: inc.ccPremiumMonthly,
+              });
+            }
+          }
+
+          // Positions needing attention
+          if (action === "SELL" || action === "TRIM" || (row.score && row.score <= 4)) {
+            alerts.push({ ticker: row.ticker, action, score: row.score, summary: row.summary });
+          }
+        }
+
+        incomeOpps.sort((a, b) => (b.enhancedYield - b.currentYield) - (a.enhancedYield - a.currentYield));
+
+        return json({
+          portfolioHealthScore: analyses.length ? Math.round((totalScore / analyses.length) * 10) / 10 : 0,
+          positionsAnalyzed: analyses.length,
+          groups,
+          topIncomeOpportunities: incomeOpps.slice(0, 10),
+          alerts,
+          lastUpdated: analyses[0]?.updated_at || null,
+        }, corsHeaders);
+      }
+
       // 404
       return new Response(JSON.stringify({ error: "Not found", path }), {
         status: 404,
@@ -3366,6 +3529,144 @@ class BadBodyError extends Error {
 async function parseBody(request) {
   try { return await request.json(); }
   catch(e) { throw new BadBodyError(); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AI Company Analysis — Claude-powered equity analysis
+// ═══════════════════════════════════════════════════════════════
+
+async function analyzeTickerWithAI(env, ticker) {
+  ticker = ticker.toUpperCase().trim();
+
+  // 1. Get fundamentals from D1
+  const fund = await env.DB.prepare("SELECT * FROM fundamentals WHERE symbol = ?").bind(ticker).first();
+
+  // 2. Get position data
+  const pos = await env.DB.prepare("SELECT * FROM positions WHERE ticker = ?").bind(ticker).first();
+
+  // 3. Build context for Claude
+  let fundamentalsContext = "No fundamental data available.";
+  if (fund) {
+    const parts = [];
+    if (fund.profile) parts.push(`Profile: ${fund.profile}`);
+    if (fund.ratios) parts.push(`Key Ratios: ${fund.ratios}`);
+    if (fund.income) parts.push(`Income Statement: ${fund.income}`);
+    if (fund.balance) parts.push(`Balance Sheet: ${fund.balance}`);
+    if (fund.cashflow) parts.push(`Cash Flow: ${fund.cashflow}`);
+    if (fund.dividends) parts.push(`Dividend History: ${fund.dividends}`);
+    if (fund.dcf) parts.push(`DCF Valuation: ${fund.dcf}`);
+    if (fund.rating) parts.push(`Analyst Rating: ${fund.rating}`);
+    if (fund.estimates) parts.push(`Estimates: ${fund.estimates}`);
+    if (fund.price_target) parts.push(`Price Targets: ${fund.price_target}`);
+    if (fund.key_metrics) parts.push(`Key Metrics: ${fund.key_metrics}`);
+    if (fund.fin_growth) parts.push(`Financial Growth: ${fund.fin_growth}`);
+    if (fund.peers) parts.push(`Peers: ${fund.peers}`);
+    if (fund.owner_earnings) parts.push(`Owner Earnings: ${fund.owner_earnings}`);
+    fundamentalsContext = parts.join("\n\n");
+  }
+
+  let positionContext = "Not currently held in portfolio.";
+  if (pos) {
+    positionContext = `Position: ${pos.shares} shares, avg cost $${pos.avg_price}, current price $${pos.last_price}, P&L ${pos.pnl_pct ? (pos.pnl_pct * 100).toFixed(1) + '%' : 'N/A'} ($${pos.pnl_abs || 0}), weight in portfolio: market value $${pos.usd_value || pos.market_value || 0}, div yield ${pos.div_yield ? (pos.div_yield * 100).toFixed(2) + '%' : 'N/A'}, YoC ${pos.yoc ? (pos.yoc * 100).toFixed(2) + '%' : 'N/A'}, sector: ${pos.sector || 'N/A'}`;
+  }
+
+  const prompt = `You are a professional equity analyst specializing in dividend income investing. Analyze ${ticker} from 5 perspectives for a long-term dividend income portfolio.
+
+PORTFOLIO CONTEXT:
+${positionContext}
+
+FUNDAMENTAL DATA:
+${fundamentalsContext}
+
+Respond ONLY with valid JSON (no markdown, no code fences) using this exact structure:
+{
+  "fundamentals": {"score": <1-10>, "assessment": "<2-3 sentences>", "highlights": ["<strength1>", "<strength2>"], "concerns": ["<concern1>", "<concern2>"]},
+  "dividendSafety": {"score": <1-10>, "payoutRatio": <decimal>, "coverage": <decimal>, "streakYears": <integer>, "growthRate": <decimal annual 5yr avg>, "assessment": "<2-3 sentences>"},
+  "valuation": {"score": <1-10>, "fairValue": <number>, "currentPrice": <number>, "upside": <decimal>, "method": "<valuation method used>", "assessment": "<2-3 sentences>"},
+  "incomeOptimization": {"ccPremiumMonthly": <estimated monthly CC income for 100 shares>, "currentYield": <decimal>, "enhancedYield": <decimal with CC>, "suggestedStrategy": "<specific CC/put strategy>", "assessment": "<2-3 sentences>"},
+  "verdict": {"action": "<HOLD|ADD|TRIM|SELL>", "score": <1-10 weighted average>, "summary": "<3-4 sentence final verdict>", "targetWeight": "<suggested portfolio weight range>", "keyAction": "<single most important action to take>"}
+}
+
+Score guide: 1-3 = Poor/Sell, 4-5 = Below Average/Trim, 6-7 = Average/Hold, 8-9 = Good/Hold-Add, 10 = Excellent/Add.
+Use real numbers from the data provided. If data is missing, use reasonable estimates and note the uncertainty.`;
+
+  // 4. Call Claude API
+  const anthropicResp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": env.ANTHROPIC_API_KEY || "",
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 2000,
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+
+  if (!anthropicResp.ok) {
+    const errText = await anthropicResp.text();
+    throw new Error(`Claude API error ${anthropicResp.status}: ${errText}`);
+  }
+
+  const claudeResult = await anthropicResp.json();
+  const rawText = claudeResult.content?.[0]?.text || "";
+
+  // 5. Parse JSON response (strip code fences if present)
+  let parsed;
+  try {
+    const cleaned = rawText.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+    parsed = JSON.parse(cleaned);
+  } catch (e) {
+    throw new Error(`Failed to parse Claude response for ${ticker}: ${e.message}`);
+  }
+
+  const overallScore = Math.round((parsed.verdict?.score || 0) * 10) / 10;
+  const action = parsed.verdict?.action || "HOLD";
+  const summary = parsed.verdict?.summary || "";
+  const today = new Date().toISOString().slice(0, 10);
+
+  // 6. Store in D1 (upsert by ticker + date)
+  await env.DB.prepare(`
+    INSERT INTO ai_analysis (ticker, analysis_date, fundamentals, dividend_safety, valuation, income_optimization, verdict, score, action, summary, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(ticker, analysis_date) DO UPDATE SET
+      fundamentals = excluded.fundamentals,
+      dividend_safety = excluded.dividend_safety,
+      valuation = excluded.valuation,
+      income_optimization = excluded.income_optimization,
+      verdict = excluded.verdict,
+      score = excluded.score,
+      action = excluded.action,
+      summary = excluded.summary,
+      updated_at = datetime('now')
+  `).bind(
+    ticker,
+    today,
+    JSON.stringify(parsed.fundamentals),
+    JSON.stringify(parsed.dividendSafety),
+    JSON.stringify(parsed.valuation),
+    JSON.stringify(parsed.incomeOptimization),
+    JSON.stringify(parsed.verdict),
+    overallScore,
+    action,
+    summary
+  ).run();
+
+  // 7. Return result
+  return {
+    ticker,
+    score: overallScore,
+    action,
+    summary,
+    fundamentals: parsed.fundamentals,
+    dividendSafety: parsed.dividendSafety,
+    valuation: parsed.valuation,
+    incomeOptimization: parsed.incomeOptimization,
+    verdict: parsed.verdict,
+    analyzed_at: new Date().toISOString(),
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════
