@@ -122,7 +122,7 @@ export default function ARApp() {
       if (result.ok) {
         setApiData(result);
         if (result.errors?.length) {
-          setDataError(`Algunos datos no cargaron: ${result.errors.length} endpoint(s) fallaron`);
+          setDataError(`Endpoints con error: ${result.errors.join(', ')}`);
         }
       } else {
         setDataError("Error conectando con la API. Comprueba tu conexión.");
