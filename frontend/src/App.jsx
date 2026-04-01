@@ -1443,8 +1443,9 @@ function buildPositionsFromCB() {
       }
 
       // Step 2: Generate qualitative report via Claude API (optional — skip if offline)
+      let report = null;
       try {
-        const report = await generateReport(t, data.fin, data.cfg, data.profile || {});
+        report = await generateReport(t, data.fin, data.cfg, data.profile || {});
         if (report) {
           setSsd(prev => ({
             ...prev,
@@ -1478,7 +1479,7 @@ function buildPositionsFromCB() {
       } catch { /* Report generation failed (offline?) — fundamentals still available */ }
       
       // Save to persistent storage
-      const saveData = { fin: data.fin, cfg: data.cfg, comps, ssd, report, fmpExtra: { rating: data.fmpRating, dcf: data.fmpDCF, estimates: data.fmpEstimates, priceTarget: data.fmpPriceTarget, keyMetrics: data.fmpKeyMetrics, finGrowth: data.fmpFinGrowth, grades: data.fmpGrades, ownerEarnings: data.fmpOwnerEarnings, revSegments: data.fmpRevSegments, geoSegments: data.fmpGeoSegments, peers: data.fmpPeers, earnings: data.fmpEarnings, ptSummary: data.fmpPtSummary } };
+      const saveData = { fin: data.fin, cfg: data.cfg, comps, ssd, report, fmpExtra: { rating: data.fmpRating||{}, dcf: data.fmpDCF||{}, estimates: data.fmpEstimates||[], priceTarget: data.fmpPriceTarget||{}, keyMetrics: data.fmpKeyMetrics||[], finGrowth: data.fmpFinGrowth||[], grades: data.fmpGrades||{}, ownerEarnings: data.fmpOwnerEarnings||[], revSegments: data.fmpRevSegments||[], geoSegments: data.fmpGeoSegments||[], peers: data.fmpPeers||[], earnings: data.fmpEarnings||[], ptSummary: data.fmpPtSummary||{} } };
       await saveCompanyToStorage(t, saveData);
       const idx = await loadPortfolioIndex();
       setPortfolio(idx);

@@ -276,7 +276,7 @@ export function useAnalysisMetrics({ fin, cfg, setSsd, fmpExtra }) {
       pvSum += pv;
       projs.push({year:YEARS[0]+i, fcf, pv});
     }
-    const tv = (r !== tg ? (projs[9].fcf*(1+tg))/(r-tg) : 0);
+    const tv = (r !== tg && projs.length > 9 ? (projs[9].fcf*(1+tg))/(r-tg) : 0);
     const tvPV = tv / Math.pow(1+r, 10);
     const total = pvSum + tvPV;
     const iv = total / (LD.sharesOut||1);

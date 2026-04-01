@@ -45,7 +45,7 @@ const CategoryDonut = ({segments, size=150, strokeW=18}) => {
           <div key={i} style={{display:"flex",alignItems:"center",gap:5}}>
             <div style={{width:8,height:8,borderRadius:2,background:seg.color,flexShrink:0}}/>
             <span style={{fontSize:9,color:"var(--text-secondary)",fontFamily:"var(--fm)",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{seg.label}</span>
-            <span style={{fontSize:9,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{Math.round(seg.value/total*100)}%</span>
+            <span style={{fontSize:9,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{total > 0 ? Math.round(seg.value/total*100) : 0}%</span>
           </div>
         ))}
       </div>
@@ -136,6 +136,7 @@ export default function GastosTab() {
       const data = await res.json();
       if (res.ok) {
         setCsvToast(`Importados: ${data.imported ?? 0} · Duplicados: ${data.duplicates ?? 0} · Omitidos: ${data.skipped ?? 0}`);
+        setTimeout(() => window.location.reload(), 1500);
       } else {
         setCsvToast(`Error: ${data.error || "Fallo en importación"}`);
       }
@@ -204,7 +205,7 @@ export default function GastosTab() {
     const byCat = {};
     expenses.forEach(g => { byCat[g.cat] = (byCat[g.cat]||0) + gToEur(g); });
     const topCats = Object.entries(byCat).sort((a,b) => b[1]-a[1]).slice(0,10);
-    const maxCat = Math.max(...topCats.map(([,v])=>v), 1);
+    const maxCat = topCats.length > 0 ? Math.max(...topCats.map(([,v])=>v), 1) : 1;
 
     // Donut segments: top 8 + Otros
     const donutTop = Object.entries(byCat).sort((a,b) => b[1]-a[1]);
@@ -333,10 +334,11 @@ export default function GastosTab() {
             const d = byMonth[m];
             const mi = parseInt(m.slice(5,7))-1;
             const yr = m.slice(0,4);
-            const pctTotal = (d.eur||0)/maxMonthEur*100;
-            const pctEur = d.eurNat/(d.eur||1)*100;
-            const pctCny = d.cny/(d.eur||1)*100;
-            const pctUsd = d.usd/(d.eur||1)*100;
+            const pctTotal = maxMonthEur > 0 ? (d.eur||0)/maxMonthEur*100 : 0;
+            const dEur = d.eur > 0 ? d.eur : 1;
+            const pctEur = d.eurNat/dEur*100;
+            const pctCny = d.cny/dEur*100;
+            const pctUsd = d.usd/dEur*100;
             return (
               <div key={m} style={{padding:"8px 10px",background:"rgba(255,255,255,.02)",borderRadius:8,border:"1px solid rgba(255,255,255,.04)"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>

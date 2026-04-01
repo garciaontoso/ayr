@@ -554,7 +554,7 @@ function CalendarioSection({ divLog, POS_STATIC }) {
                 <div style={{ width: 42, height: 24, borderRadius: 6, background: e.projected ? "rgba(100,210,255,.1)" : "rgba(200,164,78,.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800, color: e.projected ? "#64d2ff" : "var(--gold)", fontFamily: "var(--fm)" }}>{e.ticker?.slice(0, 5)}</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-primary)", fontFamily: "var(--fm)" }}>${_sf(e.gross || 0, 2)}</div>
-                  {e.net && !e.projected && <div style={{ fontSize: 9, color: "var(--green)", fontFamily: "var(--fm)" }}>Net: ${_sf(e.net, 2)} · Tax: {e.gross > 0 ? _sf((1 - e.net / e.gross) * 100, 0) : 0}%</div>}
+                  {e.net != null && !e.projected && <div style={{ fontSize: 9, color: "var(--green)", fontFamily: "var(--fm)" }}>Net: ${_sf(e.net, 2)} · Tax: {e.gross > 0 ? _sf((1 - e.net / e.gross) * 100, 0) : 0}%</div>}
                 </div>
                 {e.projected && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 4, background: "rgba(100,210,255,.1)", color: "#64d2ff", fontFamily: "var(--fm)", fontWeight: 600 }}>ESTIMADO</span>}
                 {e.shares && !e.projected && <span style={{ fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>{e.shares} sh · ${_sf((e.gross || 0) / e.shares, 4)}/sh</span>}
@@ -838,7 +838,7 @@ export default function DividendosTab() {
               {/* Bars */}
               <div style={{display:"flex",alignItems:"flex-end",gap:1,height:chartH,position:"relative"}}>
                 {monthKeys.map((m,i) => {
-                  const d = byMonth[m];
+                  const d = byMonth[m] || {g:0,n:0,c:0};
                   const h = yTop > 0 ? (d.g / yTop * 100) : 0;
                   const isCur = m.startsWith(new Date().getFullYear().toString());
                   const isLast = i === monthKeys.length - 1;

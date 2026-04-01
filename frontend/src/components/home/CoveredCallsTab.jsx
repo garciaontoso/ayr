@@ -145,7 +145,7 @@ export default function CoveredCallsTab() {
           try {
             const r = await fetch(`${API_URL}/api/price-history?symbol=${t}&from=${from}`);
             const d = await r.json();
-            results[t] = (d.historical || d || []).map(p => p.close).reverse();
+            results[t] = (Array.isArray(d.historical) ? d.historical : Array.isArray(d) ? d : []).map(p => p.close).reverse();
           } catch { results[t] = []; }
         }));
       }

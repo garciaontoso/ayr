@@ -41,7 +41,7 @@ const ytdTotal = ytdIncome.reduce((s,d) => s + (d.total||0), 0);
 const prevTotal = INCOME_DATA.filter(d => d.m.startsWith(prevYear)).reduce((s,d) => s + (d.total||0), 0);
 
 // Dividend data from static sheet (master record)
-const divYears = Object.entries(DIV_BY_YEAR).filter(([y]) => parseInt(y, 10) >= 2021).sort();
+const divYears = Object.entries(DIV_BY_YEAR).filter(([y]) => parseInt(y, 10) >= 2021).sort((a,b) => parseInt(a[0]) - parseInt(b[0]));
 const latestDivYear = divYears[divYears.length-1];
 
 // Income by strategy per year
@@ -302,8 +302,8 @@ return (
     if (portReturns.length < 3) return null;
 
     const allVals = portReturns.flatMap(r => [r.portCum, r.spyCum]);
-    const min = Math.min(...allVals) - 2;
-    const max = Math.max(...allVals) + 2;
+    const min = (allVals.length > 0 ? Math.min(...allVals) : 0) - 2;
+    const max = (allVals.length > 0 ? Math.max(...allVals) : 0) + 2;
     const range = max - min || 1;
     const w = 400;
     const h = 80;
@@ -640,7 +640,7 @@ return (
             const label = m.slice(5,7)+"/"+m.slice(2,4);
             return <div key={m} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
               <div style={{fontSize:8,color:"var(--red)",fontFamily:"var(--fm)",fontWeight:700}}>${Math.round(byMonth[m].total)}</div>
-              <div style={{width:"100%",maxWidth:28,height:Math.max(h,3),background:"linear-gradient(180deg,#ff453a,rgba(255,69,58,.4))",borderRadius:4}}/>
+              <div style={{width:"100%",maxWidth:28,height:`${Math.max(h,3)}%`,background:"linear-gradient(180deg,#ff453a,rgba(255,69,58,.4))",borderRadius:4}}/>
               <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{label}</div>
             </div>;
           })}
@@ -895,7 +895,7 @@ return (
       </div>
     </div>
     {(() => {
-      const maxE = Math.max(...FIRE_PROJ.map(p => p.e));
+      const maxE = FIRE_PROJ.length > 0 ? Math.max(...FIRE_PROJ.map(p => p.e)) : 1;
       const curYear = new Date().getFullYear();
       return <div style={{display:"flex",alignItems:"flex-end",gap:3,height:160}}>
         {FIRE_PROJ.map(p => {

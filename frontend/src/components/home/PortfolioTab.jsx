@@ -306,7 +306,7 @@ export default function PortfolioTab() {
         {showRebalance && portfolioTotals.positions?.length > 0 && (
           <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:14,marginTop:8}}>
             <div style={{fontSize:11,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)",marginBottom:8}}>⚖️ Rebalanceo — Top 10 por desviación del peso ideal</div>
-            <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:8}}>Peso ideal = 100% / {portfolioTotals.positions.length} posiciones = {_sf(100/portfolioTotals.positions.length,1)}% cada una</div>
+            <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:8}}>Peso ideal = 100% / {portfolioTotals.positions?.length} posiciones = {_sf(100/(portfolioTotals.positions?.length||1),1)}% cada una</div>
             <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
                 <thead><tr style={{borderBottom:"1px solid var(--border)"}}>
@@ -316,9 +316,9 @@ export default function PortfolioTab() {
                 </tr></thead>
                 <tbody>
                   {(() => {
-                    const idealWeight = 1 / portfolioTotals.positions.length;
+                    const idealWeight = 1 / (portfolioTotals.positions?.length || 1);
                     const totalVal = portfolioTotals.totalValueUSD;
-                    return [...portfolioTotals.positions]
+                    return [...(portfolioTotals.positions || [])]
                       .map(p => ({...p, deviation: (p.weight||0) - idealWeight}))
                       .sort((a,b) => Math.abs(b.deviation) - Math.abs(a.deviation))
                       .slice(0,10)

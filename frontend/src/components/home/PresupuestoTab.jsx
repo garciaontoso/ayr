@@ -59,6 +59,7 @@ export default function PresupuestoTab() {
     setLoading(true);
     try {
       const res = await fetch(`${API_URL}/api/presupuesto`);
+      if (!res.ok) throw new Error(res.status);
       const data = await res.json();
       setItems(Array.isArray(data) ? data : []);
     } catch (e) { console.error('Fetch presupuesto error:', e); }
@@ -68,6 +69,7 @@ export default function PresupuestoTab() {
   const fetchAlerts = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/api/presupuesto/alerts`);
+      if (!res.ok) throw new Error(res.status);
       const data = await res.json();
       setAlerts(Array.isArray(data) ? data : []);
     } catch (e) { /* silent */ }
@@ -76,6 +78,7 @@ export default function PresupuestoTab() {
   const fetchHistory = useCallback(async (itemId) => {
     try {
       const res = await fetch(`${API_URL}/api/presupuesto/history/${itemId}`);
+      if (!res.ok) throw new Error(res.status);
       const data = await res.json();
       setHistory(Array.isArray(data) ? data : []);
     } catch (e) { setHistory([]); }
@@ -91,9 +94,11 @@ export default function PresupuestoTab() {
 
     try {
       if (editId) {
-        await fetch(`${API_URL}/api/presupuesto/${editId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const r1 = await fetch(`${API_URL}/api/presupuesto/${editId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        if (!r1.ok) throw new Error(r1.status);
       } else {
-        await fetch(`${API_URL}/api/presupuesto`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const r2 = await fetch(`${API_URL}/api/presupuesto`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        if (!r2.ok) throw new Error(r2.status);
       }
       setShowForm(false); setEditId(null);
       setForm({ nombre: '', categoria: 'CASA', banco: '', frecuencia: 'MENSUAL', importe: '', notas: '' });
@@ -104,7 +109,8 @@ export default function PresupuestoTab() {
   const deleteItem = async (id) => {
     if (!confirm('¿Eliminar este gasto del presupuesto?')) return;
     try {
-      await fetch(`${API_URL}/api/presupuesto/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_URL}/api/presupuesto/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(res.status);
       fetchItems(); fetchAlerts();
     } catch (e) { console.error('Delete error:', e); }
   };

@@ -281,12 +281,12 @@ function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, fxEurUsd,
 
         // Split into working/retired segments for coloring
         const retireIdx = pts.findIndex(p => p.phase === 'retired');
-        const workPts = retireIdx > 0 ? pts.slice(0, retireIdx + 1) : pts;
-        const retPts = retireIdx > 0 ? pts.slice(retireIdx) : [];
+        const workPts = retireIdx >= 0 ? pts.slice(0, retireIdx) : pts;
+        const retPts = retireIdx >= 0 ? pts.slice(retireIdx) : [];
 
         const workArea = (() => {
           const p = bezier(workPts);
-          if (!p) return '';
+          if (!p || workPts.length < 2) return '';
           return p + ` L${workPts[workPts.length - 1].x},${PT + cH} L${workPts[0].x},${PT + cH} Z`;
         })();
         const retArea = (() => {
@@ -306,7 +306,9 @@ function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, fxEurUsd,
             // Find first point that crosses this milestone
             for (let i = 1; i < traj.length; i++) {
               if (traj[i - 1].balance < m && traj[i].balance >= m) {
-                const ratio = (m - traj[i - 1].balance) / (traj[i].balance - traj[i - 1].balance);
+                const denom = traj[i].balance - traj[i - 1].balance;
+                if (denom === 0) break;
+                const ratio = (m - traj[i - 1].balance) / denom;
                 const mx = pts[i - 1].x + (pts[i].x - pts[i - 1].x) * ratio;
                 const my = yOf(m);
                 const label = m >= 1000000 ? `${(m / 1000000).toFixed(m % 1000000 === 0 ? 0 : 1)}M` : `${(m / 1000).toFixed(0)}K`;
@@ -566,7 +568,7 @@ const fireRet = pat>0 ? (gastosAnnual/pat*100) : 0;
 const gapM = divNetM - gastosAvg;
 const savingsM = divNetM + sueldoM - gastosAvg;
 const savingsRate = (divNetM+sueldoM)>0 ? (savingsM/(divNetM+sueldoM)*100) : 0;
-const swr35 = gastosAnnual / 0.035;
+const swr35 = gastosAnnual > 0 ? gastosAnnual / 0.035 : 0;
 const yearsToFire = (()=>{ if(!pat||!savingsM||!gastosAnnual||isNaN(pat)||isNaN(swr35)) return 99; if(pat>=swr35) return 0; let p=pat; for(let y=1;y<=50;y++){p=p*1.07+savingsM*12;if(p*0.035>=gastosAnnual)return y;} return 99; })();
 
 // Div by year
@@ -815,7 +817,7 @@ return (
   <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
     <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:12}}>📈 Dividendos Netos por Año</div>
     <div style={{display:"flex",alignItems:"flex-end",gap:8,height:130}}>
-      {divYK.map((y,i)=>{const d=divByYear[y];const nV=isUSD?d.n:d.n/fxEurUsd;const mx=Math.max(...divYK.map(k=>isUSD?divByYear[k].n:divByYear[k].n/fxEurUsd),1);const h=nV/mx*100;const prev=i>0?(isUSD?divByYear[divYK[i-1]].n:divByYear[divYK[i-1]].n/fxEurUsd):0;const gr=prev>0?((nV-prev)/prev*100):null;return(<div key={y} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%"}}>{gr!=null&&<div style={{fontSize:7,fontWeight:600,color:retCol(gr),fontFamily:"var(--fm)",marginBottom:2}}>{gr>=0?"+":""}{_sf(gr,0)}%</div>}<div style={{fontSize:8,fontWeight:600,color:"var(--green)",fontFamily:"var(--fm)",marginBottom:2}}>{sym}{fK(nV)}</div><div style={{width:"100%",maxWidth:32,height:`${Math.max(h,4)}%`,background:"var(--green)",borderRadius:"3px 3px 0 0",opacity:.6}}/><div style={{fontSize:9,fontWeight:600,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginTop:3}}>{y}</div></div>);})}
+      {divYK.length > 0 && divYK.map((y,i)=>{const d=divByYear[y];const nV=isUSD?d.n:d.n/fxEurUsd;const mx=Math.max(...divYK.map(k=>isUSD?divByYear[k].n:divByYear[k].n/fxEurUsd),1);const h=nV/mx*100;const prev=i>0?(isUSD?divByYear[divYK[i-1]].n:divByYear[divYK[i-1]].n/fxEurUsd):0;const gr=prev>0?((nV-prev)/prev*100):null;return(<div key={y} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%"}}>{gr!=null&&<div style={{fontSize:7,fontWeight:600,color:retCol(gr),fontFamily:"var(--fm)",marginBottom:2}}>{gr>=0?"+":""}{_sf(gr,0)}%</div>}<div style={{fontSize:8,fontWeight:600,color:"var(--green)",fontFamily:"var(--fm)",marginBottom:2}}>{sym}{fK(nV)}</div><div style={{width:"100%",maxWidth:32,height:`${Math.max(h,4)}%`,background:"var(--green)",borderRadius:"3px 3px 0 0",opacity:.6}}/><div style={{fontSize:9,fontWeight:600,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginTop:3}}>{y}</div></div>);})}
     </div>
   </div>
 

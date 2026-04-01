@@ -104,7 +104,7 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
 
       const retReal = retornoPct - inflacionPct;
       const patReal = i === 0 ? patInicio : patInicio / Math.pow(1 + inflacionPct/100, i);
-      const fireNumber = gastos / (retornoPct / 100);
+      const fireNumber = retornoPct > 0 ? gastos / (retornoPct / 100) : 0;
 
       rows.push({
         year, edad, retirado,
@@ -148,7 +148,7 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
 
   const lastRow = projection[projection.length - 1] || {};
   const retiroRow = projection.find(r => r.retirado) || {};
-  const maxPat = Math.max(...projection.map(r => r.patFinal), 1);
+  const maxPat = projection.length > 0 ? Math.max(...projection.map(r => r.patFinal), 1) : 1;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -167,7 +167,7 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
         {[
           { l: 'PATRIMONIO HOY', v: fN(params.patrimonioInicial), c: 'var(--gold)' },
           { l: `PATRIMONIO ${lastRow.year}`, v: fN(lastRow.patFinal || 0), sub: `en ${params.anosProyeccion} años`, c: 'var(--green)' },
-          { l: 'PATRIMONIO REAL', v: fN(lastRow.patReal || 0), sub: `ajust. inflación ${(lastRow.inflacionAcum*100).toFixed(0)}%`, c: '#64d2ff' },
+          { l: 'PATRIMONIO REAL', v: fN(lastRow.patReal || 0), sub: `ajust. inflación ${((lastRow.inflacionAcum||0)*100).toFixed(0)}%`, c: '#64d2ff' },
           { l: 'MULTIPLICADOR', v: `${((lastRow.patFinal || 0) / (params.patrimonioInicial || 1)).toFixed(1)}x`, sub: `nominal`, c: 'var(--gold)' },
           { l: 'PAT. JUBILACIÓN', v: fN(retiroRow.patInicio || 0), sub: `edad ${params.edadRetiro} (${retiroRow.year || '?'})`, c: 'var(--orange)' },
           { l: 'FIRE %', v: `${((retiroRow.firePct || 0)).toFixed(0)}%`, sub: retiroRow.firePct >= 100 ? '✅ Cubierto' : '❌ Insuficiente', c: (retiroRow.firePct || 0) >= 100 ? 'var(--green)' : 'var(--red)' },
@@ -504,7 +504,7 @@ const sparkRange = sparkMax - sparkMin || 1;
 const sparkW = 120, sparkH = 32;
 const sparkPath = spark.map((d,i) => {
   const x = spark.length > 1 ? (i / (spark.length-1)) * sparkW : sparkW/2;
-  const y = sparkH - ((d.pu - sparkMin) / sparkRange) * sparkH;
+  const y = sparkRange > 0 ? sparkH - ((d.pu - sparkMin) / sparkRange) * sparkH : sparkH/2;
   return `${i===0?"M":"L"}${_sf(x,1)},${_sf(y,1)}`;
 }).join(" ");
 
