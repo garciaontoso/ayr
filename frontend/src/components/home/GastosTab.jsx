@@ -587,15 +587,18 @@ export default function GastosTab() {
       {/* Monthly breakdown with stacked bars */}
       {monthKeys.length > 1 && (() => {
         const mNames = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-        const [monthOrder, setMonthOrder] = useState("desc");
+        const [monthOrder, setMonthOrder] = useState("asc");
         const [monthLimit, setMonthLimit] = useState(12);
-        const sorted = monthOrder === "asc" ? [...monthKeys].reverse() : monthKeys;
-        const visible = sorted.slice(0, monthLimit);
+        // asc = cronológico (May→Jun→...→Mar→Abr), desc = reciente primero (Abr→Mar→...→Jun→May)
+        // monthKeys is already sorted desc (newest first)
+        // For asc: take last N from monthKeys (most recent N), then reverse to chronological
+        const lastN = monthKeys.slice(0, monthLimit);
+        const visible = monthOrder === "asc" ? [...lastN].reverse() : lastN;
         const maxMonthEur = Math.max(...visible.map(m => byMonth[m]?.eur || 0), 1);
         return <div>
           {/* Controls */}
           <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
-            <button onClick={()=>setMonthOrder(o=>o==="desc"?"asc":"desc")} style={{padding:"3px 8px",borderRadius:5,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)"}}>{monthOrder==="desc"?"← Actual primero":"→ Actual último"}</button>
+            <button onClick={()=>setMonthOrder(o=>o==="desc"?"asc":"desc")} style={{padding:"3px 8px",borderRadius:5,border:"1px solid var(--gold)",background:monthOrder==="asc"?"var(--gold-dim)":"transparent",color:monthOrder==="asc"?"var(--gold)":"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)",fontWeight:600}}>{monthOrder==="asc"?"Ene → Abr (cronológico)":"Abr → Ene (reciente)"}</button>
             {[6,12,24,999].map(n=><button key={n} onClick={()=>setMonthLimit(n)} style={{padding:"3px 8px",borderRadius:5,border:`1px solid ${monthLimit===n?"var(--gold)":"var(--border)"}`,background:monthLimit===n?"var(--gold-dim)":"transparent",color:monthLimit===n?"var(--gold)":"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)",fontWeight:monthLimit===n?700:400}}>{n>=999?"Todos":`${n}m`}</button>)}
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(155px,1fr))",gap:6}}>
