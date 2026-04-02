@@ -23,6 +23,27 @@ const CAT_LABELS = {
 };
 
 const FRECUENCIAS = ['MENSUAL', 'ANUAL', 'TRIMESTRAL', 'SEMESTRAL'];
+
+// Normalize: strip stopwords and punctuation for fuzzy matching
+const STOP = new Set(['de','del','la','el','los','las','s.l','sl','s.a','sa','to','y','e','en']);
+const normalize = (s) => s.toLowerCase().trim().split(/[\s.,]+/).filter(w => w.length >= 2 && !STOP.has(w)).join(' ');
+
+// Match a gasto detail against a presupuesto item — ONLY by explicit aliases (no auto name matching)
+const matchesItem = (detailLower, item) => {
+  if (detailLower.length < 3) return false;
+  let aliases = [];
+  try { aliases = JSON.parse(item.aliases || '[]'); } catch(e) {}
+  if (aliases.length === 0) return false;
+  for (const alias of aliases) {
+    const al = alias.toLowerCase().trim();
+    if (al.length < 3) continue;
+    if (detailLower.includes(al) || al.includes(detailLower)) return true;
+    // Fuzzy: compare normalized (without stopwords)
+    const nAlias = normalize(al), nDetail = normalize(detailLower);
+    if (nAlias.length >= 5 && nDetail.length >= 5 && (nDetail.includes(nAlias) || nAlias.includes(nDetail))) return true;
+  }
+  return false;
+};
 const FREQ_DIVISOR = { MENSUAL: 1, TRIMESTRAL: 3, SEMESTRAL: 6, ANUAL: 12 };
 
 const catOf = id => CATEGORIAS.find(c => c.id === id) || CATEGORIAS[CATEGORIAS.length - 1];
@@ -77,6 +98,7 @@ export default function PresupuestoTab() {
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [calMonth, setCalMonth] = useState(null);
+  const [expandedItem, setExpandedItem] = useState(null); // id of expanded row
   const [dismissedMissing, setDismissedMissing] = useState(() => { try { return JSON.parse(localStorage.getItem('presu_dismissed_missing') || '[]'); } catch { return []; } });
   const [dismissedIncreases, setDismissedIncreases] = useState(() => { try { return JSON.parse(localStorage.getItem('presu_dismissed_increases') || '[]'); } catch { return []; } });
 
@@ -152,48 +174,58 @@ export default function PresupuestoTab() {
     if (!gastosLog || gastosLog.length === 0 || items.length === 0) return [];
     const increases = [];
     for (const item of items) {
-      const nameLower = (item.nombre || '').toLowerCase().trim();
-      if (nameLower.length < 3) continue;
-      // Find gastos that match this budget item by name
-      // For short names (<=5 chars), require word-boundary match to avoid "Gas" matching "Gasolina"
-      const isShortName = nameLower.length <= 5;
-      const nameRegex = isShortName ? new RegExp(`\\b${nameLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i') : null;
-      const matching = gastosLog.filter(g => {
-        const detailLower = (g.detail || '').toLowerCase().trim();
-        if (detailLower.length < 3) return false;
-        if (isShortName) return nameRegex.test(detailLower);
-        return detailLower.includes(nameLower) || nameLower.includes(detailLower);
-      });
+      if ((item.nombre || '').trim().length < 3) continue;
+      const matching = gastosLog.filter(g => matchesItem((g.detail || '').toLowerCase().trim(), item));
       if (matching.length === 0) continue;
-      const sorted = [...matching].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-      const latest = sorted[0];
-      // Convert to EUR if needed
-      let latestAmount = Math.abs(latest.amount);
-      const ccy = (latest.currency || 'EUR').toUpperCase();
-      if (ccy !== 'EUR' && fxRates) {
-        const rateFrom = fxRates[ccy]; const rateEur = fxRates['EUR'];
-        if (rateFrom && rateEur) latestAmount = latestAmount / rateFrom * rateEur;
-        else if (ccy === 'CNY') latestAmount = latestAmount * 0.127;
-        else if (ccy === 'USD') latestAmount = latestAmount * 0.926;
-      }
-      // Convert budget to per-charge amount based on frequency
-      const budgetPerCharge = item.importe; // importe is already per-frequency
+      // Convert all matching amounts to EUR
+      const toEur = (g) => {
+        let amt = Math.abs(g.amount);
+        const c = (g.currency || 'EUR').toUpperCase();
+        if (c !== 'EUR' && fxRates) {
+          const rf = fxRates[c]; const re = fxRates['EUR'];
+          if (rf && re) amt = amt / rf * re;
+          else if (c === 'CNY') amt = amt * 0.127;
+          else if (c === 'USD') amt = amt * 0.926;
+        }
+        return amt;
+      };
+      // Use average of last 12 months to cover all seasons
+      const twelveMAgo = new Date(); twelveMAgo.setMonth(twelveMAgo.getMonth() - 12);
+      const recent = matching.filter(g => g.date && new Date(g.date) >= twelveMAgo);
+      const pool = recent.length >= 2 ? recent : matching.slice(-3); // fallback to last 3 if not enough recent
+      const avgAmount = pool.reduce((s, g) => s + toEur(g), 0) / pool.length;
+      const latest = [...matching].sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0];
+      const budgetPerCharge = item.importe;
       if (budgetPerCharge <= 0) continue;
-      const pctChange = ((latestAmount - budgetPerCharge) / budgetPerCharge) * 100;
+      const pctChange = ((avgAmount - budgetPerCharge) / budgetPerCharge) * 100;
       if (pctChange > 5) {
         increases.push({
           itemId: item.id,
           nombre: item.nombre,
           categoria: item.categoria,
           budgetAmount: budgetPerCharge,
-          actualAmount: latestAmount,
+          actualAmount: Math.round(avgAmount),
           pctChange,
           date: latest.date,
           frecuencia: item.frecuencia,
+          sampleSize: pool.length,
         });
       }
     }
     return increases;
+  }, [gastosLog, items]);
+
+  // ─── Match gastos to budget items (for detail expansion) ───
+  const matchedGastos = useMemo(() => {
+    if (!gastosLog || gastosLog.length === 0) return {};
+    const result = {};
+    for (const item of items) {
+      if ((item.nombre || '').trim().length < 3) continue;
+      const matches = gastosLog.filter(g => matchesItem((g.detail || '').toLowerCase().trim(), item))
+        .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      if (matches.length > 0) result[item.id] = matches;
+    }
+    return result;
   }, [gastosLog, items]);
 
   // ─── YoY comparison by category ───
@@ -354,15 +386,8 @@ export default function PresupuestoTab() {
         try { itemMonths[item.id] = JSON.parse(item.billing_months); continue; } catch(e) {}
       }
       // Auto-detect from gastosLog
-      const nameLower = (item.nombre || '').toLowerCase().trim();
-      if (nameLower.length < 3) { itemMonths[item.id] = DEFAULT_MONTHS[item.frecuencia] || [1]; continue; }
-      const isShort = nameLower.length <= 5;
-      const rx = isShort ? new RegExp(`\\b${nameLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i') : null;
-      const matching = (gastosLog || []).filter(g => {
-        const d = (g.detail || '').toLowerCase().trim();
-        if (d.length < 3) return false;
-        return isShort ? rx.test(d) : (d.includes(nameLower) || nameLower.includes(d));
-      });
+      if ((item.nombre || '').trim().length < 3) { itemMonths[item.id] = DEFAULT_MONTHS[item.frecuencia] || [1]; continue; }
+      const matching = (gastosLog || []).filter(g => matchesItem((g.detail || '').toLowerCase().trim(), item));
       if (matching.length === 0) { itemMonths[item.id] = DEFAULT_MONTHS[item.frecuencia] || [1]; continue; }
       // Count months
       const monthCounts = {};
@@ -588,7 +613,7 @@ export default function PresupuestoTab() {
             ⚠️ Subidas detectadas
           </div>
           <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 8 }}>
-            Estos gastos recientes superan el presupuesto en mas del 5%
+            La media anual de estos gastos supera el presupuesto en mas del 5%
           </div>
           {visibleIncreases.map((inc, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
@@ -600,7 +625,7 @@ export default function PresupuestoTab() {
               </span>
               <span style={{ color: 'var(--text-tertiary)' }}>→</span>
               <span style={{ fontSize: 11, color: '#ff6b6b', fontWeight: 600, fontFamily: 'var(--fm)' }}>
-                real {fmtEur(inc.actualAmount)}
+                media {fmtEur(inc.actualAmount)}
               </span>
               <span style={{ fontSize: 10, color: '#ff6b6b', fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(255,107,107,0.1)' }}>
                 +{inc.pctChange.toFixed(0)}%
@@ -882,23 +907,144 @@ export default function PresupuestoTab() {
                         <td style={{ ...td, color: 'var(--text-tertiary)', fontSize: 10, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.notas || ''}</td>
                         <td style={{ ...td, textAlign: 'center', whiteSpace: 'nowrap' }}>
                           <button onClick={() => startEdit(item)} style={{ border: 'none', background: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 11, padding: '2px 4px' }} title="Editar">✏️</button>
-                          <button onClick={() => { setShowHistory(item.id); fetchHistory(item.id); }} style={{ border: 'none', background: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 11, padding: '2px 4px' }} title="Historial">📊</button>
+                          <button onClick={() => setExpandedItem(expandedItem === item.id ? null : item.id)} style={{ border: 'none', background: 'none', color: expandedItem === item.id ? 'var(--gold)' : 'var(--text-tertiary)', cursor: 'pointer', fontSize: 11, padding: '2px 4px' }} title="Ver gastos asociados">📊</button>
                           <button onClick={() => deleteItem(item.id)} style={{ border: 'none', background: 'none', color: '#ff6b6b', cursor: 'pointer', fontSize: 11, padding: '2px 4px' }} title="Eliminar">🗑</button>
                         </td>
                       </tr>
+                      {expandedItem === item.id && (() => {
+                        const gastos = matchedGastos[item.id] || [];
+                        const last = gastos[0];
+                        const freqMonths = FREQ_DIVISOR[item.frecuencia];
+                        let nextDate = null;
+                        if (last?.date && item.frecuencia !== 'MENSUAL') {
+                          const d = new Date(last.date);
+                          d.setMonth(d.getMonth() + freqMonths);
+                          nextDate = d;
+                        }
+                        const toEurG = (g) => {
+                          let amt = Math.abs(g.amount);
+                          const c = (g.currency || 'EUR').toUpperCase();
+                          if (c !== 'EUR' && fxRates) {
+                            const rf = fxRates[c]; const re = fxRates['EUR'];
+                            if (rf && re) amt = amt / rf * re;
+                            else if (c === 'CNY') amt = amt * 0.127;
+                            else if (c === 'USD') amt = amt * 0.926;
+                          }
+                          return amt;
+                        };
+                        const avg = gastos.length > 0 ? gastos.slice(0, 12).reduce((s, g) => s + toEurG(g), 0) / Math.min(gastos.length, 12) : 0;
+                        const colCount = displayCcy !== 'EUR' ? 10 : 9;
+                        return (
+                          <tr key={`exp-${item.id}`}>
+                            <td colSpan={colCount} style={{ padding: '8px 16px', background: 'rgba(214,158,46,.04)', borderBottom: '1px solid var(--border)' }}>
+                              <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                                {/* Stats */}
+                                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                                  {last && (
+                                    <div>
+                                      <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', fontWeight: 600 }}>ÚLTIMO PAGO</div>
+                                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--fm)' }}>
+                                        {fmtEur(toEurG(last))}
+                                      </div>
+                                      <div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>{last.date}</div>
+                                    </div>
+                                  )}
+                                  {nextDate && (
+                                    <div>
+                                      <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', fontWeight: 600 }}>PRÓXIMO PAGO</div>
+                                      <div style={{ fontSize: 11, fontWeight: 700, color: nextDate <= new Date() ? '#ff6b6b' : 'var(--gold)', fontFamily: 'var(--fm)' }}>
+                                        {nextDate.toISOString().slice(0, 10)}
+                                      </div>
+                                      <div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>{nextDate <= new Date() ? '⚠️ Pendiente' : `en ${Math.ceil((nextDate - new Date()) / 86400000)} días`}</div>
+                                    </div>
+                                  )}
+                                  {avg > 0 && (
+                                    <div>
+                                      <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', fontWeight: 600 }}>MEDIA (12m)</div>
+                                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', fontFamily: 'var(--fm)' }}>
+                                        {fmtEur(avg)}
+                                      </div>
+                                      <div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>{Math.min(gastos.length, 12)} pagos</div>
+                                    </div>
+                                  )}
+                                </div>
+                                {/* Recent payments timeline */}
+                                <div style={{ flex: 1, minWidth: 200 }}>
+                                  <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', fontWeight: 600, marginBottom: 4 }}>HISTORIAL DE PAGOS</div>
+                                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                    {gastos.slice(0, 12).map((g, gi) => (
+                                      <div key={gi} style={{ padding: '2px 6px', borderRadius: 4, background: 'var(--subtle-bg)', fontSize: 8, fontFamily: 'var(--fm)' }}>
+                                        <span style={{ color: 'var(--text-tertiary)' }}>{(g.date||'').slice(0,7)}</span>
+                                        {' '}
+                                        <span style={{ fontWeight: 600, color: toEurG(g) > item.importe * 1.1 ? '#ff6b6b' : 'var(--text-secondary)' }}>
+                                          {fmtEur(toEurG(g))}
+                                        </span>
+                                      </div>
+                                    ))}
+                                    {gastos.length === 0 && <span style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>Sin gastos asociados encontrados</span>}
+                                  </div>
+                                </div>
+                              </div>
+                              {/* Aliases management */}
+                              <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--subtle-border)' }}>
+                                <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', fontWeight: 600, marginBottom: 4 }}>
+                                  ALIASES (nombres de proveedores asociados)
+                                </div>
+                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                                  {(() => {
+                                    let aliases = [];
+                                    try { aliases = JSON.parse(item.aliases || '[]'); } catch(e) {}
+                                    return aliases.map((al, ai) => (
+                                      <span key={ai} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 6px', borderRadius: 4, background: 'rgba(214,158,46,.1)', fontSize: 9, fontFamily: 'var(--fm)', color: 'var(--gold)' }}>
+                                        {al}
+                                        <button onClick={async () => {
+                                          const next = aliases.filter((_, i) => i !== ai);
+                                          await fetch(`${API_URL}/api/presupuesto/${item.id}`, {
+                                            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ ...item, aliases: next.length > 0 ? JSON.stringify(next) : null }),
+                                          });
+                                          setItems(prev => prev.map(it => it.id === item.id ? { ...it, aliases: next.length > 0 ? JSON.stringify(next) : null } : it));
+                                        }} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 8, padding: 0, lineHeight: 1 }}>✕</button>
+                                      </span>
+                                    ));
+                                  })()}
+                                  <button onClick={() => {
+                                    const alias = prompt('Nombre del proveedor (ej: "Linea Directa", "Mapfre"):');
+                                    if (!alias || alias.trim().length < 3) return;
+                                    fetch(`${API_URL}/api/presupuesto/${item.id}/alias`, {
+                                      method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ alias: alias.trim() }),
+                                    }).then(r => r.json()).then(data => {
+                                      if (data.aliases) setItems(prev => prev.map(it => it.id === item.id ? { ...it, aliases: JSON.stringify(data.aliases) } : it));
+                                    });
+                                  }} style={{ padding: '2px 8px', borderRadius: 4, border: '1px dashed var(--gold)', background: 'transparent', color: 'var(--gold)', cursor: 'pointer', fontSize: 8, fontFamily: 'var(--fm)' }}>
+                                    + Añadir alias
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })()}
                     </>
                   );
                 });
               })()}
             </tbody>
             <tfoot>
-              <tr style={{ background: 'rgba(214,158,46,0.06)', fontWeight: 700 }}>
-                <td colSpan={5} style={{ ...td, textAlign: 'right', color: 'var(--gold)' }}>TOTAL</td>
-                <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', color: 'var(--gold)' }}>{fmtEur(totals.totalMensual)}</td>
-                <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', color: 'var(--gold)' }}>{fmtEur(totals.totalAnual)}</td>
-                {displayCcy !== 'EUR' && <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', color: 'var(--gold)' }}>{fmt(totals.totalMensual)}</td>}
-                <td colSpan={2}></td>
-              </tr>
+              {(() => {
+                const filtMensual = filtered.reduce((s, it) => s + it.importe / FREQ_DIVISOR[it.frecuencia], 0);
+                const filtAnual = filtMensual * 12;
+                return (
+                  <tr style={{ background: 'rgba(214,158,46,0.06)', fontWeight: 700 }}>
+                    <td colSpan={5} style={{ ...td, textAlign: 'right', color: 'var(--gold)' }}>TOTAL</td>
+                    <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', color: 'var(--gold)' }}>{fmtEur(filtMensual)}</td>
+                    <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', color: 'var(--gold)' }}>{fmtEur(filtAnual)}</td>
+                    {displayCcy !== 'EUR' && <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', color: 'var(--gold)' }}>{fmt(filtMensual)}</td>}
+                    <td colSpan={2}></td>
+                  </tr>
+                );
+              })()}
             </tfoot>
           </table>
         </div>

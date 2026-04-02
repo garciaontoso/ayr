@@ -1,50 +1,100 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
+import { API_URL } from '../../constants/index.js';
 import { EmptyState } from '../ui/EmptyState.jsx';
 
 export default function ControlTab() {
   const {
     ctrlLog, ctrlShowForm, setCtrlShowForm,
-    ctrlForm, setCtrlForm, addCtrlEntry,
+    ctrlForm, setCtrlForm, addCtrlEntry, ctrlEditId, setCtrlEditId,
     fxRates, ibData, loadIBData,
   } = useHome();
 
-  // Auto-fill form with previous snapshot data + live FX when opening
+  // Live prices for gold and BTC
+  const [goldPrice, setGoldPrice] = useState(0); // EUR per gram
+  const [btcPrice, setBtcPrice] = useState(0);   // EUR per BTC
+
+  useEffect(() => {
+    const eurRate = fxRates?.EUR || 0.92;
+    // Gold: Yahoo Finance GC=F (USD per troy oz, 1 oz = 31.1035g)
+    fetch(`${API_URL}/api/prices?tickers=GC%3DF&live=1`).then(r=>r.json()).then(d => {
+      const priceUsd = d?.prices?.['GC=F']?.price || 0;
+      if (priceUsd > 0) setGoldPrice(Math.round(priceUsd * eurRate / 31.1035 * 100) / 100);
+    }).catch(()=>{});
+    // BTC: CoinGecko free API
+    fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=eur').then(r=>r.json()).then(d => {
+      const priceEur = d?.bitcoin?.eur || 0;
+      if (priceEur > 0) setBtcPrice(Math.round(priceEur));
+    }).catch(()=>{});
+  }, [fxRates]);
+
   const prefillForm = useCallback(() => {
     const withData = ctrlLog.filter(c => c.pu > 0);
     const last = withData[0];
-    // Live EUR/USD from fxRates (1/EUR rate = how many USD per EUR)
     const liveFx = fxRates?.EUR ? (1 / fxRates.EUR) : (last?.fx || 1.1);
+    const liveFxCny = fxRates?.CNY ? (fxRates.CNY / (fxRates.EUR || 0.92)) : (last?.fxCny || 7.8);
     if (last) {
       setCtrlForm({
         date: new Date().toISOString().slice(0, 10),
         fx: Math.round(liveFx * 10000) / 10000,
-        // Use individual fields if available, otherwise put totals in primary fields
+        fxCny: Math.round(liveFxCny * 100) / 100,
         bankinter: last.bankinter || last.bk || 0,
         bcCaminos: last.bcCaminos || 0,
-        constructionBank: last.constructionBank || 0,
+        constructionBankCny: last.constructionBankCny || 0,
         revolut: last.revolut || 0,
         otrosBancos: last.otrosBancos || 0,
         ibUsd: last.ibUsd || last.br || 0,
         tsUsd: last.tsUsd || 0,
         tastyUsd: last.tastyUsd || 0,
         fondos: last.fondos || last.fd || 0,
-        cryptoEur: last.cryptoEur || last.cr || 0,
-        sueldo: last.sueldo || last.sl || 0,
-        hipoteca: last.hipoteca || last.hp || 0,
+        salaryUsd: last.salaryUsd || 0,
+        salaryCny: last.salaryCny || 0,
+        goldGrams: last.goldGrams || 0,
+        goldPrice: goldPrice || 0,
+        btcAmount: last.btcAmount || 0,
+        btcPrice: btcPrice || 0,
       });
     } else {
-      setCtrlForm(p => ({ ...p, date: new Date().toISOString().slice(0, 10), fx: Math.round(liveFx * 10000) / 10000 }));
+      setCtrlForm(p => ({ ...p, date: new Date().toISOString().slice(0, 10), fx: Math.round(liveFx * 10000) / 10000, fxCny: Math.round(liveFxCny * 100) / 100, goldPrice, btcPrice }));
     }
-  }, [ctrlLog, fxRates, setCtrlForm]);
+    setCtrlEditId(null);
+  }, [ctrlLog, fxRates, setCtrlForm, setCtrlEditId, goldPrice, btcPrice]);
+
+  const startEdit = useCallback((c) => {
+    setCtrlForm({
+      date: c.d,
+      fx: c.fx || 1.1,
+      fxCny: c.fxCny || (fxRates?.CNY ? (fxRates.CNY / (fxRates.EUR || 0.92)) : 7.8),
+      bankinter: c.bankinter || c.bk || 0,
+      bcCaminos: c.bcCaminos || 0,
+      constructionBankCny: c.constructionBankCny || 0,
+      revolut: c.revolut || 0,
+      otrosBancos: c.otrosBancos || 0,
+      ibUsd: c.ibUsd || c.br || 0,
+      tsUsd: c.tsUsd || 0,
+      tastyUsd: c.tastyUsd || 0,
+      fondos: c.fondos || c.fd || 0,
+      salaryUsd: c.salaryUsd || 0,
+      salaryCny: c.salaryCny || 0,
+      goldGrams: c.goldGrams || 0,
+      goldPrice: goldPrice || 0,
+      btcAmount: c.btcAmount || 0,
+      btcPrice: btcPrice || 0,
+    });
+    setCtrlEditId(c.id);
+    setCtrlShowForm(true);
+  }, [fxRates, setCtrlForm, setCtrlEditId, setCtrlShowForm, goldPrice, btcPrice]);
 
   if (!ctrlLog || ctrlLog.length === 0) {
-    return <EmptyState icon="🎛️" title="Sin snapshots de control" subtitle="Registra tu primer snapshot mensual con datos de cuentas bancarias, brokerage e inversiones." action="+ Nuevo Snapshot" onAction={() => { prefillForm(); setCtrlShowForm(true); }} />;
+    return <EmptyState icon="🎛️" title="Sin snapshots de control" subtitle="Registra tu primer snapshot mensual." action="+ Nuevo Snapshot" onAction={() => { prefillForm(); setCtrlShowForm(true); }} />;
   }
+
+  const inp = {width:"100%",padding:"6px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)",boxSizing:"border-box"};
 
   return (
 <div style={{display:"flex",flexDirection:"column",gap:12}}>
+  {/* KPI cards */}
   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12}}>
     {(() => {
       const withData = ctrlLog.filter(c => c.pu > 0);
@@ -70,82 +120,187 @@ export default function ControlTab() {
     </button>
   </div>
 
-  {/* Add form */}
+  {/* Form */}
   {ctrlShowForm && (
     <div style={{padding:16,background:"var(--card)",border:"1px solid var(--gold-dim)",borderRadius:14}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-        <div style={{fontSize:11,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fm)"}}>📋 Nuevo Snapshot Mensual</div>
+        <div style={{fontSize:11,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fm)"}}>
+          {ctrlEditId ? "✏️ Editar Snapshot" : "📋 Nuevo Snapshot Mensual"}
+        </div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          <button onClick={()=>{const liveFx=fxRates?.EUR?(1/fxRates.EUR):1.1;setCtrlForm(p=>({...p,fx:Math.round(liveFx*10000)/10000}));}} style={{padding:"4px 10px",borderRadius:6,border:"1px solid rgba(100,210,255,.3)",background:"rgba(100,210,255,.06)",color:"#64d2ff",fontSize:9,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>🔄 FX Live</button>
+          <button onClick={()=>{const liveFx=fxRates?.EUR?(1/fxRates.EUR):1.1;const liveCny=fxRates?.CNY?(fxRates.CNY/(fxRates.EUR||0.92)):7.8;setCtrlForm(p=>({...p,fx:Math.round(liveFx*10000)/10000,fxCny:Math.round(liveCny*100)/100,goldPrice,btcPrice}));}} style={{padding:"4px 10px",borderRadius:6,border:"1px solid rgba(100,210,255,.3)",background:"rgba(100,210,255,.06)",color:"#64d2ff",fontSize:9,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>🔄 FX + Precios</button>
           <button onClick={async ()=>{
             let data = ibData;
             if (!data?.loaded) { data = await loadIBData(); }
-            const ld = data?.ledger || {};
-            const ibUsd = ld.BASE?.nlv || ld.USD?.nlv || 0;
             const summary = data?.summary || {};
-            const nlv = summary?.nlv?.amount || ibUsd;
+            const nlv = summary?.nlv?.amount || 0;
             if (nlv > 0) setCtrlForm(p => ({ ...p, ibUsd: Math.round(nlv) }));
-          }} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${ibData?.loaded && ibData?.ledger?.USD ? "rgba(48,209,88,.5)" : "rgba(48,209,88,.3)"}`,background:"rgba(48,209,88,.06)",color:"#30d158",fontSize:9,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>
-            📡 IB{ibData?.loaded && ibData?.ledger?.BASE ? ` ($${Math.round(ibData.ledger.BASE.nlv||0).toLocaleString()})` : ""}
+          }} style={{padding:"4px 10px",borderRadius:6,border:"1px solid rgba(48,209,88,.3)",background:"rgba(48,209,88,.06)",color:"#30d158",fontSize:9,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>
+            📡 IB
           </button>
-          <span style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Pre-rellenado del último snapshot — modifica solo lo que cambie</span>
         </div>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
-        {[
-          {k:"date",l:"FECHA",t:"date"},
-          {k:"fx",l:"EUR/USD",t:"number",s:"0.0001",p:"1.10"},
-          {k:"bankinter",l:"BANKINTER €",t:"number",p:"0"},
-          {k:"bcCaminos",l:"BC CAMINOS €",t:"number",p:"0"},
-          {k:"constructionBank",l:"CONSTR. BANK €",t:"number",p:"0"},
-          {k:"revolut",l:"REVOLUT €",t:"number",p:"0"},
-          {k:"otrosBancos",l:"OTROS BANCOS €",t:"number",p:"0"},
-          {k:"ibUsd",l:"IB $",t:"number",p:"0"},
-          {k:"tsUsd",l:"TRADESTATION $",t:"number",p:"0"},
-          {k:"tastyUsd",l:"TASTY $",t:"number",p:"0"},
-          {k:"fondos",l:"FONDOS €",t:"number",p:"0"},
-          {k:"cryptoEur",l:"CRYPTO €",t:"number",p:"0"},
-          {k:"sueldo",l:"SUELDO €",t:"number",p:"0"},
-          {k:"hipoteca",l:"HIPOTECA €",t:"number",p:"0"},
-        ].map(f => (
-          <div key={f.k}>
-            <label style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:2}}>{f.l}</label>
-            <input type={f.t} step={f.s} value={ctrlForm[f.k]||""} onChange={e=>setCtrlForm(p=>({...p,[f.k]:f.t==="date"?e.target.value:parseFloat(e.target.value)||0}))} placeholder={f.p}
-              style={{width:"100%",padding:"6px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)",boxSizing:"border-box"}}/>
+
+      {/* Form sections */}
+      <div style={{display:"flex",flexDirection:"column",gap:12}}>
+        {/* FX + Date */}
+        <div>
+          <div style={{fontSize:9,fontWeight:700,color:"var(--text-tertiary)",marginBottom:4,fontFamily:"var(--fm)"}}>GENERAL</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:8}}>
+            {[
+              {k:"date",l:"FECHA",t:"date"},
+              {k:"fx",l:"EUR/USD",t:"number",s:"0.0001"},
+              {k:"fxCny",l:"EUR/CNY",t:"number",s:"0.01"},
+            ].map(f => (
+              <div key={f.k}>
+                <label style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:2}}>{f.l}</label>
+                <input type={f.t} step={f.s} value={ctrlForm[f.k]||""} onChange={e=>setCtrlForm(p=>({...p,[f.k]:f.t==="date"?e.target.value:parseFloat(e.target.value)||0}))} style={inp}/>
+              </div>
+            ))}
           </div>
-        ))}
+        </div>
+
+        {/* Banks EUR */}
+        <div>
+          <div style={{fontSize:9,fontWeight:700,color:"#2563eb",marginBottom:4,fontFamily:"var(--fm)"}}>🏦 BANCOS EUR</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:8}}>
+            {[
+              {k:"bankinter",l:"BANKINTER €"},
+              {k:"bcCaminos",l:"BC CAMINOS €"},
+              {k:"revolut",l:"REVOLUT €"},
+              {k:"otrosBancos",l:"OTROS €"},
+            ].map(f => (
+              <div key={f.k}>
+                <label style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:2}}>{f.l}</label>
+                <input type="number" value={ctrlForm[f.k]||""} onChange={e=>setCtrlForm(p=>({...p,[f.k]:parseFloat(e.target.value)||0}))} style={inp}/>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Bank China CNY */}
+        <div>
+          <div style={{fontSize:9,fontWeight:700,color:"#ef4444",marginBottom:4,fontFamily:"var(--fm)"}}>🇨🇳 BANCO CHINA (CNY)</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:8}}>
+            <div>
+              <label style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:2}}>CONSTRUCTION BANK ¥</label>
+              <input type="number" value={ctrlForm.constructionBankCny||""} onChange={e=>setCtrlForm(p=>({...p,constructionBankCny:parseFloat(e.target.value)||0}))} style={inp}/>
+            </div>
+            <div>
+              <label style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:2}}>≈ EUR</label>
+              <div style={{padding:"6px 8px",background:"var(--subtle-bg)",borderRadius:6,fontSize:11,fontFamily:"var(--fm)",color:"var(--text-secondary)"}}>
+                €{ctrlForm.fxCny > 0 ? Math.round((ctrlForm.constructionBankCny||0) / ctrlForm.fxCny).toLocaleString() : "—"}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Brokers USD */}
+        <div>
+          <div style={{fontSize:9,fontWeight:700,color:"var(--gold)",marginBottom:4,fontFamily:"var(--fm)"}}>📈 BROKERS USD</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:8}}>
+            {[
+              {k:"ibUsd",l:"IB $"},
+              {k:"tsUsd",l:"TRADESTATION $"},
+              {k:"tastyUsd",l:"TASTY $"},
+            ].map(f => (
+              <div key={f.k}>
+                <label style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:2}}>{f.l}</label>
+                <input type="number" value={ctrlForm[f.k]||""} onChange={e=>setCtrlForm(p=>({...p,[f.k]:parseFloat(e.target.value)||0}))} style={inp}/>
+              </div>
+            ))}
+            <div>
+              <label style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:2}}>FONDOS €</label>
+              <input type="number" value={ctrlForm.fondos||""} onChange={e=>setCtrlForm(p=>({...p,fondos:parseFloat(e.target.value)||0}))} style={inp}/>
+            </div>
+          </div>
+        </div>
+
+        {/* Gold + BTC */}
+        <div>
+          <div style={{fontSize:9,fontWeight:700,color:"#d69e2e",marginBottom:4,fontFamily:"var(--fm)"}}>🥇 ORO + ₿ BITCOIN</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:8}}>
+            <div>
+              <label style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:2}}>ORO (gramos)</label>
+              <input type="number" step="0.1" value={ctrlForm.goldGrams||""} onChange={e=>setCtrlForm(p=>({...p,goldGrams:parseFloat(e.target.value)||0}))} style={inp}/>
+            </div>
+            <div>
+              <label style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:2}}>Precio €/g</label>
+              <input type="number" step="0.01" value={ctrlForm.goldPrice||""} onChange={e=>setCtrlForm(p=>({...p,goldPrice:parseFloat(e.target.value)||0}))} style={inp}/>
+            </div>
+            <div>
+              <label style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:2}}>= EUR</label>
+              <div style={{padding:"6px 8px",background:"var(--subtle-bg)",borderRadius:6,fontSize:11,fontFamily:"var(--fm)",color:"var(--gold)",fontWeight:600}}>
+                €{Math.round((ctrlForm.goldGrams||0)*(ctrlForm.goldPrice||0)).toLocaleString()}
+              </div>
+            </div>
+            <div>
+              <label style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:2}}>BITCOIN (BTC)</label>
+              <input type="number" step="0.0001" value={ctrlForm.btcAmount||""} onChange={e=>setCtrlForm(p=>({...p,btcAmount:parseFloat(e.target.value)||0}))} style={inp}/>
+            </div>
+            <div>
+              <label style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:2}}>Precio €/BTC</label>
+              <input type="number" value={ctrlForm.btcPrice||""} onChange={e=>setCtrlForm(p=>({...p,btcPrice:parseFloat(e.target.value)||0}))} style={inp}/>
+            </div>
+            <div>
+              <label style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:2}}>= EUR</label>
+              <div style={{padding:"6px 8px",background:"var(--subtle-bg)",borderRadius:6,fontSize:11,fontFamily:"var(--fm)",color:"#ff9f0a",fontWeight:600}}>
+                €{Math.round((ctrlForm.btcAmount||0)*(ctrlForm.btcPrice||0)).toLocaleString()}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Salary */}
+        <div>
+          <div style={{fontSize:9,fontWeight:700,color:"var(--green)",marginBottom:4,fontFamily:"var(--fm)"}}>💰 SUELDO</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:8}}>
+            <div>
+              <label style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:2}}>SUELDO $</label>
+              <input type="number" value={ctrlForm.salaryUsd||""} onChange={e=>setCtrlForm(p=>({...p,salaryUsd:parseFloat(e.target.value)||0}))} style={inp}/>
+            </div>
+            <div>
+              <label style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:2}}>SUELDO ¥</label>
+              <input type="number" value={ctrlForm.salaryCny||""} onChange={e=>setCtrlForm(p=>({...p,salaryCny:parseFloat(e.target.value)||0}))} style={inp}/>
+            </div>
+          </div>
+        </div>
       </div>
+
       {/* Live preview */}
       {(() => {
-        const bk = (ctrlForm.bankinter||0)+(ctrlForm.bcCaminos||0)+(ctrlForm.constructionBank||0)+(ctrlForm.revolut||0)+(ctrlForm.otrosBancos||0);
+        const fx = ctrlForm.fx || 1;
+        const fxCny = ctrlForm.fxCny || 1;
+        const cbEur = fxCny > 0 ? (ctrlForm.constructionBankCny||0) / fxCny : 0;
+        const bk = (ctrlForm.bankinter||0)+(ctrlForm.bcCaminos||0)+cbEur+(ctrlForm.revolut||0)+(ctrlForm.otrosBancos||0);
         const br = (ctrlForm.ibUsd||0)+(ctrlForm.tsUsd||0)+(ctrlForm.tastyUsd||0);
-        const cr = (ctrlForm.cryptoEur||0) * (ctrlForm.fx||1);
-        const total = bk*(ctrlForm.fx||1) + br + cr + (ctrlForm.fondos||0)*(ctrlForm.fx||1);
-        return total > 0 ? <div style={{marginTop:10,padding:"8px 12px",borderRadius:8,background:"rgba(48,209,88,.06)",border:"1px solid rgba(48,209,88,.15)",display:"flex",gap:16,fontSize:12,fontFamily:"var(--fm)"}}>
-          <span>Bancos: <b style={{color:"#64d2ff"}}>€{bk.toLocaleString()}</b></span>
-          <span>Brokers: <b style={{color:"var(--gold)"}}>${br.toLocaleString()}</b></span>
-          <span style={{fontWeight:700,color:"var(--green)"}}>Total: ${Math.round(total).toLocaleString()}</span>
+        const goldEur = (ctrlForm.goldGrams||0) * (ctrlForm.goldPrice||0);
+        const btcEur = (ctrlForm.btcAmount||0) * (ctrlForm.btcPrice||0);
+        const totalEur = bk + (ctrlForm.fondos||0) + goldEur + btcEur + br/fx;
+        const totalUsd = totalEur * fx;
+        return totalEur > 0 ? <div style={{marginTop:10,padding:"8px 12px",borderRadius:8,background:"rgba(48,209,88,.06)",border:"1px solid rgba(48,209,88,.15)",display:"flex",gap:12,fontSize:11,fontFamily:"var(--fm)",flexWrap:"wrap"}}>
+          <span>Bancos: <b style={{color:"#2563eb"}}>€{Math.round(bk).toLocaleString()}</b></span>
+          <span>Brokers: <b style={{color:"var(--gold)"}}>${Math.round(br).toLocaleString()}</b></span>
+          {goldEur > 0 && <span>Oro: <b style={{color:"#d69e2e"}}>€{Math.round(goldEur).toLocaleString()}</b></span>}
+          {btcEur > 0 && <span>BTC: <b style={{color:"#ff9f0a"}}>€{Math.round(btcEur).toLocaleString()}</b></span>}
+          <span style={{fontWeight:700,color:"var(--green)"}}>Total: €{Math.round(totalEur).toLocaleString()} / ${Math.round(totalUsd).toLocaleString()}</span>
         </div> : null;
       })()}
-      <button onClick={()=>{if(ctrlForm.date){addCtrlEntry(ctrlForm);setCtrlForm(p=>({...p,date:"",bankinter:0,bcCaminos:0,constructionBank:0,revolut:0,otrosBancos:0,ibUsd:0,tsUsd:0,tastyUsd:0,fondos:0,cryptoEur:0,sueldo:0,hipoteca:0}));}}}
-        style={{marginTop:10,padding:"8px 20px",borderRadius:8,border:"none",background:"var(--gold)",color:"#000",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>Guardar Snapshot</button>
+      <button onClick={()=>{if(ctrlForm.date){addCtrlEntry(ctrlForm, ctrlEditId);}}}
+        style={{marginTop:10,padding:"8px 20px",borderRadius:8,border:"none",background:"var(--gold)",color:"#000",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>
+        {ctrlEditId ? "💾 Guardar Cambios" : "Guardar Snapshot"}
+      </button>
     </div>
   )}
 
-  {/* Control table */}
+  {/* Table */}
   <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden"}}>
     <div style={{overflowX:"auto"}}>
-      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:900}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:1000}}>
         <thead>
           <tr>
-            <th colSpan={2} style={{padding:"4px 8px",textAlign:"center",color:"var(--text-tertiary)",fontSize:8,fontFamily:"var(--fm)",borderBottom:"2px solid var(--border)"}}/>
-            <th colSpan={2} style={{padding:"4px 8px",textAlign:"center",color:"var(--gold)",fontSize:8,fontFamily:"var(--fm)",fontWeight:700,letterSpacing:1,borderBottom:"2px solid var(--gold-dim)",background:"rgba(200,164,78,.03)"}}>PATRIMONIO</th>
-            <th colSpan={2} style={{padding:"4px 8px",textAlign:"center",color:"#64d2ff",fontSize:8,fontFamily:"var(--fm)",fontWeight:700,letterSpacing:1,borderBottom:"2px solid rgba(100,210,255,.15)",background:"rgba(100,210,255,.02)"}}>DESGLOSE</th>
-            <th colSpan={2} style={{padding:"4px 8px",textAlign:"center",color:"var(--text-tertiary)",fontSize:8,fontFamily:"var(--fm)",borderBottom:"2px solid var(--border)"}}/>
-          </tr>
-          <tr>
-            {["FECHA","€/$","PAT USD","PAT EUR","BROKERS $","BANCOS €","CRYPTO €","Δ"].map((h,i)=>
-              <th key={i} style={{padding:"6px 10px",textAlign:i?"right":"left",color:"var(--text-tertiary)",fontSize:9,fontWeight:600,fontFamily:"var(--fm)",borderBottom:"1px solid var(--border)"}}>{h}</th>)}
+            {["FECHA","€/$","PAT USD","PAT EUR","BROKERS $","BANCOS €","ORO €","BTC €","Δ",""].map((h,i)=>
+              <th key={i} style={{padding:"6px 10px",textAlign:i===0?"left":"right",color:"var(--text-tertiary)",fontSize:9,fontWeight:600,fontFamily:"var(--fm)",borderBottom:"1px solid var(--border)"}}>{h}</th>)}
           </tr>
         </thead>
         <tbody>
@@ -159,9 +314,13 @@ export default function ControlTab() {
               <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>${(c.pu||0).toLocaleString()}</td>
               <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)"}}>€{(c.pe||0).toLocaleString()}</td>
               <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)"}}>${(c.br||0).toLocaleString()}</td>
-              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"#64d2ff",borderBottom:"1px solid var(--subtle-bg)"}}>€{(c.bk||0).toLocaleString()}</td>
-              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"#bf5af2",borderBottom:"1px solid var(--subtle-bg)"}}>{c.cr?`€${(c.cr||0).toLocaleString()}`:"—"}</td>
+              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"#2563eb",borderBottom:"1px solid var(--subtle-bg)"}}>€{(c.bk||0).toLocaleString()}</td>
+              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"#d69e2e",borderBottom:"1px solid var(--subtle-bg)"}}>{c.goldEur ? `€${Math.round(c.goldEur).toLocaleString()}` : "—"}</td>
+              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"#ff9f0a",borderBottom:"1px solid var(--subtle-bg)"}}>{c.btcEur ? `€${Math.round(c.btcEur).toLocaleString()}` : "—"}</td>
               <td style={{padding:"6px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:chg>=0?"var(--green)":"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{chg?`${chg>=0?"+":""}${_sf(chg,1)}%`:""}</td>
+              <td style={{padding:"6px 10px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)"}}>
+                <button onClick={()=>startEdit(c)} style={{border:"none",background:"none",color:"var(--text-tertiary)",cursor:"pointer",fontSize:11,padding:"2px 4px"}} title="Editar">✏️</button>
+              </td>
             </tr>;
           })}
         </tbody>

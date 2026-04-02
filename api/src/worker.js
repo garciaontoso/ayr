@@ -70,6 +70,12 @@ async function ensureMigrations(env) {
 
     // Add billing_months to presupuesto (JSON array of months, e.g. [1,7] for Jan+Jul)
     try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN billing_months TEXT DEFAULT NULL`).run(); } catch(e) { /* already exists */ }
+    try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN aliases TEXT DEFAULT NULL`).run(); } catch(e) { /* already exists */ }
+
+    // Patrimonio: new fields for CNY bank, split salary, gold, BTC
+    for (const col of ['construction_bank_cny REAL DEFAULT 0','fx_eur_cny REAL DEFAULT 0','salary_usd REAL DEFAULT 0','salary_cny REAL DEFAULT 0','gold_grams REAL DEFAULT 0','gold_eur REAL DEFAULT 0','btc_amount REAL DEFAULT 0','btc_eur REAL DEFAULT 0']) {
+      try { await env.DB.prepare(`ALTER TABLE patrimonio ADD COLUMN ${col}`).run(); } catch(e) { /* already exists */ }
+    }
 
     // cartera table (portfolio positions)
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS cartera (
@@ -595,9 +601,30 @@ export default {
         const numErr = validateNumber(body.total_usd, 'total_usd') || validateNumber(body.total_eur, 'total_eur');
         if (numErr) return validationError(numErr, corsHeaders);
         await env.DB.prepare(
-          `INSERT INTO patrimonio (fecha, fx_eur_usd, bank, broker, fondos, crypto, hipoteca, total_usd, total_eur, salary, notas)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).bind(body.fecha, body.fx_eur_usd, body.bank, body.broker, body.fondos, body.crypto, body.hipoteca, body.total_usd, body.total_eur, body.salary, body.notas).run();
+          `INSERT INTO patrimonio (fecha, fx_eur_usd, bank, broker, fondos, crypto, hipoteca, total_usd, total_eur, salary, notas,
+           construction_bank_cny, fx_eur_cny, salary_usd, salary_cny, gold_grams, gold_eur, btc_amount, btc_eur)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(body.fecha, body.fx_eur_usd, body.bank, body.broker, body.fondos, body.crypto||0, body.hipoteca||0,
+          body.total_usd, body.total_eur, body.salary||0, body.notas||'',
+          body.construction_bank_cny||0, body.fx_eur_cny||0, body.salary_usd||0, body.salary_cny||0,
+          body.gold_grams||0, body.gold_eur||0, body.btc_amount||0, body.btc_eur||0).run();
+        return json({ success: true }, corsHeaders);
+      }
+
+      // PUT /api/patrimonio/:id — editar snapshot existente
+      if (path.match(/\/api\/patrimonio\/\d+$/) && request.method === "PUT") {
+        const id = parseInt(path.split("/").pop(), 10);
+        const body = await parseBody(request);
+        await env.DB.prepare(
+          `UPDATE patrimonio SET fecha=?, fx_eur_usd=?, bank=?, broker=?, fondos=?, crypto=?, hipoteca=?,
+           total_usd=?, total_eur=?, salary=?, notas=?,
+           construction_bank_cny=?, fx_eur_cny=?, salary_usd=?, salary_cny=?,
+           gold_grams=?, gold_eur=?, btc_amount=?, btc_eur=?, updated_at=datetime('now')
+           WHERE id=?`
+        ).bind(body.fecha, body.fx_eur_usd, body.bank, body.broker, body.fondos, body.crypto||0, body.hipoteca||0,
+          body.total_usd, body.total_eur, body.salary||0, body.notas||'',
+          body.construction_bank_cny||0, body.fx_eur_cny||0, body.salary_usd||0, body.salary_cny||0,
+          body.gold_grams||0, body.gold_eur||0, body.btc_amount||0, body.btc_eur||0, id).run();
         return json({ success: true }, corsHeaders);
       }
 
@@ -3366,10 +3393,26 @@ export default {
         const reqErr = validateRequired(body.nombre, 'nombre') || validateNumber(body.importe, 'importe');
         if (reqErr) return validationError(reqErr, corsHeaders);
         const { results } = await env.DB.prepare(
-          `INSERT INTO presupuesto (nombre, categoria, banco, frecuencia, importe, notas, billing_months)
-           VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`
-        ).bind(body.nombre, body.categoria || 'OTROS', body.banco || '', body.frecuencia || 'MENSUAL', body.importe, body.notas || '', body.billing_months || null).all();
+          `INSERT INTO presupuesto (nombre, categoria, banco, frecuencia, importe, notas, billing_months, aliases)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
+        ).bind(body.nombre, body.categoria || 'OTROS', body.banco || '', body.frecuencia || 'MENSUAL', body.importe, body.notas || '', body.billing_months || null, body.aliases || null).all();
         return json({ success: true, item: results[0] }, corsHeaders);
+      }
+
+      // POST /api/presupuesto/:id/alias — add an alias to a presupuesto item
+      if (path.match(/\/api\/presupuesto\/\d+\/alias$/) && request.method === "POST") {
+        const id = parseInt(path.split("/")[3], 10);
+        const body = await parseBody(request);
+        const alias = (body.alias || '').trim();
+        if (!alias) return json({ error: "alias required" }, corsHeaders, 400);
+        const item = await env.DB.prepare("SELECT aliases FROM presupuesto WHERE id = ?").bind(id).first();
+        if (!item) return json({ error: "Not found" }, corsHeaders, 404);
+        let existing = [];
+        try { existing = JSON.parse(item.aliases || '[]'); } catch(e) {}
+        if (!existing.includes(alias)) existing.push(alias);
+        await env.DB.prepare(`UPDATE presupuesto SET aliases=?, updated_at=datetime('now') WHERE id=?`)
+          .bind(JSON.stringify(existing), id).run();
+        return json({ success: true, aliases: existing }, corsHeaders);
       }
 
       // PUT /api/presupuesto/:id/billing-months — quick update billing months only
@@ -3389,9 +3432,9 @@ export default {
         if (!old) return json({ error: "Not found" }, corsHeaders, 404);
 
         await env.DB.prepare(
-          `UPDATE presupuesto SET nombre=?, categoria=?, banco=?, frecuencia=?, importe=?, notas=?, billing_months=?, updated_at=datetime('now')
+          `UPDATE presupuesto SET nombre=?, categoria=?, banco=?, frecuencia=?, importe=?, notas=?, billing_months=?, aliases=?, updated_at=datetime('now')
            WHERE id=?`
-        ).bind(body.nombre, body.categoria, body.banco || '', body.frecuencia, body.importe, body.notas || '', body.billing_months !== undefined ? body.billing_months : old.billing_months, id).run();
+        ).bind(body.nombre, body.categoria, body.banco || '', body.frecuencia, body.importe, body.notas || '', body.billing_months !== undefined ? body.billing_months : old.billing_months, body.aliases !== undefined ? body.aliases : old.aliases, id).run();
 
         if (old.importe !== body.importe && old.importe > 0) {
           const pct = ((body.importe - old.importe) / old.importe) * 100;

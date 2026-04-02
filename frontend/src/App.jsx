@@ -993,7 +993,8 @@ function buildPositionsFromCB() {
   // ── Control Mensual (monthly patrimony snapshots) ──
   const [ctrlLog, setCtrlLog] = useState(() => CTRL_DATA.map((c,i) => ({...c, id: "ct_"+i})));
   const [ctrlShowForm, setCtrlShowForm] = useState(false);
-  const [ctrlForm, setCtrlForm] = useState({date:"",fx:1.1,bankinter:0,bcCaminos:0,constructionBank:0,revolut:0,otrosBancos:0,ibUsd:0,tsUsd:0,tastyUsd:0,fondos:0,cryptoEur:0,sueldo:0,hipoteca:0});
+  const [ctrlForm, setCtrlForm] = useState({date:"",fx:1.1,fxCny:0,bankinter:0,bcCaminos:0,constructionBankCny:0,revolut:0,otrosBancos:0,ibUsd:0,tsUsd:0,tastyUsd:0,fondos:0,salaryUsd:0,salaryCny:0,goldGrams:0,goldPrice:0,btcAmount:0,btcPrice:0});
+  const [ctrlEditId, setCtrlEditId] = useState(null);
   
   // Refresh ctrlLog when API data arrives
   useEffect(() => {
@@ -1017,33 +1018,54 @@ function buildPositionsFromCB() {
     try { await window.storage.set("control:log", JSON.stringify(initial), true); } catch(e) {}
   }, []);
   
-  const addCtrlEntry = useCallback((entry) => {
+  const addCtrlEntry = useCallback(async (entry, editId) => {
+    const fx = entry.fx || 1;
+    const fxCny = entry.fxCny || 1;
+    // Construction Bank: CNY → EUR
+    const cbEur = fxCny > 0 ? (entry.constructionBankCny || 0) / fxCny : 0;
+    const totalBancos = (entry.bankinter||0) + (entry.bcCaminos||0) + cbEur + (entry.revolut||0) + (entry.otrosBancos||0);
+    const totalBrokersUsd = (entry.ibUsd||0) + (entry.tsUsd||0) + (entry.tastyUsd||0);
+    // Gold + BTC values in EUR
+    const goldEur = (entry.goldGrams||0) * (entry.goldPrice||0);
+    const btcEur = (entry.btcAmount||0) * (entry.btcPrice||0);
+    // Totals
+    const totalEur = totalBancos + (entry.fondos||0) + goldEur + btcEur + totalBrokersUsd / fx;
+    const totalUsd = totalEur * fx;
+
+    const apiBody = {
+      fecha: entry.date, fx_eur_usd: fx, bank: totalBancos, broker: totalBrokersUsd,
+      fondos: entry.fondos||0, crypto: 0, hipoteca: 0,
+      total_usd: Math.round(totalUsd), total_eur: Math.round(totalEur),
+      salary: (entry.salaryUsd||0) / fx + (entry.salaryCny||0) / fxCny, notas: '',
+      construction_bank_cny: entry.constructionBankCny||0, fx_eur_cny: fxCny,
+      salary_usd: entry.salaryUsd||0, salary_cny: entry.salaryCny||0,
+      gold_grams: entry.goldGrams||0, gold_eur: goldEur,
+      btc_amount: entry.btcAmount||0, btc_eur: btcEur,
+    };
+
+    try {
+      if (editId) {
+        await fetch(`${API_URL}/api/patrimonio/${editId}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(apiBody) });
+      } else {
+        await fetch(`${API_URL}/api/patrimonio`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(apiBody) });
+      }
+    } catch(e) { console.error('Save patrimonio error:', e); }
+
+    const newEntry = {
+      id: editId || "ct_"+Date.now().toString(36),
+      d: entry.date, fx, bk: totalBancos, br: totalBrokersUsd,
+      fd: entry.fondos||0, cr: 0, hp: 0,
+      sl: apiBody.salary, pu: Math.round(totalUsd), pe: Math.round(totalEur),
+      constructionBankCny: entry.constructionBankCny||0, fxCny,
+      salaryUsd: entry.salaryUsd||0, salaryCny: entry.salaryCny||0,
+      goldGrams: entry.goldGrams||0, goldEur, btcAmount: entry.btcAmount||0, btcEur,
+      bankinter: entry.bankinter, bcCaminos: entry.bcCaminos, revolut: entry.revolut,
+      otrosBancos: entry.otrosBancos, ibUsd: entry.ibUsd, tsUsd: entry.tsUsd, tastyUsd: entry.tastyUsd,
+    };
+
     setCtrlLog(prev => {
-      // Compute totals
-      const totalBancos = (entry.bankinter||0) + (entry.bcCaminos||0) + (entry.constructionBank||0) + (entry.revolut||0) + (entry.otrosBancos||0);
-      const totalBrokersUsd = (entry.ibUsd||0) + (entry.tsUsd||0) + (entry.tastyUsd||0);
-      const totalBancosUsd = totalBancos * (entry.fx||1);
-      const cryptoUsd = (entry.cryptoEur||0) * (entry.fx||1);
-      const fondosUsd = (entry.fondos||0) * (entry.fx||1);
-      const totalPatUsd = totalBancosUsd + totalBrokersUsd + fondosUsd + cryptoUsd;
-      const totalPatEur = totalPatUsd / (entry.fx||1);
-      
-      const newEntry = {
-        id: "ct_"+Date.now().toString(36),
-        d: entry.date, fx: entry.fx,
-        bk: totalBancos, br: totalBrokersUsd,
-        fd: entry.fondos||0, cr: entry.cryptoEur||0,
-        hp: entry.hipoteca||0, sl: entry.sueldo||0,
-        pu: Math.round(totalPatUsd), pe: Math.round(totalPatEur),
-        // Detail fields for editing
-        bankinter: entry.bankinter, bcCaminos: entry.bcCaminos,
-        constructionBank: entry.constructionBank, revolut: entry.revolut,
-        otrosBancos: entry.otrosBancos, ibUsd: entry.ibUsd,
-        tsUsd: entry.tsUsd, tastyUsd: entry.tastyUsd,
-      };
-      const next = [...prev, newEntry].sort((a,b) => (b.d||"").localeCompare(a.d||""));
-      if (storageAvailable()) window.storage.set("control:log", JSON.stringify(next), true).catch(()=>{});
-      return next;
+      const filtered = editId ? prev.filter(c => c.id !== editId) : prev;
+      return [...filtered, newEntry].sort((a,b) => (b.d||"").localeCompare(a.d||""));
     });
     setCtrlShowForm(false);
   }, []);
@@ -1903,7 +1925,7 @@ function buildPositionsFromCB() {
     GASTO_CAT_LIST,
     // Control
     ctrlLog, ctrlShowForm, setCtrlShowForm,
-    ctrlForm, setCtrlForm, addCtrlEntry,
+    ctrlForm, setCtrlForm, addCtrlEntry, ctrlEditId, setCtrlEditId,
     // Research
     researchOpenList, setResearchOpenList, researchAdvanced, setResearchAdvanced,
     researchHide, setResearchHide, researchCapFilter, setResearchCapFilter,

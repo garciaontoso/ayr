@@ -157,6 +157,54 @@ export default function GastosTab() {
   const csvRef = useRef(null);
   const [csvToast, setCsvToast] = useState(null);
   const [csvLoading, setCsvLoading] = useState(false);
+  const [presuItems, setPresuItems] = useState([]);
+  const [linkingGasto, setLinkingGasto] = useState(null); // gasto id being linked
+
+  // Fetch presupuesto items for linking
+  useEffect(() => {
+    fetch(`${API_URL}/api/presupuesto`).then(r=>r.json()).then(d => {
+      if (Array.isArray(d)) setPresuItems(d);
+    }).catch(()=>{});
+  }, []);
+
+  // Normalize: strip stopwords for fuzzy matching
+  const STOP = new Set(['de','del','la','el','los','las','s.l','sl','s.a','sa','to','y','e','en']);
+  const normalize = (s) => s.toLowerCase().trim().split(/[\s.,]+/).filter(w => w.length >= 2 && !STOP.has(w)).join(' ');
+
+  // Check if a gasto matches any presupuesto item — ONLY by explicit aliases
+  const getLinkedPresu = useCallback((g) => {
+    const detail = (g.detail || '').toLowerCase().trim();
+    if (detail.length < 3) return null;
+    for (const item of presuItems) {
+      let aliases = [];
+      try { aliases = JSON.parse(item.aliases || '[]'); } catch(e) {}
+      if (aliases.length === 0) continue;
+      for (const al of aliases) {
+        const a = al.toLowerCase().trim();
+        if (a.length < 3) continue;
+        if (detail.includes(a) || a.includes(detail)) return item;
+        const nA = normalize(a), nD = normalize(detail);
+        if (nA.length >= 5 && nD.length >= 5 && (nD.includes(nA) || nA.includes(nD))) return item;
+      }
+    }
+    return null;
+  }, [presuItems]);
+
+  const linkGastoToPresu = useCallback(async (gastoDetail, presuId) => {
+    const alias = gastoDetail.trim();
+    if (!alias || alias.length < 3) return;
+    try {
+      const res = await fetch(`${API_URL}/api/presupuesto/${presuId}/alias`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ alias }),
+      });
+      const data = await res.json();
+      if (data.aliases) {
+        setPresuItems(prev => prev.map(it => it.id === presuId ? { ...it, aliases: JSON.stringify(data.aliases) } : it));
+      }
+    } catch(e) { console.error('Link error:', e); }
+    setLinkingGasto(null);
+  }, []);
   const [avgPeriod, setAvgPeriod] = useState(() => parseInt(localStorage.getItem("gastos_avgPeriod")) || 12);
   const [avgExcludeChina, setAvgExcludeChina] = useState(() => localStorage.getItem("gastos_avgExcludeChina") !== "false");
   const [monthOrder, setMonthOrder] = useState(() => localStorage.getItem("gastos_monthOrder") || "asc");
@@ -649,6 +697,7 @@ export default function GastosTab() {
               <th style={{padding:"7px 4px",borderBottom:"1px solid var(--border)",width:30}}></th>
               <th onClick={()=>gSortBy("eur")} style={thStyle("eur","right")}>≈ EUR{gSortArr("eur")}</th>
               <th onClick={()=>gSortBy("detail")} style={thStyle("detail")}>CONCEPTO{gSortArr("detail")}</th>
+              <th style={{padding:"7px 6px",borderBottom:"1px solid var(--border)",fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,letterSpacing:.3,width:50,textAlign:"center"}}>PRESU</th>
               <th style={{padding:"7px 4px",borderBottom:"1px solid var(--border)",width:60}}></th>
             </tr></thead>
             <tbody>
@@ -666,6 +715,20 @@ export default function GastosTab() {
                     <td style={{padding:"3px 4px",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>{isNonEur && <span style={{fontSize:8,padding:"1px 5px",borderRadius:3,background:"var(--subtle-border)",color:"var(--text-tertiary)"}}>{ccy}</span>}</td>
                     <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:isNonEur?"var(--text-secondary)":"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)",fontSize:isNonEur?11:10.5}}>{isNonEur ? `€${eurVal.toLocaleString(undefined,{maximumFractionDigits:0})}` : `€${_sf(Math.abs(g.amount||0),2)}`}</td>
                     <td style={{padding:"3px 6px",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)",fontSize:10,maxWidth:240,cursor:"pointer"}} onClick={()=>setEditingCell({id:g.id,field:"detail",value:g.detail||""})}>{editingCell?.id===g.id&&editingCell?.field==="detail"?<input autoFocus value={editingCell.value} onChange={e=>setEditingCell(p=>({...p,value:e.target.value}))} onBlur={()=>saveInlineEdit(g,"detail",editingCell.value)} onKeyDown={e=>{if(e.key==="Enter")saveInlineEdit(g,"detail",editingCell.value);if(e.key==="Escape")setEditingCell(null);}} style={{padding:"2px 4px",background:"var(--surface)",border:"1px solid var(--gold)",borderRadius:4,color:"var(--text-primary)",fontSize:10,fontFamily:"var(--fm)",outline:"none",width:"100%"}}/>:<span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"}}>{g.detail||"—"}</span>}</td>
+                    <td style={{padding:"3px 4px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)"}}>
+                      {(() => {
+                        const linked = getLinkedPresu(g);
+                        if (linked) return <span title={`Vinculado: ${linked.nombre}`} style={{fontSize:8,padding:"2px 5px",borderRadius:4,background:"rgba(48,209,88,.1)",color:"#30d158",fontFamily:"var(--fm)",fontWeight:600,cursor:"default"}}>✓</span>;
+                        if (linkingGasto === g.id) return (
+                          <select autoFocus onChange={e=>{if(e.target.value)linkGastoToPresu(g.detail,parseInt(e.target.value));else setLinkingGasto(null);}} onBlur={()=>setLinkingGasto(null)}
+                            style={{fontSize:8,padding:"2px",borderRadius:4,border:"1px solid var(--gold)",background:"var(--surface)",color:"var(--text-primary)",fontFamily:"var(--fm)",width:80}}>
+                            <option value="">—</option>
+                            {presuItems.map(p=><option key={p.id} value={p.id}>{p.nombre}</option>)}
+                          </select>
+                        );
+                        return <button onClick={()=>setLinkingGasto(g.id)} title="Vincular a presupuesto" style={{fontSize:8,padding:"2px 5px",borderRadius:4,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",cursor:"pointer",fontFamily:"var(--fm)"}}>🔗</button>;
+                      })()}
+                    </td>
                     <td style={{padding:"3px 6px",borderBottom:"1px solid var(--subtle-bg)",whiteSpace:"nowrap"}}>
                       <button onClick={()=>{setGastosForm({date:g.date,cat:g.cat,amount:Math.abs(g.amount||0),currency:ccy,recur:!!g.recur,detail:g.detail||"",tipo:g.tipo||"normal",secreto:!!g.secreto,_isEdit:true,isIngreso:g.amount>0});setGastosShowForm(true);deleteGasto(g.id);}} title="Editar" style={{width:22,height:22,borderRadius:4,border:"1px solid var(--subtle-bg2)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center",marginRight:4}}>✎</button>
                       <button onClick={()=>{if(confirm("Borrar este gasto?"))deleteGasto(g.id);}} title="Borrar" style={{width:22,height:22,borderRadius:4,border:"1px solid rgba(255,69,58,.2)",background:"transparent",color:"var(--red)",fontSize:9,cursor:"pointer",display:"inline-flex",alignItems:"center",justifyContent:"center"}}>✕</button>

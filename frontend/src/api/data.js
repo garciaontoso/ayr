@@ -46,8 +46,12 @@ export async function fetchAllData() {
 
     // Map API responses to expected formats
     const CTRL_DATA = patrimonio.map(p => ({
-      d: p.fecha, fx: p.fx_eur_usd, bk: p.bank, br: p.broker, fd: p.fondos,
-      cr: p.crypto, hp: p.hipoteca, pu: p.total_usd, pe: p.total_eur, sl: p.salary
+      id: p.id, d: p.fecha, fx: p.fx_eur_usd, bk: p.bank, br: p.broker, fd: p.fondos,
+      cr: p.crypto, hp: p.hipoteca, pu: p.total_usd, pe: p.total_eur, sl: p.salary,
+      constructionBankCny: p.construction_bank_cny||0, fxCny: p.fx_eur_cny||0,
+      salaryUsd: p.salary_usd||0, salaryCny: p.salary_cny||0,
+      goldGrams: p.gold_grams||0, goldEur: p.gold_eur||0,
+      btcAmount: p.btc_amount||0, btcEur: p.btc_eur||0,
     }));
 
     const INCOME_DATA = ingresos.map(d => ({
