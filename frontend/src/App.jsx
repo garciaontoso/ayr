@@ -149,6 +149,8 @@ export default function ARApp() {
   const CASH_DATA = apiData?.CASH_DATA || [];
   const MARGIN_INTEREST_DATA = apiData?.MARGIN_INTEREST_DATA || [];
   const D1_POSITIONS = apiData?.D1_POSITIONS || {};
+  const LIVE_DPS = apiData?.LIVE_DPS || {};
+  const FORWARD_DIV = apiData?.FORWARD_DIV || {annual_projected:0,monthly:[],by_ticker:[]};
 
   // ═══ Pre-loaded: Diageo PLC (DEO) — GuruFocus Feb 2026 ═══
   const DEO_DATA = {
@@ -1073,7 +1075,7 @@ function buildPositionsFromCB() {
   }, []);
   
   useEffect(() => {
-    if (homeTab === "control") loadCtrlLog();
+    if (homeTab === "control" || homeTab === "patrimonio") loadCtrlLog();
   }, [homeTab, loadCtrlLog]);
   
   // Historial now loaded from HIST_INIT (pre-computed from Cost Basis data)
@@ -1166,7 +1168,7 @@ function buildPositionsFromCB() {
         costTotalUSD = (ib.avgCost || 0) * (ib.shares || 0) * (ibCcy === "USD" ? 1 : ibFx);
         pnlUSD = (ib.unrealizedPnl || 0) * (ibCcy === "USD" ? 1 : ibFx);
         pnlPct = costTotalUSD !== 0 ? pnlUSD / Math.abs(costTotalUSD) : 0;
-        divAnnualUSD = (p.divTTM || 0) * (ib.shares || p.shares || 0);
+        divAnnualUSD = (LIVE_DPS[p.ticker]?.dps || p.divTTM || 0) * (ib.shares || p.shares || 0);
         dataSource = "IB";
       } else {
         // FMP fallback
@@ -1174,7 +1176,7 @@ function buildPositionsFromCB() {
         costTotalUSD = p.totalInvertido || 0;
         pnlUSD = valueUSD - costTotalUSD;
         pnlPct = p.pnlPct || (costTotalUSD !== 0 ? pnlUSD / Math.abs(costTotalUSD) : 0);
-        divAnnualUSD = (p.divTTM || 0) * (p.shares || 0);
+        divAnnualUSD = (LIVE_DPS[p.ticker]?.dps || p.divTTM || 0) * (p.shares || 0);
         dataSource = "FMP";
       }
 
@@ -1936,7 +1938,7 @@ function buildPositionsFromCB() {
     // API data (passed through context so components don't import from data.js)
     CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, DIV_BY_MONTH, GASTOS_MONTH,
     FIRE_PROJ, FIRE_PARAMS, ANNUAL_PL, FI_TRACK, HIST_INIT, GASTO_CATS,
-    GASTOS_CAT, CASH_DATA, MARGIN_INTEREST_DATA,
+    GASTOS_CAT, CASH_DATA, MARGIN_INTEREST_DATA, LIVE_DPS, FORWARD_DIV,
     // IB Integration
     ibData, ibDiscrepancies, loadIBData, ibSyncMsg,
     alerts, alertsUnread, showAlertPanel, setShowAlertPanel, divStreaks, theme, toggleTheme,
@@ -2049,7 +2051,7 @@ function buildPositionsFromCB() {
       )}
 
       {viewMode==="home" ? (
-        <main style={{flex:1,padding:"32px 36px",overflowY:"auto"}}>
+        <main style={{flex:1,padding:"10px 36px 32px",overflowY:"auto"}}>
           <HomeContext.Provider value={homeContextValue}>
             <HomeView />
           </HomeContext.Provider>

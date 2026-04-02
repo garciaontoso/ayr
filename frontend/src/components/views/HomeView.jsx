@@ -12,7 +12,6 @@ import DashboardTab from '../home/DashboardTab';
 import DividendosTab from '../home/DividendosTab';
 import FireTab from '../home/FireTab';
 import GastosTab from '../home/GastosTab';
-import ControlTab from '../home/ControlTab';
 import WatchlistTab from '../home/WatchlistTab';
 import HistorialTab from '../home/HistorialTab';
 import AdvisorTab from '../home/AdvisorTab';
@@ -120,11 +119,11 @@ function SentimentBar() {
     <div style={{
       display: "flex", alignItems: "center", gap: 12, padding: "2px 8px",
       background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8,
-      marginBottom: 4, fontSize: 10, fontFamily: "var(--fm)",
+      marginBottom: 2, fontSize: 10, fontFamily: "var(--fm)",
     }}>
       {vix && (
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <MiniGauge value={vix.price} min={0} max={60} colors={vixColors} size={70} />
+          <MiniGauge value={vix.price} min={0} max={60} colors={vixColors} size={54} />
           <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
             <span style={{ fontSize: 9, color: "var(--text-tertiary)", fontWeight: 600 }}>VIX</span>
             <span style={{ fontSize: 13, fontWeight: 700, color: vixColor }}>{vix.price.toFixed(1)}</span>
@@ -137,7 +136,7 @@ function SentimentBar() {
       {vix && <div style={{ width: 1, height: 28, background: "var(--border)" }} />}
       {fg ? (
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <MiniGauge value={fg.score} min={0} max={100} colors={fgColors} size={70} />
+          <MiniGauge value={fg.score} min={0} max={100} colors={fgColors} size={54} />
           <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
             <span style={{ fontSize: 9, color: "var(--text-tertiary)", fontWeight: 600 }}>Fear & Greed</span>
             <span style={{ fontSize: 13, fontWeight: 700, color: fgColor }}>{fg.score}</span>
@@ -390,7 +389,7 @@ export default function HomeView() {
   return (
   <div style={{maxWidth:1800,margin:"0 auto"}}>
     {/* ── Single compact header: Logo + Tabs + Controls ── */}
-    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
       {/* Logo + Version */}
       <div style={{display:"flex",alignItems:"center",gap:3,flexShrink:0}}>
         <svg width="26" height="26" viewBox="0 0 40 40" style={{cursor:"pointer"}} onClick={()=>setHomeTab("portfolio")}>
@@ -595,7 +594,6 @@ export default function HomeView() {
       {homeTab==="dividendos" && <DividendosTab />}
       {homeTab==="fire" && <FireTab />}
       {homeTab==="gastos" && <GastosTab />}
-      {homeTab==="control" && <ControlTab />}
       {homeTab==="watchlist" && <WatchlistTab />}
       {homeTab==="historial" && <HistorialTab />}
       {homeTab==="advisor" && <AdvisorTab />}

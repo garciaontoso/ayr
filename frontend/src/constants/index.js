@@ -55,7 +55,6 @@ export const HOME_TABS = [
   {id:"fire",lbl:"FIRE",ico:"🔥"},
   {id:"trades",lbl:"Trades",ico:"📊"},
   {id:"gastos",lbl:"Gastos",ico:"💸"},
-  {id:"control",lbl:"Control",ico:"📋"},
   {id:"presupuesto",lbl:"Presupuesto",ico:"📋"},
   {id:"patrimonio",lbl:"Patrimonio",ico:"🏛"},
   {id:"nomina",lbl:"Mi Nomina",ico:"💸"},

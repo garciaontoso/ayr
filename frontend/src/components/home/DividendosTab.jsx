@@ -4,86 +4,8 @@ import { _sf, fDol } from '../../utils/formatters.js';
 import { API_URL } from '../../constants/index.js';
 import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
 
-/* ═══════════════════════════════════════════════════════════════
-   📊 AnnualDivBarChart — horizontal bar chart from DIV_BY_YEAR
-   ═══════════════════════════════════════════════════════════════ */
-function AnnualDivBarChart({ DIV_BY_YEAR }) {
-  const years = useMemo(() => Object.keys(DIV_BY_YEAR || {}).sort().reverse(), [DIV_BY_YEAR]);
-  const maxG = useMemo(() => Math.max(...years.map(y => DIV_BY_YEAR[y]?.g || 0), 1), [years, DIV_BY_YEAR]);
-
-  if (years.length === 0) return null;
-
-  const barH = 30;
-  const labelW = 48;
-  const valueW = 80;
-  const gap = 6;
-  const svgH = years.length * (barH + gap) + 12;
-  const barArea = 300;
-
-  return (
-    <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--gold)", fontFamily: "var(--fd)", marginBottom: 12 }}>
-        Dividendos Anuales
-      </div>
-      <svg width="100%" viewBox={`0 0 ${labelW + barArea + valueW + 16} ${svgH}`} style={{ display: "block" }}>
-        <defs>
-          <linearGradient id="barGradGold" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="rgba(200,164,78,0.9)" />
-            <stop offset="100%" stopColor="rgba(200,164,78,0.35)" />
-          </linearGradient>
-          <linearGradient id="barGradNet" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="rgba(48,209,88,0.7)" />
-            <stop offset="100%" stopColor="rgba(48,209,88,0.2)" />
-          </linearGradient>
-        </defs>
-        {years.map((y, i) => {
-          const d = DIV_BY_YEAR[y];
-          const g = d?.g || 0;
-          const n = d?.n || 0;
-          const w = maxG > 0 ? (g / maxG) * barArea : 0;
-          const nw = maxG > 0 ? (n / maxG) * barArea : 0;
-          const yy = i * (barH + gap) + 6;
-          const isFirst = i === 0;
-          return (
-            <g key={y}>
-              <text x={labelW - 6} y={yy + barH / 2 + 5} textAnchor="end"
-                style={{ fontSize: isFirst ? 13 : 11, fontWeight: 700, fill: isFirst ? "var(--gold)" : "var(--text-secondary)", fontFamily: "var(--fm)" }}>{y}</text>
-              <rect x={labelW} y={yy} width={Math.max(w, 4)} height={barH} rx={6} ry={6}
-                fill="url(#barGradGold)" opacity={isFirst ? 1 : 0.7} />
-              {n > 0 && (
-                <rect x={labelW} y={yy + barH - 7} width={Math.max(nw, 4)} height={7} rx={3} ry={3}
-                  fill="url(#barGradNet)" />
-              )}
-              <text x={labelW + Math.max(w, 4) + 8} y={yy + barH / 2 + 1}
-                style={{ fontSize: 12, fontWeight: 700, fill: isFirst ? "var(--gold)" : "var(--text-primary)", fontFamily: "var(--fm)" }}>
-                ${g >= 1000 ? _sf(g / 1000, 1) + "K" : _sf(g, 0)}
-              </text>
-              {n > 0 && (
-                <text x={labelW + Math.max(w, 4) + 8} y={yy + barH / 2 + 13}
-                  style={{ fontSize: 9, fontWeight: 600, fill: "var(--green)", fontFamily: "var(--fm)", opacity: 0.8 }}>
-                  net ${n >= 1000 ? _sf(n / 1000, 1) + "K" : _sf(n, 0)}
-                </text>
-              )}
-            </g>
-          );
-        })}
-      </svg>
-      <div style={{ display: "flex", gap: 16, justifyContent: "center", marginTop: 10, fontSize: 10, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>
-        <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-          <span style={{ width: 12, height: 10, borderRadius: 3, background: "var(--gold)", opacity: 0.7 }} /> Bruto
-        </span>
-        <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-          <span style={{ width: 12, height: 5, borderRadius: 3, background: "var(--green)", opacity: 0.6 }} /> Neto
-        </span>
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   📈 MonthlyTracker — current year vs last year by month
-   ═══════════════════════════════════════════════════════════════ */
-function MonthlyTracker({ DIV_BY_MONTH }) {
+/* Charts removed — integrated inline in dashboard */
+function _unused_MonthlyTracker({ DIV_BY_MONTH }) {
   const MNAMES_SHORT = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
   const curYear = new Date().getFullYear();
   const prevYear = curYear - 1;
@@ -657,7 +579,7 @@ export default function DividendosTab() {
     addDivEntry, deleteDivEntry,
     POS_STATIC,
     DIV_BY_YEAR, DIV_BY_MONTH,
-    portfolioTotals,
+    portfolioTotals, FORWARD_DIV,
   } = useHome();
 
   const [section, setSection] = useState("dashboard");
@@ -702,7 +624,7 @@ export default function DividendosTab() {
 
   {/* Sub-tab toggle */}
   <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-    {[{id:"dashboard",lbl:"📊 Dashboard"},{id:"calendario",lbl:"📅 Calendario"}].map(t=>(
+    {[{id:"dashboard",lbl:"📊 Dashboard"},{id:"proyeccion",lbl:"🔭 Proyección"},{id:"calendario",lbl:"📅 Calendario"}].map(t=>(
       <button key={t.id} onClick={()=>setSection(t.id)} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${section===t.id?"var(--gold)":"transparent"}`,background:section===t.id?"var(--gold-dim)":"transparent",color:section===t.id?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:section===t.id?700:500,cursor:"pointer",fontFamily:"var(--fb)",transition:"all .15s"}}>{t.lbl}</button>
     ))}
     <div style={{marginLeft:"auto"}}/>
@@ -711,13 +633,97 @@ export default function DividendosTab() {
     </button>
   </div>
 
+  {/* Proyección Section — Forward 12 months */}
+  {section === "proyeccion" && (() => {
+    const fwd = FORWARD_DIV || {};
+    const annual = fwd.annual_projected || 0;
+    const monthlyAvg = fwd.monthly_avg || 0;
+    const monthly = fwd.monthly || [];
+    const byTicker = fwd.by_ticker || [];
+    const growthYoy = fwd.growth_yoy;
+    const maxMonth = Math.max(...monthly.map(m => m.amount || 0), 1);
+
+    if (!annual) return <EmptyState icon="🔭" title="Sin datos de proyección" subtitle="Los datos de DPS se están cargando desde FMP." />;
+
+    return (
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+      {/* KPIs */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))",gap:10}}>
+        {[
+          {l:"PROYECCIÓN ANUAL",v:"$"+fDol(annual),c:"var(--gold)"},
+          {l:"MEDIA MENSUAL",v:"$"+fDol(monthlyAvg),c:"var(--green)"},
+          {l:"POSICIONES",v:byTicker.length,c:"var(--text-primary)"},
+          {l:"CRECIMIENTO YoY",v:growthYoy!=null?(growthYoy>=0?"+":"")+_sf(growthYoy,1)+"%":"—",c:growthYoy>=0?"var(--green)":"var(--red)"},
+        ].map((k,i)=>(
+          <div key={i} style={{padding:"12px 16px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:14}}>
+            <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.8,fontWeight:600,marginBottom:4}}>{k.l}</div>
+            <div style={{fontSize:22,fontWeight:700,color:k.c,fontFamily:"var(--fm)"}}>{k.v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Monthly projection bars */}
+      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
+        <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:12}}>📅 Ingreso Proyectado por Mes</div>
+        <div style={{display:"flex",alignItems:"flex-end",gap:4,height:160}}>
+          {monthly.map((m,i)=>{
+            const h = maxMonth > 0 ? (m.amount / maxMonth * 100) : 0;
+            const monthLabel = m.month?.slice(5,7);
+            const MNAMES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+            const mName = MNAMES[parseInt(monthLabel,10)-1] || monthLabel;
+            return (
+              <div key={m.month} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%",gap:2}}>
+                <div style={{fontSize:9,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>${m.amount>=1000?_sf(m.amount/1000,1)+"K":_sf(m.amount,0)}</div>
+                <div style={{width:"100%",maxWidth:40,height:`${Math.max(h,3)}%`,background:"rgba(200,164,78,0.5)",borderRadius:"4px 4px 0 0",transition:"height .3s"}}
+                  title={`${m.month}: $${fDol(m.amount)} — ${(m.payments||[]).map(p=>p.ticker).join(", ")}`}/>
+                <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600}}>{mName}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* By ticker table */}
+      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden"}}>
+        <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)"}}>
+          <span style={{fontSize:13,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fd)"}}>💰 Desglose por Ticker · {byTicker.length} posiciones</span>
+        </div>
+        <div style={{overflowX:"auto"}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+            <thead><tr>
+              {["TICKER","DPS","SHARES","FREQ","ANUAL $","MENSUAL $","%"].map((h,i)=>
+                <th key={i} style={{padding:"6px 10px",textAlign:i>0?"right":"left",color:"var(--text-tertiary)",fontSize:9,fontWeight:600,fontFamily:"var(--fm)",borderBottom:"1px solid var(--border)"}}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {byTicker.map((t,i) => {
+                const pct = annual > 0 ? (t.annual / annual * 100) : 0;
+                const freqLabel = {monthly:"M",quarterly:"Q",semiannual:"S",annual:"A"}[t.frequency] || "Q";
+                return (
+                  <tr key={t.ticker} style={{background:i%2?"var(--row-alt)":"transparent"}}>
+                    <td style={{padding:"5px 10px",fontFamily:"var(--fm)",fontWeight:600,color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>{t.ticker}</td>
+                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)"}}>${_sf(t.dps,2)}</td>
+                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{t.shares?.toLocaleString()}</td>
+                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{freqLabel}</td>
+                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",fontWeight:700,color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)"}}>${fDol(t.annual)}</td>
+                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--green)",borderBottom:"1px solid var(--subtle-bg)"}}>${fDol(t.monthly_avg)}</td>
+                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{_sf(pct,1)}%</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>);
+  })()}
+
   {/* Calendario Section */}
   {section === "calendario" && <CalendarioSection divLog={divLog} POS_STATIC={POS_STATIC} ownedTickers={ownedTickers} soloActuales={soloActuales} />}
 
-  {/* Dashboard Section */}
+  {/* Dashboard Section — Redesigned */}
   {section === "dashboard" && (() => {
     if (divLoading) return <InlineLoading message="Cargando dividendos..." />;
-    if (divLog.length === 0) return <EmptyState icon="💰" title="Sin datos de dividendos" subtitle="No se encontraron cobros de dividendos. Sincroniza con IB o espera a que se importen los datos." action="Sincronizar IB" onAction={() => {}} />;
+    if (divLog.length === 0) return <EmptyState icon="💰" title="Sin datos de dividendos" subtitle="Sincroniza con IB o espera a que se importen los datos." />;
     const filtered = divLog.filter(d => {
       if (soloActuales && d.ticker && !ownedTickers.has(d.ticker)) return false;
       if (divFilter.year !== "all" && !d.date?.startsWith(divFilter.year)) return false;
@@ -760,210 +766,152 @@ export default function DividendosTab() {
     const rc = v=>v>0?"var(--green)":v<0?"var(--red)":"var(--text-secondary)";
     const mNames=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
     return <>
-      {/* KPIs + FIRE */}
-      <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-        {[{l:"GROSS",v:`$${totalGross.toLocaleString(undefined,{maximumFractionDigits:0})}`,c:"var(--gold)"},{l:"NET",v:`$${totalNet.toLocaleString(undefined,{maximumFractionDigits:0})}`,c:"var(--green)"},{l:"TAX",v:`${_sf(taxRate,0)}%`,c:"var(--red)"},{l:"COBROS",v:filtered.length,c:"var(--text-primary)"},{l:"TICKERS",v:uniqueTickers,c:"var(--text-secondary)"},{l:"NET/MES (12m)",v:`$${avgNetMonth.toLocaleString(undefined,{maximumFractionDigits:0})}`,c:avgNetMonth>=fireTarget?"var(--green)":"var(--orange)"}].map((k,i)=>(
-          <div key={i} style={{flex:"1 1 85px",padding:"10px 14px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:12}}>
-            <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,fontWeight:600,marginBottom:3}}>{k.l}</div>
-            <div style={{fontSize:16,fontWeight:700,color:k.c,fontFamily:"var(--fm)"}}>{k.v}</div></div>))}
+      {/* ── Row 1: KPIs compactos ── */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(100px, 1fr))",gap:6}}>
+        {[
+          {l:"GROSS",v:"$"+fDol(totalGross),c:"var(--gold)"},
+          {l:"NET",v:"$"+fDol(totalNet),c:"var(--green)"},
+          {l:"TAX",v:_sf(taxRate,0)+"%",c:"var(--red)"},
+          {l:"NET/MES",v:"$"+fDol(avgNetMonth),c:avgNetMonth>=fireTarget?"var(--green)":"var(--orange)"},
+          {l:"COBROS",v:filtered.length,c:"var(--text-primary)"},
+          {l:"FIRE",v:_sf(firePct,0)+"%",c:firePct>=100?"var(--green)":"var(--orange)"},
+        ].map((k,i)=>(
+          <div key={i} style={{padding:"8px 10px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:10}}>
+            <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,fontWeight:600}}>{k.l}</div>
+            <div style={{fontSize:15,fontWeight:700,color:k.c,fontFamily:"var(--fm)",marginTop:1}}>{k.v}</div>
+          </div>))}
       </div>
-      {/* FIRE Bar */}
-      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:"10px 16px"}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
-          <span style={{fontSize:11,fontWeight:600,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>🎯 FIRE: ${fireTarget.toLocaleString()}/mes neto</span>
-          <span style={{fontSize:13,fontWeight:700,color:firePct>=100?"var(--green)":"var(--orange)",fontFamily:"var(--fm)"}}>{_sf(firePct,0)}% — ${avgNetMonth.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</span>
-        </div>
-        <div style={{height:10,background:"var(--subtle-bg2)",borderRadius:5,overflow:"hidden"}}>
-          <div style={{width:`${Math.min(firePct,100)}%`,height:"100%",background:firePct>=100?"var(--green)":"linear-gradient(90deg,var(--gold),var(--orange))",borderRadius:5}}/>
-        </div>
-        <div style={{display:"flex",justifyContent:"space-between",marginTop:3,fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>
-          <span>$0</span><span>Faltan ${Math.max(0,fireTarget-avgNetMonth).toLocaleString(undefined,{maximumFractionDigits:0})}/mes</span><span style={{color:"var(--green)"}}>${fireTarget.toLocaleString()}</span>
-        </div>
-      </div>
-      {/* Annual Dividend Horizontal Bar Chart */}
-      <AnnualDivBarChart DIV_BY_YEAR={soloActuales ? byYear : DIV_BY_YEAR} />
 
-      {/* Monthly Cumulative Tracker: this year vs last year */}
-      <MonthlyTracker DIV_BY_MONTH={soloActuales ? byMonth : DIV_BY_MONTH} />
-
-      {/* Filters */}
-      <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-        <select value={divFilter.year} onChange={e=>setDivFilter(p=>({...p,year:e.target.value,month:"all"}))} style={{padding:"6px 10px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
-          <option value="all">Todos años</option>
-          {[...new Set(divLog.map(d=>d.date?.slice(0,4)).filter(Boolean))].sort().reverse().map(y=><option key={y} value={y}>{y}</option>)}
-        </select>
-        {divFilter.year!=="all"&&<select value={divFilter.month||"all"} onChange={e=>setDivFilter(p=>({...p,month:e.target.value}))} style={{padding:"6px 10px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}>
-          <option value="all">Todos meses</option>{availMonths.map(m=><option key={m} value={m}>{m}</option>)}</select>}
-        <input type="text" placeholder="Ticker..." value={divFilter.ticker} onChange={e=>setDivFilter(p=>({...p,ticker:e.target.value}))} style={{width:90,padding:"6px 10px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:8,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}/>
-        <button onClick={()=>setDivShowForm(!divShowForm)} style={{padding:"7px 14px",borderRadius:8,border:"1px solid var(--gold)",background:divShowForm?"var(--gold)":"var(--gold-dim)",color:divShowForm?"#000":"var(--gold)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>{divShowForm?"✕":"+ Div"}</button>
-        <label style={{padding:"7px 12px",borderRadius:8,border:"1px solid rgba(48,209,88,.3)",background:"rgba(48,209,88,.06)",color:"var(--green)",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>↑ Import<input type="file" accept=".json" style={{display:"none"}} onChange={e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=ev=>{try{const data=JSON.parse(ev.target.result);const entries=Array.isArray(data)?data:(data.entries||data.dividends||[]);if(entries.length){setDivLog(prev=>{const next=[...prev,...entries.filter(e=>e.date&&e.ticker)];next.sort((a,b)=>b.date.localeCompare(a.date));saveDivLog(next);return next;});alert(`${entries.length} importados`);}}catch(err){alert("Error: "+err.message);}};reader.readAsText(file);}}/></label>
-      </div>
-      {/* Add form */}
-      {divShowForm&&(<div style={{padding:14,background:"var(--card)",border:"1px solid var(--gold-dim)",borderRadius:12}}><div style={{display:"flex",flexWrap:"wrap",gap:8,alignItems:"flex-end"}}>
-        <div><label style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:3}}>FECHA</label><input type="date" value={divForm.date} onChange={e=>setDivForm(p=>({...p,date:e.target.value}))} style={{padding:"6px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}/></div>
-        <div><label style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:3}}>TICKER</label><input type="text" value={divForm.ticker} onChange={e=>setDivForm(p=>({...p,ticker:e.target.value.toUpperCase()}))} placeholder="DEO" style={{width:65,padding:"6px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}/></div>
-        <div><label style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:3}}>GROSS</label><input type="number" step="0.01" value={divForm.gross||""} onChange={e=>{const g=parseFloat(e.target.value)||0;setDivForm(p=>({...p,gross:g,net:g*(1-p.taxPct/100)}));}} style={{width:75,padding:"6px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}/></div>
-        <div><label style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:3}}>TAX%</label><input type="number" value={divForm.taxPct||""} onChange={e=>{const t=parseFloat(e.target.value)||0;setDivForm(p=>({...p,taxPct:t,net:p.gross*(1-t/100)}));}} style={{width:45,padding:"6px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}/></div>
-        <div><label style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:3}}>SHARES</label><input type="number" value={divForm.shares||""} onChange={e=>setDivForm(p=>({...p,shares:parseFloat(e.target.value)||0}))} style={{width:60,padding:"6px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)"}}/></div>
-        <button onClick={()=>{if(divForm.date&&divForm.ticker&&divForm.gross){addDivEntry(divForm);setDivForm(p=>({...p,ticker:"",gross:0,net:0,shares:0}));}}} style={{padding:"6px 16px",borderRadius:6,border:"none",background:"var(--gold)",color:"#000",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)",height:30}}>Guardar</button>
-      </div></div>)}
-      {/* Annual chart */}
-      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
-        <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:14}}>Dividendos por A&#241;o</div>
-        <div style={{display:"flex",alignItems:"flex-end",gap:8,height:160,paddingTop:20}}>
-          {[...yearKeys].reverse().map((y,i,arr)=>{const d=byYear[y];const h=d.g/maxYearG*100;const nextOlder=arr[i+1];const gr=nextOlder&&byYear[nextOlder]?.g>0?((d.g-byYear[nextOlder].g)/byYear[nextOlder].g*100):null;const isFirst=i===0;return(<div key={y} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%",position:"relative"}} title={`${y}: G$${_sf(d.g,0)} N$${_sf(d.n,0)} ${d.c}x`}>{gr!=null&&<div style={{fontSize:9,fontWeight:700,color:rc(gr),fontFamily:"var(--fm)",marginBottom:3}}>{gr>=0?"+":""}{_sf(gr,0)}%</div>}<div style={{fontSize:10,fontWeight:700,color:isFirst?"var(--gold)":"var(--text-primary)",fontFamily:"var(--fm)",marginBottom:3}}>${d.g>=1000?_sf(d.g/1000,1)+"K":_sf(d.g,0)}</div><div style={{width:"100%",maxWidth:44,height:`${Math.max(h,4)}%`,background:isFirst?"linear-gradient(180deg, var(--gold), rgba(200,164,78,.3))":"linear-gradient(180deg, rgba(200,164,78,.6), rgba(200,164,78,.15))",borderRadius:"6px 6px 0 0"}}/><div style={{fontSize:11,color:isFirst?"var(--gold)":"var(--text-secondary)",fontFamily:"var(--fm)",marginTop:6,fontWeight:700}}>{y}</div></div>);})}
-        </div>
-      </div>
-      {/* ── Calendar: Dividendos Mes a Mes (selector de año) ── */}
-      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
+      {/* ── Row 2: Año × Mes heatmap (como Patrimonio) ── */}
+      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:14}}>
+        <div style={{fontSize:12,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:8}}>Dividendos Año × Mes</div>
         {(() => {
-          const mNF = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-          const byYM = {};
-          Object.entries(soloActuales ? byMonth : DIV_BY_MONTH).forEach(([ym, dd]) => {
-            const yy = ym.slice(0,4), mm = parseInt(ym.slice(5), 10)-1;
-            if (!byYM[yy]) byYM[yy] = new Array(12).fill(null);
-            byYM[yy][mm] = dd;
-          });
-          const calYrs = Object.keys(byYM).filter(yy => parseInt(yy, 10) >= 2022).sort();
-          const selY = calYrs.includes(divCalYear) ? divCalYear : calYrs[calYrs.length-1];
-          const mths = byYM[selY] || new Array(12).fill(null);
-          const mxMG = Math.max(...mths.map(dd => dd?.g || 0), 1);
-          const yTot = mths.reduce((s,dd) => s + (dd?.g || 0), 0);
-          const yNet = mths.reduce((s,dd) => s + (dd?.n || 0), 0);
-          const yCnt = mths.reduce((s,dd) => s + (dd?.c || 0), 0);
-          const yAvg = yTot / (mths.filter(dd=>dd&&dd.g>0).length || 1);
-          const prvM = byYM[String(parseInt(selY, 10)-1)];
-          const prvT = prvM ? prvM.reduce((s,dd) => s + (dd?.g || 0), 0) : 0;
-          const yGr = prvT > 0 ? ((yTot - prvT) / prvT * 100) : 0;
-          return <>
-            <div style={{display:"flex",gap:0,marginBottom:14,border:"1px solid var(--border)",borderRadius:10,overflow:"hidden",width:"fit-content"}}>
-              {calYrs.map(yy => <button key={yy} onClick={()=>setDivCalYear(yy)} style={{padding:"8px 16px",border:"none",background:selY===yy?"var(--gold-dim)":"transparent",color:selY===yy?"var(--gold)":"var(--text-tertiary)",fontSize:12,fontWeight:selY===yy?700:500,cursor:"pointer",fontFamily:"var(--fm)",borderRight:"1px solid var(--border)"}}>{yy}</button>)}
+          const grid = {};
+          all.forEach(d => { const y=d.date?.slice(0,4),m=d.date?.slice(5,7); if(!y||!m)return; if(!grid[y])grid[y]={}; if(!grid[y][m])grid[y][m]={g:0,n:0}; grid[y][m].g+=d.gross||0; grid[y][m].n+=d.net||0; });
+          const gYears = Object.keys(grid).sort().reverse();
+          const allVals = gYears.flatMap(y => Object.values(grid[y]).map(v=>v.g));
+          const maxV = Math.max(...allVals, 1);
+          // Annual totals
+          const annTotals = {};
+          gYears.forEach(y => { annTotals[y] = Object.values(grid[y]).reduce((s,v)=>s+v.g,0); });
+          const thS = {padding:"4px 5px",fontSize:9,fontWeight:600,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"center",borderBottom:"1px solid var(--border)"};
+          return (
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+                <thead><tr>
+                  <th style={{...thS,textAlign:"left",width:40}}>AÑO</th>
+                  {mNames.map(m => <th key={m} style={thS}>{m}</th>)}
+                  <th style={{...thS,borderLeft:"2px solid var(--border)",width:70}}>TOTAL</th>
+                </tr></thead>
+                <tbody>
+                  {gYears.map((y,yi) => {
+                    const prevY = gYears[yi+1];
+                    const yoyPct = prevY && annTotals[prevY] > 0 ? ((annTotals[y] - annTotals[prevY]) / annTotals[prevY] * 100) : null;
+                    return (
+                    <tr key={y}>
+                      <td style={{padding:"3px 5px",fontSize:11,fontWeight:700,color:yi===0?"var(--gold)":"var(--text-secondary)",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>{y}</td>
+                      {["01","02","03","04","05","06","07","08","09","10","11","12"].map(m => {
+                        const v = grid[y]?.[m]?.g || 0;
+                        if (!v) return <td key={m} style={{padding:"2px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)"}}><span style={{fontSize:8,color:"var(--text-tertiary)",opacity:.2}}>—</span></td>;
+                        const intensity = Math.min(v / maxV, 1);
+                        const bg = `rgba(200,164,78,${0.08 + intensity * 0.5})`;
+                        return (
+                          <td key={m} style={{padding:"2px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)"}}>
+                            <div title={`${y}-${m}: $${_sf(v,0)}`} style={{borderRadius:4,background:bg,padding:"4px 1px",fontSize:9,fontWeight:700,color:intensity>.5?"var(--gold)":"var(--text-secondary)",fontFamily:"var(--fm)"}}>
+                              {v>=1000?_sf(v/1000,1)+"K":_sf(v,0)}
+                            </div>
+                          </td>);
+                      })}
+                      <td style={{padding:"2px 4px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)",borderLeft:"2px solid var(--border)"}}>
+                        <div style={{display:"flex",flexDirection:"column",alignItems:"center"}}>
+                          <span style={{fontSize:11,fontWeight:800,color:yi===0?"var(--gold)":"var(--text-primary)",fontFamily:"var(--fm)"}}>${annTotals[y]>=1000?_sf(annTotals[y]/1000,1)+"K":_sf(annTotals[y],0)}</span>
+                          {yoyPct!=null && <span style={{fontSize:8,fontWeight:600,color:yoyPct>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)"}}>{yoyPct>=0?"+":""}{_sf(yoyPct,0)}%</span>}
+                        </div>
+                      </td>
+                    </tr>);
+                  })}
+                </tbody>
+              </table>
             </div>
-            <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
-              {[{l:"INCOME",v:`$${yTot>=1000?_sf(yTot/1000,1)+"K":_sf(yTot,0)}`,c:"var(--gold)"},{l:"⌀ MES",v:`$${_sf(yAvg,0)}`,c:"var(--green)"},{l:"NET",v:`$${yNet>=1000?_sf(yNet/1000,1)+"K":_sf(yNet,0)}`,c:"var(--text-primary)"},...(prvT>0?[{l:"YoY",v:`${yGr>=0?"+":""}${_sf(yGr,0)}%`,c:yGr>=0?"var(--green)":"var(--red)"}]:[]),{l:"COBROS",v:String(yCnt),c:"var(--text-secondary)"}].map((k,ki) => <div key={ki} style={{padding:"8px 14px",background:`${k.c}08`,borderRadius:10,border:`1px solid ${k.c}22`}}><div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5}}>{k.l}</div><div style={{fontSize:18,fontWeight:800,color:k.c,fontFamily:"var(--fm)"}}>{k.v}</div></div>)}
-            </div>
-            <div style={{display:"flex",gap:6,alignItems:"flex-end",height:220,paddingTop:24}}>
-              {mths.map((dd, mi) => {
-                const gg = dd?.g || 0;
-                const cn = dd?.c || 0;
-                const hh = mxMG > 0 ? (gg / mxMG * 100) : 0;
-                const pM = prvM?.[mi];
-                const pG = pM?.g || 0;
-                const mG = pG > 0 ? ((gg - pG) / pG * 100) : 0;
-                const isCurMonth = parseInt(selY,10) === new Date().getFullYear() && mi === new Date().getMonth();
-                return <div key={mi} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%",position:"relative"}}>
-                  {gg > 0 && <div style={{fontSize:9,fontWeight:700,color:isCurMonth?"var(--gold)":"var(--text-primary)",fontFamily:"var(--fm)",marginBottom:2,whiteSpace:"nowrap"}}>{gg>=1000?`${_sf(gg/1000,1)}K`:`$${_sf(gg,0)}`}</div>}
-                  {gg > 0 && pG > 0 && <div style={{fontSize:8,fontWeight:600,color:mG>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)",marginBottom:2}}>{mG>=0?"+":""}{_sf(mG,0)}%</div>}
-                  <div style={{width:"100%",maxWidth:38,height:`${Math.max(hh, gg>0?4:0)}%`,background:gg>0?(isCurMonth?"linear-gradient(180deg, var(--gold), rgba(200,164,78,.3))":"linear-gradient(180deg, rgba(200,164,78,.6), rgba(200,164,78,.15))"):"transparent",borderRadius:"5px 5px 0 0",minHeight:gg>0?4:0}}/>
-                  <div style={{fontSize:10,color:isCurMonth?"var(--gold)":"var(--text-secondary)",fontFamily:"var(--fm)",marginTop:5,fontWeight:isCurMonth?700:600}}>{mNF[mi]}</div>
-                  {cn > 0 && <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{cn}x</div>}
-                </div>;
-              })}
-            </div>
-          </>;
+          );
         })()}
       </div>
-      {/* YoY por mes */}
-      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
-        <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:12}}>📊 Comparativa Mensual YoY ({prevYear} vs {curYear})</div>
-        <div style={{display:"flex",gap:5}}>
-          {["01","02","03","04","05","06","07","08","09","10","11","12"].map(mm=>{const cur=byCalMonth[curYear+"-"+mm]?.g||0;const prev=byCalMonth[prevYear+"-"+mm]?.g||0;const mx=Math.max(cur,prev,1);const gr=prev>0?((cur-prev)/prev*100):(cur>0?100:0);return(<div key={mm} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}} title={`${mNames[parseInt(mm, 10)-1]}: ${prevYear} $${_sf(prev,0)} \u2192 ${curYear} $${_sf(cur,0)}`}><div style={{fontSize:8,fontWeight:700,color:rc(gr),fontFamily:"var(--fm)"}}>{cur>0&&prev>0?`${gr>=0?"+":""}${_sf(gr,0)}%`:""}</div><div style={{display:"flex",gap:2,alignItems:"flex-end",height:70,width:"100%"}}><div style={{flex:1,height:`${prev/mx*100}%`,background:"var(--text-tertiary)",borderRadius:"3px 3px 0 0",opacity:.4,minHeight:prev>0?3:0}}/><div style={{flex:1,height:`${cur/mx*100}%`,background:cur>=prev?"var(--green)":"var(--red)",borderRadius:"3px 3px 0 0",opacity:.8,minHeight:cur>0?3:0}}/></div><div style={{fontSize:9,color:"var(--text-secondary)",fontFamily:"var(--fm)",fontWeight:500}}>{mNames[parseInt(mm, 10)-1]}</div></div>);})}
-        </div>
-        <div style={{display:"flex",gap:12,justifyContent:"center",marginTop:8,fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}><span style={{display:"flex",alignItems:"center",gap:3}}><span style={{width:8,height:8,borderRadius:2,background:"var(--text-tertiary)",opacity:.4}}/>{prevYear}</span><span style={{display:"flex",alignItems:"center",gap:3}}><span style={{width:8,height:8,borderRadius:2,background:"var(--green)"}}/>{curYear}</span></div>
-      </div>
-      {/* Monthly 36m */}
-      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-          <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)"}}>📅 Dividendos Mensuales (36m)</div>
-          <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Media: <span style={{color:"var(--gold)",fontWeight:600}}>${monthKeys.length>0?_sf(monthKeys.reduce((s,m)=>s+(byMonth[m]?.g||0),0)/monthKeys.length,0):"0"}/mes</span></div>
-        </div>
+
+      {/* ── Row 3: Cobrado vs Esperado ── */}
+      {FORWARD_DIV?.by_ticker?.length > 0 && (
+      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:14}}>
+        <div style={{fontSize:12,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:8}}>Cobrado vs Esperado</div>
         {(() => {
-          const chartH = 160;
-          const yMax = Math.ceil(maxMonthG / 1000) * 1000 || 5000;
-          const ySteps = [];
-          for (let v = 0; v <= yMax; v += yMax <= 5000 ? 1000 : 2000) ySteps.push(v);
-          const yTop = ySteps[ySteps.length-1] || 1;
-          // Show value on every 3rd bar + first + last
-          const showValueAt = new Set([0, monthKeys.length-1]);
-          monthKeys.forEach((_,i) => { if (i % 3 === 0) showValueAt.add(i); });
-          return <div style={{display:"flex",gap:0}}>
-            {/* Y Axis */}
-            <div style={{display:"flex",flexDirection:"column",justifyContent:"space-between",height:chartH,paddingRight:6,flexShrink:0}}>
-              {[...ySteps].reverse().map(v => (
-                <div key={v} style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"right",width:34,lineHeight:"1"}}>${v>=1000?_sf(v/1000,0)+"K":v}</div>
-              ))}
+          const fwd = FORWARD_DIV;
+          const ttmGross = last12m.reduce((s,d)=>s+(d.gross||0),0);
+          const fwdByTicker = {};
+          (fwd.by_ticker||[]).forEach(t => { fwdByTicker[t.ticker] = t.annual; });
+          const comparison = Object.keys(fwdByTicker).map(t => {
+            const expected = fwdByTicker[t] || 0;
+            const received = byTicker12[t]?.g || 0;
+            return { t, expected, received, pct: expected > 0 ? (received/expected*100) : (received > 0 ? 999 : 0) };
+          }).filter(c => c.expected > 0 || c.received > 0).sort((a,b) => a.pct - b.pct);
+          const missing = comparison.filter(c => c.received === 0 && c.expected > 50);
+          const onTrack = comparison.filter(c => c.pct >= 80);
+          const coveragePct = fwd.annual_projected > 0 ? (ttmGross / fwd.annual_projected * 100) : 0;
+          return <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:11,fontFamily:"var(--fm)"}}>
+              <span>Cobrado: <b style={{color:"var(--green)"}}>${fDol(ttmGross)}</b></span>
+              <span>Esperado: <b style={{color:"var(--gold)"}}>${fDol(fwd.annual_projected||0)}</b></span>
+              <span>Cobertura: <b style={{color:coveragePct>=80?"var(--green)":"var(--orange)"}}>{_sf(coveragePct,0)}%</b></span>
+              <span style={{color:"var(--green)"}}>{onTrack.length} on track</span>
             </div>
-            <div style={{flex:1,position:"relative"}}>
-              {/* Grid lines */}
-              <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",justifyContent:"space-between",pointerEvents:"none"}}>
-                {ySteps.map(v => <div key={v} style={{borderBottom:"1px solid var(--subtle-border)",width:"100%"}}/>)}
-              </div>
-              {/* Bars */}
-              <div style={{display:"flex",alignItems:"flex-end",gap:1,height:chartH,position:"relative"}}>
-                {monthKeys.map((m,i) => {
-                  const d = byMonth[m] || {g:0,n:0,c:0};
-                  const h = yTop > 0 ? (d.g / yTop * 100) : 0;
-                  const isCur = m.startsWith(new Date().getFullYear().toString());
-                  const isLast = i === monthKeys.length - 1;
-                  const showVal = showValueAt.has(i) && d.g > 0;
-                  return <div key={m} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%"}} title={`${m}: G$${_sf(d.g,0)} N$${_sf(d.n,0)} ${d.c}x`}>
-                    {showVal && <div style={{fontSize:8,fontWeight:700,color:isLast?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:2,whiteSpace:"nowrap"}}>${d.g>=1000?_sf(d.g/1000,1)+"K":_sf(d.g,0)}</div>}
-                    <div style={{width:"100%",maxWidth:14,height:`${Math.max(h,3)}%`,background:isCur?"var(--gold)":"var(--green)",borderRadius:"2px 2px 0 0",opacity:isCur?1:.5}}/>
-                  </div>;
-                })}
-              </div>
-              {/* X axis */}
-              <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
-                {monthKeys.filter((_,i) => i === 0 || i === monthKeys.length-1 || (i % 6 === 0)).map(m => (
-                  <span key={m} style={{fontSize:8,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{m.slice(2)}</span>
+            {missing.length > 0 && (
+              <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
+                {missing.slice(0,15).map(c=>(
+                  <span key={c.t} style={{padding:"2px 6px",borderRadius:4,background:"rgba(255,159,10,.06)",border:"1px solid rgba(255,159,10,.12)",fontSize:8,fontFamily:"var(--fm)",color:"var(--orange)"}}>{c.t} ${fDol(c.expected)}</span>
                 ))}
               </div>
-            </div>
+            )}
           </div>;
         })()}
+      </div>)}
+
+      {/* ── Row 4: Top Payers + Filters + Form en una línea ── */}
+      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+        <select value={divFilter.year} onChange={e=>setDivFilter(p=>({...p,year:e.target.value,month:"all"}))} style={{padding:"5px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:10,fontFamily:"var(--fm)"}}>
+          <option value="all">Todos</option>
+          {[...new Set(divLog.map(d=>d.date?.slice(0,4)).filter(Boolean))].sort().reverse().map(y=><option key={y} value={y}>{y}</option>)}
+        </select>
+        <input type="text" placeholder="Ticker..." value={divFilter.ticker} onChange={e=>setDivFilter(p=>({...p,ticker:e.target.value}))} style={{width:80,padding:"5px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:10,fontFamily:"var(--fm)"}}/>
+        <button onClick={()=>setDivShowForm(!divShowForm)} style={{padding:"5px 12px",borderRadius:6,border:"1px solid var(--gold)",background:divShowForm?"var(--gold)":"var(--gold-dim)",color:divShowForm?"#000":"var(--gold)",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>{divShowForm?"✕":"+ Div"}</button>
       </div>
-      {/* Dividends Received — DivTracker style */}
-      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-          <div style={{fontSize:14,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)"}}>💰 Dividends Received (12m)</div>
-          <div style={{fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Total: <span style={{color:"var(--gold)",fontWeight:700}}>${recent12m.reduce((s,d)=>s+(d.gross||0),0).toLocaleString(undefined,{maximumFractionDigits:0})}</span></div>
+      {divShowForm&&(<div style={{padding:12,background:"var(--card)",border:"1px solid var(--gold-dim)",borderRadius:10}}><div style={{display:"flex",flexWrap:"wrap",gap:6,alignItems:"flex-end"}}>
+        <div><label style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:2}}>FECHA</label><input type="date" value={divForm.date} onChange={e=>setDivForm(p=>({...p,date:e.target.value}))} style={{padding:"5px 6px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:5,color:"var(--text-primary)",fontSize:10,fontFamily:"var(--fm)"}}/></div>
+        <div><label style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:2}}>TICKER</label><input type="text" value={divForm.ticker} onChange={e=>setDivForm(p=>({...p,ticker:e.target.value.toUpperCase()}))} placeholder="DEO" style={{width:55,padding:"5px 6px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:5,color:"var(--text-primary)",fontSize:10,fontFamily:"var(--fm)"}}/></div>
+        <div><label style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:2}}>GROSS</label><input type="number" step="0.01" value={divForm.gross||""} onChange={e=>{const g=parseFloat(e.target.value)||0;setDivForm(p=>({...p,gross:g,net:g*(1-p.taxPct/100)}));}} style={{width:65,padding:"5px 6px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:5,color:"var(--text-primary)",fontSize:10,fontFamily:"var(--fm)"}}/></div>
+        <div><label style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:2}}>TAX%</label><input type="number" value={divForm.taxPct||""} onChange={e=>{const t=parseFloat(e.target.value)||0;setDivForm(p=>({...p,taxPct:t,net:p.gross*(1-t/100)}));}} style={{width:40,padding:"5px 6px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:5,color:"var(--text-primary)",fontSize:10,fontFamily:"var(--fm)"}}/></div>
+        <button onClick={()=>{if(divForm.date&&divForm.ticker&&divForm.gross){addDivEntry(divForm);setDivForm(p=>({...p,ticker:"",gross:0,net:0,shares:0}));}}} style={{padding:"5px 14px",borderRadius:5,border:"none",background:"var(--gold)",color:"#000",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>Guardar</button>
+      </div></div>)}
+
+      {/* ── Row 5: Top 15 payers (compact horizontal bars) ── */}
+      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+          <span style={{fontSize:12,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)"}}>Top Payers (12m)</span>
+          <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Total: <b style={{color:"var(--gold)"}}>${fDol(recent12m.reduce((s,d)=>s+(d.gross||0),0))}</b></span>
         </div>
-        <div style={{display:"flex",flexDirection:"column",gap:6}}>
-          {topPayers.map(([t,d],i)=>{
+        <div style={{display:"flex",flexDirection:"column",gap:3}}>
+          {topPayers.slice(0,15).map(([t,d],i)=>{
             const pct = maxTickerG > 0 ? (d.g/maxTickerG*100) : 0;
-            const totG = recent12m.reduce((s,dd)=>s+(dd.gross||0),0)||1;
-            return <div key={t} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:i<topPayers.length-1?"1px solid var(--subtle-bg)":"none"}}>
-              <span style={{width:22,fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"right",fontWeight:600}}>{i+1}</span>
-              <div style={{width:46,height:26,borderRadius:6,background:"rgba(200,164,78,.1)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:"var(--gold)",fontFamily:"var(--fm)"}}>{t.slice(0,5)}</div>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{height:12,background:"var(--subtle-bg)",borderRadius:4,overflow:"hidden"}}>
-                  <div style={{width:`${pct}%`,height:"100%",background:"linear-gradient(90deg,var(--gold),rgba(200,164,78,.15))",borderRadius:4}}/>
-                </div>
+            return <div key={t} style={{display:"flex",alignItems:"center",gap:6,height:20}}>
+              <span style={{width:14,fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"right"}}>{i+1}</span>
+              <span style={{width:42,fontSize:9,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)",overflow:"hidden",textOverflow:"ellipsis"}}>{t}</span>
+              <div style={{flex:1,height:10,background:"var(--subtle-bg)",borderRadius:3,overflow:"hidden"}}>
+                <div style={{width:`${pct}%`,height:"100%",background:"linear-gradient(90deg,var(--gold),rgba(200,164,78,.2))",borderRadius:3}}/>
               </div>
-              <span style={{fontSize:13,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",width:65,textAlign:"right"}}>${d.g>=1000?_sf(d.g/1000,2)+"K":_sf(d.g,0)}</span>
-              <span style={{fontSize:10,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fm)",width:38,textAlign:"right"}}>{_sf(d.g/totG*100,1)}%</span>
+              <span style={{width:50,fontSize:10,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",textAlign:"right"}}>${d.g>=1000?_sf(d.g/1000,1)+"K":_sf(d.g,0)}</span>
             </div>;
           })}
         </div>
       </div>
-      {/* YOC */}
-      {yocData.length>0&&(<div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
-        <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:4}}>💎 Yield on Cost (12m / coste)</div>
-        <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:12}}>Posiciones activas con cost basis</div>
-        <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:550}}><thead><tr>{["TICKER","DIV 12M","COSTE","YOC","YIELD","CB","PRECIO","SH"].map((h,i)=><th key={i} style={{padding:"6px 10px",textAlign:i?"right":"left",color:"var(--text-tertiary)",fontSize:9,fontWeight:600,fontFamily:"var(--fm)",borderBottom:"1px solid var(--border)"}}>{h}</th>)}</tr></thead><tbody>
-          {yocData.slice(0,30).map((d,i)=>(<tr key={d.t} style={{background:i%2?"var(--row-alt)":"transparent"}}><td style={{padding:"5px 10px",fontWeight:600,color:"var(--gold)",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>{d.t}</td><td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>${_sf(d.g12,0)}</td><td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)"}}>${_sf(d.cost/1000,1)}K</td><td style={{padding:"5px 10px",textAlign:"right",fontWeight:700,fontFamily:"var(--fm)",color:d.yoc>=8?"var(--green)":d.yoc>=4?"var(--gold)":"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)"}}>{_sf(d.yoc,1)}%</td><td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{_sf(d.cy,1)}%</td><td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>${_sf(d.cb,2)}</td><td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:d.lp>=d.cb?"var(--green)":"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>${_sf(d.lp,2)}</td><td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{d.sh}</td></tr>))}
-        </tbody></table></div></div>)}
-      {/* Frequency */}
-      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
-        <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:4}}>📅 Frecuencia + Próximo Cobro</div>
-        <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:12}}>Basado en historial · Posiciones activas</div>
-        <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:500}}><thead><tr>{["TICKER","FREQ","ÚLTIMO","PRÓXIMO","#","~DÍAS"].map((h,i)=><th key={i} style={{padding:"6px 10px",textAlign:i?"right":"left",color:"var(--text-tertiary)",fontSize:9,fontWeight:600,fontFamily:"var(--fm)",borderBottom:"1px solid var(--border)"}}>{h}</th>)}</tr></thead><tbody>
-          {freqData.slice(0,40).map((d,i)=>{const past=d.next<new Date().toISOString().slice(0,10);return(<tr key={d.t} style={{background:i%2?"var(--row-alt)":"transparent"}}><td style={{padding:"5px 10px",fontWeight:600,color:"var(--gold)",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>{d.t}</td><td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}><span style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:d.freq==="Mensual"?"rgba(48,209,88,.1)":"rgba(201,169,80,.1)",color:d.freq==="Mensual"?"var(--green)":"var(--gold)"}}>{d.freq}</span></td><td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)"}}>{d.last}</td><td style={{padding:"5px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:past?"var(--orange)":"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>{d.next}{past?" ⏰":""}</td><td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{d.count}</td><td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{d.avg}d</td></tr>);})}
-        </tbody></table></div></div>
-      {/* Sortable table */}
-      {(()=>{const cols=[{k:"date",l:"FECHA",a:"left"},{k:"ticker",l:"TICKER",a:"left"},{k:"gross",l:"GROSS",a:"right"},{k:"tax",l:"TAX%",a:"right"},{k:"net",l:"NET",a:"right"},{k:"currency",l:"MON",a:"right"},{k:"shares",l:"SH",a:"right"},{k:"dps",l:"DPS",a:"right"},{k:"",l:"",a:"center"}];const sk=divSort.col,sa=divSort.asc;const sorted=[...filtered].sort((a,b)=>{let va,vb;if(sk==="date"){va=a.date||"";vb=b.date||"";}else if(sk==="ticker"){va=a.ticker||"";vb=b.ticker||"";}else if(sk==="gross"){va=a.gross||0;vb=b.gross||0;}else if(sk==="net"){va=a.net||0;vb=b.net||0;}else if(sk==="tax"){va=a.gross>0?(1-a.net/a.gross):0;vb=b.gross>0?(1-b.net/b.gross):0;}else if(sk==="currency"){va=a.currency||"";vb=b.currency||"";}else if(sk==="shares"){va=a.shares||0;vb=b.shares||0;}else if(sk==="dps"){va=a.shares&&a.gross?a.gross/a.shares:0;vb=b.shares&&b.gross?b.gross/b.shares:0;}else{va=a.date||"";vb=b.date||"";}if(typeof va==="string")return sa?va.localeCompare(vb):vb.localeCompare(va);return sa?va-vb:vb-va;});const ts=k=>{if(!k)return;setDivSort(p=>p.col===k?{col:k,asc:!p.asc}:{col:k,asc:false});};const ar=k=>divSort.col===k?(divSort.asc?" ▲":" ▼"):"";return(<div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden"}}><div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)"}}><span style={{fontSize:13,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fd)"}}>📋 Cobros · {filtered.length}</span></div>{divLoading?<div style={{padding:40,textAlign:"center",color:"var(--text-tertiary)"}}>Cargando...</div>:filtered.length===0?<div style={{padding:40,textAlign:"center",color:"var(--text-tertiary)",fontSize:12}}>Sin datos.</div>:<div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:700}}><thead><tr>{cols.map((c,i)=><th key={i} onClick={()=>ts(c.k)} style={{padding:"7px 10px",textAlign:c.a,color:divSort.col===c.k?"var(--gold)":"var(--text-tertiary)",fontSize:9,fontWeight:600,fontFamily:"var(--fm)",letterSpacing:.4,borderBottom:"1px solid var(--border)",cursor:c.k?"pointer":"default",userSelect:"none",whiteSpace:"nowrap"}}>{c.l}{ar(c.k)}</th>)}</tr></thead><tbody>{sorted.slice(0,300).map((d,i)=>(<tr key={d.id||i} style={{background:i%2?"var(--row-alt)":"transparent"}} onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"} onMouseLeave={e=>e.currentTarget.style.background=i%2?"var(--row-alt)":"transparent"}><td style={{padding:"5px 10px",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>{d.date}</td><td style={{padding:"5px 10px",fontWeight:600,fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)"}}>{d.ticker}</td><td style={{padding:"5px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>${_sf(d.gross||0,2)}</td><td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{d.gross&&d.net?_sf((1-(d.net||0)/(d.gross||1))*100,0):0}%</td><td style={{padding:"5px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:"var(--green)",borderBottom:"1px solid var(--subtle-bg)"}}>${_sf(d.net||0,2)}</td><td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{d.currency||"USD"}</td><td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)"}}>{d.shares||""}</td><td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)"}}>{d.shares&&d.gross?_sf(d.gross/d.shares,4):""}</td><td style={{padding:"3px 6px",borderBottom:"1px solid var(--subtle-bg)"}}><button onClick={()=>deleteDivEntry(d.id)} style={{width:18,height:18,borderRadius:4,border:"1px solid rgba(255,69,58,.12)",background:"transparent",color:"var(--red)",fontSize:7,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:.3}}>✕</button></td></tr>))}</tbody></table></div>}</div>);})()}
-      {/* Export */}
-      {divLog.length>0&&(<div style={{display:"flex",justifyContent:"flex-end"}}><button onClick={()=>{const blob=new Blob([JSON.stringify(divLog,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="dividendos_ar.json";a.click();URL.revokeObjectURL(url);}} style={{padding:"5px 12px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer",fontFamily:"var(--fm)"}}>↓ Export JSON</button></div>)}
+
+      {/* ── Row 6: Cobros table (sortable) ── */}
+      {(()=>{const cols=[{k:"date",l:"FECHA",a:"left"},{k:"ticker",l:"TICKER",a:"left"},{k:"gross",l:"GROSS",a:"right"},{k:"tax",l:"TAX%",a:"right"},{k:"net",l:"NET",a:"right"},{k:"shares",l:"SH",a:"right"},{k:"dps",l:"DPS",a:"right"},{k:"",l:"",a:"center"}];const sk=divSort.col,sa=divSort.asc;const sorted=[...filtered].sort((a,b)=>{let va,vb;if(sk==="date"){va=a.date||"";vb=b.date||"";}else if(sk==="ticker"){va=a.ticker||"";vb=b.ticker||"";}else if(sk==="gross"){va=a.gross||0;vb=b.gross||0;}else if(sk==="net"){va=a.net||0;vb=b.net||0;}else if(sk==="tax"){va=a.gross>0?(1-a.net/a.gross):0;vb=b.gross>0?(1-b.net/b.gross):0;}else if(sk==="shares"){va=a.shares||0;vb=b.shares||0;}else if(sk==="dps"){va=a.shares&&a.gross?a.gross/a.shares:0;vb=b.shares&&b.gross?b.gross/b.shares:0;}else{va=a.date||"";vb=b.date||"";}if(typeof va==="string")return sa?va.localeCompare(vb):vb.localeCompare(va);return sa?va-vb:vb-va;});const ts=k=>{if(!k)return;setDivSort(p=>p.col===k?{col:k,asc:!p.asc}:{col:k,asc:false});};const ar=k=>divSort.col===k?(divSort.asc?" ▲":" ▼"):"";return(<div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}><div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:12,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fd)"}}>Cobros · {filtered.length}</span><button onClick={()=>{const blob=new Blob([JSON.stringify(divLog,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="dividendos_ar.json";a.click();URL.revokeObjectURL(url);}} style={{padding:"3px 8px",borderRadius:4,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)"}}>Export</button></div><div style={{overflowX:"auto",maxHeight:400}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:600}}><thead><tr>{cols.map((c,i)=><th key={i} onClick={()=>ts(c.k)} style={{padding:"5px 8px",textAlign:c.a,color:divSort.col===c.k?"var(--gold)":"var(--text-tertiary)",fontSize:8,fontWeight:600,fontFamily:"var(--fm)",borderBottom:"1px solid var(--border)",cursor:c.k?"pointer":"default",userSelect:"none",position:"sticky",top:0,background:"var(--bg)"}}>{c.l}{ar(c.k)}</th>)}</tr></thead><tbody>{sorted.slice(0,200).map((d,i)=>(<tr key={d.id||i} style={{background:i%2?"var(--row-alt)":"transparent"}}><td style={{padding:"4px 8px",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)",fontSize:10}}>{d.date}</td><td style={{padding:"4px 8px",fontWeight:600,fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)",fontSize:10}}>{d.ticker}</td><td style={{padding:"4px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>${_sf(d.gross||0,2)}</td><td style={{padding:"4px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{d.gross&&d.net?_sf((1-(d.net||0)/(d.gross||1))*100,0):0}%</td><td style={{padding:"4px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:"var(--green)",borderBottom:"1px solid var(--subtle-bg)"}}>${_sf(d.net||0,2)}</td><td style={{padding:"4px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)"}}>{d.shares||""}</td><td style={{padding:"4px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)"}}>{d.shares&&d.gross?_sf(d.gross/d.shares,4):""}</td><td style={{padding:"2px 4px",borderBottom:"1px solid var(--subtle-bg)"}}><button onClick={()=>deleteDivEntry(d.id)} style={{width:16,height:16,borderRadius:3,border:"none",background:"transparent",color:"var(--red)",fontSize:7,cursor:"pointer",opacity:.3}}>✕</button></td></tr>))}</tbody></table></div></div>);})()}
     </>;
   })()}
 </div>

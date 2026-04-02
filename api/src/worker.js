@@ -2178,11 +2178,16 @@ export default {
             cashTxns.push(a);
           }
 
+          // IB ticker → App ticker mapping (same as sync-ib)
+          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HGK:9616"};
+          const mapTicker = (sym) => IB_MAP[sym] || sym;
+
           // Import trades into cost_basis table using batch (D1 limit: 100 statements per batch)
           let tradesInserted = 0, tradesSkipped = 0;
           const tradeStmts = [];
           for (const t of trades) {
             if (!t.symbol || !t.tradeDate) continue;
+            const ticker = mapTicker(t.symbol);
             const fecha = `${t.tradeDate.slice(0,4)}-${t.tradeDate.slice(4,6)}-${t.tradeDate.slice(6,8)}`;
             const qty = parseFloat(t.quantity) || 0;
             const price = parseFloat(t.tradePrice) || 0;
@@ -2193,7 +2198,7 @@ export default {
 
             tradeStmts.push(env.DB.prepare(
               "INSERT OR IGNORE INTO cost_basis (ticker, fecha, tipo, shares, precio, comision, coste, opt_strike, opt_expiry, opt_tipo) VALUES (?,?,?,?,?,?,?,?,?,?)"
-            ).bind(t.symbol, fecha, tipo, qty, price, commission, netCash, t.strike || null, expiry, t.putCall || null));
+            ).bind(ticker, fecha, tipo, qty, price, commission, netCash, t.strike || null, expiry, t.putCall || null));
           }
           // Execute in batches of 80
           for (let i = 0; i < tradeStmts.length; i += 80) {
@@ -2208,6 +2213,7 @@ export default {
             const type = (c.type || "").toLowerCase();
             if (!type.includes("dividend") && !type.includes("payment in lieu")) continue;
             if (!c.symbol || !c.reportDate) continue;
+            const ticker = mapTicker(c.symbol);
             const fecha = c.reportDate.length === 8
               ? `${c.reportDate.slice(0,4)}-${c.reportDate.slice(4,6)}-${c.reportDate.slice(6,8)}`
               : c.reportDate;
@@ -2216,7 +2222,7 @@ export default {
 
             divStmts.push(env.DB.prepare(
               "INSERT INTO dividendos (ticker, fecha, div_total, divisa, notas) SELECT ?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM dividendos WHERE ticker=? AND fecha=? AND ABS(div_total - ?) < 0.01)"
-            ).bind(c.symbol, fecha, amount, c.currency || "USD", `IB ${c.type || ""} [${c.accountId || ""}]`, c.symbol, fecha, amount));
+            ).bind(ticker, fecha, amount, c.currency || "USD", `IB ${c.type || ""} [${c.accountId || ""}]`, ticker, fecha, amount));
           }
           for (let i = 0; i < divStmts.length; i += 80) {
             const batch = divStmts.slice(i, i + 80);
@@ -2540,6 +2546,320 @@ export default {
             options: { income: opts?.total || 0 },
             dividends: { gross: divs?.gross || 0, count: divs?.count || 0, byTicker: divByTicker.results || [] },
           }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // GET /api/dividend-dps-live — live DPS for all portfolio positions
+      // Strategy: Use ACTUAL dividend history from dividendos table (TTM) + FMP fundamentals cache
+      // Returns { [ticker]: { dps, yield, frequency, source } }
+      if (path === "/api/dividend-dps-live" && request.method === "GET") {
+        try {
+          // 1. Get all portfolio tickers with shares > 0, plus last price for yield calc
+          const positions = await env.DB.prepare("SELECT ticker, shares, div_ttm, last_price FROM positions WHERE shares > 0").all();
+          const tickers = (positions.results || []).map(p => p.ticker).filter(Boolean);
+          if (!tickers.length) return json({}, corsHeaders);
+
+          const result = {};
+
+          // Reverse alias map: position ticker → possible dividendos tickers
+          // IB stores dividends with raw IB symbols, positions use normalized tickers
+          const POS_TO_DIV_ALIASES = {
+            "BME:VIS":["VIS","VIS.D","VISCOFAN"],"BME:AMS":["AMS","AMS.D"],
+            "HKG:9618":["9618","JD"],"HKG:1052":["1052"],"HKG:1910":["1910"],
+            "HKG:2219":["2219"],"HGK:9616":["9616"],
+            "IIPR-PRA":["IIPR PRA","IIPRPRA"],
+          };
+
+          // 2. Calculate TTM dividends from actual dividend history (most accurate!)
+          const ttmDate = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+          const ttmDivs = await env.DB.prepare(
+            `SELECT ticker, SUM(bruto) as ttm_gross, COUNT(*) as payments
+             FROM dividendos WHERE fecha >= ? GROUP BY ticker`
+          ).bind(ttmDate).all();
+
+          const ttmMap = {};
+          for (const row of (ttmDivs.results || [])) {
+            ttmMap[row.ticker] = { gross: row.ttm_gross, payments: row.payments };
+          }
+
+          // Helper: find TTM data for a position ticker (checking aliases)
+          const findTTM = (ticker) => {
+            if (ttmMap[ticker]) return ttmMap[ticker];
+            const aliases = POS_TO_DIV_ALIASES[ticker];
+            if (aliases) {
+              for (const alt of aliases) {
+                if (ttmMap[alt]) return ttmMap[alt];
+              }
+            }
+            return null;
+          };
+
+          // 3. Get payment frequency from last 14 months of history per ticker
+          const freqDate = new Date(Date.now() - 420 * 86400000).toISOString().slice(0, 10);
+          const freqData = await env.DB.prepare(
+            `SELECT ticker, COUNT(*) as count FROM dividendos WHERE fecha >= ? GROUP BY ticker`
+          ).bind(freqDate).all();
+          const freqMap = {};
+          for (const row of (freqData.results || [])) {
+            const c = row.count;
+            freqMap[row.ticker] = c >= 11 ? "monthly" : c >= 3 ? "quarterly" : c >= 1 ? "semiannual" : "annual";
+          }
+
+          // 4. For each ticker: prefer TTM actual dividends, fallback to FMP cache, then positions.div_ttm
+          for (const ticker of tickers) {
+            const pos = (positions.results || []).find(p => p.ticker === ticker);
+            const shares = pos?.shares || 0;
+            const price = pos?.last_price || 0;
+            const ttm = findTTM(ticker);
+
+            let dps = 0;
+            let source = "none";
+
+            if (ttm && ttm.gross > 0 && shares > 0) {
+              // Best: actual TTM dividends / current shares
+              dps = ttm.gross / shares;
+              source = "ttm_actual";
+            }
+
+            // Fallback: FMP fundamentals cache
+            if (!dps) {
+              const cached = await env.DB.prepare(
+                "SELECT ratios FROM fundamentals WHERE symbol = ?"
+              ).bind(ticker).first();
+              if (cached?.ratios) {
+                try {
+                  const ratios = JSON.parse(cached.ratios || "[]");
+                  const latest = Array.isArray(ratios) ? ratios[0] : ratios;
+                  dps = latest?.dividendPerShare || latest?.dividendPerShareTTM || 0;
+                  if (dps > 0) source = "fmp_cache";
+                } catch {}
+              }
+            }
+
+            // Last fallback: positions.div_ttm
+            if (!dps && pos?.div_ttm > 0) {
+              dps = pos.div_ttm;
+              source = "positions";
+            }
+
+            const dy = price > 0 && dps > 0 ? dps / price : 0;
+            const frequency = freqMap[ticker] || "quarterly";
+
+            result[ticker] = {
+              dps: Math.round(dps * 100) / 100,
+              yield: Math.round(dy * 10000) / 10000,
+              frequency,
+              source,
+              ttm_total: ttm?.gross ? Math.round(ttm.gross) : 0,
+              payments_ttm: ttm?.payments || 0,
+            };
+          }
+
+          return json(result, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // GET /api/dividend-forward — 12-month forward dividend projection
+      if (path === "/api/dividend-forward" && request.method === "GET") {
+        try {
+          // 1. Get positions with shares > 0
+          const positions = await env.DB.prepare("SELECT ticker, shares, div_ttm, last_price FROM positions WHERE shares > 0").all();
+          const tickers = (positions.results || []).map(p => p.ticker).filter(Boolean);
+          if (!tickers.length) return json({ annual_projected: 0, monthly: [], by_ticker: [] }, corsHeaders);
+
+          // Reverse alias map (same as dps-live)
+          const POS_TO_DIV_ALIASES = {
+            "BME:VIS":["VIS","VIS.D"],"BME:AMS":["AMS","AMS.D"],
+            "HKG:9618":["9618","JD"],"HKG:1052":["1052"],"HKG:1910":["1910"],
+            "HKG:2219":["2219"],"HGK:9616":["9616"],
+            "IIPR-PRA":["IIPR PRA","IIPRPRA"],
+          };
+
+          // 2. Get DPS from TTM actual dividends
+          const ttmDate = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+          const ttmDivs = await env.DB.prepare(
+            `SELECT ticker, SUM(bruto) as ttm_gross FROM dividendos WHERE fecha >= ? GROUP BY ticker`
+          ).bind(ttmDate).all();
+          const ttmMap = {};
+          for (const row of (ttmDivs.results || [])) ttmMap[row.ticker] = row.ttm_gross;
+
+          const findTTMFwd = (ticker) => {
+            if (ttmMap[ticker]) return ttmMap[ticker];
+            const aliases = POS_TO_DIV_ALIASES[ticker];
+            if (aliases) { for (const alt of aliases) { if (ttmMap[alt]) return ttmMap[alt]; } }
+            return 0;
+          };
+
+          // Frequency
+          const freqDate = new Date(Date.now() - 420 * 86400000).toISOString().slice(0, 10);
+          const freqData = await env.DB.prepare(
+            `SELECT ticker, COUNT(*) as count FROM dividendos WHERE fecha >= ? GROUP BY ticker`
+          ).bind(freqDate).all();
+          const freqMap = {};
+          for (const row of (freqData.results || [])) {
+            const c = row.count;
+            freqMap[row.ticker] = c >= 11 ? "monthly" : c >= 3 ? "quarterly" : c >= 1 ? "semiannual" : "annual";
+          }
+          const findFreq = (ticker) => {
+            if (freqMap[ticker]) return freqMap[ticker];
+            const aliases = POS_TO_DIV_ALIASES[ticker];
+            if (aliases) { for (const alt of aliases) { if (freqMap[alt]) return freqMap[alt]; } }
+            return "quarterly";
+          };
+
+          const dpsMap = {};
+          for (const ticker of tickers) {
+            const pos = (positions.results || []).find(p => p.ticker === ticker);
+            const shares = pos?.shares || 0;
+            let dps = 0;
+            const ttmGross = findTTMFwd(ticker);
+            if (ttmGross && shares > 0) dps = ttmGross / shares;
+            if (!dps) dps = pos?.div_ttm || 0;
+            dpsMap[ticker] = { dps, frequency: findFreq(ticker) };
+          }
+
+          // 3. Get last dividend dates per ticker from dividendos table
+          const lastDivDates = {};
+          for (const ticker of tickers) {
+            const row = await env.DB.prepare(
+              "SELECT fecha FROM dividendos WHERE ticker = ? ORDER BY fecha DESC LIMIT 1"
+            ).bind(ticker).first();
+            if (row?.fecha) lastDivDates[ticker] = row.fecha;
+          }
+
+          // 4. Project forward 12 months
+          const now = new Date();
+          const monthly = [];
+          for (let m = 0; m < 12; m++) {
+            const d = new Date(now.getFullYear(), now.getMonth() + m, 1);
+            monthly.push({ month: d.toISOString().slice(0, 7), amount: 0, payments: [] });
+          }
+
+          const byTicker = [];
+          let annualProjected = 0;
+
+          for (const ticker of tickers) {
+            const pos = (positions.results || []).find(p => p.ticker === ticker);
+            const shares = pos?.shares || 0;
+            const { dps, frequency } = dpsMap[ticker] || {};
+            if (!dps || !shares) continue;
+
+            const freqMap = { monthly: 12, quarterly: 4, semiannual: 2, annual: 1 };
+            const paymentsPerYear = freqMap[frequency] || 4;
+            const dpsPerPayment = dps / paymentsPerYear;
+            const annualAmount = dps * shares;
+            annualProjected += annualAmount;
+
+            byTicker.push({
+              ticker, dps: Math.round(dps * 100) / 100, shares, frequency,
+              annual: Math.round(annualAmount),
+              monthly_avg: Math.round(annualAmount / 12),
+            });
+
+            // Determine payment months from last known dividend date
+            const lastDate = lastDivDates[ticker] ? new Date(lastDivDates[ticker]) : null;
+            const intervalMonths = 12 / paymentsPerYear;
+
+            for (let m = 0; m < 12; m++) {
+              const targetMonth = new Date(now.getFullYear(), now.getMonth() + m, 15);
+              let willPay = false;
+
+              if (frequency === "monthly") {
+                willPay = true;
+              } else if (lastDate) {
+                // Check if this month aligns with the payment cycle
+                const monthsDiff = (targetMonth.getFullYear() - lastDate.getFullYear()) * 12 + targetMonth.getMonth() - lastDate.getMonth();
+                willPay = monthsDiff > 0 && monthsDiff % intervalMonths === 0;
+              } else {
+                // No history — distribute evenly
+                willPay = m % Math.round(12 / paymentsPerYear) === 0;
+              }
+
+              if (willPay) {
+                const amount = Math.round(dpsPerPayment * shares * 100) / 100;
+                monthly[m].amount += amount;
+                monthly[m].payments.push({ ticker, amount });
+              }
+            }
+          }
+
+          // 5. YoY growth from dividendos table
+          const thisYear = now.getFullYear();
+          const lastYearDiv = await env.DB.prepare(
+            "SELECT SUM(bruto) as total FROM dividendos WHERE fecha LIKE ?"
+          ).bind(`${thisYear - 1}%`).first();
+          const growthYoy = lastYearDiv?.total > 0 ? ((annualProjected - lastYearDiv.total) / lastYearDiv.total * 100) : null;
+
+          // Sort by_ticker by annual descending
+          byTicker.sort((a, b) => b.annual - a.annual);
+
+          return json({
+            annual_projected: Math.round(annualProjected),
+            monthly_avg: Math.round(annualProjected / 12),
+            monthly,
+            by_ticker: byTicker,
+            growth_yoy: growthYoy != null ? Math.round(growthYoy * 10) / 10 : null,
+            tickers_count: byTicker.length,
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // POST /api/dividendos/fix-tickers — normalize IB tickers in existing dividend records
+      if (path === "/api/dividendos/fix-tickers" && request.method === "POST") {
+        try {
+          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HGK:9616","VIS.D":"BME:VIS"};
+          let fixed = 0;
+          for (const [ibTicker, appTicker] of Object.entries(IB_MAP)) {
+            const result = await env.DB.prepare(
+              "UPDATE dividendos SET ticker = ? WHERE ticker = ?"
+            ).bind(appTicker, ibTicker).run();
+            if (result?.changes > 0) fixed += result.changes;
+          }
+          return json({ success: true, fixed }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // POST /api/positions/refresh-dps — refresh div_ttm from fundamentals cache or manual overrides
+      if (path === "/api/positions/refresh-dps" && request.method === "POST") {
+        try {
+          // Accept optional manual DPS overrides in body
+          const body = await request.json().catch(() => ({}));
+          const overrides = body?.overrides || {};
+          // Apply manual overrides first
+          let manualUpdated = 0;
+          for (const [ticker, dps] of Object.entries(overrides)) {
+            if (dps > 0) {
+              await env.DB.prepare("UPDATE positions SET div_ttm = ? WHERE ticker = ?").bind(dps, ticker).run();
+              manualUpdated++;
+            }
+          }
+
+          const positions = await env.DB.prepare("SELECT ticker, shares FROM positions").all();
+          let updated = 0, zeroed = 0;
+          for (const pos of (positions.results || [])) {
+            if (!pos.shares || pos.shares <= 0) {
+              await env.DB.prepare("UPDATE positions SET div_ttm = 0, div_yield = 0, yoc = 0 WHERE ticker = ?")
+                .bind(pos.ticker).run();
+              zeroed++;
+              continue;
+            }
+            const cached = await env.DB.prepare("SELECT ratios FROM fundamentals WHERE symbol = ?")
+              .bind(pos.ticker).first();
+            if (cached?.ratios) {
+              try {
+                const ratios = JSON.parse(cached.ratios || "[]");
+                const latest = Array.isArray(ratios) ? ratios[0] : ratios;
+                const dps = latest?.dividendPerShare || latest?.dividendPerShareTTM || 0;
+                const dy = latest?.dividendYield || latest?.dividendYieldTTM || 0;
+                if (dps > 0) {
+                  await env.DB.prepare("UPDATE positions SET div_ttm = ?, div_yield = ? WHERE ticker = ?")
+                    .bind(dps, dy, pos.ticker).run();
+                  updated++;
+                }
+              } catch {}
+            }
+          }
+          return json({ success: true, updated, zeroed, manualUpdated, total: (positions.results || []).length }, corsHeaders);
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
       }
 
