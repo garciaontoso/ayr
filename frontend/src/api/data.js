@@ -102,9 +102,17 @@ export async function fetchAllData() {
 
     // Dividend entries (parsed, replaces expandDivInit)
     const _DIV_ENTRIES = divAll.map((d,i) => ({
-      id: "dv_"+String(i).padStart(4,"0"), date: d.fecha, ticker: d.ticker, company: d.ticker,
-      gross: d.bruto, net: d.neto, taxPct: d.bruto > 0 && d.neto ? Math.round((1-d.neto/d.bruto)*100) : 30,
-      currency: d.divisa || "USD", broker: "IB", shares: d.shares || 0
+      id: d.id || ("dv_"+String(i).padStart(4,"0")), date: d.fecha, ticker: d.ticker,
+      company: d.company || d.ticker,
+      gross: d.bruto, net: d.neto,
+      taxPct: d.wht_rate > 0 ? Math.round(d.wht_rate * 100) : (d.bruto > 0 && d.neto ? Math.round((1-d.neto/d.bruto)*100) : 0),
+      whtRate: d.wht_rate || 0, whtAmount: d.wht_amount || 0,
+      spainRate: d.spain_rate || 0, spainTax: d.spain_tax || 0,
+      fxEur: d.fx_eur || 0,
+      dpsGross: d.dps_gross || 0, dpsNet: d.dps_net || 0,
+      commission: d.commission || 0,
+      excessIrpf: d.excess_irpf || 0, excessForeign: d.excess_foreign || 0,
+      currency: d.divisa || "USD", broker: d.broker || "IB", shares: d.shares || 0
     }));
 
     // Gasto entries (parsed, replaces expandGastosInit)

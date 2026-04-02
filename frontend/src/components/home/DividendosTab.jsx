@@ -911,7 +911,68 @@ export default function DividendosTab() {
       </div>
 
       {/* ── Row 6: Cobros table (sortable) ── */}
-      {(()=>{const cols=[{k:"date",l:"FECHA",a:"left"},{k:"ticker",l:"TICKER",a:"left"},{k:"gross",l:"GROSS",a:"right"},{k:"tax",l:"TAX%",a:"right"},{k:"net",l:"NET",a:"right"},{k:"shares",l:"SH",a:"right"},{k:"dps",l:"DPS",a:"right"},{k:"",l:"",a:"center"}];const sk=divSort.col,sa=divSort.asc;const sorted=[...filtered].sort((a,b)=>{let va,vb;if(sk==="date"){va=a.date||"";vb=b.date||"";}else if(sk==="ticker"){va=a.ticker||"";vb=b.ticker||"";}else if(sk==="gross"){va=a.gross||0;vb=b.gross||0;}else if(sk==="net"){va=a.net||0;vb=b.net||0;}else if(sk==="tax"){va=a.gross>0?(1-a.net/a.gross):0;vb=b.gross>0?(1-b.net/b.gross):0;}else if(sk==="shares"){va=a.shares||0;vb=b.shares||0;}else if(sk==="dps"){va=a.shares&&a.gross?a.gross/a.shares:0;vb=b.shares&&b.gross?b.gross/b.shares:0;}else{va=a.date||"";vb=b.date||"";}if(typeof va==="string")return sa?va.localeCompare(vb):vb.localeCompare(va);return sa?va-vb:vb-va;});const ts=k=>{if(!k)return;setDivSort(p=>p.col===k?{col:k,asc:!p.asc}:{col:k,asc:false});};const ar=k=>divSort.col===k?(divSort.asc?" ▲":" ▼"):"";return(<div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}><div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontSize:12,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fd)"}}>Cobros · {filtered.length}</span><button onClick={()=>{const blob=new Blob([JSON.stringify(divLog,null,2)],{type:"application/json"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="dividendos_ar.json";a.click();URL.revokeObjectURL(url);}} style={{padding:"3px 8px",borderRadius:4,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)"}}>Export</button></div><div style={{overflowX:"auto",maxHeight:400}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:600}}><thead><tr>{cols.map((c,i)=><th key={i} onClick={()=>ts(c.k)} style={{padding:"5px 8px",textAlign:c.a,color:divSort.col===c.k?"var(--gold)":"var(--text-tertiary)",fontSize:8,fontWeight:600,fontFamily:"var(--fm)",borderBottom:"1px solid var(--border)",cursor:c.k?"pointer":"default",userSelect:"none",position:"sticky",top:0,background:"var(--bg)"}}>{c.l}{ar(c.k)}</th>)}</tr></thead><tbody>{sorted.slice(0,200).map((d,i)=>(<tr key={d.id||i} style={{background:i%2?"var(--row-alt)":"transparent"}}><td style={{padding:"4px 8px",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)",fontSize:10}}>{d.date}</td><td style={{padding:"4px 8px",fontWeight:600,fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)",fontSize:10}}>{d.ticker}</td><td style={{padding:"4px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>${_sf(d.gross||0,2)}</td><td style={{padding:"4px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{d.gross&&d.net?_sf((1-(d.net||0)/(d.gross||1))*100,0):0}%</td><td style={{padding:"4px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:"var(--green)",borderBottom:"1px solid var(--subtle-bg)"}}>${_sf(d.net||0,2)}</td><td style={{padding:"4px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)"}}>{d.shares||""}</td><td style={{padding:"4px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)"}}>{d.shares&&d.gross?_sf(d.gross/d.shares,4):""}</td><td style={{padding:"2px 4px",borderBottom:"1px solid var(--subtle-bg)"}}><button onClick={()=>deleteDivEntry(d.id)} style={{width:16,height:16,borderRadius:3,border:"none",background:"transparent",color:"var(--red)",fontSize:7,cursor:"pointer",opacity:.3}}>✕</button></td></tr>))}</tbody></table></div></div>);})()}
+      {(() => {
+        const cols = [
+          {k:"date",l:"FECHA",a:"left"},{k:"ticker",l:"TICKER",a:"left"},
+          {k:"gross",l:"GROSS",a:"right"},{k:"tax",l:"RET%",a:"right"},
+          {k:"wht",l:"WHT",a:"right"},{k:"net",l:"NET",a:"right"},
+          {k:"shares",l:"SH",a:"right"},{k:"dps",l:"DPS",a:"right"},
+          {k:"excess",l:"RECUP",a:"right"},{k:"broker",l:"BRK",a:"left"},
+          {k:"",l:"",a:"center"},
+        ];
+        const sk = divSort.col, sa = divSort.asc;
+        const sorted = [...filtered].sort((a,b) => {
+          let va, vb;
+          if (sk==="date") { va=a.date||""; vb=b.date||""; }
+          else if (sk==="ticker") { va=a.ticker||""; vb=b.ticker||""; }
+          else if (sk==="gross") { va=a.gross||0; vb=b.gross||0; }
+          else if (sk==="net") { va=a.net||0; vb=b.net||0; }
+          else if (sk==="tax") { va=a.taxPct||0; vb=b.taxPct||0; }
+          else if (sk==="shares") { va=a.shares||0; vb=b.shares||0; }
+          else if (sk==="dps") { va=a.dpsGross||(a.shares&&a.gross?a.gross/a.shares:0); vb=b.dpsGross||(b.shares&&b.gross?b.gross/b.shares:0); }
+          else if (sk==="wht") { va=a.whtAmount||0; vb=b.whtAmount||0; }
+          else if (sk==="excess") { va=(a.excessIrpf||0)+(a.excessForeign||0); vb=(b.excessIrpf||0)+(b.excessForeign||0); }
+          else { va=a.date||""; vb=b.date||""; }
+          if (typeof va==="string") return sa?va.localeCompare(vb):vb.localeCompare(va);
+          return sa?va-vb:vb-va;
+        });
+        const ts = k => { if(!k)return; setDivSort(p=>p.col===k?{col:k,asc:!p.asc}:{col:k,asc:false}); };
+        const ar = k => divSort.col===k?(divSort.asc?" ▲":" ▼"):"";
+        const td0 = {padding:"4px 6px",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)",fontSize:10};
+        return (
+        <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
+          <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontSize:12,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fd)"}}>Cobros · {filtered.length}</span>
+            <button onClick={()=>{const blob=new Blob([JSON.stringify(divLog,null,2)],{type:"application/json"});const u=URL.createObjectURL(blob);const a=document.createElement("a");a.href=u;a.download="dividendos_ar.json";a.click();URL.revokeObjectURL(u);}} style={{padding:"3px 8px",borderRadius:4,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)"}}>Export</button>
+          </div>
+          <div style={{overflowX:"auto",maxHeight:400}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:750}}>
+              <thead><tr>{cols.map((c,i)=>
+                <th key={i} onClick={()=>ts(c.k)} style={{padding:"5px 6px",textAlign:c.a,color:divSort.col===c.k?"var(--gold)":"var(--text-tertiary)",fontSize:8,fontWeight:600,fontFamily:"var(--fm)",borderBottom:"1px solid var(--border)",cursor:c.k?"pointer":"default",userSelect:"none",position:"sticky",top:0,background:"var(--bg)",whiteSpace:"nowrap"}}>{c.l}{ar(c.k)}</th>
+              )}</tr></thead>
+              <tbody>{sorted.slice(0,200).map((d,i) => {
+                const dps = d.dpsGross || (d.shares && d.gross ? d.gross/d.shares : 0);
+                const wht = d.whtAmount || (d.gross && d.net ? d.gross - d.net : 0);
+                const recup = (d.excessIrpf||0) + (d.excessForeign||0);
+                return (
+                <tr key={d.id||i} style={{background:i%2?"var(--row-alt)":"transparent"}}>
+                  <td style={{...td0,color:"var(--text-primary)"}}>{d.date}</td>
+                  <td style={{...td0,fontWeight:600,color:"var(--gold)"}}>{d.ticker}</td>
+                  <td style={{...td0,textAlign:"right",fontWeight:600,color:"var(--text-primary)"}}>${_sf(d.gross||0,2)}</td>
+                  <td style={{...td0,textAlign:"right",color:"var(--red)"}}>{d.taxPct||0}%</td>
+                  <td style={{...td0,textAlign:"right",color:"var(--red)",opacity:.7}}>{wht>0?"-$"+_sf(wht,2):""}</td>
+                  <td style={{...td0,textAlign:"right",fontWeight:600,color:"var(--green)"}}>${_sf(d.net||0,2)}</td>
+                  <td style={{...td0,textAlign:"right",color:"var(--text-secondary)"}}>{d.shares||""}</td>
+                  <td style={{...td0,textAlign:"right",color:"var(--gold)"}}>{dps>0?"$"+_sf(dps,3):""}</td>
+                  <td style={{...td0,textAlign:"right",color:recup>0?"#64d2ff":"var(--text-tertiary)"}}>{recup>0?"$"+_sf(recup,2):""}</td>
+                  <td style={{...td0,textAlign:"left",color:"var(--text-tertiary)",fontSize:9}}>{d.broker!=="IB"?d.broker:""}</td>
+                  <td style={{padding:"2px 4px",borderBottom:"1px solid var(--subtle-bg)"}}><button onClick={()=>deleteDivEntry(d.id)} style={{width:16,height:16,borderRadius:3,border:"none",background:"transparent",color:"var(--red)",fontSize:7,cursor:"pointer",opacity:.3}}>✕</button></td>
+                </tr>);
+              })}</tbody>
+            </table>
+          </div>
+        </div>);
+      })()}
     </>;
   })()}
 </div>

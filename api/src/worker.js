@@ -80,6 +80,11 @@ async function ensureMigrations(env) {
     try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN last_payment TEXT DEFAULT NULL`).run(); } catch(e) { /* already exists */ }
     try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN custom_months INTEGER DEFAULT NULL`).run(); } catch(e) { /* already exists */ }
 
+    // Dividendos: tax fields (retención origen, España, DPS, broker, FX)
+    for (const col of ['wht_rate REAL DEFAULT 0','wht_amount REAL DEFAULT 0','spain_rate REAL DEFAULT 0','spain_tax REAL DEFAULT 0','fx_eur REAL DEFAULT 0','dps_gross REAL DEFAULT 0','dps_net REAL DEFAULT 0','commission REAL DEFAULT 0','excess_irpf REAL DEFAULT 0','excess_foreign REAL DEFAULT 0','broker TEXT DEFAULT NULL','company TEXT DEFAULT NULL']) {
+      try { await env.DB.prepare(`ALTER TABLE dividendos ADD COLUMN ${col}`).run(); } catch(e) { /* already exists */ }
+    }
+
     // Patrimonio: new fields for CNY bank, split salary, gold, BTC
     for (const col of ['construction_bank_cny REAL DEFAULT 0','fx_eur_cny REAL DEFAULT 0','salary_usd REAL DEFAULT 0','salary_cny REAL DEFAULT 0','gold_grams REAL DEFAULT 0','gold_eur REAL DEFAULT 0','btc_amount REAL DEFAULT 0','btc_eur REAL DEFAULT 0']) {
       try { await env.DB.prepare(`ALTER TABLE patrimonio ADD COLUMN ${col}`).run(); } catch(e) { /* already exists */ }
@@ -693,9 +698,15 @@ export default {
         ).bind(body.fecha, body.ticker, body.bruto).first();
         if (dup) return json({ success: true, skipped: true, id: dup.id }, corsHeaders);
         await env.DB.prepare(
-          `INSERT INTO dividendos (fecha, ticker, bruto, neto, divisa, shares, notas)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
-        ).bind(body.fecha, body.ticker, body.bruto, body.neto, body.divisa || 'USD', body.shares, body.notas).run();
+          `INSERT INTO dividendos (fecha, ticker, bruto, neto, divisa, shares, notas,
+           wht_rate, wht_amount, spain_rate, spain_tax, fx_eur, dps_gross, dps_net,
+           commission, excess_irpf, excess_foreign, broker, company)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(body.fecha, body.ticker, body.bruto, body.neto, body.divisa || 'USD', body.shares, body.notas,
+          body.wht_rate || 0, body.wht_amount || 0, body.spain_rate || 0, body.spain_tax || 0,
+          body.fx_eur || 0, body.dps_gross || 0, body.dps_net || 0,
+          body.commission || 0, body.excess_irpf || 0, body.excess_foreign || 0,
+          body.broker || null, body.company || null).run();
         return json({ success: true }, corsHeaders);
       }
 
@@ -966,6 +977,23 @@ export default {
           div_last_year: divLastYear?.total || 0,
           total_gastos_entries: totalGastos?.n || 0,
         }, corsHeaders);
+      }
+
+      // PUT /api/dividendos/:id — update dividendo with tax fields
+      if (path.startsWith("/api/dividendos/") && request.method === "PUT") {
+        const id = validateId(path.split("/").pop());
+        if (!id) return validationError("Invalid id", corsHeaders);
+        const body = await parseBody(request);
+        const sets = [], vals = [];
+        for (const [k, v] of Object.entries(body)) {
+          if (['fecha','ticker','bruto','neto','divisa','shares','notas','wht_rate','wht_amount','spain_rate','spain_tax','fx_eur','dps_gross','dps_net','commission','excess_irpf','excess_foreign','broker','company'].includes(k)) {
+            sets.push(`${k} = ?`); vals.push(v);
+          }
+        }
+        if (!sets.length) return validationError("No fields to update", corsHeaders);
+        vals.push(id);
+        await env.DB.prepare(`UPDATE dividendos SET ${sets.join(', ')} WHERE id = ?`).bind(...vals).run();
+        return json({ success: true }, corsHeaders);
       }
 
       // DELETE /api/dividendos/:id
@@ -2179,7 +2207,7 @@ export default {
           }
 
           // IB ticker → App ticker mapping (same as sync-ib)
-          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HGK:9616"};
+          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HGK:9616","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA"};
           const mapTicker = (sym) => IB_MAP[sym] || sym;
 
           // Import trades into cost_basis table using batch (D1 limit: 100 statements per batch)
@@ -2807,7 +2835,7 @@ export default {
       // POST /api/dividendos/fix-tickers — normalize IB tickers in existing dividend records
       if (path === "/api/dividendos/fix-tickers" && request.method === "POST") {
         try {
-          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HGK:9616","VIS.D":"BME:VIS"};
+          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HGK:9616","VIS.D":"BME:VIS","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA"};
           let fixed = 0;
           for (const [ibTicker, appTicker] of Object.entries(IB_MAP)) {
             const result = await env.DB.prepare(
