@@ -922,6 +922,7 @@ export default {
         if (body.importe !== undefined) { sets.push("importe = ?"); vals.push(body.importe); }
         if (body.fecha !== undefined) { sets.push("fecha = ?"); vals.push(body.fecha); }
         if (body.china_obligatorio !== undefined) { sets.push("china_obligatorio = ?"); vals.push(body.china_obligatorio ? 1 : 0); }
+        if (body.lugar_tag !== undefined) { sets.push("lugar_tag = ?"); vals.push(body.lugar_tag || null); }
         if (sets.length === 0) return json({ error: "Nothing to update" }, corsHeaders);
         vals.push(id);
         await env.DB.prepare(`UPDATE gastos SET ${sets.join(", ")} WHERE id = ?`).bind(...vals).run();
