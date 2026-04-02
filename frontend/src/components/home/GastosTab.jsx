@@ -291,19 +291,13 @@ export default function GastosTab() {
     const avgMonthly = months.size > 0 ? totalEur / months.size : 0;
 
     // FIRE breakdown: China obligatorio vs voluntario
-    const chinaExpenses = expenses.filter(g=>g.tipo==="china");
-    // Use manual chinaOblig flag if set, otherwise fallback to category detection
-    const CHINA_OBLIG_CATS_FALLBACK = new Set(["UCH","ALQ","UTI","Alquiler","Utilities China","Utilities"]);
-    const chinaObligEur = chinaExpenses.filter(g => g.chinaOblig || (!chinaExpenses.some(x=>x.chinaOblig) && CHINA_OBLIG_CATS_FALLBACK.has(g.cat))).reduce((s,g)=>s+gToEur(g),0);
-    const chinaVoluntEur = totalChinaEur - chinaObligEur;
-    const espanaEur = totalBaseEur; // totalEur - china - extra
-    // Base Real FIRE = España + China voluntario (gastos de vida normal)
-    // Excluye China obligatorio (alquiler, vuelos, utilities = desaparece al jubilarse en España)
-    const baseRealEur = espanaEur + chinaVoluntEur;
+    // China obligatorio = gastos marcados manualmente como obligatorios (alquiler, vuelos, utilities)
+    const chinaObligEur = expenses.filter(g => g.chinaOblig).reduce((s,g) => s+gToEur(g), 0);
+    // Base Real FIRE = Total - China obligatorio - Extra
+    // (incluye comida/ropa en China porque es gasto de vida normal)
+    const baseRealEur = totalEur - chinaObligEur - totalExtraEur;
     const nMonths = months.size || 1;
-    const espanaMes = espanaEur / nMonths;
     const chinaObligMes = chinaObligEur / nMonths;
-    const chinaVoluntMes = chinaVoluntEur / nMonths;
     const baseRealMes = baseRealEur / nMonths;
 
     // By category (in EUR)
@@ -406,27 +400,18 @@ export default function GastosTab() {
         <div style={{padding:"14px 16px",background:"rgba(214,158,46,.03)",borderRadius:12,border:"1px solid rgba(214,158,46,.12)"}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
             <div style={{fontSize:10,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)",letterSpacing:.5}}>DESGLOSE FIRE</div>
-            <div title="Base Real = gastos de vida normal (Espana + China voluntario como comida/ropa). Excluye China obligatorio (alquiler, vuelos, utilities) que desaparecen al jubilarte en Espana." style={{width:14,height:14,borderRadius:7,background:"rgba(214,158,46,.15)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"help",fontSize:8,color:"var(--gold)",fontWeight:700}}>?</div>
+            <div title="Base Real = todos tus gastos MENOS los marcados como 'China OBLIG' (alquiler, vuelos, utilities que desaparecen al jubilarte en Espana)." style={{width:14,height:14,borderRadius:7,background:"rgba(214,158,46,.15)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"help",fontSize:8,color:"var(--gold)",fontWeight:700}}>?</div>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:8}}>
-            <div style={{padding:"10px 12px",background:"rgba(48,209,88,.04)",borderRadius:10,border:"1px solid rgba(48,209,88,.08)"}}>
-              <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,letterSpacing:.3}}>ESPANA</div>
-              <div style={{fontSize:16,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)"}}>{"\u20AC"}{espanaMes.toLocaleString(undefined,{maximumFractionDigits:0})}<span style={{fontSize:9,fontWeight:500,color:"var(--text-tertiary)"}}>/mes</span></div>
-            </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:8}}>
             <div style={{padding:"10px 12px",background:"rgba(239,68,68,.04)",borderRadius:10,border:"1px solid rgba(239,68,68,.08)"}}>
-              <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,letterSpacing:.3}}>CHINA OBLIGATORIO</div>
+              <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,letterSpacing:.3}}>🇨🇳 CHINA OBLIGATORIO</div>
               <div style={{fontSize:16,fontWeight:700,color:"#ef4444",fontFamily:"var(--fm)"}}>{"\u20AC"}{chinaObligMes.toLocaleString(undefined,{maximumFractionDigits:0})}<span style={{fontSize:9,fontWeight:500,color:"var(--text-tertiary)"}}>/mes</span></div>
-              <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>desaparece al volver a ES</div>
+              <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>desaparece al jubilarte en Espana</div>
             </div>
-            <div style={{padding:"10px 12px",background:"rgba(168,85,247,.04)",borderRadius:10,border:"1px solid rgba(168,85,247,.08)"}}>
-              <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,letterSpacing:.3}}>CHINA VOLUNTARIO</div>
-              <div style={{fontSize:16,fontWeight:700,color:"#a855f7",fontFamily:"var(--fm)"}}>{"\u20AC"}{chinaVoluntMes.toLocaleString(undefined,{maximumFractionDigits:0})}<span style={{fontSize:9,fontWeight:500,color:"var(--text-tertiary)"}}>/mes</span></div>
-              <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>comida, ocio = vida normal</div>
-            </div>
-            <div style={{padding:"10px 12px",background:"rgba(214,158,46,.06)",borderRadius:10,border:"1px solid rgba(214,158,46,.15)"}}>
-              <div style={{fontSize:8,color:"var(--gold)",fontFamily:"var(--fm)",fontWeight:700,letterSpacing:.3}}>BASE REAL JUBILACION</div>
-              <div style={{fontSize:18,fontWeight:800,color:"var(--gold)",fontFamily:"var(--fm)"}}>{"\u20AC"}{baseRealMes.toLocaleString(undefined,{maximumFractionDigits:0})}<span style={{fontSize:9,fontWeight:500,color:"var(--text-tertiary)"}}>/mes</span></div>
-              <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{"\u20AC"}{(baseRealMes*12).toLocaleString(undefined,{maximumFractionDigits:0})}/ano</div>
+            <div style={{padding:"12px 14px",background:"rgba(214,158,46,.06)",borderRadius:10,border:"1px solid rgba(214,158,46,.15)"}}>
+              <div style={{fontSize:8,color:"var(--gold)",fontFamily:"var(--fm)",fontWeight:700,letterSpacing:.3}}>🎯 BASE REAL JUBILACION</div>
+              <div style={{fontSize:20,fontWeight:800,color:"var(--gold)",fontFamily:"var(--fm)"}}>{"\u20AC"}{baseRealMes.toLocaleString(undefined,{maximumFractionDigits:0})}<span style={{fontSize:10,fontWeight:500,color:"var(--text-tertiary)"}}>/mes</span></div>
+              <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{"\u20AC"}{(baseRealMes*12).toLocaleString(undefined,{maximumFractionDigits:0})}/ano · total menos China oblig y extras</div>
             </div>
           </div>
         </div>
@@ -719,7 +704,7 @@ export default function GastosTab() {
                     onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"} onMouseLeave={e=>e.currentTarget.style.background=i%2?"var(--row-alt)":"transparent"}>
                     <td style={{padding:"5px 10px",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>{g.date}</td>
                     <td style={{padding:"5px 10px",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.cat}{g.secreto?<span style={{fontSize:7,marginLeft:4,padding:"1px 4px",borderRadius:3,background:"rgba(99,102,241,.08)",color:"#6366f1",verticalAlign:"middle"}}>🔒</span>:""}{g.recur?<span style={{fontSize:7,marginLeft:3,padding:"1px 4px",borderRadius:3,background:"rgba(255,159,10,.08)",color:"var(--orange)",verticalAlign:"middle"}}>REC</span>:""}</td>
-                    <td style={{padding:"3px 4px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)",whiteSpace:"nowrap"}}>{g.tipo==="china"?<><span style={{fontSize:8,padding:"2px 5px",borderRadius:4,background:"rgba(239,68,68,.08)",color:"#ef4444",fontFamily:"var(--fm)",fontWeight:600}}>🇨🇳</span><button onClick={async(e)=>{e.stopPropagation();try{await fetch(`${API_URL}/api/gastos/${g.id}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({china_obligatorio:!g.chinaOblig})});g.chinaOblig=!g.chinaOblig;e.currentTarget.style.background=g.chinaOblig?"rgba(239,68,68,.15)":"transparent";e.currentTarget.style.color=g.chinaOblig?"#ef4444":"var(--text-tertiary)";e.currentTarget.style.borderColor=g.chinaOblig?"rgba(239,68,68,.4)":"rgba(255,255,255,.1)";e.currentTarget.style.fontWeight=g.chinaOblig?"700":"500";e.currentTarget.textContent=g.chinaOblig?"OBLIG":"vol";}catch{}}} title={g.chinaOblig?"Obligatorio — click para voluntario":"Voluntario — click para obligatorio"} style={{fontSize:7,marginLeft:2,padding:"2px 5px",borderRadius:3,border:`1px solid ${g.chinaOblig?"rgba(239,68,68,.4)":"rgba(255,255,255,.1)"}`,background:g.chinaOblig?"rgba(239,68,68,.15)":"transparent",color:g.chinaOblig?"#ef4444":"var(--text-tertiary)",cursor:"pointer",fontWeight:g.chinaOblig?700:500,fontFamily:"var(--fm)"}}>{g.chinaOblig?"OBLIG":"vol"}</button></>:g.tipo==="extra"?<span style={{fontSize:8,padding:"2px 5px",borderRadius:4,background:"rgba(168,85,247,.08)",color:"#a855f7",fontFamily:"var(--fm)",fontWeight:600}}>EXTRA</span>:<span style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>—</span>}</td>
+                    <td style={{padding:"3px 4px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)",whiteSpace:"nowrap"}}><button onClick={async(e)=>{e.stopPropagation();const newVal=!g.chinaOblig;try{await fetch(`${API_URL}/api/gastos/${g.id}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({china_obligatorio:newVal})});g.chinaOblig=newVal;const btn=e.currentTarget;btn.style.background=newVal?"rgba(239,68,68,.12)":"transparent";btn.style.borderColor=newVal?"rgba(239,68,68,.4)":"var(--subtle-bg2)";btn.textContent=newVal?"🇨🇳 OBLIG":"—";btn.style.color=newVal?"#ef4444":"var(--text-tertiary)";btn.style.fontWeight=newVal?"700":"400";/* flash */ btn.style.transform="scale(1.15)";setTimeout(()=>{btn.style.transform="scale(1)"},200);}catch{}}} title={g.chinaOblig?"Gasto obligatorio China (alquiler, vuelos...) — click para quitar":"Click para marcar como gasto obligatorio China"} style={{fontSize:8,padding:"3px 8px",borderRadius:5,border:`1px solid ${g.chinaOblig?"rgba(239,68,68,.4)":"var(--subtle-bg2)"}`,background:g.chinaOblig?"rgba(239,68,68,.12)":"transparent",color:g.chinaOblig?"#ef4444":"var(--text-tertiary)",cursor:"pointer",fontWeight:g.chinaOblig?700:400,fontFamily:"var(--fm)",transition:"all .2s",minWidth:50}}>{g.chinaOblig?"🇨🇳 OBLIG":"—"}</button></td>
                     <td style={{padding:"5px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:g.amount>0?"var(--green)":"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>{_ccyFlag(ccy)} {g.amount>0?"+":""}{_ccySym(ccy)}{Math.abs(g.amount||0).toLocaleString(undefined,{minimumFractionDigits:ccy==="CNY"?0:2,maximumFractionDigits:2})}</td>
                     <td style={{padding:"3px 4px",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>{isNonEur && <span style={{fontSize:8,padding:"1px 5px",borderRadius:3,background:"var(--subtle-border)",color:"var(--text-tertiary)"}}>{ccy}</span>}</td>
                     <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:isNonEur?"var(--text-secondary)":"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)",fontSize:isNonEur?11:10.5}}>{isNonEur ? `€${eurVal.toLocaleString(undefined,{maximumFractionDigits:0})}` : `€${_sf(Math.abs(g.amount||0),2)}`}</td>
