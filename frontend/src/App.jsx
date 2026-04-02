@@ -932,7 +932,7 @@ function buildPositionsFromCB() {
   const [gastosFilter, setGastosFilter] = useState({year:"all",cat:"all",month:"all",ccy:"all",search:"",tipo:"all",showSecretos:false});
   const [gastosSort, setGastosSort] = useState({col:"date",asc:false});
   
-  const GASTO_CAT_LIST = ["Supermercado","Restaurante","Transporte","Ropa","Deportes","Alquiler","Casa","Utilities","Utilities China","Suscripciones","Salud","Masajes","Bolsa","Viajes","Caprichos","Regalos","Barco","Ocio","Hipoteca","Educacion","Otros"];
+  const GASTO_CAT_LIST = ["Alquiler","Casa","Hipoteca","Utilities","Utilities China","Supermercado","Restaurante","Transporte","Barco","Suscripciones","Salud","Masajes","Deportes","Ropa","Caprichos","Viajes","Ocio","Educacion","Bolsa","Regalos","Otros"];
   
   const CAT_TO_CODE = {"Supermercado":"SUP","Restaurante":"COM","Transporte":"TRA","Ropa":"ROP","Salud":"HEA","Suscripciones":"SUB","Bolsa":"SBL","Caprichos":"CAP","Deportes":"DEP","Utilities":"UTI","Utilities China":"UCH","Barco":"BAR","Masajes":"MAS","Regalos":"REG","Viajes":"VIA","Alquiler":"ALQ","Ocio":"ENT","Hipoteca":"HIP","Casa":"HOM","Educacion":"EDU","Otros":"OTH"};
 

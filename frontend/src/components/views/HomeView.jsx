@@ -19,6 +19,24 @@ import AdvisorTab from '../home/AdvisorTab';
 import ResearchTab from '../home/ResearchTab';
 import CoveredCallsTab from '../home/CoveredCallsTab';
 import IncomeLabTab from '../home/IncomeLabTab';
+
+// Combined Income tab with sub-tabs
+function IncomeTab() {
+  const [sub, setSub] = useState(() => localStorage.getItem('income_sub') || 'cc');
+  return <div>
+    <div style={{display:"flex",gap:6,marginBottom:12}}>
+      {[{id:"cc",lbl:"📞 CC Income"},{id:"lab",lbl:"🧪 Income Lab"}].map(t=>
+        <button key={t.id} onClick={()=>{setSub(t.id);localStorage.setItem('income_sub',t.id);}}
+          style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${sub===t.id?"var(--gold)":"var(--border)"}`,
+            background:sub===t.id?"var(--gold-dim)":"transparent",color:sub===t.id?"var(--gold)":"var(--text-tertiary)",
+            fontSize:11,fontWeight:sub===t.id?700:500,cursor:"pointer",fontFamily:"var(--fb)",transition:"all .15s"}}>
+          {t.lbl}
+        </button>
+      )}
+    </div>
+    {sub === "cc" ? <CoveredCallsTab /> : <IncomeLabTab />}
+  </div>;
+}
 import NominaTab from '../home/NominaTab';
 import PresupuestoTab from '../home/PresupuestoTab';
 import SettingsPanel from '../home/SettingsPanel';
@@ -582,8 +600,7 @@ export default function HomeView() {
       {homeTab==="historial" && <HistorialTab />}
       {homeTab==="advisor" && <AdvisorTab />}
       {homeTab==="research" && <ResearchTab />}
-      {homeTab==="covered-calls" && <CoveredCallsTab />}
-      {homeTab==="income-lab" && <IncomeLabTab />}
+      {homeTab==="income" && <IncomeTab />}
       {homeTab==="nomina" && <NominaTab />}
       {homeTab==="presupuesto" && <PresupuestoTab />}
     </ErrorBoundary>

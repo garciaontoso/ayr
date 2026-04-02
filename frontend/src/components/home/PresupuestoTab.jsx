@@ -7,12 +7,12 @@ import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
 const CATEGORIAS = [
   { id: 'CASA', ico: '🏠', color: '#d69e2e' },
   { id: 'UTILITYS', ico: '💡', color: '#64d2ff' },
-  { id: 'COCHES', ico: '🚗', color: '#ff6b6b' },
   { id: 'BARCO', ico: '⛵', color: '#4ecdc4' },
+  { id: 'COCHES', ico: '🚗', color: '#ff6b6b' },
+  { id: 'SUBSCRIPCIONES', ico: '📱', color: '#a29bfe' },
   { id: 'COMIDA_ROPA', ico: '🛒', color: '#ff9f43' },
   { id: 'SALUD', ico: '🏥', color: '#ee5a24' },
   { id: 'DEPORTE', ico: '🏋️', color: '#6c5ce7' },
-  { id: 'SUBSCRIPCIONES', ico: '📱', color: '#a29bfe' },
   { id: 'OTROS', ico: '📦', color: '#636e72' },
 ];
 
@@ -22,15 +22,21 @@ const CAT_LABELS = {
   SUBSCRIPCIONES: 'Subscripciones', OTROS: 'Otros',
 };
 
-const FRECUENCIAS = ['MENSUAL', 'ANUAL', 'TRIMESTRAL', 'SEMESTRAL'];
+const FRECUENCIAS = ['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL', 'BIANUAL', 'TRIANUAL', 'QUINQUENAL', 'PERSONALIZADO'];
 
 // Normalize: strip stopwords and punctuation for fuzzy matching
 const STOP = new Set(['de','del','la','el','los','las','s.l','sl','s.a','sa','to','y','e','en']);
 const normalize = (s) => s.toLowerCase().trim().split(/[\s.,]+/).filter(w => w.length >= 2 && !STOP.has(w)).join(' ');
 
-// Match a gasto detail against a presupuesto item — ONLY by explicit aliases (no auto name matching)
-const matchesItem = (detailLower, item) => {
+// Match a gasto detail against a presupuesto item — ONLY by explicit aliases
+const matchesItem = (detailLower, item, gastoId) => {
   if (detailLower.length < 3) return false;
+  // Check if this specific gasto is excluded
+  if (gastoId) {
+    let excluded = [];
+    try { excluded = JSON.parse(item.excluded_gastos || '[]'); } catch(e) {}
+    if (excluded.includes(gastoId)) return false;
+  }
   let aliases = [];
   try { aliases = JSON.parse(item.aliases || '[]'); } catch(e) {}
   if (aliases.length === 0) return false;
@@ -38,13 +44,13 @@ const matchesItem = (detailLower, item) => {
     const al = alias.toLowerCase().trim();
     if (al.length < 3) continue;
     if (detailLower.includes(al) || al.includes(detailLower)) return true;
-    // Fuzzy: compare normalized (without stopwords)
     const nAlias = normalize(al), nDetail = normalize(detailLower);
     if (nAlias.length >= 5 && nDetail.length >= 5 && (nDetail.includes(nAlias) || nAlias.includes(nDetail))) return true;
   }
   return false;
 };
-const FREQ_DIVISOR = { MENSUAL: 1, TRIMESTRAL: 3, SEMESTRAL: 6, ANUAL: 12 };
+const FREQ_DIVISOR = { MENSUAL: 1, TRIMESTRAL: 3, SEMESTRAL: 6, ANUAL: 12, BIANUAL: 24, TRIANUAL: 36, QUINQUENAL: 60, PERSONALIZADO: 1 };
+const getFreqDivisor = (item) => item.frecuencia === 'PERSONALIZADO' && item.custom_months ? item.custom_months : (FREQ_DIVISOR[item.frecuencia] || 1);
 
 const catOf = id => CATEGORIAS.find(c => c.id === id) || CATEGORIAS[CATEGORIAS.length - 1];
 
@@ -138,7 +144,7 @@ export default function PresupuestoTab() {
   const saveItem = async () => {
     const importe = parseFloat(form.importe);
     if (!form.nombre || isNaN(importe) || importe <= 0) return;
-    const payload = { ...form, importe };
+    const payload = { ...form, importe, custom_months: form.custom_months ? parseInt(form.custom_months) : null, last_payment: form.last_payment || null };
 
     try {
       if (editId) {
@@ -149,7 +155,7 @@ export default function PresupuestoTab() {
         if (!r2.ok) throw new Error(r2.status);
       }
       setShowForm(false); setEditId(null);
-      setForm({ nombre: '', categoria: 'CASA', banco: '', frecuencia: 'MENSUAL', importe: '', notas: '' });
+      setForm({ nombre: '', categoria: 'CASA', banco: '', frecuencia: 'MENSUAL', importe: '', notas: '', last_payment: '', custom_months: '' });
       fetchItems(); fetchAlerts();
     } catch (e) { console.error('Save error:', e); }
   };
@@ -165,7 +171,7 @@ export default function PresupuestoTab() {
 
   const startEdit = (item) => {
     setEditId(item.id);
-    setForm({ nombre: item.nombre, categoria: item.categoria, banco: item.banco || '', frecuencia: item.frecuencia, importe: String(item.importe), notas: item.notas || '' });
+    setForm({ nombre: item.nombre, categoria: item.categoria, banco: item.banco || '', frecuencia: item.frecuencia, importe: String(item.importe), notas: item.notas || '', last_payment: item.last_payment || '', custom_months: item.custom_months ? String(item.custom_months) : '' });
     setShowForm(true);
   };
 
@@ -175,7 +181,7 @@ export default function PresupuestoTab() {
     const increases = [];
     for (const item of items) {
       if ((item.nombre || '').trim().length < 3) continue;
-      const matching = gastosLog.filter(g => matchesItem((g.detail || '').toLowerCase().trim(), item));
+      const matching = gastosLog.filter(g => matchesItem((g.detail || '').toLowerCase().trim(), item, g.id));
       if (matching.length === 0) continue;
       // Convert all matching amounts to EUR
       const toEur = (g) => {
@@ -189,26 +195,33 @@ export default function PresupuestoTab() {
         }
         return amt;
       };
-      // Use average of last 12 months to cover all seasons
+      // Compare annualized real spending vs annualized budget
       const twelveMAgo = new Date(); twelveMAgo.setMonth(twelveMAgo.getMonth() - 12);
       const recent = matching.filter(g => g.date && new Date(g.date) >= twelveMAgo);
-      const pool = recent.length >= 2 ? recent : matching.slice(-3); // fallback to last 3 if not enough recent
-      const avgAmount = pool.reduce((s, g) => s + toEur(g), 0) / pool.length;
       const latest = [...matching].sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0];
-      const budgetPerCharge = item.importe;
-      if (budgetPerCharge <= 0) continue;
-      const pctChange = ((avgAmount - budgetPerCharge) / budgetPerCharge) * 100;
+      // Sum all spending in last 12 months = annualized real spend
+      const realAnnual = recent.reduce((s, g) => s + toEur(g), 0);
+      // If less than 12 months of data, extrapolate
+      const months = new Set(recent.map(g => (g.date||'').slice(0,7)));
+      const nMonths = Math.max(months.size, 1);
+      const realAnnualEstimate = nMonths >= 12 ? realAnnual : (realAnnual / nMonths) * 12;
+      // Budget annualized
+      const freqDiv = getFreqDivisor(item);
+      const budgetAnnual = (item.importe / freqDiv) * 12;
+      if (budgetAnnual <= 0) continue;
+      const pctChange = ((realAnnualEstimate - budgetAnnual) / budgetAnnual) * 100;
+      const realMonthly = realAnnualEstimate / 12;
       if (pctChange > 5) {
         increases.push({
           itemId: item.id,
           nombre: item.nombre,
           categoria: item.categoria,
-          budgetAmount: budgetPerCharge,
-          actualAmount: Math.round(avgAmount),
+          budgetAmount: Math.round(budgetAnnual / 12), // monthly budget
+          actualAmount: Math.round(realMonthly), // monthly real
           pctChange,
           date: latest.date,
           frecuencia: item.frecuencia,
-          sampleSize: pool.length,
+          sampleSize: recent.length,
         });
       }
     }
@@ -221,7 +234,7 @@ export default function PresupuestoTab() {
     const result = {};
     for (const item of items) {
       if ((item.nombre || '').trim().length < 3) continue;
-      const matches = gastosLog.filter(g => matchesItem((g.detail || '').toLowerCase().trim(), item))
+      const matches = gastosLog.filter(g => matchesItem((g.detail || '').toLowerCase().trim(), item, g.id))
         .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
       if (matches.length > 0) result[item.id] = matches;
     }
@@ -352,8 +365,11 @@ export default function PresupuestoTab() {
 
   const filtered = useMemo(() => {
     let list = catFilter === 'ALL' ? items : items.filter(i => i.categoria === catFilter);
-    if (sortBy === 'categoria') list = [...list].sort((a, b) => a.categoria.localeCompare(b.categoria) || a.nombre.localeCompare(b.nombre));
-    else if (sortBy === 'importe') list = [...list].sort((a, b) => (b.importe / FREQ_DIVISOR[b.frecuencia]) - (a.importe / FREQ_DIVISOR[a.frecuencia]));
+    if (sortBy === 'categoria') {
+      const catOrder = Object.fromEntries(CATEGORIAS.map((c, i) => [c.id, i]));
+      list = [...list].sort((a, b) => (catOrder[a.categoria] ?? 99) - (catOrder[b.categoria] ?? 99) || a.nombre.localeCompare(b.nombre));
+    }
+    else if (sortBy === 'importe') list = [...list].sort((a, b) => (b.importe / getFreqDivisor(b)) - (a.importe / getFreqDivisor(a)));
     else if (sortBy === 'nombre') list = [...list].sort((a, b) => a.nombre.localeCompare(b.nombre));
     return list;
   }, [items, catFilter, sortBy]);
@@ -362,7 +378,7 @@ export default function PresupuestoTab() {
     const byCat = {};
     let totalMensual = 0;
     for (const it of items) {
-      const mensual = it.importe / FREQ_DIVISOR[it.frecuencia];
+      const mensual = it.importe / getFreqDivisor(it);
       totalMensual += mensual;
       byCat[it.categoria] = (byCat[it.categoria] || 0) + mensual;
     }
@@ -387,7 +403,7 @@ export default function PresupuestoTab() {
       }
       // Auto-detect from gastosLog
       if ((item.nombre || '').trim().length < 3) { itemMonths[item.id] = DEFAULT_MONTHS[item.frecuencia] || [1]; continue; }
-      const matching = (gastosLog || []).filter(g => matchesItem((g.detail || '').toLowerCase().trim(), item));
+      const matching = (gastosLog || []).filter(g => matchesItem((g.detail || '').toLowerCase().trim(), item, g.id));
       if (matching.length === 0) { itemMonths[item.id] = DEFAULT_MONTHS[item.frecuencia] || [1]; continue; }
       // Count months
       const monthCounts = {};
@@ -449,7 +465,7 @@ export default function PresupuestoTab() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button onClick={() => { setEditId(null); setForm({ nombre: '', categoria: 'CASA', banco: '', frecuencia: 'MENSUAL', importe: '', notas: '' }); setShowForm(!showForm); }} style={btn(!showForm)}>
+          <button onClick={() => { setEditId(null); setForm({ nombre: '', categoria: 'CASA', banco: '', frecuencia: 'MENSUAL', importe: '', notas: '', last_payment: '', custom_months: '' }); setShowForm(!showForm); }} style={btn(!showForm)}>
             {showForm ? '✕ Cerrar' : '+ Añadir'}
           </button>
         </div>
@@ -621,18 +637,18 @@ export default function PresupuestoTab() {
                 style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 11, padding: 0, opacity: 0.5 }} title="Descartar">✕</button>
               <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)', minWidth: 100 }}>{inc.nombre}</span>
               <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-                presupuesto <span style={{ fontFamily: 'var(--fm)' }}>{fmtEur(inc.budgetAmount)}</span>
+                presupuesto <span style={{ fontFamily: 'var(--fm)' }}>{fmtEur(inc.budgetAmount)}/mes</span>
               </span>
               <span style={{ color: 'var(--text-tertiary)' }}>→</span>
               <span style={{ fontSize: 11, color: '#ff6b6b', fontWeight: 600, fontFamily: 'var(--fm)' }}>
-                media {fmtEur(inc.actualAmount)}
+                real {fmtEur(inc.actualAmount)}/mes
               </span>
               <span style={{ fontSize: 10, color: '#ff6b6b', fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(255,107,107,0.1)' }}>
                 +{inc.pctChange.toFixed(0)}%
               </span>
               <span style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>{inc.date}</span>
               <button
-                onClick={() => updateBudgetAmount(inc.itemId, inc.actualAmount)}
+                onClick={() => { const item = items.find(i=>i.id===inc.itemId); const freq = item ? getFreqDivisor(item) : 1; updateBudgetAmount(inc.itemId, Math.round(inc.actualAmount * freq)); }}
                 style={{ ...btn(false), padding: '3px 8px', fontSize: 9, color: '#d69e2e', borderColor: 'rgba(214,158,46,0.4)', marginLeft: 'auto' }}>
                 Actualizar presupuesto
               </button>
@@ -806,11 +822,21 @@ export default function PresupuestoTab() {
               <label style={{ fontSize: 9, color: 'var(--text-tertiary)', display: 'block', marginBottom: 2 }}>Notas</label>
               <input style={inp} value={form.notas} onChange={e => setForm({ ...form, notas: e.target.value })} placeholder="Opcional" />
             </div>
+            {form.frecuencia === 'PERSONALIZADO' && (
+              <div>
+                <label style={{ fontSize: 9, color: 'var(--gold)', display: 'block', marginBottom: 2, fontWeight: 600 }}>Cada X meses *</label>
+                <input style={inp} type="number" value={form.custom_months} onChange={e => setForm({ ...form, custom_months: e.target.value })} placeholder="Ej: 60 = cada 5 años" />
+              </div>
+            )}
+            <div>
+              <label style={{ fontSize: 9, color: 'var(--text-tertiary)', display: 'block', marginBottom: 2 }}>Último pago</label>
+              <input style={inp} type="date" value={form.last_payment || ''} onChange={e => setForm({ ...form, last_payment: e.target.value })} />
+            </div>
           </div>
           {form.importe && !isNaN(parseFloat(form.importe)) && (
             <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-tertiary)' }}>
-              Equivale a: <strong style={{ color: 'var(--gold)' }}>{fmtEur(parseFloat(form.importe) / FREQ_DIVISOR[form.frecuencia])}/mes</strong>
-              {' · '}<strong>{fmtEur(parseFloat(form.importe) / FREQ_DIVISOR[form.frecuencia] * 12)}/año</strong>
+              Equivale a: <strong style={{ color: 'var(--gold)' }}>{fmtEur(parseFloat(form.importe) / getFreqDivisor(form))}/mes</strong>
+              {' · '}<strong>{fmtEur(parseFloat(form.importe) / getFreqDivisor(form) * 12)}/año</strong>
             </div>
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
@@ -866,7 +892,7 @@ export default function PresupuestoTab() {
               {(() => {
                 let lastCat = '';
                 return filtered.map(item => {
-                  const mensual = item.importe / FREQ_DIVISOR[item.frecuencia];
+                  const mensual = item.importe / getFreqDivisor(item);
                   const anual = mensual * 12;
                   const cat = catOf(item.categoria);
                   const showCatHeader = catFilter === 'ALL' && sortBy === 'categoria' && item.categoria !== lastCat;
@@ -914,10 +940,12 @@ export default function PresupuestoTab() {
                       {expandedItem === item.id && (() => {
                         const gastos = matchedGastos[item.id] || [];
                         const last = gastos[0];
-                        const freqMonths = FREQ_DIVISOR[item.frecuencia];
+                        const freqMonths = getFreqDivisor(item);
                         let nextDate = null;
-                        if (last?.date && item.frecuencia !== 'MENSUAL') {
-                          const d = new Date(last.date);
+                        // Prefer manual last_payment, then auto from gastos
+                        const lastPayDate = item.last_payment || last?.date;
+                        if (lastPayDate && item.frecuencia !== 'MENSUAL') {
+                          const d = new Date(lastPayDate);
                           d.setMonth(d.getMonth() + freqMonths);
                           nextDate = d;
                         }
@@ -972,16 +1000,25 @@ export default function PresupuestoTab() {
                                 <div style={{ flex: 1, minWidth: 200 }}>
                                   <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', fontWeight: 600, marginBottom: 4 }}>HISTORIAL DE PAGOS</div>
                                   <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                    {gastos.slice(0, 12).map((g, gi) => (
-                                      <div key={gi} style={{ padding: '2px 6px', borderRadius: 4, background: 'var(--subtle-bg)', fontSize: 8, fontFamily: 'var(--fm)' }}>
-                                        <span style={{ color: 'var(--text-tertiary)' }}>{(g.date||'').slice(0,7)}</span>
-                                        {' '}
+                                    {gastos.slice(0, 20).map((g, gi) => (
+                                      <div key={gi} style={{ padding: '2px 6px', borderRadius: 4, background: 'var(--subtle-bg)', fontSize: 8, fontFamily: 'var(--fm)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                        <span style={{ color: 'var(--text-tertiary)' }}>{(g.date||'').slice(0,10)}</span>
                                         <span style={{ fontWeight: 600, color: toEurG(g) > item.importe * 1.1 ? '#ff6b6b' : 'var(--text-secondary)' }}>
                                           {fmtEur(toEurG(g))}
                                         </span>
+                                        <span style={{ color: 'var(--text-tertiary)', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 7 }} title={g.detail}>{g.detail}</span>
+                                        <button onClick={async () => {
+                                          await fetch(`${API_URL}/api/presupuesto/${item.id}/exclude-gasto`, {
+                                            method: 'POST', headers: {'Content-Type':'application/json'},
+                                            body: JSON.stringify({ gasto_id: g.id }),
+                                          });
+                                          let excl = []; try { excl = JSON.parse(item.excluded_gastos || '[]'); } catch(e) {}
+                                          excl.push(g.id);
+                                          setItems(prev => prev.map(it => it.id === item.id ? { ...it, excluded_gastos: JSON.stringify(excl) } : it));
+                                        }} title="Excluir este gasto" style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 7, padding: 0, opacity: 0.4, lineHeight: 1 }}>✕</button>
                                       </div>
                                     ))}
-                                    {gastos.length === 0 && <span style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>Sin gastos asociados encontrados</span>}
+                                    {gastos.length === 0 && <span style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>Sin gastos asociados — añade un alias para vincular</span>}
                                   </div>
                                 </div>
                               </div>
@@ -1033,7 +1070,7 @@ export default function PresupuestoTab() {
             </tbody>
             <tfoot>
               {(() => {
-                const filtMensual = filtered.reduce((s, it) => s + it.importe / FREQ_DIVISOR[it.frecuencia], 0);
+                const filtMensual = filtered.reduce((s, it) => s + it.importe / getFreqDivisor(it), 0);
                 const filtAnual = filtMensual * 12;
                 return (
                   <tr style={{ background: 'rgba(214,158,46,0.06)', fontWeight: 700 }}>

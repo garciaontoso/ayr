@@ -197,7 +197,7 @@ export default function ControlTab() {
 
         {/* Brokers USD */}
         <div>
-          <div style={{fontSize:9,fontWeight:700,color:"var(--gold)",marginBottom:4,fontFamily:"var(--fm)"}}>📈 BROKERS USD</div>
+          <div style={{fontSize:9,fontWeight:700,color:"#30d158",marginBottom:4,fontFamily:"var(--fm)"}}>📈 BROKERS USD</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:8}}>
             {[
               {k:"ibUsd",l:"IB $"},
@@ -280,7 +280,7 @@ export default function ControlTab() {
         const totalUsd = totalEur * fx;
         return totalEur > 0 ? <div style={{marginTop:10,padding:"8px 12px",borderRadius:8,background:"rgba(48,209,88,.06)",border:"1px solid rgba(48,209,88,.15)",display:"flex",gap:12,fontSize:11,fontFamily:"var(--fm)",flexWrap:"wrap"}}>
           <span>Bancos: <b style={{color:"#2563eb"}}>€{Math.round(bk).toLocaleString()}</b></span>
-          <span>Brokers: <b style={{color:"var(--gold)"}}>${Math.round(br).toLocaleString()}</b></span>
+          <span>Brokers: <b style={{color:"#30d158"}}>${Math.round(br).toLocaleString()}</b></span>
           {goldEur > 0 && <span>Oro: <b style={{color:"#d69e2e"}}>€{Math.round(goldEur).toLocaleString()}</b></span>}
           {btcEur > 0 && <span>BTC: <b style={{color:"#ff9f0a"}}>€{Math.round(btcEur).toLocaleString()}</b></span>}
           <span style={{fontWeight:700,color:"var(--green)"}}>Total: €{Math.round(totalEur).toLocaleString()} / ${Math.round(totalUsd).toLocaleString()}</span>
@@ -299,7 +299,7 @@ export default function ControlTab() {
       <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:1000}}>
         <thead>
           <tr>
-            {["FECHA","€/$","PAT USD","PAT EUR","BROKERS $","BANCOS €","ORO €","BTC €","Δ",""].map((h,i)=>
+            {["FECHA","PAT USD","€/$","PAT EUR","Δ","BROKERS $","BANCOS €","ORO €","BTC €",""].map((h,i)=>
               <th key={i} style={{padding:"6px 10px",textAlign:i===0?"left":"right",color:"var(--text-tertiary)",fontSize:9,fontWeight:600,fontFamily:"var(--fm)",borderBottom:"1px solid var(--border)"}}>{h}</th>)}
           </tr>
         </thead>
@@ -307,17 +307,18 @@ export default function ControlTab() {
           {ctrlLog.filter(c=>c.pu>0).map((c,i,arr) => {
             const prev = arr[i+1];
             const chg = prev?.pu ? ((c.pu-prev.pu)/prev.pu*100) : 0;
+            const td0 = {padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"};
             return <tr key={c.id||i} style={{background:i%2?"var(--row-alt)":"transparent"}}
               onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"} onMouseLeave={e=>e.currentTarget.style.background=i%2?"var(--row-alt)":"transparent"}>
               <td style={{padding:"6px 10px",fontFamily:"var(--fm)",color:"var(--text-primary)",fontWeight:600,borderBottom:"1px solid var(--subtle-bg)"}}>{c.d}</td>
-              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{c.fx?.toFixed(3)}</td>
-              <td style={{padding:"6px 10px",textAlign:"right",fontWeight:700,fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>${(c.pu||0).toLocaleString()}</td>
-              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)"}}>€{(c.pe||0).toLocaleString()}</td>
-              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)"}}>${(c.br||0).toLocaleString()}</td>
-              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"#2563eb",borderBottom:"1px solid var(--subtle-bg)"}}>€{(c.bk||0).toLocaleString()}</td>
-              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"#d69e2e",borderBottom:"1px solid var(--subtle-bg)"}}>{c.goldEur ? `€${Math.round(c.goldEur).toLocaleString()}` : "—"}</td>
-              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"#ff9f0a",borderBottom:"1px solid var(--subtle-bg)"}}>{c.btcEur ? `€${Math.round(c.btcEur).toLocaleString()}` : "—"}</td>
-              <td style={{padding:"6px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:chg>=0?"var(--green)":"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{chg?`${chg>=0?"+":""}${_sf(chg,1)}%`:""}</td>
+              <td style={{...td0,fontWeight:700,color:"var(--text-primary)"}}>${(c.pu||0).toLocaleString()}</td>
+              <td style={{...td0,color:"var(--text-tertiary)",fontSize:10}}>{c.fx?.toFixed(3)}</td>
+              <td style={{...td0,color:"var(--text-secondary)"}}>€{(c.pe||0).toLocaleString()}</td>
+              <td style={{...td0,fontWeight:600,color:chg>=0?"var(--green)":"var(--red)"}}>{chg?`${chg>=0?"+":""}${_sf(chg,1)}%`:""}</td>
+              <td style={{...td0,color:"#30d158"}}>${(c.br||0).toLocaleString()}</td>
+              <td style={{...td0,color:"#2563eb"}}>€{(c.bk||0).toLocaleString()}</td>
+              <td style={{...td0,color:"#d69e2e"}}>{c.goldEur ? `€${Math.round(c.goldEur).toLocaleString()}` : "—"}</td>
+              <td style={{...td0,color:"#ff9f0a"}}>{c.btcEur ? `€${Math.round(c.btcEur).toLocaleString()}` : "—"}</td>
               <td style={{padding:"6px 10px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)"}}>
                 <button onClick={()=>startEdit(c)} style={{border:"none",background:"none",color:"var(--text-tertiary)",cursor:"pointer",fontSize:11,padding:"2px 4px"}} title="Editar">✏️</button>
               </td>

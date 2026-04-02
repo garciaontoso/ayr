@@ -72,6 +72,11 @@ async function ensureMigrations(env) {
     try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN billing_months TEXT DEFAULT NULL`).run(); } catch(e) { /* already exists */ }
     try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN aliases TEXT DEFAULT NULL`).run(); } catch(e) { /* already exists */ }
 
+    // Presupuesto: excluded gasto IDs, last payment, custom months
+    try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN excluded_gastos TEXT DEFAULT NULL`).run(); } catch(e) { /* already exists */ }
+    try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN last_payment TEXT DEFAULT NULL`).run(); } catch(e) { /* already exists */ }
+    try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN custom_months INTEGER DEFAULT NULL`).run(); } catch(e) { /* already exists */ }
+
     // Patrimonio: new fields for CNY bank, split salary, gold, BTC
     for (const col of ['construction_bank_cny REAL DEFAULT 0','fx_eur_cny REAL DEFAULT 0','salary_usd REAL DEFAULT 0','salary_cny REAL DEFAULT 0','gold_grams REAL DEFAULT 0','gold_eur REAL DEFAULT 0','btc_amount REAL DEFAULT 0','btc_eur REAL DEFAULT 0']) {
       try { await env.DB.prepare(`ALTER TABLE patrimonio ADD COLUMN ${col}`).run(); } catch(e) { /* already exists */ }
@@ -3393,9 +3398,9 @@ export default {
         const reqErr = validateRequired(body.nombre, 'nombre') || validateNumber(body.importe, 'importe');
         if (reqErr) return validationError(reqErr, corsHeaders);
         const { results } = await env.DB.prepare(
-          `INSERT INTO presupuesto (nombre, categoria, banco, frecuencia, importe, notas, billing_months, aliases)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
-        ).bind(body.nombre, body.categoria || 'OTROS', body.banco || '', body.frecuencia || 'MENSUAL', body.importe, body.notas || '', body.billing_months || null, body.aliases || null).all();
+          `INSERT INTO presupuesto (nombre, categoria, banco, frecuencia, importe, notas, billing_months, aliases, last_payment, custom_months)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
+        ).bind(body.nombre, body.categoria || 'OTROS', body.banco || '', body.frecuencia || 'MENSUAL', body.importe, body.notas || '', body.billing_months || null, body.aliases || null, body.last_payment || null, body.custom_months || null).all();
         return json({ success: true, item: results[0] }, corsHeaders);
       }
 
@@ -3415,6 +3420,26 @@ export default {
         return json({ success: true, aliases: existing }, corsHeaders);
       }
 
+      // POST /api/presupuesto/:id/exclude-gasto — toggle a gasto exclusion
+      if (path.match(/\/api\/presupuesto\/\d+\/exclude-gasto$/) && request.method === "POST") {
+        const id = parseInt(path.split("/")[3], 10);
+        const body = await parseBody(request);
+        const gastoId = body.gasto_id;
+        if (!gastoId) return json({ error: "gasto_id required" }, corsHeaders, 400);
+        const item = await env.DB.prepare("SELECT excluded_gastos FROM presupuesto WHERE id = ?").bind(id).first();
+        if (!item) return json({ error: "Not found" }, corsHeaders, 404);
+        let excluded = [];
+        try { excluded = JSON.parse(item.excluded_gastos || '[]'); } catch(e) {}
+        if (excluded.includes(gastoId)) {
+          excluded = excluded.filter(x => x !== gastoId); // re-include
+        } else {
+          excluded.push(gastoId); // exclude
+        }
+        await env.DB.prepare(`UPDATE presupuesto SET excluded_gastos=?, updated_at=datetime('now') WHERE id=?`)
+          .bind(excluded.length > 0 ? JSON.stringify(excluded) : null, id).run();
+        return json({ success: true, excluded }, corsHeaders);
+      }
+
       // PUT /api/presupuesto/:id/billing-months — quick update billing months only
       if (path.match(/\/api\/presupuesto\/\d+\/billing-months$/) && request.method === "PUT") {
         const id = parseInt(path.split("/")[3], 10);
@@ -3432,9 +3457,13 @@ export default {
         if (!old) return json({ error: "Not found" }, corsHeaders, 404);
 
         await env.DB.prepare(
-          `UPDATE presupuesto SET nombre=?, categoria=?, banco=?, frecuencia=?, importe=?, notas=?, billing_months=?, aliases=?, updated_at=datetime('now')
+          `UPDATE presupuesto SET nombre=?, categoria=?, banco=?, frecuencia=?, importe=?, notas=?, billing_months=?, aliases=?, last_payment=?, custom_months=?, updated_at=datetime('now')
            WHERE id=?`
-        ).bind(body.nombre, body.categoria, body.banco || '', body.frecuencia, body.importe, body.notas || '', body.billing_months !== undefined ? body.billing_months : old.billing_months, body.aliases !== undefined ? body.aliases : old.aliases, id).run();
+        ).bind(body.nombre, body.categoria, body.banco || '', body.frecuencia, body.importe, body.notas || '',
+          body.billing_months !== undefined ? body.billing_months : old.billing_months,
+          body.aliases !== undefined ? body.aliases : old.aliases,
+          body.last_payment !== undefined ? body.last_payment : old.last_payment,
+          body.custom_months !== undefined ? body.custom_months : old.custom_months, id).run();
 
         if (old.importe !== body.importe && old.importe > 0) {
           const pct = ((body.importe - old.importe) / old.importe) * 100;
