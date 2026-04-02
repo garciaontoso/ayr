@@ -76,6 +76,9 @@ export default function PresupuestoTab() {
   const [alerts, setAlerts] = useState([]);
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [calMonth, setCalMonth] = useState(null);
+  const [dismissedMissing, setDismissedMissing] = useState(() => { try { return JSON.parse(localStorage.getItem('presu_dismissed_missing') || '[]'); } catch { return []; } });
+  const [dismissedIncreases, setDismissedIncreases] = useState(() => { try { return JSON.parse(localStorage.getItem('presu_dismissed_increases') || '[]'); } catch { return []; } });
 
   // ─── Fetch ───
   const fetchItems = useCallback(async () => {
@@ -150,17 +153,29 @@ export default function PresupuestoTab() {
     const increases = [];
     for (const item of items) {
       const nameLower = (item.nombre || '').toLowerCase().trim();
-      // Find gastos that match this budget item by name (detail field)
+      if (nameLower.length < 3) continue;
+      // Find gastos that match this budget item by name
+      // For short names (<=5 chars), require word-boundary match to avoid "Gas" matching "Gasolina"
+      const isShortName = nameLower.length <= 5;
+      const nameRegex = isShortName ? new RegExp(`\\b${nameLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i') : null;
       const matching = gastosLog.filter(g => {
         const detailLower = (g.detail || '').toLowerCase().trim();
-        // Match by name substring (e.g. "Netflix" matches detail containing "netflix")
+        if (detailLower.length < 3) return false;
+        if (isShortName) return nameRegex.test(detailLower);
         return detailLower.includes(nameLower) || nameLower.includes(detailLower);
       });
       if (matching.length === 0) continue;
-      // Sort by date descending to find latest
       const sorted = [...matching].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
       const latest = sorted[0];
-      const latestAmount = Math.abs(latest.amount);
+      // Convert to EUR if needed
+      let latestAmount = Math.abs(latest.amount);
+      const ccy = (latest.currency || 'EUR').toUpperCase();
+      if (ccy !== 'EUR' && fxRates) {
+        const rateFrom = fxRates[ccy]; const rateEur = fxRates['EUR'];
+        if (rateFrom && rateEur) latestAmount = latestAmount / rateFrom * rateEur;
+        else if (ccy === 'CNY') latestAmount = latestAmount * 0.127;
+        else if (ccy === 'USD') latestAmount = latestAmount * 0.926;
+      }
       // Convert budget to per-charge amount based on frequency
       const budgetPerCharge = item.importe; // importe is already per-frequency
       if (budgetPerCharge <= 0) continue;
@@ -322,6 +337,67 @@ export default function PresupuestoTab() {
     return { byCat, totalMensual, totalAnual: totalMensual * 12 };
   }, [items]);
 
+  // ─── Calendar: auto-detect billing months + compute per-month totals ───
+  const MONTH_NAMES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const DEFAULT_MONTHS = { ANUAL: [1], SEMESTRAL: [1,7], TRIMESTRAL: [1,4,7,10] };
+
+  const calendarData = useMemo(() => {
+    // Step 1: auto-detect billing months for non-monthly items
+    const itemMonths = {}; // itemId → [month numbers]
+    for (const item of items) {
+      if (item.frecuencia === 'MENSUAL') {
+        itemMonths[item.id] = [1,2,3,4,5,6,7,8,9,10,11,12];
+        continue;
+      }
+      // Manual override
+      if (item.billing_months) {
+        try { itemMonths[item.id] = JSON.parse(item.billing_months); continue; } catch(e) {}
+      }
+      // Auto-detect from gastosLog
+      const nameLower = (item.nombre || '').toLowerCase().trim();
+      if (nameLower.length < 3) { itemMonths[item.id] = DEFAULT_MONTHS[item.frecuencia] || [1]; continue; }
+      const isShort = nameLower.length <= 5;
+      const rx = isShort ? new RegExp(`\\b${nameLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i') : null;
+      const matching = (gastosLog || []).filter(g => {
+        const d = (g.detail || '').toLowerCase().trim();
+        if (d.length < 3) return false;
+        return isShort ? rx.test(d) : (d.includes(nameLower) || nameLower.includes(d));
+      });
+      if (matching.length === 0) { itemMonths[item.id] = DEFAULT_MONTHS[item.frecuencia] || [1]; continue; }
+      // Count months
+      const monthCounts = {};
+      matching.forEach(g => { const m = parseInt((g.date||'').slice(5,7)); if(m) monthCounts[m] = (monthCounts[m]||0) + 1; });
+      const nPick = item.frecuencia === 'ANUAL' ? 1 : item.frecuencia === 'SEMESTRAL' ? 2 : 4;
+      const sorted = Object.entries(monthCounts).sort((a,b) => b[1]-a[1]).slice(0, nPick).map(([m]) => parseInt(m)).sort((a,b)=>a-b);
+      itemMonths[item.id] = sorted.length > 0 ? sorted : (DEFAULT_MONTHS[item.frecuencia] || [1]);
+    }
+
+    // Step 2: compute per-month totals
+    const months = Array.from({length:12}, (_,i) => ({ month: i+1, total: 0, items: [], byCat: {} }));
+    for (const item of items) {
+      const ms = itemMonths[item.id] || [1];
+      const cat = catOf(item.categoria);
+      for (const m of ms) {
+        const amount = item.frecuencia === 'MENSUAL' ? item.importe : item.importe;
+        months[m-1].total += amount;
+        months[m-1].items.push({ ...item, isMonthly: item.frecuencia === 'MENSUAL' });
+        months[m-1].byCat[item.categoria] = (months[m-1].byCat[item.categoria] || 0) + amount;
+      }
+    }
+    return { months, itemMonths };
+  }, [items, gastosLog]);
+
+  const updateBillingMonths = async (itemId, months) => {
+    const val = months ? JSON.stringify(months) : null;
+    try {
+      await fetch(`${API_URL}/api/presupuesto/${itemId}/billing-months`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ billing_months: val }),
+      });
+      setItems(prev => prev.map(it => it.id === itemId ? { ...it, billing_months: val } : it));
+    } catch(e) { console.error('Failed to update billing months:', e); }
+  };
+
   const convertFromEur = (eur) => {
     if (displayCcy === 'EUR') return eur;
     if (displayCcy === 'USD') return eur * fxEurUsd;
@@ -354,6 +430,135 @@ export default function PresupuestoTab() {
         </div>
       </div>
 
+      {/* ═══ 12-Month Calendar Strip ═══ */}
+      {items.length > 0 && (() => {
+        const currentMonth = new Date().getMonth() + 1;
+        const maxMonth = Math.max(...calendarData.months.map(m => m.total), 1);
+        return (
+          <div style={card}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--gold)', marginBottom: 10, fontFamily: 'var(--fb)', letterSpacing: 0.5 }}>
+              📅 CALENDARIO DE GASTOS
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 4 }}>
+              {calendarData.months.map((md, i) => {
+                const m = i + 1;
+                const isCurrent = m === currentMonth;
+                const isSelected = m === calMonth;
+                const catEntries = Object.entries(md.byCat).sort((a,b) => b[1]-a[1]);
+                const barH = maxMonth > 0 ? Math.max(md.total / maxMonth * 60, 4) : 4;
+                return (
+                  <div key={m} onClick={() => setCalMonth(isSelected ? null : m)}
+                    style={{ padding: '6px 2px', borderRadius: 8, cursor: 'pointer', textAlign: 'center',
+                      border: isCurrent ? '1.5px solid var(--gold)' : isSelected ? '1.5px solid var(--text-tertiary)' : '1px solid transparent',
+                      background: isSelected ? 'rgba(214,158,46,.08)' : isCurrent ? 'rgba(214,158,46,.04)' : 'transparent',
+                      transition: 'all .15s' }}>
+                    <div style={{ fontSize: 8, fontWeight: 600, color: isCurrent ? 'var(--gold)' : 'var(--text-tertiary)', fontFamily: 'var(--fm)', letterSpacing: 0.3 }}>
+                      {MONTH_NAMES[i]}
+                    </div>
+                    {/* Stacked category bar */}
+                    <div style={{ height: 60, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', margin: '4px 0' }}>
+                      <div style={{ width: '60%', height: barH, borderRadius: 3, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                        {catEntries.map(([cat, val]) => (
+                          <div key={cat} style={{ height: `${val/md.total*100}%`, minHeight: 2, background: catOf(cat).color, opacity: 0.8 }} />
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: isCurrent ? 'var(--gold)' : 'var(--text-secondary)', fontFamily: 'var(--fm)' }}>
+                      {fmt(md.total)}
+                    </div>
+                    <div style={{ fontSize: 7, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>
+                      {md.items.filter(it => !it.isMonthly).length} extra
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Expanded month detail */}
+            {calMonth && (() => {
+              const md = calendarData.months[calMonth - 1];
+              const periodic = md.items.filter(it => !it.isMonthly).sort((a,b) => b.importe - a.importe);
+              const monthly = md.items.filter(it => it.isMonthly).sort((a,b) => (b.importe - a.importe));
+              const monthlyTotal = monthly.reduce((s, it) => s + it.importe, 0);
+              const periodicTotal = periodic.reduce((s, it) => s + it.importe, 0);
+              return (
+                <div style={{ marginTop: 12, padding: '12px 14px', background: 'rgba(214,158,46,.04)', borderRadius: 10, border: '1px solid rgba(214,158,46,.12)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--gold)', fontFamily: 'var(--fb)' }}>
+                      {MONTH_NAMES[calMonth-1]} — {fmt(md.total)}
+                    </div>
+                    <button onClick={() => setCalMonth(null)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 14 }}>✕</button>
+                  </div>
+
+                  {/* Periodic (non-monthly) items */}
+                  {periodic.length > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--gold)', marginBottom: 4, fontFamily: 'var(--fm)' }}>
+                        GASTOS PERIÓDICOS ({fmt(periodicTotal)})
+                      </div>
+                      {periodic.map(it => {
+                        const cat = catOf(it.categoria);
+                        const autoMonths = calendarData.itemMonths[it.id] || [];
+                        const isManual = !!it.billing_months;
+                        return (
+                          <div key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: '1px solid var(--subtle-border)' }}>
+                            <span style={{ fontSize: 12 }}>{cat.ico}</span>
+                            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)', fontFamily: 'var(--fm)', flex: 1 }}>{it.nombre}</span>
+                            <span style={{ fontSize: 8, padding: '1px 5px', borderRadius: 4, background: `${cat.color}20`, color: cat.color, fontFamily: 'var(--fm)', fontWeight: 600 }}>
+                              {it.frecuencia}
+                            </span>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text)', fontFamily: 'var(--fm)' }}>{fmt(it.importe)}</span>
+                            {/* Month selector: small 12-button grid */}
+                            <div style={{ display: 'flex', gap: 2 }}>
+                              {[1,2,3,4,5,6,7,8,9,10,11,12].map(mo => {
+                                const active = autoMonths.includes(mo);
+                                return (
+                                  <button key={mo} onClick={(e) => {
+                                    e.stopPropagation();
+                                    const current = [...autoMonths];
+                                    const next = active ? current.filter(x => x !== mo) : [...current, mo].sort((a,b)=>a-b);
+                                    if (next.length > 0) updateBillingMonths(it.id, next);
+                                  }} style={{
+                                    width: 16, height: 16, fontSize: 6, fontWeight: active ? 700 : 400, borderRadius: 3, border: 'none',
+                                    background: active ? cat.color : 'var(--subtle-border)', color: active ? '#fff' : 'var(--text-tertiary)',
+                                    cursor: 'pointer', fontFamily: 'var(--fm)', padding: 0, lineHeight: '16px', textAlign: 'center',
+                                  }}>{MONTH_NAMES[mo-1]}</button>
+                                );
+                              })}
+                              {isManual && (
+                                <button onClick={(e) => { e.stopPropagation(); updateBillingMonths(it.id, null); }}
+                                  style={{ fontSize: 7, padding: '1px 4px', borderRadius: 3, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-tertiary)', cursor: 'pointer', fontFamily: 'var(--fm)' }}>
+                                  Auto
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Monthly items (dimmed) */}
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--text-tertiary)', marginBottom: 4, fontFamily: 'var(--fm)' }}>
+                      MENSUALES ({fmt(monthlyTotal)})
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {monthly.slice(0, 20).map(it => (
+                        <span key={it.id} style={{ fontSize: 8, padding: '2px 6px', borderRadius: 4, background: 'var(--subtle-bg)', color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>
+                          {catOf(it.categoria).ico} {it.nombre} {fmt(it.importe)}
+                        </span>
+                      ))}
+                      {monthly.length > 20 && <span style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>+{monthly.length - 20} más</span>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        );
+      })()}
+
       {/* ═══ Alerts ═══ */}
       {alerts.length > 0 && (
         <div style={{ ...card, background: 'rgba(214,158,46,0.06)', borderColor: 'rgba(214,158,46,0.3)' }}>
@@ -375,7 +580,9 @@ export default function PresupuestoTab() {
       )}
 
       {/* ═══ Subidas detectadas ═══ */}
-      {expenseIncreases.length > 0 && (
+      {(() => {
+        const visibleIncreases = expenseIncreases.filter(inc => !dismissedIncreases.includes(inc.itemId));
+        return visibleIncreases.length > 0 && (
         <div style={warningCard}>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#d69e2e', marginBottom: 8 }}>
             ⚠️ Subidas detectadas
@@ -383,8 +590,10 @@ export default function PresupuestoTab() {
           <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 8 }}>
             Estos gastos recientes superan el presupuesto en mas del 5%
           </div>
-          {expenseIncreases.map((inc, i) => (
+          {visibleIncreases.map((inc, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+              <button onClick={() => { const next = [...dismissedIncreases, inc.itemId]; setDismissedIncreases(next); localStorage.setItem('presu_dismissed_increases', JSON.stringify(next)); }}
+                style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 11, padding: 0, opacity: 0.5 }} title="Descartar">✕</button>
               <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)', minWidth: 100 }}>{inc.nombre}</span>
               <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
                 presupuesto <span style={{ fontFamily: 'var(--fm)' }}>{fmtEur(inc.budgetAmount)}</span>
@@ -405,7 +614,7 @@ export default function PresupuestoTab() {
             </div>
           ))}
         </div>
-      )}
+      );})()}
 
       {/* ═══ YoY Comparison ═══ */}
       {yoyComparison.length > 0 && (
@@ -437,16 +646,28 @@ export default function PresupuestoTab() {
       )}
 
       {/* ═══ Gastos faltantes ═══ */}
-      {missingExpenses.length > 0 && (
+      {(() => {
+        const visibleMissing = missingExpenses.filter(exp => !dismissedMissing.includes(exp.detail.toLowerCase()));
+        return visibleMissing.length > 0 && (
         <div style={infoCard}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#64d2ff', marginBottom: 6 }}>
-            📋 Gastos faltantes
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#64d2ff' }}>
+              📋 Gastos faltantes
+            </div>
+            {dismissedMissing.length > 0 && (
+              <button onClick={() => { setDismissedMissing([]); localStorage.removeItem('presu_dismissed_missing'); }}
+                style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 9, fontFamily: 'var(--fm)' }}>
+                Mostrar descartados ({dismissedMissing.length})
+              </button>
+            )}
           </div>
           <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 8 }}>
             Estos gastos recurrentes no estan en tu presupuesto
           </div>
-          {missingExpenses.slice(0, 15).map((exp, i) => (
+          {visibleMissing.slice(0, 15).map((exp, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5, flexWrap: 'wrap' }}>
+              <button onClick={() => { const next = [...dismissedMissing, exp.detail.toLowerCase()]; setDismissedMissing(next); localStorage.setItem('presu_dismissed_missing', JSON.stringify(next)); }}
+                style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 11, padding: 0, opacity: 0.5 }} title="Descartar">✕</button>
               <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)', minWidth: 140 }}>{exp.detail}</span>
               <span style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>
                 ~{exp.currency === 'EUR' ? '€' : '$'}{exp.avgAmount.toFixed(2)}/mes
@@ -462,7 +683,7 @@ export default function PresupuestoTab() {
             </div>
           ))}
         </div>
-      )}
+      );})()}
 
       {/* ═══ Summary Cards ═══ */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 6, marginBottom: 8 }}>

@@ -68,6 +68,9 @@ async function ensureMigrations(env) {
     // Add notes column to positions (idempotent)
     try { await env.DB.prepare(`ALTER TABLE positions ADD COLUMN notes TEXT DEFAULT ''`).run(); } catch(e) { /* already exists */ }
 
+    // Add billing_months to presupuesto (JSON array of months, e.g. [1,7] for Jan+Jul)
+    try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN billing_months TEXT DEFAULT NULL`).run(); } catch(e) { /* already exists */ }
+
     // cartera table (portfolio positions)
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS cartera (
       ticker TEXT PRIMARY KEY,
@@ -3363,26 +3366,33 @@ export default {
         const reqErr = validateRequired(body.nombre, 'nombre') || validateNumber(body.importe, 'importe');
         if (reqErr) return validationError(reqErr, corsHeaders);
         const { results } = await env.DB.prepare(
-          `INSERT INTO presupuesto (nombre, categoria, banco, frecuencia, importe, notas)
-           VALUES (?, ?, ?, ?, ?, ?) RETURNING *`
-        ).bind(body.nombre, body.categoria || 'OTROS', body.banco || '', body.frecuencia || 'MENSUAL', body.importe, body.notas || '').all();
+          `INSERT INTO presupuesto (nombre, categoria, banco, frecuencia, importe, notas, billing_months)
+           VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`
+        ).bind(body.nombre, body.categoria || 'OTROS', body.banco || '', body.frecuencia || 'MENSUAL', body.importe, body.notas || '', body.billing_months || null).all();
         return json({ success: true, item: results[0] }, corsHeaders);
       }
 
+      // PUT /api/presupuesto/:id/billing-months — quick update billing months only
+      if (path.match(/\/api\/presupuesto\/\d+\/billing-months$/) && request.method === "PUT") {
+        const id = parseInt(path.split("/")[3], 10);
+        const body = await parseBody(request);
+        await env.DB.prepare(`UPDATE presupuesto SET billing_months=?, updated_at=datetime('now') WHERE id=?`)
+          .bind(body.billing_months || null, id).run();
+        return json({ success: true }, corsHeaders);
+      }
+
       // PUT /api/presupuesto/:id — update item (and log change if importe changed)
-      if (path.startsWith("/api/presupuesto/") && !path.includes("/alerts") && !path.includes("/history") && request.method === "PUT") {
+      if (path.startsWith("/api/presupuesto/") && !path.includes("/alerts") && !path.includes("/history") && !path.includes("/billing-months") && request.method === "PUT") {
         const id = parseInt(path.split("/").pop(), 10);
         const body = await parseBody(request);
-        // Get old item for change detection
         const old = await env.DB.prepare("SELECT * FROM presupuesto WHERE id = ?").bind(id).first();
         if (!old) return json({ error: "Not found" }, corsHeaders, 404);
 
         await env.DB.prepare(
-          `UPDATE presupuesto SET nombre=?, categoria=?, banco=?, frecuencia=?, importe=?, notas=?, updated_at=datetime('now')
+          `UPDATE presupuesto SET nombre=?, categoria=?, banco=?, frecuencia=?, importe=?, notas=?, billing_months=?, updated_at=datetime('now')
            WHERE id=?`
-        ).bind(body.nombre, body.categoria, body.banco || '', body.frecuencia, body.importe, body.notas || '', id).run();
+        ).bind(body.nombre, body.categoria, body.banco || '', body.frecuencia, body.importe, body.notas || '', body.billing_months !== undefined ? body.billing_months : old.billing_months, id).run();
 
-        // Log price change if importe changed
         if (old.importe !== body.importe && old.importe > 0) {
           const pct = ((body.importe - old.importe) / old.importe) * 100;
           await env.DB.prepare(

@@ -8,13 +8,30 @@ const PENDING_KEY = 'ayr-pending-gastos';
 
 /* ── Category colors ── */
 const CAT_COLORS = {
+  "Supermercado":"#30d158",   // verde
+  "Restaurante":"#ff9f0a",    // naranja
+  "Transporte":"#64d2ff",     // azul claro
+  "Ropa":"#bf5af2",           // morado
+  "Deportes":"#ffd60a",       // amarillo
+  "Alquiler":"#636366",       // gris oscuro
+  "Casa":"#ac8e68",           // marrón
+  "Utilities":"#48484a",      // gris medio
+  "Utilities China":"#ef4444",// rojo china
+  "Suscripciones":"#ff453a",  // rojo
+  "Salud":"#ff375f",          // rosa fuerte
+  "Masajes":"#ff6b9d",        // rosa claro
+  "Bolsa":"#2563eb",          // azul europeo
+  "Viajes":"#af52de",         // violeta
+  "Caprichos":"#e5a00d",      // dorado
+  "Regalos":"#ff6482",        // coral
+  "Barco":"#0a84ff",          // azul
+  "Ocio":"#5ac8fa",           // celeste
+  "Hipoteca":"#8e8e93",       // gris
+  "Educacion":"#0a84ff",      // azul
+  "Otros":"#86868b",          // gris neutro
+  // 3-letter fallbacks
   SUP:"#30d158", COM:"#ff9f0a", TRA:"#64d2ff", ROP:"#bf5af2",
   DEP:"#ffd60a", SUB:"#ff453a", HEA:"#ff375f", UCH:"#ac8e68", OTH:"#86868b",
-  // fallbacks for full-name cats
-  "Supermercado":"#30d158","Comida":"#ff9f0a","Transporte":"#64d2ff","Ropa":"#bf5af2",
-  "Deporte":"#ffd60a","Subscripción":"#ff453a","Suscripción":"#ff453a","Salud":"#ff375f",
-  "Uchu":"#ac8e68","Casa":"#ac8e68","Ocio":"#64d2ff","Educación":"#0a84ff",
-  "Viajes":"#bf5af2","Regalos":"#ffd60a","Tecnología":"#30d158","Belleza":"#ff9f0a",
 };
 const catColor = (cat) => CAT_COLORS[cat] || CAT_COLORS[(cat||"").slice(0,3)] || "#86868b";
 
@@ -140,6 +157,10 @@ export default function GastosTab() {
   const csvRef = useRef(null);
   const [csvToast, setCsvToast] = useState(null);
   const [csvLoading, setCsvLoading] = useState(false);
+  const [avgPeriod, setAvgPeriod] = useState(() => parseInt(localStorage.getItem("gastos_avgPeriod")) || 12);
+  const [avgExcludeChina, setAvgExcludeChina] = useState(() => localStorage.getItem("gastos_avgExcludeChina") !== "false");
+  const [monthOrder, setMonthOrder] = useState(() => localStorage.getItem("gastos_monthOrder") || "asc");
+  const [monthLimit, setMonthLimit] = useState(() => parseInt(localStorage.getItem("gastos_monthLimit")) || 12);
 
   // Inline editing
   const [editingCell, setEditingCell] = useState(null); // {id, field, value}
@@ -162,10 +183,10 @@ export default function GastosTab() {
     } catch (e) { console.warn("Inline edit failed:", e); }
   };
 
-  // Lugar tags — cycle through: null → china → barco → casa → null
-  const LUGAR_TAGS = [null, "china", "barco", "casa"];
-  const LUGAR_DISPLAY = { china: "🇨🇳 China", barco: "⛵ Barco", casa: "🏠 Casa" };
-  const LUGAR_COLORS = { china: "#ef4444", barco: "#0a84ff", casa: "#a855f7" };
+  // Lugar tags — cycle through: null → china → null
+  const LUGAR_TAGS = [null, "china"];
+  const LUGAR_DISPLAY = { china: "🇨🇳 China" };
+  const LUGAR_COLORS = { china: "#ef4444" };
   const [lugarOverrides, setLugarOverrides] = useState({});
   const getLugar = (g) => lugarOverrides[g.id] !== undefined ? lugarOverrides[g.id] : (g.lugarTag || (g.chinaOblig ? "china" : null));
   const cycleLugar = async (g) => {
@@ -320,33 +341,32 @@ export default function GastosTab() {
       return true;
     });
     const expenses = filtered.filter(g=>g.amount<0);
-    const incomes = filtered.filter(g=>g.amount>0);
-    const totalGastosEur = expenses.reduce((s,g) => s+gToEur(g), 0);
-    const totalIngresosEur = incomes.reduce((s,g) => s+gToEur(g), 0);
-    const totalEur = totalGastosEur;
-    const totalChinaEur = expenses.filter(g=>g.tipo==="china").reduce((s,g) => s+gToEur(g), 0);
-    const totalExtraEur = expenses.filter(g=>g.tipo==="extra").reduce((s,g) => s+gToEur(g), 0);
-    const totalBaseEur = totalEur - totalChinaEur - totalExtraEur;
-    const months = new Set(expenses.map(g=>g.date?.slice(0,7)));
-    const avgMonthly = months.size > 0 ? totalEur / months.size : 0;
 
-    // FIRE breakdown: China obligatorio vs voluntario
-    // Gastos by lugar tag (eliminables)
-    const chinaEurTag = expenses.filter(g => getLugar(g) === "china").reduce((s,g) => s+gToEur(g), 0);
-    const barcoEurTag = expenses.filter(g => getLugar(g) === "barco").reduce((s,g) => s+gToEur(g), 0);
-    const casaEurTag = expenses.filter(g => getLugar(g) === "casa").reduce((s,g) => s+gToEur(g), 0);
-    const eliminableEur = chinaEurTag + barcoEurTag + casaEurTag;
-    // Base Real FIRE = Total - eliminables - extras
-    const baseRealEur = totalEur - eliminableEur - totalExtraEur;
-    const nMonths = months.size || 1;
-    const chinaMes = chinaEurTag / nMonths;
-    const barcoMes = barcoEurTag / nMonths;
-    const casaMes = casaEurTag / nMonths;
-    const baseRealMes = baseRealEur / nMonths;
+    // === ALL expenses (unfiltered by year) for KPI, donut, monthly cards ===
+    const allExpenses = gastosLog.filter(g => g.amount < 0);
 
-    // By category (in EUR)
+    // MEDIA/MES KPI — calculate from last N months
+    const allExpensesByMonth = {};
+    allExpenses.forEach(g => {
+      const m = g.date?.slice(0,7);
+      if(!m) return;
+      if(!allExpensesByMonth[m]) allExpensesByMonth[m] = {total:0, sinChina:0};
+      const eur = gToEur(g);
+      allExpensesByMonth[m].total += eur;
+      if(getLugar(g) !== "china") allExpensesByMonth[m].sinChina += eur;
+    });
+    const allMonthsSorted = Object.keys(allExpensesByMonth).sort().reverse();
+    const recentMonths = allMonthsSorted.slice(0, avgPeriod);
+    const recentMonthSet = new Set(recentMonths);
+    const recentTotal = recentMonths.reduce((s,m) => s + (avgExcludeChina ? allExpensesByMonth[m].sinChina : allExpensesByMonth[m].total), 0);
+    const recentAvg = recentMonths.length > 0 ? recentTotal / recentMonths.length : 0;
+
+    // Recent expenses (last N months, unfiltered) for donut + categories
+    const recentExpenses = allExpenses.filter(g => recentMonthSet.has(g.date?.slice(0,7)));
+
+    // By category (in EUR) — uses recent period, independent of year filter
     const byCat = {};
-    expenses.forEach(g => { byCat[g.cat] = (byCat[g.cat]||0) + gToEur(g); });
+    recentExpenses.forEach(g => { byCat[g.cat] = (byCat[g.cat]||0) + gToEur(g); });
     const topCats = Object.entries(byCat).sort((a,b) => b[1]-a[1]).slice(0,10);
     const maxCat = topCats.length > 0 ? Math.max(...topCats.map(([,v])=>v), 1) : 1;
 
@@ -356,19 +376,9 @@ export default function GastosTab() {
     const otrosVal = donutTop.slice(8).reduce((s,[,v]) => s+v, 0);
     if(otrosVal > 0) donutSegments.push({label:"Otros", value:otrosVal, color:"#86868b"});
 
-    // By currency breakdown
-    const byCcy = {};
-    expenses.forEach(g => {
-      const c = (g.currency||"EUR").toUpperCase().trim()||"EUR";
-      if(!byCcy[c]) byCcy[c] = {raw:0, eur:0, count:0};
-      byCcy[c].raw += Math.abs(g.amount||0);
-      byCcy[c].eur += gToEur(g);
-      byCcy[c].count++;
-    });
-
-    // By month (in EUR) — includes "sin eliminables" calculation
+    // By month (in EUR) — uses ALL expenses, independent of year filter
     const byMonth = {};
-    expenses.forEach(g => {
+    allExpenses.forEach(g => {
       const m = g.date?.slice(0,7);
       if(!m) return;
       if(!byMonth[m]) byMonth[m] = {eur:0,cny:0,usd:0,eurNat:0,sinElim:0};
@@ -379,23 +389,24 @@ export default function GastosTab() {
       if(ccy==="CNY") byMonth[m].cny += eurAmt;
       else if(ccy==="USD") byMonth[m].usd += eurAmt;
       else byMonth[m].eurNat += eurAmt;
-      if(!tag) byMonth[m].sinElim += eurAmt; // only count non-tagged expenses
+      if(tag !== "china") byMonth[m].sinElim += eurAmt;
     });
     const monthKeys = Object.keys(byMonth).sort().reverse();
-    // Last 12 months ascending for trend chart
     const trendData = Object.entries(byMonth).sort((a,b)=>a[0].localeCompare(b[0])).slice(-12).map(([key,d])=>({key,eur:d.eur}));
 
     return <>
       {/* KPI cards */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12}}>
-        <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
-          <div><div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>TOTAL (EUR)</div><div style={{fontSize:20,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>€{totalEur.toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>
-          <div><div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>BASE</div><div style={{fontSize:20,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>€{totalBaseEur.toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>
-          {totalChinaEur > 0 && <div><div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>🇨🇳 CHINA</div><div style={{fontSize:20,fontWeight:700,color:"#ef4444",fontFamily:"var(--fm)"}}>€{totalChinaEur.toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>}
-          {totalExtraEur > 0 && <div><div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>EXTRA</div><div style={{fontSize:20,fontWeight:700,color:"#a855f7",fontFamily:"var(--fm)"}}>€{totalExtraEur.toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>}
-          {totalIngresosEur > 0 && <div><div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>INGRESOS</div><div style={{fontSize:20,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)"}}>€{totalIngresosEur.toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>}
-          {eliminableEur > 0 && <div><div style={{fontSize:9,color:"var(--gold)",fontFamily:"var(--fm)",fontWeight:600}}>🎯 SIN ELIMINABLES</div><div style={{fontSize:20,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>€{baseRealEur.toLocaleString(undefined,{maximumFractionDigits:0})}</div><div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>€{baseRealMes.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</div></div>}
-          <div><div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>MEDIA/MES</div><div style={{fontSize:20,fontWeight:700,color:eliminableEur>0?"var(--text-secondary)":"var(--gold)",fontFamily:"var(--fm)"}}>€{avgMonthly.toLocaleString(undefined,{maximumFractionDigits:0})}</div></div>
+        <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"center"}}>
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+              <span style={{fontSize:9,color:"var(--gold)",fontFamily:"var(--fm)",fontWeight:600}}>MEDIA/MES</span>
+              {[6,12,24].map(n=><button key={n} onClick={()=>{setAvgPeriod(n);localStorage.setItem("gastos_avgPeriod",n);}} style={{padding:"1px 5px",borderRadius:4,border:`1px solid ${avgPeriod===n?"var(--gold)":"var(--border)"}`,background:avgPeriod===n?"var(--gold-dim)":"transparent",color:avgPeriod===n?"var(--gold)":"var(--text-tertiary)",fontSize:8,cursor:"pointer",fontFamily:"var(--fm)",fontWeight:avgPeriod===n?700:400}}>{n}m</button>)}
+              <button onClick={()=>{const v=!avgExcludeChina;setAvgExcludeChina(v);localStorage.setItem("gastos_avgExcludeChina",v);}} style={{padding:"1px 5px",borderRadius:4,border:`1px solid ${avgExcludeChina?"#ef4444":"var(--border)"}`,background:avgExcludeChina?"rgba(239,68,68,.08)":"transparent",color:avgExcludeChina?"#ef4444":"var(--text-tertiary)",fontSize:8,cursor:"pointer",fontFamily:"var(--fm)",fontWeight:avgExcludeChina?700:400}}>{avgExcludeChina?"🇨🇳 sin China":"🇨🇳 con China"}</button>
+            </div>
+            <div style={{fontSize:22,fontWeight:800,color:"var(--gold)",fontFamily:"var(--fm)"}}>€{recentAvg.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+            <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>€{(recentAvg*12).toLocaleString(undefined,{maximumFractionDigits:0})}/año · últimos {recentMonths.length} meses</div>
+          </div>
           <div onTouchStart={()=>{window._secTimer=setTimeout(()=>{setGastosFilter(p=>({...p,showSecretos:!p.showSecretos}));if(navigator.vibrate)navigator.vibrate(30);window._secTimer='fired';},1000);}} onTouchEnd={()=>{if(window._secTimer!=='fired')clearTimeout(window._secTimer);window._secTimer=null;}} onTouchMove={()=>{clearTimeout(window._secTimer);window._secTimer=null;}} onMouseDown={()=>{window._secTimer=setTimeout(()=>{setGastosFilter(p=>({...p,showSecretos:!p.showSecretos}));window._secTimer='fired';},1000);}} onMouseUp={()=>{if(window._secTimer!=='fired')clearTimeout(window._secTimer);window._secTimer=null;}} style={{cursor:"default",userSelect:"none",WebkitUserSelect:"none"}}><div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>REGISTROS</div><div style={{fontSize:20,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{filtered.length}</div></div>
         </div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
@@ -442,112 +453,7 @@ export default function GastosTab() {
         </div>
       </div>
 
-      {/* FIRE breakdown: Spain / China obligatorio / China voluntario / Base real */}
-      {totalChinaEur > 0 && (
-        <div style={{padding:"14px 16px",background:"rgba(214,158,46,.03)",borderRadius:12,border:"1px solid rgba(214,158,46,.12)"}}>
-          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
-            <div style={{fontSize:10,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)",letterSpacing:.5}}>DESGLOSE FIRE</div>
-            <div title="Base Real = todos tus gastos MENOS los marcados como 'China OBLIG' (alquiler, vuelos, utilities que desaparecen al jubilarte en Espana)." style={{width:14,height:14,borderRadius:7,background:"rgba(214,158,46,.15)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"help",fontSize:8,color:"var(--gold)",fontWeight:700}}>?</div>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:8}}>
-            {[{tag:"china",ico:"🇨🇳",label:"China",mes:chinaMes,color:"#ef4444"},{tag:"barco",ico:"⛵",label:"Barco",mes:barcoMes,color:"#0a84ff"},{tag:"casa",ico:"🏠",label:"Casa",mes:casaMes,color:"#a855f7"}].filter(t=>t.mes>0).map(t=>(
-              <div key={t.tag} style={{padding:"8px 10px",background:`${t.color}08`,borderRadius:10,border:`1px solid ${t.color}20`}}>
-                <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,letterSpacing:.3}}>{t.ico} {t.label.toUpperCase()}</div>
-                <div style={{fontSize:15,fontWeight:700,color:t.color,fontFamily:"var(--fm)"}}>{"\u20AC"}{t.mes.toLocaleString(undefined,{maximumFractionDigits:0})}<span style={{fontSize:8,fontWeight:500,color:"var(--text-tertiary)"}}>/mes</span></div>
-              </div>
-            ))}
-            <div style={{padding:"10px 12px",background:"rgba(214,158,46,.06)",borderRadius:10,border:"1px solid rgba(214,158,46,.15)"}}>
-              <div style={{fontSize:8,color:"var(--gold)",fontFamily:"var(--fm)",fontWeight:700,letterSpacing:.3}}>🎯 BASE REAL</div>
-              <div style={{fontSize:18,fontWeight:800,color:"var(--gold)",fontFamily:"var(--fm)"}}>{"\u20AC"}{baseRealMes.toLocaleString(undefined,{maximumFractionDigits:0})}<span style={{fontSize:9,fontWeight:500,color:"var(--text-tertiary)"}}>/mes</span></div>
-              <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{"\u20AC"}{(baseRealMes*12).toLocaleString(undefined,{maximumFractionDigits:0})}/ano</div>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Por Residencia breakdown */}
-      {expenses.length > 0 && (() => {
-        const byRes = { Valencia: { total: 0, count: 0, months: new Set(), utilities: {} },
-                        "Costa Brava": { total: 0, count: 0, months: new Set(), utilities: {} },
-                        China: { total: 0, count: 0, months: new Set(), utilities: {} } };
-        expenses.forEach(g => {
-          const res = getResidence(g);
-          const eur = gToEur(g);
-          if (!byRes[res]) return;
-          byRes[res].total += eur;
-          byRes[res].count++;
-          const m = g.date?.slice(0, 7);
-          if (m) byRes[res].months.add(m);
-          // Track utilities per residence
-          const cat = g.cat || "";
-          if (UTILITY_CATS.has(cat)) {
-            const label = cat.length <= 3 ? ({ UTI: "Utilities", UCH: "Utilities CN" }[cat] || cat) : cat;
-            byRes[res].utilities[label] = (byRes[res].utilities[label] || 0) + eur;
-          }
-          // Also track Alquiler, Hipoteca, Internet-like cats as housing utilities
-          if (cat === "ALQ" || cat === "Alquiler") byRes[res].utilities["Alquiler"] = (byRes[res].utilities["Alquiler"] || 0) + eur;
-          if (cat === "HIP" || cat === "Hipoteca") byRes[res].utilities["Hipoteca"] = (byRes[res].utilities["Hipoteca"] || 0) + eur;
-          if (cat === "HOM" || cat === "Casa") byRes[res].utilities["Casa"] = (byRes[res].utilities["Casa"] || 0) + eur;
-        });
-        const maxResTotal = Math.max(...Object.values(byRes).map(r => r.total), 1);
-        const resEntries = [
-          { key: "Valencia", flag: "\uD83C\uDFE0", subtitle: "Espana" },
-          { key: "Costa Brava", flag: "\uD83C\uDFD6\uFE0F", subtitle: "Espana" },
-          { key: "China", flag: "\uD83C\uDDE8\uD83C\uDDF3", subtitle: "Asia" },
-        ];
-        return (
-          <div style={{padding:"14px 16px",background:"var(--row-alt)",borderRadius:12,border:"1px solid var(--subtle-bg2)"}}>
-            <div style={{fontSize:10,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:12}}>POR RESIDENCIA</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10}}>
-              {resEntries.map(({key, flag, subtitle}) => {
-                const d = byRes[key];
-                const nM = d.months.size || 1;
-                const avg = d.total / nM;
-                const pct = d.total / maxResTotal * 100;
-                const color = RESIDENCE_COLORS[key];
-                const utilEntries = Object.entries(d.utilities).sort((a,b) => b[1] - a[1]);
-                return (
-                  <div key={key} onClick={() => setGastosFilter(p => ({ ...p, residencia: p.residencia === key ? "all" : key }))}
-                    style={{padding:"12px 14px",background: gastosFilter.residencia === key ? `${color}11` : "var(--row-alt)",borderRadius:10,border:`1px solid ${gastosFilter.residencia === key ? color+"44" : "var(--subtle-bg2)"}`,cursor:"pointer",transition:"all .2s"}}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-                      <div>
-                        <span style={{fontSize:14,marginRight:5}}>{flag}</span>
-                        <span style={{fontSize:12,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{key}</span>
-                        <span style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginLeft:5}}>{subtitle}</span>
-                      </div>
-                      <span style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{d.count} gastos</span>
-                    </div>
-                    <div style={{display:"flex",gap:16,marginBottom:8}}>
-                      <div>
-                        <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600}}>TOTAL</div>
-                        <div style={{fontSize:16,fontWeight:700,color:color,fontFamily:"var(--fm)"}}>{"\u20AC"}{d.total.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
-                      </div>
-                      <div>
-                        <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600}}>MEDIA/MES</div>
-                        <div style={{fontSize:16,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{"\u20AC"}{avg.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
-                      </div>
-                    </div>
-                    {/* Comparison bar */}
-                    <div style={{height:6,background:"var(--subtle-border)",borderRadius:3,overflow:"hidden",marginBottom:utilEntries.length > 0 ? 8 : 0}}>
-                      <div style={{width:`${pct}%`,height:"100%",background:color,borderRadius:3,opacity:.6,transition:"width .4s ease"}}/>
-                    </div>
-                    {/* Utility breakdown */}
-                    {utilEntries.length > 0 && (
-                      <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
-                        {utilEntries.slice(0, 5).map(([label, val]) => (
-                          <span key={label} style={{fontSize:7,padding:"2px 6px",borderRadius:4,background:`${color}10`,color:color,fontFamily:"var(--fm)",fontWeight:500}}>
-                            {label}: {"\u20AC"}{val.toLocaleString(undefined,{maximumFractionDigits:0})}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })()}
 
       {/* Visual charts row: Donut + Trend */}
       {expenses.length > 0 && (
@@ -569,26 +475,11 @@ export default function GastosTab() {
         </div>
       )}
 
-      {/* Currency breakdown pills */}
-      {Object.keys(byCcy).length > 1 && (
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          {Object.entries(byCcy).sort((a,b)=>b[1].eur-a[1].eur).map(([ccy,d]) => (
-            <div key={ccy} style={{padding:"5px 12px",background:"var(--subtle-bg)",borderRadius:8,border:"1px solid var(--border)",display:"flex",alignItems:"center",gap:8}}>
-              <span style={{fontSize:11,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{CURRENCIES[ccy]?.flag||""} {ccy}</span>
-              <span style={{fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{ccySym(ccy)}{(d.raw||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>
-              <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>=</span>
-              <span style={{fontSize:10,fontWeight:600,color:"var(--red)",fontFamily:"var(--fm)"}}>€{(d.eur||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>
-              <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>({_sf(d.eur/totalEur*100,0)}%)</span>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Monthly breakdown with stacked bars */}
       {monthKeys.length > 1 && (() => {
         const mNames = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-        const [monthOrder, setMonthOrder] = useState("asc");
-        const [monthLimit, setMonthLimit] = useState(12);
+        // monthOrder and monthLimit are declared at component level
         // asc = cronológico (May→Jun→...→Mar→Abr), desc = reciente primero (Abr→Mar→...→Jun→May)
         // monthKeys is already sorted desc (newest first)
         // For asc: take last N from monthKeys (most recent N), then reverse to chronological
@@ -598,8 +489,8 @@ export default function GastosTab() {
         return <div>
           {/* Controls */}
           <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
-            <button onClick={()=>setMonthOrder(o=>o==="desc"?"asc":"desc")} style={{padding:"3px 8px",borderRadius:5,border:"1px solid var(--gold)",background:monthOrder==="asc"?"var(--gold-dim)":"transparent",color:monthOrder==="asc"?"var(--gold)":"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)",fontWeight:600}}>{monthOrder==="asc"?"Ene → Abr (cronológico)":"Abr → Ene (reciente)"}</button>
-            {[6,12,24,999].map(n=><button key={n} onClick={()=>setMonthLimit(n)} style={{padding:"3px 8px",borderRadius:5,border:`1px solid ${monthLimit===n?"var(--gold)":"var(--border)"}`,background:monthLimit===n?"var(--gold-dim)":"transparent",color:monthLimit===n?"var(--gold)":"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)",fontWeight:monthLimit===n?700:400}}>{n>=999?"Todos":`${n}m`}</button>)}
+            <button onClick={()=>setMonthOrder(o=>{const v=o==="desc"?"asc":"desc";localStorage.setItem("gastos_monthOrder",v);return v;})} style={{padding:"3px 8px",borderRadius:5,border:"1px solid var(--gold)",background:monthOrder==="asc"?"var(--gold-dim)":"transparent",color:monthOrder==="asc"?"var(--gold)":"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)",fontWeight:600}}>{monthOrder==="asc"?"Ene → Abr (cronológico)":"Abr → Ene (reciente)"}</button>
+            {[6,12,24,999].map(n=><button key={n} onClick={()=>{setMonthLimit(n);localStorage.setItem("gastos_monthLimit",n);}} style={{padding:"3px 8px",borderRadius:5,border:`1px solid ${monthLimit===n?"var(--gold)":"var(--border)"}`,background:monthLimit===n?"var(--gold-dim)":"transparent",color:monthLimit===n?"var(--gold)":"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)",fontWeight:monthLimit===n?700:400}}>{n>=999?"Todos":`${n}m`}</button>)}
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(155px,1fr))",gap:6}}>
           {visible.map(m => {
@@ -619,22 +510,22 @@ export default function GastosTab() {
                   <span style={{fontSize:14,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>€{(d.eur||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>
                 </div>
                 {hasElim && <div style={{display:"flex",justifyContent:"flex-end",marginBottom:3}}>
-                  <span style={{fontSize:9,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fm)"}} title="Sin gastos eliminables (China/Barco/Casa)">🎯 €{(d.sinElim||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>
+                  <span style={{fontSize:9,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fm)"}} title="Sin gastos eliminables (China)">🎯 €{(d.sinElim||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>
                 </div>}
                 {/* stacked bar */}
                 <div style={{height:6,background:"var(--subtle-border)",borderRadius:3,overflow:"hidden",display:"flex",marginBottom:4}} title={`EUR: €${Math.round(d.eurNat)} | CNY: €${Math.round(d.cny)} | USD: €${Math.round(d.usd)}`}>
-                  {d.eurNat > 0 && <div style={{width:`${pctEur}%`,height:"100%",background:"#30d158",opacity:.7,transition:"width .4s ease"}}/>}
+                  {d.eurNat > 0 && <div style={{width:`${pctEur}%`,height:"100%",background:"#2563eb",opacity:.7,transition:"width .4s ease"}}/>}
                   {d.cny > 0 && <div style={{width:`${pctCny}%`,height:"100%",background:"#ff453a",opacity:.7,transition:"width .4s ease"}}/>}
-                  {d.usd > 0 && <div style={{width:`${pctUsd}%`,height:"100%",background:"#0a84ff",opacity:.7,transition:"width .4s ease"}}/>}
+                  {d.usd > 0 && <div style={{width:`${pctUsd}%`,height:"100%",background:"#30d158",opacity:.7,transition:"width .4s ease"}}/>}
                 </div>
                 {/* overall bar vs max month */}
                 <div style={{height:3,background:"var(--subtle-bg)",borderRadius:2,overflow:"hidden"}}>
                   <div style={{width:`${pctTotal}%`,height:"100%",background:"var(--gold)",opacity:.3,borderRadius:2,transition:"width .4s ease"}}/>
                 </div>
                 {(d.cny > 0 || d.usd > 0) && <div style={{display:"flex",gap:3,marginTop:4,flexWrap:"wrap"}}>
-                  {d.eurNat > 0 && <span style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(48,209,88,.08)",color:"#30d158",fontFamily:"var(--fm)"}}>EUR €{(d.eurNat||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
+                  {d.eurNat > 0 && <span style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(37,99,235,.08)",color:"#2563eb",fontFamily:"var(--fm)"}}>EUR €{(d.eurNat||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
                   {d.cny > 0 && <span style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(255,69,58,.08)",color:"#ff453a",fontFamily:"var(--fm)"}}>CNY €{(d.cny||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
-                  {d.usd > 0 && <span style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(10,132,255,.08)",color:"#0a84ff",fontFamily:"var(--fm)"}}>USD €{(d.usd||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
+                  {d.usd > 0 && <span style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(48,209,88,.08)",color:"#30d158",fontFamily:"var(--fm)"}}>USD €{(d.usd||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
                 </div>}
               </div>
             );
@@ -653,7 +544,7 @@ export default function GastosTab() {
               <div style={{width:`${val/maxCat*100}%`,height:"100%",background:catColor(cat),borderRadius:3,opacity:.5,transition:"width .4s ease"}}/>
             </div>
             <span style={{fontSize:9,color:"var(--text-secondary)",fontFamily:"var(--fm)",width:60,textAlign:"right"}}>€{val.toLocaleString(undefined,{maximumFractionDigits:0})}</span>
-            <span style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",width:30,textAlign:"right"}}>{totalEur?Math.round(val/totalEur*100):0}%</span>
+            <span style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",width:30,textAlign:"right"}}>{(() => {const t=topCats.reduce((s,[,v])=>s+v,0); return t?Math.round(val/t*100):0;})()}%</span>
           </div>
         ))}
       </div>}
