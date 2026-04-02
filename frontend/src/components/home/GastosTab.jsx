@@ -297,7 +297,9 @@ export default function GastosTab() {
     const chinaObligEur = chinaExpenses.filter(g => g.chinaOblig || (!chinaExpenses.some(x=>x.chinaOblig) && CHINA_OBLIG_CATS_FALLBACK.has(g.cat))).reduce((s,g)=>s+gToEur(g),0);
     const chinaVoluntEur = totalChinaEur - chinaObligEur;
     const espanaEur = totalBaseEur; // totalEur - china - extra
-    const baseRealEur = espanaEur + chinaObligEur;
+    // Base Real FIRE = España + China voluntario (gastos de vida normal)
+    // Excluye China obligatorio (alquiler, vuelos, utilities = desaparece al jubilarse en España)
+    const baseRealEur = espanaEur + chinaVoluntEur;
     const nMonths = months.size || 1;
     const espanaMes = espanaEur / nMonths;
     const chinaObligMes = chinaObligEur / nMonths;
@@ -404,7 +406,7 @@ export default function GastosTab() {
         <div style={{padding:"14px 16px",background:"rgba(214,158,46,.03)",borderRadius:12,border:"1px solid rgba(214,158,46,.12)"}}>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
             <div style={{fontSize:10,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)",letterSpacing:.5}}>DESGLOSE FIRE</div>
-            <div title="Base real = gastos que tendras siempre (Espana + China obligatorio). Excluye gastos voluntarios de China y extraordinarios." style={{width:14,height:14,borderRadius:7,background:"rgba(214,158,46,.15)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"help",fontSize:8,color:"var(--gold)",fontWeight:700}}>?</div>
+            <div title="Base Real = gastos de vida normal (Espana + China voluntario como comida/ropa). Excluye China obligatorio (alquiler, vuelos, utilities) que desaparecen al jubilarte en Espana." style={{width:14,height:14,borderRadius:7,background:"rgba(214,158,46,.15)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"help",fontSize:8,color:"var(--gold)",fontWeight:700}}>?</div>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:8}}>
             <div style={{padding:"10px 12px",background:"rgba(48,209,88,.04)",borderRadius:10,border:"1px solid rgba(48,209,88,.08)"}}>
@@ -414,15 +416,15 @@ export default function GastosTab() {
             <div style={{padding:"10px 12px",background:"rgba(239,68,68,.04)",borderRadius:10,border:"1px solid rgba(239,68,68,.08)"}}>
               <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,letterSpacing:.3}}>CHINA OBLIGATORIO</div>
               <div style={{fontSize:16,fontWeight:700,color:"#ef4444",fontFamily:"var(--fm)"}}>{"\u20AC"}{chinaObligMes.toLocaleString(undefined,{maximumFractionDigits:0})}<span style={{fontSize:9,fontWeight:500,color:"var(--text-tertiary)"}}>/mes</span></div>
-              <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>alquiler, utilities</div>
+              <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>desaparece al volver a ES</div>
             </div>
             <div style={{padding:"10px 12px",background:"rgba(168,85,247,.04)",borderRadius:10,border:"1px solid rgba(168,85,247,.08)"}}>
               <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,letterSpacing:.3}}>CHINA VOLUNTARIO</div>
               <div style={{fontSize:16,fontWeight:700,color:"#a855f7",fontFamily:"var(--fm)"}}>{"\u20AC"}{chinaVoluntMes.toLocaleString(undefined,{maximumFractionDigits:0})}<span style={{fontSize:9,fontWeight:500,color:"var(--text-tertiary)"}}>/mes</span></div>
-              <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>comida, ocio, ropa...</div>
+              <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>comida, ocio = vida normal</div>
             </div>
             <div style={{padding:"10px 12px",background:"rgba(214,158,46,.06)",borderRadius:10,border:"1px solid rgba(214,158,46,.15)"}}>
-              <div style={{fontSize:8,color:"var(--gold)",fontFamily:"var(--fm)",fontWeight:700,letterSpacing:.3}}>BASE REAL (FIRE)</div>
+              <div style={{fontSize:8,color:"var(--gold)",fontFamily:"var(--fm)",fontWeight:700,letterSpacing:.3}}>BASE REAL JUBILACION</div>
               <div style={{fontSize:18,fontWeight:800,color:"var(--gold)",fontFamily:"var(--fm)"}}>{"\u20AC"}{baseRealMes.toLocaleString(undefined,{maximumFractionDigits:0})}<span style={{fontSize:9,fontWeight:500,color:"var(--text-tertiary)"}}>/mes</span></div>
               <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{"\u20AC"}{(baseRealMes*12).toLocaleString(undefined,{maximumFractionDigits:0})}/ano</div>
             </div>
