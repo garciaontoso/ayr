@@ -366,18 +366,20 @@ export default function GastosTab() {
       byCcy[c].count++;
     });
 
-    // By month (in EUR)
+    // By month (in EUR) — includes "sin eliminables" calculation
     const byMonth = {};
     expenses.forEach(g => {
       const m = g.date?.slice(0,7);
       if(!m) return;
-      if(!byMonth[m]) byMonth[m] = {eur:0,cny:0,usd:0,eurNat:0};
+      if(!byMonth[m]) byMonth[m] = {eur:0,cny:0,usd:0,eurNat:0,sinElim:0};
       const eurAmt = gToEur(g);
       const ccy = (g.currency||"EUR").toUpperCase().trim()||"EUR";
+      const tag = getLugar(g);
       byMonth[m].eur += eurAmt;
       if(ccy==="CNY") byMonth[m].cny += eurAmt;
       else if(ccy==="USD") byMonth[m].usd += eurAmt;
       else byMonth[m].eurNat += eurAmt;
+      if(!tag) byMonth[m].sinElim += eurAmt; // only count non-tagged expenses
     });
     const monthKeys = Object.keys(byMonth).sort().reverse();
     // Last 12 months ascending for trend chart
@@ -585,9 +587,19 @@ export default function GastosTab() {
       {/* Monthly breakdown with stacked bars */}
       {monthKeys.length > 1 && (() => {
         const mNames = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-        const maxMonthEur = Math.max(...monthKeys.slice(0,12).map(m => byMonth[m]?.eur || 0), 1);
-        return <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:6}}>
-          {monthKeys.slice(0,12).map(m => {
+        const [monthOrder, setMonthOrder] = useState("desc");
+        const [monthLimit, setMonthLimit] = useState(12);
+        const sorted = monthOrder === "asc" ? [...monthKeys].reverse() : monthKeys;
+        const visible = sorted.slice(0, monthLimit);
+        const maxMonthEur = Math.max(...visible.map(m => byMonth[m]?.eur || 0), 1);
+        return <div>
+          {/* Controls */}
+          <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
+            <button onClick={()=>setMonthOrder(o=>o==="desc"?"asc":"desc")} style={{padding:"3px 8px",borderRadius:5,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)"}}>{monthOrder==="desc"?"↓ Reciente primero":"↑ Antiguo primero"}</button>
+            {[6,12,24,999].map(n=><button key={n} onClick={()=>setMonthLimit(n)} style={{padding:"3px 8px",borderRadius:5,border:`1px solid ${monthLimit===n?"var(--gold)":"var(--border)"}`,background:monthLimit===n?"var(--gold-dim)":"transparent",color:monthLimit===n?"var(--gold)":"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)",fontWeight:monthLimit===n?700:400}}>{n>=999?"Todos":`${n}m`}</button>)}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(155px,1fr))",gap:6}}>
+          {visible.map(m => {
             const d = byMonth[m];
             const mi = parseInt(m.slice(5,7))-1;
             const yr = m.slice(0,4);
@@ -596,12 +608,16 @@ export default function GastosTab() {
             const pctEur = d.eurNat/dEur*100;
             const pctCny = d.cny/dEur*100;
             const pctUsd = d.usd/dEur*100;
+            const hasElim = d.sinElim < d.eur - 1;
             return (
               <div key={m} style={{padding:"8px 10px",background:"var(--row-alt)",borderRadius:8,border:"1px solid var(--subtle-border)"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:2}}>
                   <span style={{fontSize:10,fontWeight:600,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{mNames[mi]} {yr}</span>
                   <span style={{fontSize:14,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>€{(d.eur||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>
                 </div>
+                {hasElim && <div style={{display:"flex",justifyContent:"flex-end",marginBottom:3}}>
+                  <span style={{fontSize:9,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fm)"}} title="Sin gastos eliminables (China/Barco/Casa)">🎯 €{(d.sinElim||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>
+                </div>}
                 {/* stacked bar */}
                 <div style={{height:6,background:"var(--subtle-border)",borderRadius:3,overflow:"hidden",display:"flex",marginBottom:4}} title={`EUR: €${Math.round(d.eurNat)} | CNY: €${Math.round(d.cny)} | USD: €${Math.round(d.usd)}`}>
                   {d.eurNat > 0 && <div style={{width:`${pctEur}%`,height:"100%",background:"#30d158",opacity:.7,transition:"width .4s ease"}}/>}
@@ -620,6 +636,7 @@ export default function GastosTab() {
               </div>
             );
           })}
+          </div>
         </div>;
       })()}
 
