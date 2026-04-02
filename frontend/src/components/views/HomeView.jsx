@@ -476,8 +476,8 @@ export default function HomeView() {
       </div>
     </div>
 
-    {/* Market Sentiment Bar */}
-    <SentimentBar />
+    {/* Market Sentiment Bar — only on Portfolio tab */}
+    {homeTab==="portfolio" && <SentimentBar />}
 
     {/* Alert Panel */}
     {showAlertPanel && (
