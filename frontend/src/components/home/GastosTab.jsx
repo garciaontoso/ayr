@@ -595,7 +595,7 @@ export default function GastosTab() {
         return <div>
           {/* Controls */}
           <div style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
-            <button onClick={()=>setMonthOrder(o=>o==="desc"?"asc":"desc")} style={{padding:"3px 8px",borderRadius:5,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)"}}>{monthOrder==="desc"?"↓ Reciente primero":"↑ Antiguo primero"}</button>
+            <button onClick={()=>setMonthOrder(o=>o==="desc"?"asc":"desc")} style={{padding:"3px 8px",borderRadius:5,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)"}}>{monthOrder==="desc"?"← Actual primero":"→ Actual último"}</button>
             {[6,12,24,999].map(n=><button key={n} onClick={()=>setMonthLimit(n)} style={{padding:"3px 8px",borderRadius:5,border:`1px solid ${monthLimit===n?"var(--gold)":"var(--border)"}`,background:monthLimit===n?"var(--gold-dim)":"transparent",color:monthLimit===n?"var(--gold)":"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)",fontWeight:monthLimit===n?700:400}}>{n>=999?"Todos":`${n}m`}</button>)}
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(155px,1fr))",gap:6}}>
