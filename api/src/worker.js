@@ -219,6 +219,18 @@ function validateId(raw) {
   return id;
 }
 
+// Auto-detect lugar_tag from expense description and currency
+function detectLugarTag(desc, divisa) {
+  const d = (desc || "").toLowerCase();
+  // Barco: nautico, amarre, barco
+  if (d.includes("nautico") || d.includes("náutico") || d.includes("r.c. nautico") || d.includes("amarre") || d.includes("barco") || d.includes("club nautico")) return "barco";
+  // Casa: Costa Brava, comunidad
+  if (d.includes("costa brava") || d.includes("c.p. costa brava") || d.includes("comunidad costa")) return "casa";
+  // China: utilities china, {china} prefix, or specific china keywords
+  if (d.includes("{china}") && (d.includes("utilities") || d.includes("alquiler") || d.includes("internet") || d.includes("telefon"))) return "china";
+  return null;
+}
+
 function validationError(msg, corsHeaders) {
   return new Response(JSON.stringify({ error: msg }), {
     status: 400,
@@ -674,11 +686,13 @@ export default {
         if (reqErr) return validationError(reqErr, corsHeaders);
         // Convention: gastos are always stored as negative amounts
         const amt = -Math.abs(parseFloat(body.importe) || 0);
+        // Auto-detect lugar_tag from description
+        const autoLugar = detectLugarTag(body.descripcion || "", body.divisa || "EUR");
         await env.DB.prepare(
-          `INSERT INTO gastos (fecha, categoria, importe, divisa, descripcion)
-           VALUES (?, ?, ?, ?, ?)`
-        ).bind(body.fecha, body.categoria, amt, body.divisa || 'EUR', body.descripcion).run();
-        return json({ success: true }, corsHeaders);
+          `INSERT INTO gastos (fecha, categoria, importe, divisa, descripcion, lugar_tag, china_obligatorio)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        ).bind(body.fecha, body.categoria, amt, body.divisa || 'EUR', body.descripcion, autoLugar, autoLugar === "china" ? 1 : 0).run();
+        return json({ success: true, lugar_tag: autoLugar }, corsHeaders);
       }
 
       // POST /api/gastos/import-csv — import from Wallet app CSV
@@ -757,9 +771,10 @@ export default {
 
           if (dup) { duplicates++; continue; }
 
+          const autoLugar = detectLugarTag(descripcion, divisa);
           await env.DB.prepare(
-            `INSERT INTO gastos (fecha, categoria, importe, divisa, descripcion) VALUES (?, ?, ?, ?, ?)`
-          ).bind(fecha, categoria, importe, divisa, descripcion).run();
+            `INSERT INTO gastos (fecha, categoria, importe, divisa, descripcion, lugar_tag, china_obligatorio) VALUES (?, ?, ?, ?, ?, ?, ?)`
+          ).bind(fecha, categoria, importe, divisa, descripcion, autoLugar, autoLugar === "china" ? 1 : 0).run();
           imported++;
         }
 
