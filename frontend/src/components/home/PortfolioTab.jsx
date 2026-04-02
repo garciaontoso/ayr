@@ -138,6 +138,73 @@ export default function PortfolioTab() {
   const colPickerRef = useRef(null);
   const [colSort, setColSort] = useState({ id: "value", asc: false });
 
+  // Drag-to-reorder columns
+  const dragColRef = useRef(null);
+  const dragOverColRef = useRef(null);
+  const [draggingCol, setDraggingCol] = useState(null);
+  const [dropTarget, setDropTarget] = useState(null);
+
+  const onColDragStart = useCallback((e, colId) => {
+    dragColRef.current = colId;
+    setDraggingCol(colId);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", colId);
+  }, []);
+
+  const onColDragOver = useCallback((e, colId) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (colId !== dragColRef.current) {
+      dragOverColRef.current = colId;
+      setDropTarget(colId);
+    }
+  }, []);
+
+  const onColDrop = useCallback((e, colId) => {
+    e.preventDefault();
+    const fromId = dragColRef.current;
+    if (!fromId || fromId === colId) { setDraggingCol(null); setDropTarget(null); return; }
+    setVisibleCols(prev => {
+      const arr = [...prev];
+      const fromIdx = arr.indexOf(fromId);
+      const toIdx = arr.indexOf(colId);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      arr.splice(fromIdx, 1);
+      arr.splice(toIdx, 0, fromId);
+      return arr;
+    });
+    dragColRef.current = null;
+    dragOverColRef.current = null;
+    setDraggingCol(null);
+    setDropTarget(null);
+  }, []);
+
+  const onColDragEnd = useCallback(() => {
+    dragColRef.current = null;
+    dragOverColRef.current = null;
+    setDraggingCol(null);
+    setDropTarget(null);
+  }, []);
+
+  const moveColInOrder = useCallback((colId, direction) => {
+    setVisibleCols(prev => {
+      const arr = [...prev];
+      const idx = arr.indexOf(colId);
+      if (idx === -1) return prev;
+      const newIdx = idx + direction;
+      if (newIdx < 0 || newIdx >= arr.length) return prev;
+      [arr[idx], arr[newIdx]] = [arr[newIdx], arr[idx]];
+      return arr;
+    });
+  }, []);
+
+  const resetColOrder = useCallback(() => {
+    setVisibleCols(prev => {
+      const defaultOrder = COL_DEFS.map(c => c.id);
+      return defaultOrder.filter(id => prev.includes(id));
+    });
+  }, []);
+
   const [fundData, setFundData] = useState(() => {
     try { const s = JSON.parse(localStorage.getItem(FUND_CACHE_KEY)); if (s && s.data && s.ts && Date.now() - s.ts < 24*3600*1000) return s.data; } catch {} return {};
   });
@@ -219,7 +286,7 @@ export default function PortfolioTab() {
     return (portfolioTotals?.positions || []).map(p => ({ ...p, _fund: fundData[p.ticker] || null }));
   }, [portfolioTotals?.positions, fundData]);
 
-  const activeCols = useMemo(() => COL_DEFS.filter(c => visibleCols.includes(c.id)), [visibleCols]);
+  const activeCols = useMemo(() => visibleCols.map(id => COL_DEFS.find(c => c.id === id)).filter(Boolean), [visibleCols]);
 
   const needsFund = useMemo(() => {
     const fc = new Set(["pe","fwdPE","pb","evEbitda","roe","debtEq","payoutRatio","divGrowth5y","exDate","ytd"]);
@@ -296,11 +363,12 @@ export default function PortfolioTab() {
                 Columnas ({visibleCols.length}/{COL_DEFS.length})
               </button>
               {showColPicker && (
-                <div style={{position:"absolute",top:"100%",left:0,zIndex:100,marginTop:4,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:10,minWidth:280,maxHeight:420,overflowY:"auto",boxShadow:"0 8px 32px rgba(0,0,0,.5)"}}>
-                  <div style={{display:"flex",gap:4,marginBottom:8}}>
+                <div style={{position:"absolute",top:"100%",left:0,zIndex:100,marginTop:4,background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:10,minWidth:280,maxHeight:480,overflowY:"auto",boxShadow:"0 8px 32px rgba(0,0,0,.5)"}}>
+                  <div style={{display:"flex",gap:4,marginBottom:8,flexWrap:"wrap"}}>
                     <button onClick={resetCols} style={{padding:"3px 8px",borderRadius:5,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)"}}>Default</button>
                     <button onClick={showAllCols} style={{padding:"3px 8px",borderRadius:5,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)"}}>Todas</button>
                     <button onClick={()=>setVisibleCols(COL_DEFS.filter(c=>c.locked).map(c=>c.id))} style={{padding:"3px 8px",borderRadius:5,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)"}}>Minimo</button>
+                    <button onClick={resetColOrder} style={{padding:"3px 8px",borderRadius:5,border:"1px solid var(--gold)",background:"var(--gold-dim)",color:"var(--gold)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)",fontWeight:600}}>Reset orden</button>
                   </div>
                   {COL_GROUPS.map(group => (
                     <div key={group} style={{marginBottom:6}}>
@@ -315,6 +383,24 @@ export default function PortfolioTab() {
                       </div>
                     </div>
                   ))}
+                  {/* Column order - numbered list with up/down arrows (iPad friendly) */}
+                  <div style={{borderTop:"1px solid var(--border)",paddingTop:6,marginTop:4,marginBottom:6}}>
+                    <div style={{fontSize:8,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:4,textTransform:"uppercase"}}>Orden de columnas</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:1}}>
+                      {visibleCols.map((colId, idx) => {
+                        const colDef = COL_DEFS.find(c=>c.id===colId);
+                        if (!colDef) return null;
+                        return (
+                          <div key={colId} style={{display:"flex",alignItems:"center",gap:4,padding:"2px 4px",borderRadius:4,background:"rgba(255,255,255,.02)",fontSize:9,fontFamily:"var(--fm)"}}>
+                            <span style={{color:"var(--text-tertiary)",fontSize:8,width:14,textAlign:"right",flexShrink:0}}>{idx+1}.</span>
+                            <span style={{color:"var(--text-primary)",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{colDef.label}</span>
+                            <button onClick={()=>moveColInOrder(colId,-1)} disabled={idx===0} style={{width:18,height:18,borderRadius:3,border:"1px solid var(--border)",background:"transparent",color:idx===0?"var(--text-tertiary)":"var(--gold)",fontSize:10,cursor:idx===0?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:idx===0?.3:1,padding:0,lineHeight:1}} title="Mover arriba">{"\u25b2"}</button>
+                            <button onClick={()=>moveColInOrder(colId,1)} disabled={idx===visibleCols.length-1} style={{width:18,height:18,borderRadius:3,border:"1px solid var(--border)",background:"transparent",color:idx===visibleCols.length-1?"var(--text-tertiary)":"var(--gold)",fontSize:10,cursor:idx===visibleCols.length-1?"default":"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:idx===visibleCols.length-1?.3:1,padding:0,lineHeight:1}} title="Mover abajo">{"\u25bc"}</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                   <div style={{borderTop:"1px solid var(--border)",paddingTop:6,marginTop:4}}>
                     <button onClick={loadFundamentals} disabled={fundLoading} style={{width:"100%",padding:"5px 10px",borderRadius:6,border:"1px solid var(--gold)",background:"var(--gold-dim)",color:"var(--gold)",fontSize:10,fontWeight:600,cursor:fundLoading?"wait":"pointer",fontFamily:"var(--fm)"}}>
                       {fundLoading ? "Cargando fundamentales..." : Object.keys(fundData).length > 0 ? "Recargar P/E, ROE, D/E..." : "Cargar P/E, ROE, D/E..."}
@@ -376,7 +462,7 @@ export default function PortfolioTab() {
                 <thead><tr style={{borderBottom:"2px solid var(--border)"}}>
                   <th style={{padding:"4px 2px",width:22}}/>
                   {activeCols.map(c=>(
-                    <th key={c.id} onClick={()=>toggleColSortFn(c.id)} style={{padding:"4px 3px",textAlign:c.align||"right",color:colSort.id===c.id?"var(--gold)":"var(--text-tertiary)",fontSize:7,fontWeight:700,fontFamily:"var(--fm)",letterSpacing:.3,cursor:"pointer",whiteSpace:"nowrap",userSelect:"none",overflow:"hidden",textOverflow:"ellipsis"}} title={c.label}>
+                    <th key={c.id} draggable="true" onDragStart={e=>onColDragStart(e,c.id)} onDragOver={e=>onColDragOver(e,c.id)} onDrop={e=>onColDrop(e,c.id)} onDragEnd={onColDragEnd} onClick={()=>toggleColSortFn(c.id)} style={{padding:"4px 3px",textAlign:c.align||"right",color:colSort.id===c.id?"var(--gold)":"var(--text-tertiary)",fontSize:7,fontWeight:700,fontFamily:"var(--fm)",letterSpacing:.3,cursor:draggingCol?"grabbing":"pointer",whiteSpace:"nowrap",userSelect:"none",overflow:"hidden",textOverflow:"ellipsis",opacity:draggingCol===c.id?.5:1,borderLeft:dropTarget===c.id?"2px solid var(--gold)":"2px solid transparent",transition:"border-color .1s"}} title={c.label}>
                       {c.label}{colSort.id===c.id?(colSort.asc?" \u25b2":" \u25bc"):""}
                     </th>
                   ))}
