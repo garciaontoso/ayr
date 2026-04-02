@@ -222,12 +222,24 @@ function validateId(raw) {
 // Auto-detect lugar_tag from expense description and currency
 function detectLugarTag(desc, divisa) {
   const d = (desc || "").toLowerCase();
-  // Barco: nautico, amarre, barco
   if (d.includes("nautico") || d.includes("náutico") || d.includes("r.c. nautico") || d.includes("amarre") || d.includes("barco") || d.includes("club nautico")) return "barco";
-  // Casa: Costa Brava, comunidad
   if (d.includes("costa brava") || d.includes("c.p. costa brava") || d.includes("comunidad costa")) return "casa";
-  // China: utilities china, {china} prefix, or specific china keywords
   if (d.includes("{china}") && (d.includes("utilities") || d.includes("alquiler") || d.includes("internet") || d.includes("telefon"))) return "china";
+  return null;
+}
+
+// Apply learned rules from gasto_rules table
+async function applyGastoRules(env, desc) {
+  if (!desc || desc.length < 3) return null;
+  const clean = desc.replace(/\{china\}\s?/g,"").replace(/\{extra\}\s?/g,"").trim().toLowerCase();
+  try {
+    const { results } = await env.DB.prepare("SELECT pattern, categoria, lugar_tag FROM gasto_rules ORDER BY length(pattern) DESC LIMIT 200").all();
+    for (const rule of results) {
+      if (clean.includes(rule.pattern)) {
+        return { categoria: rule.categoria, lugar_tag: rule.lugar_tag };
+      }
+    }
+  } catch {}
   return null;
 }
 
@@ -754,7 +766,10 @@ export default {
           // Skip transfers to own IBANs (IBAN pattern)
           if (note && /^[A-Z]{2}\d{2}[A-Z0-9]{4,}/.test(note.trim())) { skipped++; continue; }
 
-          const categoria = CATEGORY_MAP[categoryName] || "OTH";
+          let categoria = CATEGORY_MAP[categoryName] || "OTH";
+          // Apply learned rules — override CSV category if we have a better match
+          const rule = await applyGastoRules(env, note || categoryName);
+          if (rule && rule.categoria) categoria = rule.categoria;
           // Convention: gastos stored as negative amounts
           const importe = -Math.abs(parseFloat(amountStr));
           if (isNaN(importe) || importe === 0) { skipped++; continue; }
@@ -771,7 +786,7 @@ export default {
 
           if (dup) { duplicates++; continue; }
 
-          const autoLugar = detectLugarTag(descripcion, divisa);
+          const autoLugar = (rule && rule.lugar_tag) || detectLugarTag(descripcion, divisa);
           await env.DB.prepare(
             `INSERT INTO gastos (fecha, categoria, importe, divisa, descripcion, lugar_tag, china_obligatorio) VALUES (?, ?, ?, ?, ?, ?, ?)`
           ).bind(fecha, categoria, importe, divisa, descripcion, autoLugar, autoLugar === "china" ? 1 : 0).run();
@@ -893,6 +908,12 @@ export default {
         return json(results, corsHeaders);
       }
 
+      // GET /api/gasto-rules — learned categorization rules
+      if (path === "/api/gasto-rules" && request.method === "GET") {
+        const { results } = await env.DB.prepare("SELECT * FROM gasto_rules ORDER BY learned_from, pattern LIMIT 500").all();
+        return json(results, corsHeaders);
+      }
+
       // GET /api/stats — resumen rápido para el dashboard
       if (path === "/api/stats" && request.method === "GET") {
         const [lastPatrimonio, divThisYear, divLastYear, totalGastos] = await Promise.all([
@@ -941,6 +962,21 @@ export default {
         if (sets.length === 0) return json({ error: "Nothing to update" }, corsHeaders);
         vals.push(id);
         await env.DB.prepare(`UPDATE gastos SET ${sets.join(", ")} WHERE id = ?`).bind(...vals).run();
+        // Auto-learn: if user changed category or lugar_tag, create a rule from the description
+        if (body.categoria || body.lugar_tag !== undefined) {
+          try {
+            const gasto = await env.DB.prepare("SELECT descripcion, categoria, lugar_tag FROM gastos WHERE id = ?").bind(id).first();
+            if (gasto && gasto.descripcion) {
+              // Extract a clean pattern from the description (lowercase, strip {china}/{extra} tags, first 50 chars)
+              const raw = (gasto.descripcion || "").replace(/\{china\}\s?/g,"").replace(/\{extra\}\s?/g,"").trim().toLowerCase().slice(0, 50);
+              if (raw.length >= 3) {
+                await env.DB.prepare(
+                  "INSERT OR REPLACE INTO gasto_rules (pattern, categoria, lugar_tag, learned_from) VALUES (?, ?, ?, 'user')"
+                ).bind(raw, gasto.categoria, gasto.lugar_tag || null).run();
+              }
+            }
+          } catch {}
+        }
         return json({ success: true, updated: id }, corsHeaders);
       }
 
