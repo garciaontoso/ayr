@@ -13,6 +13,31 @@ export default function TradesTab() {
 
   const [sortCol, setSortCol] = useState("fecha");
   const [sortDir, setSortDir] = useState("desc");
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState(null);
+
+  const syncIB = async () => {
+    setSyncing(true); setSyncMsg(null);
+    try {
+      // Try IB auto-sync first (OAuth — works from cloud)
+      const r1 = await fetch(`${API_URL}/api/ib-auto-sync`, { method: "POST" });
+      const d1 = await r1.json();
+      const oauthTrades = d1.trades_imported || 0;
+
+      // Also try Flex import (only works if Mac ran sync-flex.sh recently)
+      // The Flex data might already be in D1 from the Mac cron
+      let msg = `Sync: ${oauthTrades} trades via IB`;
+      if (d1.nlv_updated) msg += " · NLV actualizado";
+      setSyncMsg(msg);
+
+      // Reload trades
+      loadTrades(tradesFilter, 0);
+    } catch (e) {
+      setSyncMsg("Error sincronizando: " + e.message);
+    }
+    setSyncing(false);
+    setTimeout(() => setSyncMsg(null), 6000);
+  };
 
   // Load trades data from API
   const loadTrades = async (filters = tradesFilter, page = tradesPage, sCol = sortCol, sDir = sortDir) => {
@@ -118,8 +143,17 @@ export default function TradesTab() {
       {(tradesFilter.tipo||tradesFilter.year||tradesFilter.ticker) &&
         <button onClick={()=>{const f={tipo:"",year:"",ticker:""};setTradesFilter(f);setTradesPage(0);loadTrades(f,0);}}
           style={{padding:"7px 12px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:11,cursor:"pointer",fontFamily:"var(--fm)"}}>✕ Limpiar</button>}
+      <button onClick={syncIB} disabled={syncing}
+        style={{padding:"7px 14px",borderRadius:8,border:"1px solid rgba(100,210,255,.4)",background:"rgba(100,210,255,.08)",color:"#64d2ff",fontSize:11,fontWeight:700,cursor:syncing?"wait":"pointer",fontFamily:"var(--fm)",transition:"all .15s"}}>
+        {syncing ? "⏳ Sincronizando..." : "📡 Sync IB"}
+      </button>
       <div style={{marginLeft:"auto",fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{total.toLocaleString()} resultados</div>
     </div>
+    {syncMsg && (
+      <div style={{padding:"8px 14px",background:"rgba(100,210,255,.06)",border:"1px solid rgba(100,210,255,.2)",borderRadius:8,fontSize:11,color:"#64d2ff",fontFamily:"var(--fm)"}}>
+        {syncMsg}
+      </div>
+    )}
 
     {/* Transaction Table */}
     {tradesLoading ? (
