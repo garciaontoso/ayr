@@ -141,6 +141,20 @@ export default function GastosTab() {
   const [csvToast, setCsvToast] = useState(null);
   const [csvLoading, setCsvLoading] = useState(false);
 
+  // China obligatorio toggles — track locally for instant UI, sync to API
+  const [chinaOverrides, setChinaOverrides] = useState({});
+  const isOblig = (g) => chinaOverrides[g.id] !== undefined ? chinaOverrides[g.id] : !!g.chinaOblig;
+  const toggleOblig = async (g) => {
+    const newVal = !isOblig(g);
+    setChinaOverrides(prev => ({ ...prev, [g.id]: newVal }));
+    try {
+      await fetch(`${API_URL}/api/gastos/${g.id}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ china_obligatorio: newVal })
+      });
+    } catch (e) { console.warn("Failed to save china_obligatorio:", e); }
+  };
+
   // Fix 1: track the last-edited gasto so we can scroll to it after re-render
   const [scrollToMatch, setScrollToMatch] = useState(null);
   useEffect(() => {
@@ -292,7 +306,7 @@ export default function GastosTab() {
 
     // FIRE breakdown: China obligatorio vs voluntario
     // China obligatorio = gastos marcados manualmente como obligatorios (alquiler, vuelos, utilities)
-    const chinaObligEur = expenses.filter(g => g.chinaOblig).reduce((s,g) => s+gToEur(g), 0);
+    const chinaObligEur = expenses.filter(g => isOblig(g)).reduce((s,g) => s+gToEur(g), 0);
     // Base Real FIRE = Total - China obligatorio - Extra
     // (incluye comida/ropa en China porque es gasto de vida normal)
     const baseRealEur = totalEur - chinaObligEur - totalExtraEur;
@@ -704,7 +718,7 @@ export default function GastosTab() {
                     onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"} onMouseLeave={e=>e.currentTarget.style.background=i%2?"var(--row-alt)":"transparent"}>
                     <td style={{padding:"5px 10px",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>{g.date}</td>
                     <td style={{padding:"5px 10px",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.cat}{g.secreto?<span style={{fontSize:7,marginLeft:4,padding:"1px 4px",borderRadius:3,background:"rgba(99,102,241,.08)",color:"#6366f1",verticalAlign:"middle"}}>🔒</span>:""}{g.recur?<span style={{fontSize:7,marginLeft:3,padding:"1px 4px",borderRadius:3,background:"rgba(255,159,10,.08)",color:"var(--orange)",verticalAlign:"middle"}}>REC</span>:""}</td>
-                    <td style={{padding:"3px 4px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)",whiteSpace:"nowrap"}}><button onClick={async(e)=>{e.stopPropagation();const newVal=!g.chinaOblig;try{await fetch(`${API_URL}/api/gastos/${g.id}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({china_obligatorio:newVal})});g.chinaOblig=newVal;const btn=e.currentTarget;btn.style.background=newVal?"rgba(239,68,68,.12)":"transparent";btn.style.borderColor=newVal?"rgba(239,68,68,.4)":"var(--subtle-bg2)";btn.textContent=newVal?"🇨🇳 OBLIG":"—";btn.style.color=newVal?"#ef4444":"var(--text-tertiary)";btn.style.fontWeight=newVal?"700":"400";/* flash */ btn.style.transform="scale(1.15)";setTimeout(()=>{btn.style.transform="scale(1)"},200);}catch{}}} title={g.chinaOblig?"Gasto obligatorio China (alquiler, vuelos...) — click para quitar":"Click para marcar como gasto obligatorio China"} style={{fontSize:8,padding:"3px 8px",borderRadius:5,border:`1px solid ${g.chinaOblig?"rgba(239,68,68,.4)":"var(--subtle-bg2)"}`,background:g.chinaOblig?"rgba(239,68,68,.12)":"transparent",color:g.chinaOblig?"#ef4444":"var(--text-tertiary)",cursor:"pointer",fontWeight:g.chinaOblig?700:400,fontFamily:"var(--fm)",transition:"all .2s",minWidth:50}}>{g.chinaOblig?"🇨🇳 OBLIG":"—"}</button></td>
+                    <td style={{padding:"3px 4px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)",whiteSpace:"nowrap"}}>{(()=>{const ob=isOblig(g);return <button onClick={()=>toggleOblig(g)} title={ob?"Gasto obligatorio China — click para quitar":"Click para marcar como obligatorio China (alquiler, vuelos, utilities)"} style={{fontSize:8,padding:"4px 10px",borderRadius:5,border:`1px solid ${ob?"rgba(239,68,68,.5)":"var(--border)"}`,background:ob?"rgba(239,68,68,.15)":"transparent",color:ob?"#ef4444":"var(--text-tertiary)",cursor:"pointer",fontWeight:ob?700:400,fontFamily:"var(--fm)",transition:"all .25s ease",minWidth:55}}>{ob?"🇨🇳 OBLIG":"—"}</button>})()}</td>
                     <td style={{padding:"5px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:g.amount>0?"var(--green)":"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>{_ccyFlag(ccy)} {g.amount>0?"+":""}{_ccySym(ccy)}{Math.abs(g.amount||0).toLocaleString(undefined,{minimumFractionDigits:ccy==="CNY"?0:2,maximumFractionDigits:2})}</td>
                     <td style={{padding:"3px 4px",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>{isNonEur && <span style={{fontSize:8,padding:"1px 5px",borderRadius:3,background:"var(--subtle-border)",color:"var(--text-tertiary)"}}>{ccy}</span>}</td>
                     <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:isNonEur?"var(--text-secondary)":"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)",fontSize:isNonEur?11:10.5}}>{isNonEur ? `€${eurVal.toLocaleString(undefined,{maximumFractionDigits:0})}` : `€${_sf(Math.abs(g.amount||0),2)}`}</td>
