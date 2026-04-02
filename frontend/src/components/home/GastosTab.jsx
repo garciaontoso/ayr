@@ -162,10 +162,10 @@ export default function GastosTab() {
     } catch (e) { console.warn("Inline edit failed:", e); }
   };
 
-  // Lugar tags — cycle through: null → china → barco → casa2 → null
-  const LUGAR_TAGS = [null, "china", "barco", "casa2"];
-  const LUGAR_DISPLAY = { china: "🇨🇳 China", barco: "⛵ Barco", casa2: "🏠 Casa 2" };
-  const LUGAR_COLORS = { china: "#ef4444", barco: "#0a84ff", casa2: "#a855f7" };
+  // Lugar tags — cycle through: null → china → barco → casa → null
+  const LUGAR_TAGS = [null, "china", "barco", "casa"];
+  const LUGAR_DISPLAY = { china: "🇨🇳 China", barco: "⛵ Barco", casa: "🏠 Casa" };
+  const LUGAR_COLORS = { china: "#ef4444", barco: "#0a84ff", casa: "#a855f7" };
   const [lugarOverrides, setLugarOverrides] = useState({});
   const getLugar = (g) => lugarOverrides[g.id] !== undefined ? lugarOverrides[g.id] : (g.lugarTag || (g.chinaOblig ? "china" : null));
   const cycleLugar = async (g) => {
@@ -334,14 +334,14 @@ export default function GastosTab() {
     // Gastos by lugar tag (eliminables)
     const chinaEurTag = expenses.filter(g => getLugar(g) === "china").reduce((s,g) => s+gToEur(g), 0);
     const barcoEurTag = expenses.filter(g => getLugar(g) === "barco").reduce((s,g) => s+gToEur(g), 0);
-    const casa2EurTag = expenses.filter(g => getLugar(g) === "casa2").reduce((s,g) => s+gToEur(g), 0);
-    const eliminableEur = chinaEurTag + barcoEurTag + casa2EurTag;
+    const casaEurTag = expenses.filter(g => getLugar(g) === "casa").reduce((s,g) => s+gToEur(g), 0);
+    const eliminableEur = chinaEurTag + barcoEurTag + casaEurTag;
     // Base Real FIRE = Total - eliminables - extras
     const baseRealEur = totalEur - eliminableEur - totalExtraEur;
     const nMonths = months.size || 1;
     const chinaMes = chinaEurTag / nMonths;
     const barcoMes = barcoEurTag / nMonths;
-    const casa2Mes = casa2EurTag / nMonths;
+    const casaMes = casaEurTag / nMonths;
     const baseRealMes = baseRealEur / nMonths;
 
     // By category (in EUR)
@@ -447,7 +447,7 @@ export default function GastosTab() {
             <div title="Base Real = todos tus gastos MENOS los marcados como 'China OBLIG' (alquiler, vuelos, utilities que desaparecen al jubilarte en Espana)." style={{width:14,height:14,borderRadius:7,background:"rgba(214,158,46,.15)",display:"flex",alignItems:"center",justifyContent:"center",cursor:"help",fontSize:8,color:"var(--gold)",fontWeight:700}}>?</div>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:8}}>
-            {[{tag:"china",ico:"🇨🇳",label:"China",mes:chinaMes,color:"#ef4444"},{tag:"barco",ico:"⛵",label:"Barco",mes:barcoMes,color:"#0a84ff"},{tag:"casa2",ico:"🏠",label:"Casa 2",mes:casa2Mes,color:"#a855f7"}].filter(t=>t.mes>0).map(t=>(
+            {[{tag:"china",ico:"🇨🇳",label:"China",mes:chinaMes,color:"#ef4444"},{tag:"barco",ico:"⛵",label:"Barco",mes:barcoMes,color:"#0a84ff"},{tag:"casa",ico:"🏠",label:"Casa",mes:casaMes,color:"#a855f7"}].filter(t=>t.mes>0).map(t=>(
               <div key={t.tag} style={{padding:"8px 10px",background:`${t.color}08`,borderRadius:10,border:`1px solid ${t.color}20`}}>
                 <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,letterSpacing:.3}}>{t.ico} {t.label.toUpperCase()}</div>
                 <div style={{fontSize:15,fontWeight:700,color:t.color,fontFamily:"var(--fm)"}}>{"\u20AC"}{t.mes.toLocaleString(undefined,{maximumFractionDigits:0})}<span style={{fontSize:8,fontWeight:500,color:"var(--text-tertiary)"}}>/mes</span></div>
@@ -749,7 +749,7 @@ export default function GastosTab() {
                     onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"} onMouseLeave={e=>e.currentTarget.style.background=i%2?"var(--row-alt)":"transparent"}>
                     <td style={{padding:"5px 10px",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>{g.date}</td>
                     <td style={{padding:"3px 6px",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)",maxWidth:160,cursor:"pointer"}} onClick={()=>setEditingCell({id:g.id,field:"cat",value:g.catCode||g.cat})}>{editingCell?.id===g.id&&editingCell?.field==="cat"?<select autoFocus value={editingCell.value} onChange={e=>{saveInlineEdit(g,"cat",e.target.value);}} onBlur={()=>setEditingCell(null)} style={{padding:"2px 4px",background:"var(--surface)",border:"1px solid var(--gold)",borderRadius:4,color:"var(--text-primary)",fontSize:10,fontFamily:"var(--fm)",outline:"none",width:"100%"}}>{["Supermercado","Restaurante","Transporte","Ropa","Salud","Suscripciones","Caprichos","Deportes","Utilities","Utilities China","Regalos","Viajes","Alquiler","Ocio","Hipoteca","Casa","Educacion","Bolsa","Barco","Otros"].map(c=><option key={c} value={c}>{c}</option>)}</select>:<>{g.cat}{g.secreto?<span style={{fontSize:7,marginLeft:4,padding:"1px 4px",borderRadius:3,background:"rgba(99,102,241,.08)",color:"#6366f1",verticalAlign:"middle"}}>🔒</span>:""}{g.recur?<span style={{fontSize:7,marginLeft:3,padding:"1px 4px",borderRadius:3,background:"rgba(255,159,10,.08)",color:"var(--orange)",verticalAlign:"middle"}}>REC</span>:""}</>}</td>
-                    <td style={{padding:"3px 4px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)",whiteSpace:"nowrap"}}>{(()=>{const tag=getLugar(g);const color=LUGAR_COLORS[tag]||"var(--text-tertiary)";return <button onClick={()=>cycleLugar(g)} title="Click para cambiar: — → China → Barco → Casa 2 → —" style={{fontSize:8,padding:"4px 8px",borderRadius:5,border:`1px solid ${tag?color+"80":"var(--border)"}`,background:tag?color+"18":"transparent",color:tag?color:"var(--text-tertiary)",cursor:"pointer",fontWeight:tag?700:400,fontFamily:"var(--fm)",transition:"all .25s ease",minWidth:55}}>{tag?LUGAR_DISPLAY[tag]:"—"}</button>})()}</td>
+                    <td style={{padding:"3px 4px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)",whiteSpace:"nowrap"}}>{(()=>{const tag=getLugar(g);const color=LUGAR_COLORS[tag]||"var(--text-tertiary)";return <button onClick={()=>cycleLugar(g)} title="Click para cambiar: — → China → Barco → Casa → —" style={{fontSize:8,padding:"4px 8px",borderRadius:5,border:`1px solid ${tag?color+"80":"var(--border)"}`,background:tag?color+"18":"transparent",color:tag?color:"var(--text-tertiary)",cursor:"pointer",fontWeight:tag?700:400,fontFamily:"var(--fm)",transition:"all .25s ease",minWidth:55}}>{tag?LUGAR_DISPLAY[tag]:"—"}</button>})()}</td>
                     <td style={{padding:"3px 6px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:g.amount>0?"var(--green)":"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)",cursor:"pointer"}} onClick={()=>setEditingCell({id:g.id,field:"amount",value:Math.abs(g.amount||0)})}>{editingCell?.id===g.id&&editingCell?.field==="amount"?<input autoFocus type="number" step="0.01" value={editingCell.value} onChange={e=>setEditingCell(p=>({...p,value:e.target.value}))} onBlur={()=>saveInlineEdit(g,"amount",editingCell.value)} onKeyDown={e=>{if(e.key==="Enter")saveInlineEdit(g,"amount",editingCell.value);if(e.key==="Escape")setEditingCell(null);}} style={{padding:"2px 4px",background:"var(--surface)",border:"1px solid var(--gold)",borderRadius:4,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)",outline:"none",width:80,textAlign:"right"}}/>:<>{_ccyFlag(ccy)} {g.amount>0?"+":""}{_ccySym(ccy)}{Math.abs(g.amount||0).toLocaleString(undefined,{minimumFractionDigits:ccy==="CNY"?0:2,maximumFractionDigits:2})}</>}</td>
                     <td style={{padding:"3px 4px",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>{isNonEur && <span style={{fontSize:8,padding:"1px 5px",borderRadius:3,background:"var(--subtle-border)",color:"var(--text-tertiary)"}}>{ccy}</span>}</td>
                     <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:isNonEur?"var(--text-secondary)":"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)",fontSize:isNonEur?11:10.5}}>{isNonEur ? `€${eurVal.toLocaleString(undefined,{maximumFractionDigits:0})}` : `€${_sf(Math.abs(g.amount||0),2)}`}</td>
