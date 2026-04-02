@@ -107,6 +107,7 @@ export async function fetchAllData() {
       id: g.id || ("g_"+String(i).padStart(5,"0")), date: g.fecha, cat: CODE_TO_CAT[g.categoria] || GASTO_CATS[g.categoria] || g.categoria,
       catCode: g.categoria, amount: g.importe, recur: false, currency: g.divisa || "EUR",
       tipo: (g.descripcion||"").includes("{china}") ? "china" : (g.descripcion||"").includes("{extra}") ? "extra" : "normal",
+      chinaOblig: g.china_obligatorio === 1,
       detail: (g.descripcion||"").replace(/\{china\}\s?/g,"").replace(/\{extra\}\s?/g,"").replace(/^\[.*?\]\s*/,"")
     }));
 
