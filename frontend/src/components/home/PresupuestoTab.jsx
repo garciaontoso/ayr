@@ -4,7 +4,7 @@ import { API_URL, CURRENCIES } from '../../constants/index.js';
 import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
 
 // ─── Categories matching user's budget spreadsheet ───
-const CATEGORIAS = [
+const DEFAULT_CATEGORIAS = [
   { id: 'CASA', ico: '🏠', color: '#d69e2e' },
   { id: 'UTILITYS', ico: '💡', color: '#64d2ff' },
   { id: 'BARCO', ico: '⛵', color: '#4ecdc4' },
@@ -15,6 +15,8 @@ const CATEGORIAS = [
   { id: 'DEPORTE', ico: '🏋️', color: '#6c5ce7' },
   { id: 'OTROS', ico: '📦', color: '#636e72' },
 ];
+const CAT_BY_ID = Object.fromEntries(DEFAULT_CATEGORIAS.map(c => [c.id, c]));
+const loadCatOrder = () => DEFAULT_CATEGORIAS;
 
 const CAT_LABELS = {
   CASA: 'Casa', UTILITYS: "Utility's", COCHES: 'Coches', BARCO: 'Barco',
@@ -52,7 +54,7 @@ const matchesItem = (detailLower, item, gastoId) => {
 const FREQ_DIVISOR = { MENSUAL: 1, TRIMESTRAL: 3, SEMESTRAL: 6, ANUAL: 12, BIANUAL: 24, TRIANUAL: 36, QUINQUENAL: 60, PERSONALIZADO: 1 };
 const getFreqDivisor = (item) => item.frecuencia === 'PERSONALIZADO' && item.custom_months ? item.custom_months : (FREQ_DIVISOR[item.frecuencia] || 1);
 
-const catOf = id => CATEGORIAS.find(c => c.id === id) || CATEGORIAS[CATEGORIAS.length - 1];
+const catOf = id => CAT_BY_ID[id] || DEFAULT_CATEGORIAS[DEFAULT_CATEGORIAS.length - 1];
 
 // ─── Styles ───
 const card = { background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, marginBottom: 8 };
@@ -104,7 +106,29 @@ export default function PresupuestoTab() {
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [calMonth, setCalMonth] = useState(null);
-  const [expandedItem, setExpandedItem] = useState(null); // id of expanded row
+  const [expandedItem, setExpandedItem] = useState(null);
+  const [CATEGORIAS, setCATEGORIAS] = useState(loadCatOrder);
+  const [dragCat, setDragCat] = useState(null);
+
+  // Load cat order from API
+  useEffect(() => {
+    fetch(`${API_URL}/api/presupuesto/cat-order`).then(r=>r.json()).then(d => {
+      if (d?.order && Array.isArray(d.order)) {
+        const ordered = d.order.map(id => CAT_BY_ID[id]).filter(Boolean);
+        // Add any missing categories at the end
+        const missing = DEFAULT_CATEGORIAS.filter(c => !d.order.includes(c.id));
+        setCATEGORIAS([...ordered, ...missing]);
+      }
+    }).catch(()=>{});
+  }, []);
+
+  const saveCatOrder = (cats) => {
+    setCATEGORIAS(cats);
+    fetch(`${API_URL}/api/presupuesto/cat-order`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ order: cats.map(c => c.id) }),
+    }).catch(()=>{});
+  }; // id of expanded row
   const [dismissedMissing, setDismissedMissing] = useState(() => { try { return JSON.parse(localStorage.getItem('presu_dismissed_missing') || '[]'); } catch { return []; } });
   const [dismissedIncreases, setDismissedIncreases] = useState(() => { try { return JSON.parse(localStorage.getItem('presu_dismissed_increases') || '[]'); } catch { return []; } });
 
@@ -852,9 +876,27 @@ export default function PresupuestoTab() {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', marginBottom: 6 }}>
         <button onClick={() => setCatFilter('ALL')} style={btn(catFilter === 'ALL')}>Todas ({items.length})</button>
         {CATEGORIAS.filter(c => items.some(i => i.categoria === c.id)).map(c => (
-          <button key={c.id} onClick={() => setCatFilter(c.id)} style={btn(catFilter === c.id)}>
+          <div key={c.id} draggable="true"
+            onClick={() => setCatFilter(c.id)}
+            onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', c.id); setDragCat(c.id); }}
+            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; e.currentTarget.style.borderLeft = '3px solid var(--gold)'; }}
+            onDragLeave={(e) => { e.currentTarget.style.borderLeft = ''; }}
+            onDrop={(e) => {
+              e.preventDefault(); e.currentTarget.style.borderLeft = '';
+              const fromId = e.dataTransfer.getData('text/plain') || dragCat;
+              if (!fromId || fromId === c.id) return;
+              const cats = [...CATEGORIAS];
+              const fromIdx = cats.findIndex(x => x.id === fromId);
+              const toIdx = cats.findIndex(x => x.id === c.id);
+              const [moved] = cats.splice(fromIdx, 1);
+              cats.splice(toIdx, 0, moved);
+              saveCatOrder(cats);
+              setDragCat(null);
+            }}
+            onDragEnd={() => setDragCat(null)}
+            style={{...btn(catFilter === c.id), cursor: 'grab', opacity: dragCat === c.id ? 0.4 : 1, display: 'inline-block', userSelect: 'none'}}>
             {c.ico} {CAT_LABELS[c.id]} ({items.filter(i => i.categoria === c.id).length})
-          </button>
+          </div>
         ))}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center' }}>
           <span style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>Ordenar:</span>

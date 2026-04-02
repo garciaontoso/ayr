@@ -991,32 +991,39 @@ function buildPositionsFromCB() {
   }, [homeTab, gastosLog.length, loadGastos]);
   
   // ── Control Mensual (monthly patrimony snapshots) ──
-  const [ctrlLog, setCtrlLog] = useState(() => CTRL_DATA.map((c,i) => ({...c, id: "ct_"+i})));
+  const [ctrlLog, setCtrlLog] = useState(() => CTRL_DATA);
   const [ctrlShowForm, setCtrlShowForm] = useState(false);
   const [ctrlForm, setCtrlForm] = useState({date:"",fx:1.1,fxCny:0,bankinter:0,bcCaminos:0,constructionBankCny:0,revolut:0,otrosBancos:0,ibUsd:0,tsUsd:0,tastyUsd:0,fondos:0,salaryUsd:0,salaryCny:0,goldGrams:0,goldPrice:0,btcAmount:0,btcPrice:0});
   const [ctrlEditId, setCtrlEditId] = useState(null);
-  
+
   // Refresh ctrlLog when API data arrives
   useEffect(() => {
-    if (dataLoaded && CTRL_DATA.length > 0 && ctrlLog.length === 0) {
-      setCtrlLog(CTRL_DATA.map((c,i) => ({...c, id: "ct_"+i})));
+    if (dataLoaded && CTRL_DATA.length > 0) {
+      setCtrlLog(CTRL_DATA);
     }
   }, [dataLoaded]);
 
-  const loadCtrlLog = useCallback(async () => {
-    if (CTRL_DATA.length > 0) { setCtrlLog(CTRL_DATA.map((c,i) => ({...c, id: "ct_"+i}))); return; }
-    if (!storageAvailable()) return;
+  const reloadCtrlFromApi = useCallback(async () => {
     try {
-      const result = await window.storage.get("control:log", true);
-      if (result?.value) {
-        const stored = JSON.parse(result.value);
-        if (stored.length > 0) { setCtrlLog(stored); return; }
-      }
-    } catch(e) {}
-    // First load — save hardcoded data
-    const initial = CTRL_DATA.map((c,i) => ({...c, id: "ct_"+i}));
-    try { await window.storage.set("control:log", JSON.stringify(initial), true); } catch(e) {}
+      const res = await fetch(`${API_URL}/api/patrimonio`);
+      if (!res.ok) return;
+      const patrimonio = await res.json();
+      const fresh = patrimonio.map(p => ({
+        id: p.id, d: p.fecha, fx: p.fx_eur_usd, bk: p.bank, br: p.broker, fd: p.fondos,
+        cr: p.crypto, hp: p.hipoteca, pu: p.total_usd, pe: p.total_eur, sl: p.salary,
+        constructionBankCny: p.construction_bank_cny||0, fxCny: p.fx_eur_cny||0,
+        salaryUsd: p.salary_usd||0, salaryCny: p.salary_cny||0,
+        goldGrams: p.gold_grams||0, goldEur: p.gold_eur||0,
+        btcAmount: p.btc_amount||0, btcEur: p.btc_eur||0,
+      }));
+      setCtrlLog(fresh);
+    } catch(e) { console.error('Reload patrimonio error:', e); }
   }, []);
+
+  const loadCtrlLog = useCallback(async () => {
+    if (CTRL_DATA.length > 0) { setCtrlLog(CTRL_DATA); return; }
+    await reloadCtrlFromApi();
+  }, [reloadCtrlFromApi]);
   
   const addCtrlEntry = useCallback(async (entry, editId) => {
     const fx = entry.fx || 1;
@@ -1051,24 +1058,11 @@ function buildPositionsFromCB() {
       }
     } catch(e) { console.error('Save patrimonio error:', e); }
 
-    const newEntry = {
-      id: editId || "ct_"+Date.now().toString(36),
-      d: entry.date, fx, bk: totalBancos, br: totalBrokersUsd,
-      fd: entry.fondos||0, cr: 0, hp: 0,
-      sl: apiBody.salary, pu: Math.round(totalUsd), pe: Math.round(totalEur),
-      constructionBankCny: entry.constructionBankCny||0, fxCny,
-      salaryUsd: entry.salaryUsd||0, salaryCny: entry.salaryCny||0,
-      goldGrams: entry.goldGrams||0, goldEur, btcAmount: entry.btcAmount||0, btcEur,
-      bankinter: entry.bankinter, bcCaminos: entry.bcCaminos, revolut: entry.revolut,
-      otrosBancos: entry.otrosBancos, ibUsd: entry.ibUsd, tsUsd: entry.tsUsd, tastyUsd: entry.tastyUsd,
-    };
-
-    setCtrlLog(prev => {
-      const filtered = editId ? prev.filter(c => c.id !== editId) : prev;
-      return [...filtered, newEntry].sort((a,b) => (b.d||"").localeCompare(a.d||""));
-    });
+    // Re-fetch from API to get the real saved data
+    await reloadCtrlFromApi();
     setCtrlShowForm(false);
-  }, []);
+    setCtrlEditId(null);
+  }, [reloadCtrlFromApi]);
   
   const deleteCtrlEntry = useCallback((id) => {
     setCtrlLog(prev => {

@@ -72,6 +72,9 @@ async function ensureMigrations(env) {
     try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN billing_months TEXT DEFAULT NULL`).run(); } catch(e) { /* already exists */ }
     try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN aliases TEXT DEFAULT NULL`).run(); } catch(e) { /* already exists */ }
 
+    // App config key-value store
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS app_config (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT DEFAULT (datetime('now')))`).run();
+
     // Presupuesto: excluded gasto IDs, last payment, custom months
     try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN excluded_gastos TEXT DEFAULT NULL`).run(); } catch(e) { /* already exists */ }
     try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN last_payment TEXT DEFAULT NULL`).run(); } catch(e) { /* already exists */ }
@@ -3383,6 +3386,23 @@ export default {
       }
 
       // ─── PRESUPUESTO (Budget) ────────────────────────
+
+      // GET /api/presupuesto/cat-order — get category order
+      if (path === "/api/presupuesto/cat-order" && request.method === "GET") {
+        const row = await env.DB.prepare("SELECT value FROM app_config WHERE key = 'presu_cat_order'").first();
+        if (row?.value) return json({ order: JSON.parse(row.value) }, corsHeaders);
+        return json({ order: null }, corsHeaders);
+      }
+
+      // PUT /api/presupuesto/cat-order — save category order
+      if (path === "/api/presupuesto/cat-order" && request.method === "PUT") {
+        const body = await parseBody(request);
+        await env.DB.prepare(
+          `INSERT INTO app_config (key, value, updated_at) VALUES ('presu_cat_order', ?, datetime('now'))
+           ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')`
+        ).bind(JSON.stringify(body.order)).run();
+        return json({ success: true }, corsHeaders);
+      }
 
       // GET /api/presupuesto — all budget items
       if (path === "/api/presupuesto" && request.method === "GET") {
