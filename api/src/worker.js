@@ -944,7 +944,10 @@ export default {
       // GET /api/dividendos/por-ticker
       if (path === "/api/dividendos/por-ticker" && request.method === "GET") {
         const { results } = await env.DB.prepare(
-          `SELECT ticker, SUM(bruto) as bruto, SUM(neto) as neto, COUNT(*) as cobros,
+          `SELECT ticker,
+                  ROUND(SUM(CASE WHEN bruto_usd > 0 THEN bruto_usd ELSE bruto END),2) as bruto,
+                  ROUND(SUM(CASE WHEN neto_usd > 0 THEN neto_usd ELSE neto END),2) as neto,
+                  COUNT(*) as cobros,
                   MIN(fecha) as primero, MAX(fecha) as ultimo
            FROM dividendos GROUP BY ticker ORDER BY neto DESC LIMIT 500`
         ).all();
@@ -1232,8 +1235,8 @@ export default {
       if (path === "/api/stats" && request.method === "GET") {
         const [lastPatrimonio, divThisYear, divLastYear, totalGastos] = await Promise.all([
           env.DB.prepare("SELECT * FROM patrimonio ORDER BY fecha DESC LIMIT 1").first(),
-          env.DB.prepare("SELECT SUM(neto) as total FROM dividendos WHERE fecha >= date('now','start of year')").first(),
-          env.DB.prepare("SELECT SUM(neto) as total FROM dividendos WHERE fecha >= date('now','-1 year','start of year') AND fecha < date('now','start of year')").first(),
+          env.DB.prepare("SELECT ROUND(SUM(CASE WHEN neto_usd > 0 THEN neto_usd ELSE neto END),2) as total FROM dividendos WHERE fecha >= date('now','start of year')").first(),
+          env.DB.prepare("SELECT ROUND(SUM(CASE WHEN neto_usd > 0 THEN neto_usd ELSE neto END),2) as total FROM dividendos WHERE fecha >= date('now','-1 year','start of year') AND fecha < date('now','start of year')").first(),
           env.DB.prepare("SELECT COUNT(*) as n FROM gastos").first(),
         ]);
         return json({
@@ -2966,10 +2969,10 @@ export default {
           };
 
           // 2. Get recent dividend payments per ticker (last 14 months, ordered by date desc)
-          //    We need individual payments to compute per-share DPS and detect frequency
+          //    Use bruto_usd when available so DPS is always in USD regardless of dividend currency
           const recentDate = new Date(Date.now() - 420 * 86400000).toISOString().slice(0, 10);
           const recentDivs = await env.DB.prepare(
-            `SELECT ticker, fecha, bruto, shares FROM dividendos WHERE fecha >= ? ORDER BY fecha DESC`
+            `SELECT ticker, fecha, CASE WHEN bruto_usd > 0 THEN bruto_usd ELSE bruto END as bruto, shares, CASE WHEN bruto_usd > 0 THEN 'USD' ELSE COALESCE(divisa,'USD') END as divisa FROM dividendos WHERE fecha >= ? ORDER BY fecha DESC`
           ).bind(recentDate).all();
 
           // Build per-ticker arrays of recent payments
@@ -2991,13 +2994,15 @@ export default {
             return [];
           };
 
-          // Helper: deduplicate payments by date (IB Flex imports same dividend per sub-account)
+          // Helper: deduplicate payments by date — take MAX bruto per date
+          // (bruto_usd is the same USD amount regardless of account, so MAX deduplicates
+          //  manual vs IB entries while still being correct for multi-account imports)
           const deduplicateByDate = (payments) => {
             const byDate = {};
             for (const p of payments) {
-              if (!byDate[p.fecha]) byDate[p.fecha] = { ...p, bruto: 0, neto: 0 };
-              byDate[p.fecha].bruto += (p.bruto || 0);
-              byDate[p.fecha].neto += (p.neto || 0);
+              if (!byDate[p.fecha] || (p.bruto || 0) > (byDate[p.fecha].bruto || 0)) {
+                byDate[p.fecha] = { ...p };
+              }
             }
             return Object.values(byDate).sort((a, b) => b.fecha.localeCompare(a.fecha));
           };
@@ -3005,7 +3010,7 @@ export default {
           // Helper: detect frequency from payment dates (uses deduplicated payments)
           const detectFrequency = (payments) => {
             const deduped = deduplicateByDate(payments);
-            if (deduped.length < 2) return { freq: "quarterly", n: 4 }; // default
+            if (deduped.length < 2) return { freq: "annual", n: 1 }; // single payment in 14mo → assume annual
             // Count distinct payment dates in TTM window
             const ttmCutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
             const ttmDeduped = deduped.filter(p => p.fecha >= ttmCutoff);
@@ -3028,22 +3033,25 @@ export default {
           };
 
           // Helper: compute annualized DPS from most recent payment
-          const calcAnnualizedDPS = (payments) => {
-            if (!payments.length) return { dps: 0, freq: "quarterly", n: 4, payments_ttm: 0 };
+          const calcAnnualizedDPS = (payments, posShares) => {
+            if (!payments.length) return { dps: 0, currency: 'USD', freq: "annual", n: 1, payments_ttm: 0 };
             const { freq, n } = detectFrequency(payments);
             // Deduplicate to get correct per-date totals (multi-account imports)
             const deduped = deduplicateByDate(payments);
             // Use most recent deduplicated payment's per-share amount
             const last = deduped[0];
-            // For multi-account: sum bruto across accounts, use max shares (not sum)
-            const origPayments = payments.filter(p => p.fecha === last.fecha);
-            const maxShares = Math.max(...origPayments.map(p => p.shares || 0));
-            const totalBruto = origPayments.reduce((s, p) => s + (p.bruto || 0), 0);
-            const lastDPS = maxShares > 0 ? (totalBruto / maxShares) : 0;
+            // With bruto_usd, the deduped entry already has the correct amount (MAX, not SUM)
+            let maxShares = Math.max(...payments.filter(p => p.fecha === last.fecha).map(p => p.shares || 0));
+            // Fallback to position shares when dividend entries lack shares data
+            if (!maxShares && posShares > 0) maxShares = posShares;
+            const lastDPS = maxShares > 0 ? (last.bruto / maxShares) : 0;
             const ttmCutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
-            const ttmPayments = payments.filter(p => p.fecha >= ttmCutoff);
+            const ttmPayments = deduped.filter(p => p.fecha >= ttmCutoff);
+            // Currency from most recent payment (should be 'USD' when bruto_usd was used)
+            const currency = last.divisa || 'USD';
             return {
               dps: lastDPS * n,
+              currency,
               freq,
               n,
               payments_ttm: ttmPayments.length,
@@ -3061,21 +3069,23 @@ export default {
             let dps = 0;
             let source = "none";
             let frequency = "quarterly";
+            let currency = "USD";
             let ttmTotal = 0;
             let paymentsTTM = 0;
 
             if (payments.length > 0) {
-              const calc = calcAnnualizedDPS(payments);
+              const calc = calcAnnualizedDPS(payments, pos?.shares);
               if (calc.dps > 0) {
                 dps = calc.dps;
                 source = "ttm_actual";
                 frequency = calc.freq;
+                currency = calc.currency || "USD";
                 ttmTotal = calc.ttm_total || 0;
                 paymentsTTM = calc.payments_ttm || 0;
               }
             }
 
-            // Fallback: FMP fundamentals cache (already annualized DPS)
+            // Fallback: FMP fundamentals cache (already annualized DPS in USD)
             if (!dps) {
               const cached = await env.DB.prepare(
                 "SELECT ratios FROM fundamentals WHERE symbol = ?"
@@ -3085,7 +3095,7 @@ export default {
                   const ratios = JSON.parse(cached.ratios || "[]");
                   const latest = Array.isArray(ratios) ? ratios[0] : ratios;
                   dps = latest?.dividendPerShare || latest?.dividendPerShareTTM || 0;
-                  if (dps > 0) source = "fmp_cache";
+                  if (dps > 0) { source = "fmp_cache"; currency = "USD"; }
                 } catch {}
               }
             }
@@ -3094,12 +3104,14 @@ export default {
             if (!dps && pos?.div_ttm > 0) {
               dps = pos.div_ttm;
               source = "positions";
+              currency = "USD";
             }
 
             const dy = price > 0 && dps > 0 ? dps / price : 0;
 
             result[ticker] = {
               dps: Math.round(dps * 100) / 100,
+              currency,
               yield: Math.round(dy * 10000) / 10000,
               frequency,
               source,
@@ -3137,9 +3149,10 @@ export default {
           };
 
           // 2. Get recent dividend payments per ticker (last 14 months) for annualized DPS
+          //    Use bruto_usd so forward projections are always in USD
           const recentDate = new Date(Date.now() - 420 * 86400000).toISOString().slice(0, 10);
           const recentDivs = await env.DB.prepare(
-            `SELECT ticker, fecha, bruto, shares FROM dividendos WHERE fecha >= ? ORDER BY fecha DESC`
+            `SELECT ticker, fecha, CASE WHEN bruto_usd > 0 THEN bruto_usd ELSE bruto END as bruto, shares, CASE WHEN bruto_usd > 0 THEN 'USD' ELSE COALESCE(divisa,'USD') END as divisa FROM dividendos WHERE fecha >= ? ORDER BY fecha DESC`
           ).bind(recentDate).all();
 
           const paymentsByTicker = {};
@@ -3155,19 +3168,20 @@ export default {
             return [];
           };
 
-          // Deduplicate payments by date (same as dps-live)
+          // Deduplicate payments by date — take MAX bruto per date (same as dps-live)
           const dedupByDateFwd = (payments) => {
             const byDate = {};
             for (const p of payments) {
-              if (!byDate[p.fecha]) byDate[p.fecha] = { ...p, bruto: 0, neto: 0 };
-              byDate[p.fecha].bruto += (p.bruto || 0);
+              if (!byDate[p.fecha] || (p.bruto || 0) > (byDate[p.fecha].bruto || 0)) {
+                byDate[p.fecha] = { ...p };
+              }
             }
             return Object.values(byDate).sort((a, b) => b.fecha.localeCompare(a.fecha));
           };
 
           const detectFreqFwd = (payments) => {
             const deduped = dedupByDateFwd(payments);
-            if (deduped.length < 2) return { freq: "quarterly", n: 4 };
+            if (deduped.length < 2) return { freq: "annual", n: 1 }; // single payment in 14mo → assume annual
             const ttmCutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
             const ttmDeduped = deduped.filter(p => p.fecha >= ttmCutoff);
             const count = ttmDeduped.length;
@@ -3195,13 +3209,13 @@ export default {
 
             if (payments.length > 0) {
               const { freq, n } = detectFreqFwd(payments);
-              // Deduplicate for correct per-date DPS
+              // Deduplicate — deduped entry already has correct amount (MAX, not SUM)
               const deduped = dedupByDateFwd(payments);
               const last = deduped[0];
-              const origPayments = payments.filter(p => p.fecha === last.fecha);
-              const maxShares = Math.max(...origPayments.map(p => p.shares || 0));
-              const totalBruto = origPayments.reduce((s, p) => s + (p.bruto || 0), 0);
-              const lastDPS = maxShares > 0 ? (totalBruto / maxShares) : 0;
+              let maxShares = Math.max(...payments.filter(p => p.fecha === last.fecha).map(p => p.shares || 0));
+              // Fallback to position shares when dividend entries lack shares data
+              if (!maxShares && pos?.shares > 0) maxShares = pos.shares;
+              const lastDPS = maxShares > 0 ? (last.bruto / maxShares) : 0;
               dps = lastDPS * n;
               frequency = freq;
             }
@@ -3279,7 +3293,7 @@ export default {
           // 5. YoY growth from dividendos table
           const thisYear = now.getFullYear();
           const lastYearDiv = await env.DB.prepare(
-            "SELECT SUM(bruto) as total FROM dividendos WHERE fecha LIKE ?"
+            "SELECT ROUND(SUM(CASE WHEN bruto_usd > 0 THEN bruto_usd ELSE bruto END),2) as total FROM dividendos WHERE fecha LIKE ?"
           ).bind(`${thisYear - 1}%`).first();
           const growthYoy = lastYearDiv?.total > 0 ? ((annualProjected - lastYearDiv.total) / lastYearDiv.total * 100) : null;
 
@@ -4793,9 +4807,24 @@ export default {
         return json({ insights: parsed, count: parsed.length }, corsHeaders);
       }
 
-      // POST /api/agent-run — manual trigger for all agents (runs in background)
+      // POST /api/agent-run — manual trigger (single agent sync, or all in background)
       if (path === "/api/agent-run" && request.method === "POST") {
         await ensureMigrations(env);
+        const agentParam = url.searchParams.get("agent");
+        const fecha = new Date().toISOString().slice(0, 10);
+        if (agentParam) {
+          // Run single agent synchronously for testing
+          const agentMap = { earnings: runEarningsAgent, dividend: runDividendAgent, macro: runMacroAgent, risk: runRiskAgent, trade: runTradeAgent };
+          const fn = agentMap[agentParam];
+          if (!fn) return json({ error: `Unknown agent: ${agentParam}` }, corsHeaders, 400);
+          try {
+            const result = await fn(env, fecha);
+            return json({ ok: true, ...result }, corsHeaders);
+          } catch (e) {
+            return json({ error: e.message, stack: e.stack?.split('\n').slice(0, 3) }, corsHeaders, 500);
+          }
+        }
+        // Run all in background
         ctx.waitUntil((async () => {
           try {
             const result = await runAllAgents(env);
@@ -4804,7 +4833,7 @@ export default {
             console.error("Manual agent run failed:", e.message);
           }
         })());
-        return json({ ok: true, message: "Agents started in background (~5 min). Refresh insights to see results." }, corsHeaders);
+        return json({ ok: true, message: "Agents started in background (~2 min). Refresh insights to see results." }, corsHeaders);
       }
 
       // POST /api/ib-auto-sync — cloud-based trade/NLV sync (replaces Mac cron dependency)
@@ -4990,13 +5019,15 @@ async function refreshDivTTM(env) {
     return { freq: "quarterly", n: 4 };
   };
 
-  const calcAnnualizedDPS = (payments) => {
+  const calcAnnualizedDPS = (payments, posShares) => {
     if (!payments.length) return { dps: 0 };
     const { n } = detectFrequency(payments);
     const deduped = deduplicateByDate(payments);
     const last = deduped[0];
     const origPayments = payments.filter(p => p.fecha === last.fecha);
-    const maxShares = Math.max(...origPayments.map(p => p.shares || 0));
+    let maxShares = Math.max(...origPayments.map(p => p.shares || 0));
+    // Fallback to position shares when dividend entries lack shares data
+    if (!maxShares && posShares > 0) maxShares = posShares;
     const totalBruto = origPayments.reduce((s, p) => s + (p.bruto || 0), 0);
     const lastDPS = maxShares > 0 ? (totalBruto / maxShares) : 0;
     return { dps: lastDPS * n };
@@ -5015,7 +5046,7 @@ async function refreshDivTTM(env) {
 
     // Primary: annualized from actual payments
     if (payments.length > 0) {
-      const calc = calcAnnualizedDPS(payments);
+      const calc = calcAnnualizedDPS(payments, pos?.shares);
       if (calc.dps > 0) dps = calc.dps;
     }
 
@@ -5225,7 +5256,7 @@ async function callAgentClaude(env, systemPrompt, userContent, maxTokens = 3000)
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: maxTokens,
       system: systemPrompt,
       messages: [{ role: "user", content: typeof userContent === "string" ? userContent : JSON.stringify(userContent) }],
@@ -5238,19 +5269,29 @@ async function callAgentClaude(env, systemPrompt, userContent, maxTokens = 3000)
   const result = await resp.json();
   const rawText = result.content?.[0]?.text || "";
   const cleaned = rawText.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-  try {
-    return JSON.parse(cleaned);
-  } catch (e) {
-    // Try to extract JSON array or object from response
-    const arrMatch = cleaned.match(/\[[\s\S]*\]/);
-    const objMatch = cleaned.match(/\{[\s\S]*\}/);
-    const extracted = arrMatch ? arrMatch[0] : objMatch ? objMatch[0] : null;
-    if (extracted) return JSON.parse(extracted);
-    throw new Error(`JSON parse failed: ${e.message} — raw: ${cleaned.slice(0, 200)}`);
+  // Try direct parse first
+  try { return JSON.parse(cleaned); } catch (_) {}
+  // Extract JSON by finding balanced brackets
+  function extractBalanced(text, open, close) {
+    const start = text.indexOf(open);
+    if (start === -1) return null;
+    let depth = 0;
+    for (let i = start; i < text.length; i++) {
+      if (text[i] === open) depth++;
+      else if (text[i] === close) depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+    return null;
   }
+  const arr = extractBalanced(cleaned, '[', ']');
+  if (arr) try { return JSON.parse(arr); } catch (_) {}
+  const obj = extractBalanced(cleaned, '{', '}');
+  if (obj) try { return JSON.parse(obj); } catch (_) {}
+  throw new Error(`JSON parse failed — raw: ${cleaned.slice(0, 300)}`);
 }
 
 async function storeInsights(env, agentName, fecha, insights) {
+  if (!Array.isArray(insights)) insights = [insights];
   const stmt = env.DB.prepare(`
     INSERT INTO agent_insights (agent_name, fecha, ticker, severity, title, summary, details, score)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -5258,9 +5299,15 @@ async function storeInsights(env, agentName, fecha, insights) {
       severity = excluded.severity, title = excluded.title, summary = excluded.summary,
       details = excluded.details, score = excluded.score, created_at = datetime('now')
   `);
-  const batch = insights.map(i =>
-    stmt.bind(agentName, fecha, i.ticker || "_GLOBAL_", i.severity || "info", i.title, i.summary, JSON.stringify(i.details || {}), i.score || 0)
-  );
+  const batch = insights.filter(i => i && typeof i === 'object').map(i => {
+    const ticker = String(i.ticker || "_GLOBAL_");
+    const severity = String(i.severity || "info");
+    const title = String(i.title || "Update");
+    const summary = String(i.summary || "No summary");
+    const details = JSON.stringify(i.details || {});
+    const score = Number(i.score) || 0;
+    return stmt.bind(agentName, fecha, ticker, severity, title, summary, details, score);
+  });
   if (batch.length) await env.DB.batch(batch);
   return batch.length;
 }
@@ -5614,13 +5661,15 @@ async function checkDividendChanges(env) {
     return 4;
   };
 
-  const calcLiveDPS = (payments) => {
+  const calcLiveDPS = (payments, posShares) => {
     if (!payments.length) return 0;
     const n = detectFrequency(payments);
     const deduped = deduplicateByDate(payments);
     const last = deduped[0];
     const origPayments = payments.filter(p => p.fecha === last.fecha);
-    const maxShares = Math.max(...origPayments.map(p => p.shares || 0));
+    let maxShares = Math.max(...origPayments.map(p => p.shares || 0));
+    // Fallback to position shares when dividend entries lack shares data
+    if (!maxShares && posShares > 0) maxShares = posShares;
     const totalBruto = origPayments.reduce((s, p) => s + (p.bruto || 0), 0);
     const lastDPS = maxShares > 0 ? (totalBruto / maxShares) : 0;
     return lastDPS * n;
@@ -5632,7 +5681,7 @@ async function checkDividendChanges(env) {
 
   for (const pos of posList) {
     const payments = findPayments(pos.ticker);
-    let liveDPS = calcLiveDPS(payments);
+    let liveDPS = calcLiveDPS(payments, pos.shares);
 
     // If no dividend payments found, try FMP fundamentals cache
     if (!liveDPS) {
@@ -5696,8 +5745,8 @@ async function runAllAgents(env) {
 
   for (let i = 0; i < agents.length; i++) {
     const [name, fn] = agents[i];
-    // Wait 65s between agents to respect 30k tokens/min rate limit
-    if (i > 0) await new Promise(r => setTimeout(r, 65000));
+    // Wait 10s between agents to respect rate limits
+    if (i > 0) await new Promise(r => setTimeout(r, 10000));
     try {
       results[name] = await fn(env, fecha);
       console.log(`[Agents] ${name} done:`, JSON.stringify(results[name]));

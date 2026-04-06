@@ -1169,10 +1169,17 @@ function buildPositionsFromCB() {
         costTotalUSD = (ib.avgCost || 0) * (ib.shares || 0) * (ibCcy === "USD" ? 1 : ibFx);
         pnlUSD = (ib.unrealizedPnl || 0) * (ibCcy === "USD" ? 1 : ibFx);
         pnlPct = costTotalUSD !== 0 ? pnlUSD / Math.abs(costTotalUSD) : 0;
-        // DPS is in the position's local currency — convert to USD
-        const divCcyIB = p.currency || ibCcy || "USD";
-        const rawDpsIB = (LIVE_DPS[p.ticker]?.dps || p.divTTM || 0);
-        divAnnualUSD = toUSD(rawDpsIB * (ib.shares || p.shares || 0), divCcyIB);
+        // DPS: LIVE_DPS now returns USD (bruto_usd), only fallback divTTM needs FX conversion
+        const liveDps = LIVE_DPS[p.ticker];
+        if (liveDps?.dps) {
+          const divCcy = liveDps.currency || 'USD';
+          divAnnualUSD = divCcy === 'USD'
+            ? liveDps.dps * (ib.shares || p.shares || 0)
+            : toUSD(liveDps.dps * (ib.shares || p.shares || 0), divCcy);
+        } else {
+          const divCcyIB = p.currency || ibCcy || "USD";
+          divAnnualUSD = toUSD((p.divTTM || 0) * (ib.shares || p.shares || 0), divCcyIB);
+        }
         dataSource = "IB";
       } else {
         // FMP fallback
@@ -1180,10 +1187,17 @@ function buildPositionsFromCB() {
         costTotalUSD = p.totalInvertido || 0;
         pnlUSD = valueUSD - costTotalUSD;
         pnlPct = p.pnlPct || (costTotalUSD !== 0 ? pnlUSD / Math.abs(costTotalUSD) : 0);
-        // DPS is in the position's local currency — convert to USD
-        const divCcyFMP = p.currency || "USD";
-        const rawDpsFMP = (LIVE_DPS[p.ticker]?.dps || p.divTTM || 0);
-        divAnnualUSD = toUSD(rawDpsFMP * (p.shares || 0), divCcyFMP);
+        // DPS: LIVE_DPS now returns USD (bruto_usd), only fallback divTTM needs FX conversion
+        const liveDpsFMP = LIVE_DPS[p.ticker];
+        if (liveDpsFMP?.dps) {
+          const divCcy = liveDpsFMP.currency || 'USD';
+          divAnnualUSD = divCcy === 'USD'
+            ? liveDpsFMP.dps * (p.shares || 0)
+            : toUSD(liveDpsFMP.dps * (p.shares || 0), divCcy);
+        } else {
+          const divCcyFMP = p.currency || "USD";
+          divAnnualUSD = toUSD((p.divTTM || 0) * (p.shares || 0), divCcyFMP);
+        }
         dataSource = "FMP";
       }
 
