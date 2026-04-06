@@ -680,6 +680,142 @@ async function cachePnlFromIB(env) {
   return { ok: true, cached: true, pnl: totalPnl, cost: totalCost, pnlPct };
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Auto Patrimonio Snapshot — creates monthly snapshot on 1st-3rd
+// ═══════════════════════════════════════════════════════════════
+
+async function autoPatrimonioSnapshot(env, { force = false } = {}) {
+  const now = new Date();
+  const day = now.getUTCDate();
+
+  // Only run on 1st-3rd of the month (cron runs weekdays, so 1st may fall on weekend)
+  if (!force && day > 3) return { skipped: true, reason: `Day ${day} — not 1st-3rd of month` };
+
+  const yyyy = now.getUTCFullYear();
+  const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const fecha = `${yyyy}-${mm}-01`;
+
+  // Check if snapshot already exists for this month
+  const existing = await env.DB.prepare(
+    "SELECT id FROM patrimonio WHERE fecha = ?"
+  ).bind(fecha).first();
+  if (existing) return { skipped: true, reason: `Snapshot for ${fecha} already exists (id=${existing.id})` };
+
+  // Get the last patrimonio snapshot to copy bancos/fondos/amounts
+  const prev = await env.DB.prepare(
+    "SELECT * FROM patrimonio ORDER BY fecha DESC LIMIT 1"
+  ).first();
+  if (!prev) return { skipped: true, reason: "No previous patrimonio snapshot found" };
+
+  // 1. Get IB NLV from account summaries
+  let brokerUsd = 0;
+  try {
+    const { lst, consumerKey, accessToken } = await getIBSession(env);
+    const ib = (m, e, b) => ibAuthFetch(lst, consumerKey, accessToken, m, e, b);
+    const accounts = await ib("GET", "/portfolio/accounts");
+    const accountIds = (Array.isArray(accounts) ? accounts : []).map(a => a.accountId || a.id).filter(Boolean);
+    const get = (summary, field) => summary?.[field]?.amount || 0;
+    for (const accountId of accountIds) {
+      const summary = await ib("GET", `/portfolio/${accountId}/summary`);
+      brokerUsd += get(summary, "netliquidation");
+    }
+  } catch (e) {
+    // If IB is unavailable (weekend, maintenance), skip entirely
+    return { skipped: true, reason: "IB unavailable: " + e.message };
+  }
+  if (brokerUsd <= 0) return { skipped: true, reason: "IB NLV is 0 (market likely closed)" };
+
+  // 2. Get BTC price (USD)
+  let btcPriceUsd = 0;
+  try {
+    const btcResp = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd");
+    const btcData = await btcResp.json();
+    btcPriceUsd = btcData?.bitcoin?.usd || 0;
+  } catch (e) {
+    console.error("BTC price fetch failed:", e.message);
+  }
+
+  // 3. Get gold price (USD per gram) via Yahoo Finance (GC=F is per troy oz)
+  let goldPricePerGram = 0;
+  try {
+    const goldResp = await fetchYahoo("https://query1.finance.yahoo.com/v8/finance/chart/GC=F?range=1d&interval=1d");
+    const goldData = await goldResp.json();
+    const goldPerOz = goldData?.chart?.result?.[0]?.meta?.regularMarketPrice || 0;
+    goldPricePerGram = goldPerOz / 31.1035; // troy oz to grams
+  } catch (e) {
+    console.error("Gold price fetch failed:", e.message);
+  }
+
+  // 4. Get EUR/USD rate
+  let fxEurUsd = prev.fx_eur_usd || 1.10;
+  try {
+    const fxResp = await fetchYahoo("https://query1.finance.yahoo.com/v8/finance/chart/EURUSD=X?range=1d&interval=1d");
+    const fxData = await fxResp.json();
+    fxEurUsd = fxData?.chart?.result?.[0]?.meta?.regularMarketPrice || fxEurUsd;
+  } catch (e) {
+    console.error("EUR/USD fetch failed:", e.message);
+  }
+
+  // 5. Get EUR/CNY rate
+  let fxEurCny = prev.fx_eur_cny || 0;
+  try {
+    const cnyResp = await fetchYahoo("https://query1.finance.yahoo.com/v8/finance/chart/EURCNY=X?range=1d&interval=1d");
+    const cnyData = await cnyResp.json();
+    fxEurCny = cnyData?.chart?.result?.[0]?.meta?.regularMarketPrice || fxEurCny;
+  } catch (e) {
+    console.error("EUR/CNY fetch failed:", e.message);
+  }
+
+  // 6. Calculate crypto and gold values
+  const btcAmount = prev.btc_amount || 0;
+  const btcEur = btcAmount > 0 && btcPriceUsd > 0 ? (btcAmount * btcPriceUsd) / fxEurUsd : 0;
+  const cryptoUsd = btcAmount * btcPriceUsd;
+
+  const goldGrams = prev.gold_grams || 0;
+  const goldEur = goldGrams > 0 && goldPricePerGram > 0 ? (goldGrams * goldPricePerGram) / fxEurUsd : 0;
+
+  // 7. Copy manual fields from previous snapshot
+  const bank = prev.bank || 0;
+  const fondos = prev.fondos || 0;
+  const hipoteca = prev.hipoteca || 0;
+  const salary = prev.salary || 0;
+  const salaryUsd = prev.salary_usd || 0;
+  const salaryCny = prev.salary_cny || 0;
+  const constructionBankCny = prev.construction_bank_cny || 0;
+
+  // 8. Calculate totals
+  const totalUsd = brokerUsd + bank + fondos + cryptoUsd + (goldGrams * goldPricePerGram);
+  const totalEur = totalUsd / fxEurUsd;
+
+  // 9. Insert snapshot
+  await env.DB.prepare(
+    `INSERT INTO patrimonio (fecha, fx_eur_usd, bank, broker, fondos, crypto, hipoteca, total_usd, total_eur, salary, notas,
+     construction_bank_cny, fx_eur_cny, salary_usd, salary_cny, gold_grams, gold_eur, btc_amount, btc_eur)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    fecha, fxEurUsd, bank, brokerUsd, fondos, cryptoUsd, hipoteca,
+    Math.round(totalUsd), Math.round(totalEur), salary,
+    "[auto] Monthly snapshot — bancos/fondos copied from previous month",
+    constructionBankCny, fxEurCny, salaryUsd, salaryCny,
+    goldGrams, Math.round(goldEur * 100) / 100,
+    btcAmount, Math.round(btcEur * 100) / 100
+  ).run();
+
+  return {
+    ok: true,
+    fecha,
+    broker: brokerUsd,
+    bank,
+    fondos,
+    crypto: cryptoUsd,
+    gold_eur: goldEur,
+    btc_eur: btcEur,
+    total_usd: Math.round(totalUsd),
+    total_eur: Math.round(totalEur),
+    fx_eur_usd: fxEurUsd,
+  };
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -4522,6 +4658,16 @@ export default {
         }
       }
 
+      // POST /api/patrimonio/auto-snapshot — manually trigger auto patrimonio snapshot
+      if (path === "/api/patrimonio/auto-snapshot" && request.method === "POST") {
+        try {
+          const result = await autoPatrimonioSnapshot(env, { force: true });
+          return json(result, corsHeaders);
+        } catch(e) {
+          return json({ error: "Auto-snapshot error: " + e.message }, corsHeaders, 500);
+        }
+      }
+
       // 404
       return new Response(JSON.stringify({ error: "Not found", path }), {
         status: 404,
@@ -4552,6 +4698,13 @@ export default {
       console.log("P&L cache completed:", JSON.stringify(pnlResult));
     } catch(e) {
       console.error("P&L cache cron failed:", e.message);
+    }
+    // Auto patrimonio snapshot on 1st-3rd of each month
+    try {
+      const patrimonioResult = await autoPatrimonioSnapshot(env);
+      console.log("Patrimonio auto-snapshot:", JSON.stringify(patrimonioResult));
+    } catch(e) {
+      console.error("Patrimonio auto-snapshot failed:", e.message);
     }
   },
 };
