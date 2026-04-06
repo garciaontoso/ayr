@@ -148,16 +148,9 @@ function CalendarioSection({ divLog, POS_STATIC, ownedTickers, soloActuales }) {
   const [viewMode, setViewMode] = useState("month"); // month | year
   const [realExDates, setRealExDates] = useState({});
 
-  // Load real ex-dates from FMP
+  // Load real ex-dates from FMP (worker handles FMP_MAP conversion)
   useEffect(() => {
-    const tickers = Object.keys(POS_STATIC)
-      .map(t => {
-        if (t.startsWith("BME:")) return t.replace("BME:", "");
-        if (t.includes(":")) return null;
-        return t;
-      })
-      .filter(Boolean)
-      .join(",");
+    const tickers = Object.keys(POS_STATIC).join(",");
     if (!tickers) return;
     fetch(`${API_URL}/api/dividend-calendar?symbols=${tickers}`)
       .then(r => r.json())

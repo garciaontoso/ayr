@@ -4,6 +4,27 @@
 // Endpoints REST para la app financiera
 // ═══════════════════════════════════════════════════════════════
 
+// Mapping from our tickers to FMP symbols (foreign tickers need exchange suffix)
+// CRITICAL: bare "ENG" on FMP = ENGlobal Corp (wrong!), "RAND" = Rand Capital (wrong!)
+const FMP_MAP = {
+  "BME:VIS": "VIS.MC", "BME:AMS": "AMS.MC",
+  "HKG:9618": "9618.HK", "HKG:1052": "1052.HK", "HKG:2219": "2219.HK",
+  "HKG:9616": "9616.HK", "HKG:1910": "1910.HK",
+  "FDJU": "FDJ.PA", "HEN3": "HEN3.DE",
+  "LSEG": "LSEG.L", "ITRK": "ITRK.L",
+  "ENG": "ENG.MC",       // Enagas (Spain), NOT ENGlobal Corp
+  "AZJ": "AZJ.AX", "GQG": "GQG.AX",
+  "WKL": "WKL.AS", "SHUR": "SHUR.AS",
+  "RAND": "RAND.AS",     // Randstad (Netherlands), NOT Rand Capital
+  "NET.UN": "NET-UN.TO",
+  "CNSWF": "CNSWF",
+};
+// Helper: convert our ticker to FMP symbol
+const toFMP = (t) => FMP_MAP[t] || t;
+// Helper: reverse-map FMP symbol back to our ticker
+const FMP_REVERSE = Object.fromEntries(Object.entries(FMP_MAP).map(([k, v]) => [v, k]));
+const fromFMP = (fmpSym) => FMP_REVERSE[fmpSym] || fmpSym;
+
 let _migrated = false;
 
 async function ensureMigrations(env) {
@@ -190,6 +211,32 @@ async function ensureMigrations(env) {
     )`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_insights_fecha ON agent_insights(fecha)`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_insights_agent ON agent_insights(agent_name)`).run();
+
+    // agent_memory table (persistent state between agent runs)
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS agent_memory (
+      id TEXT PRIMARY KEY,
+      data TEXT NOT NULL DEFAULT '{}',
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+
+    // signal_tracking table (postmortem: did trade signals work?)
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS signal_tracking (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      original_fecha TEXT NOT NULL,
+      ticker TEXT NOT NULL,
+      action TEXT NOT NULL,
+      price_at_signal REAL,
+      price_7d REAL,
+      price_30d REAL,
+      div_at_signal REAL,
+      div_30d REAL,
+      outcome TEXT,
+      pnl_7d_pct REAL,
+      pnl_30d_pct REAL,
+      evaluated_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(original_fecha, ticker)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_signal_tracking_fecha ON signal_tracking(original_fecha)`).run();
 
     // push_subscriptions table (Web Push)
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS push_subscriptions (
@@ -1758,9 +1805,10 @@ export default {
       if (path === "/api/price-history" && request.method === "GET") {
         const symbol = url.searchParams.get("symbol");
         if (!symbol) return json({ error: "Missing ?symbol=" }, corsHeaders, 400);
+        const fmpSym = toFMP(symbol.toUpperCase());
         const from = url.searchParams.get("from") || new Date(Date.now()-10*365.25*86400000).toISOString().slice(0,10);
         try {
-          const resp = await fetchWithRetry(`${FMP_BASE}/historical-price-eod/full?symbol=${encodeURIComponent(symbol)}&from=${from}&apikey=${FMP_KEY}`, {}, { maxRetries: 2, baseDelay: 2000 });
+          const resp = await fetchWithRetry(`${FMP_BASE}/historical-price-eod/full?symbol=${encodeURIComponent(fmpSym)}&from=${from}&apikey=${FMP_KEY}`, {}, { maxRetries: 2, baseDelay: 2000 });
           if (!resp.ok) return json({ error: "FMP error", status: resp.status }, corsHeaders, 502);
           const data = await resp.json();
           return json(data, corsHeaders);
@@ -2593,28 +2641,31 @@ export default {
           const today = new Date().toISOString().slice(0, 10);
           const alerts = [];
 
-          // 1. DIVIDEND EX-DATES — check earnings-batch for upcoming ex-dates
+          // 1. DIVIDEND EX-DATES — check FMP calendar for upcoming ex-dates (includes foreign tickers via FMP_MAP)
           if (body.positions?.length) {
-            const tickers = body.positions.map(p => p.ticker).filter(t => !t.includes(":")).join(",");
-            if (tickers) {
-              try {
-                const resp = await fetch(`${FMP_BASE}/stock-dividend-calendar?apikey=${FMP_KEY}`);
-                const divCal = await resp.json();
-                if (Array.isArray(divCal)) {
-                  const posSet = new Set(body.positions.map(p => p.ticker));
-                  divCal.forEach(d => {
-                    if (posSet.has(d.symbol) && d.date) {
-                      const daysTo = Math.ceil((new Date(d.date) - new Date()) / 86400000);
-                      if (daysTo >= 0 && daysTo <= 3) {
-                        const pos = body.positions.find(p => p.ticker === d.symbol);
-                        const estDiv = (d.dividend || 0) * (pos?.shares || 0);
-                        alerts.push({ tipo: "DIVIDEND", titulo: `💰 ${d.symbol} ex-dividend ${daysTo === 0 ? "hoy" : `en ${daysTo}d`}`, detalle: `$${(d.dividend||0).toFixed(2)}/sh · Est. $${estDiv.toFixed(0)}`, ticker: d.symbol, valor: estDiv });
-                      }
-                    }
-                  });
+            try {
+              const resp = await fetch(`${FMP_BASE}/stock-dividend-calendar?apikey=${FMP_KEY}`);
+              const divCal = await resp.json();
+              if (Array.isArray(divCal)) {
+                // Build FMP symbol → our ticker map for all positions
+                const fmpToTicker = {};
+                for (const p of body.positions) {
+                  const fmpS = toFMP(p.ticker);
+                  fmpToTicker[fmpS] = p.ticker;
                 }
-              } catch {}
-            }
+                divCal.forEach(d => {
+                  const ourTicker = fmpToTicker[d.symbol];
+                  if (ourTicker && d.date) {
+                    const daysTo = Math.ceil((new Date(d.date) - new Date()) / 86400000);
+                    if (daysTo >= 0 && daysTo <= 3) {
+                      const pos = body.positions.find(p => p.ticker === ourTicker);
+                      const estDiv = (d.dividend || 0) * (pos?.shares || 0);
+                      alerts.push({ tipo: "DIVIDEND", titulo: `\u{1F4B0} ${ourTicker} ex-dividend ${daysTo === 0 ? "hoy" : `en ${daysTo}d`}`, detalle: `$${(d.dividend||0).toFixed(2)}/sh · Est. $${estDiv.toFixed(0)}`, ticker: ourTicker, valor: estDiv });
+                    }
+                  }
+                });
+              }
+            } catch {}
           }
 
           // 2. EARNINGS — positions with earnings in next 7 days
@@ -3379,13 +3430,23 @@ export default {
           const data = await resp.json();
           if (!Array.isArray(data)) return json({ error: "No calendar data" }, corsHeaders, 502);
 
-          // Filter to user's symbols if provided
-          const symbolSet = symbols.length > 0 ? new Set(symbols) : null;
-          const filtered = data.filter(d => !symbolSet || symbolSet.has(d.symbol));
+          // Build FMP→ourTicker map and FMP symbol set for matching
+          const fmpToOur = {}; // e.g. "ENG.MC" → "ENG", "RAND.AS" → "RAND"
+          const fmpSymSet = new Set();
+          for (const s of symbols) {
+            const fmpS = toFMP(s);
+            fmpToOur[fmpS] = s;
+            fmpSymSet.add(fmpS);
+          }
 
-          // Also get historical dividends for each symbol (for past ex-dates in calendar)
+          // Filter to user's symbols (matching against FMP symbols)
+          const filtered = symbols.length > 0
+            ? data.filter(d => fmpSymSet.has(d.symbol))
+            : data;
+
+          // Map results back to our ticker format
           const results = filtered.map(d => ({
-            symbol: d.symbol,
+            symbol: fmpToOur[d.symbol] || fromFMP(d.symbol),
             exDate: d.date,
             payDate: d.paymentDate || "",
             recordDate: d.recordDate || "",
@@ -3400,7 +3461,8 @@ export default {
             const batch = topSymbols.slice(i, i + 5);
             await Promise.all(batch.map(async sym => {
               try {
-                const r = await fetch(`${FMP_BASE}/dividends?symbol=${sym}&apikey=${FMP_KEY}`);
+                const fmpS = toFMP(sym);
+                const r = await fetch(`${FMP_BASE}/dividends?symbol=${fmpS}&apikey=${FMP_KEY}`);
                 const d = await r.json();
                 if (Array.isArray(d)) {
                   history[sym] = d.slice(0, 8).map(x => ({
@@ -3424,7 +3486,8 @@ export default {
           const batch = symbols.slice(i, i + 5);
           await Promise.all(batch.map(async sym => {
             try {
-              const resp = await fetch(`${FMP_BASE}/dividends?symbol=${sym.trim().toUpperCase()}&apikey=${FMP_KEY}`);
+              const fmpSym = toFMP(sym.trim().toUpperCase());
+              const resp = await fetch(`${FMP_BASE}/dividends?symbol=${fmpSym}&apikey=${FMP_KEY}`);
               const data = await resp.json();
               if (!Array.isArray(data) || !data.length) { results[sym] = { streak: 0, years: 0 }; return; }
               // Group by year, get annual total
@@ -3520,8 +3583,9 @@ export default {
                 }
               }
 
-              // Fetch dividend history from FMP
-              const resp = await fetchWithRetry(`${FMP_BASE}/dividends?symbol=${sym}&apikey=${FMP_KEY}`, {}, { maxRetries: 2, baseDelay: 1000 });
+              // Fetch dividend history from FMP (convert to FMP symbol for foreign tickers)
+              const fmpSym = toFMP(sym);
+              const resp = await fetchWithRetry(`${FMP_BASE}/dividends?symbol=${fmpSym}&apikey=${FMP_KEY}`, {}, { maxRetries: 2, baseDelay: 1000 });
               const data = await resp.json();
               if (!Array.isArray(data) || !data.length) {
                 results[sym] = { dgr1: null, dgr3: null, dgr5: null, dgr10: null, streak: 0, history: {} };
@@ -3569,7 +3633,8 @@ export default {
           for (const batch of batches) {
             const fetches = batch.map(async sym => {
               try {
-                const resp = await fetch(`${FMP_BASE}/earnings?symbol=${sym.trim().toUpperCase()}&apikey=${FMP_KEY}`);
+                const fmpSym = toFMP(sym.trim().toUpperCase());
+                const resp = await fetch(`${FMP_BASE}/earnings?symbol=${fmpSym}&apikey=${FMP_KEY}`);
                 const data = await resp.json();
                 const upcoming = (data || []).filter(e => new Date(e.date) >= new Date()).sort((a, b) => new Date(a.date) - new Date(b.date));
                 const past = (data || []).filter(e => new Date(e.date) < new Date()).sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -3641,32 +3706,33 @@ export default {
 
         // Fetch from FMP (19 parallel calls — 6 original + 13 new)
         const sym = symbol.toUpperCase();
+        const fmpSym = toFMP(sym); // Convert to FMP symbol (e.g. ENG→ENG.MC, RAND→RAND.AS)
         const fmpFetch = (ep) => fetchWithRetry(`${FMP_BASE}/${ep}&apikey=${FMP_KEY}`, {}, { maxRetries: 2, baseDelay: 800 }).then(r=>r.json());
         const fmpFetchPath = (ep) => fetchWithRetry(`${FMP_BASE}/${ep}?apikey=${FMP_KEY}`, {}, { maxRetries: 2, baseDelay: 800 }).then(r=>r.json());
         const [incResp, balResp, cfResp, profResp, divResp, ratResp,
                ratingResp, dcfResp, estResp, ptResp, kmResp, fgResp, gradesResp, oeResp,
                revSegResp, geoSegResp, peersResp, earningsResp, ptSummResp] = await Promise.allSettled([
           // Original 6
-          fmpFetch(`income-statement?symbol=${sym}&period=annual&limit=10`),
-          fmpFetch(`balance-sheet-statement?symbol=${sym}&period=annual&limit=10`),
-          fmpFetch(`cash-flow-statement?symbol=${sym}&period=annual&limit=10`),
-          fmpFetch(`profile?symbol=${sym}`),
-          fmpFetchPath(`historical-price-eod/dividend/${sym}`),
-          fmpFetch(`ratios?symbol=${sym}&period=annual&limit=10`),
+          fmpFetch(`income-statement?symbol=${fmpSym}&period=annual&limit=10`),
+          fmpFetch(`balance-sheet-statement?symbol=${fmpSym}&period=annual&limit=10`),
+          fmpFetch(`cash-flow-statement?symbol=${fmpSym}&period=annual&limit=10`),
+          fmpFetch(`profile?symbol=${fmpSym}`),
+          fmpFetchPath(`historical-price-eod/dividend/${fmpSym}`),
+          fmpFetch(`ratios?symbol=${fmpSym}&period=annual&limit=10`),
           // +13 new endpoints
-          fmpFetch(`ratings-snapshot?symbol=${sym}`),
-          fmpFetch(`discounted-cash-flow?symbol=${sym}`),
-          fmpFetch(`analyst-estimates?symbol=${sym}&period=annual&limit=5`),
-          fmpFetch(`price-target-consensus?symbol=${sym}`),
-          fmpFetch(`key-metrics?symbol=${sym}&period=annual&limit=10`),
-          fmpFetch(`financial-growth?symbol=${sym}&period=annual&limit=10`),
-          fmpFetch(`grades-consensus?symbol=${sym}`),
-          fmpFetch(`owner-earnings?symbol=${sym}&period=annual&limit=5`),
-          fmpFetch(`revenue-product-segmentation?symbol=${sym}&period=annual`),
-          fmpFetch(`revenue-geographic-segmentation?symbol=${sym}&period=annual`),
-          fmpFetch(`stock-peers?symbol=${sym}`),
-          fmpFetch(`earnings?symbol=${sym}`),
-          fmpFetch(`price-target-summary?symbol=${sym}`),
+          fmpFetch(`ratings-snapshot?symbol=${fmpSym}`),
+          fmpFetch(`discounted-cash-flow?symbol=${fmpSym}`),
+          fmpFetch(`analyst-estimates?symbol=${fmpSym}&period=annual&limit=5`),
+          fmpFetch(`price-target-consensus?symbol=${fmpSym}`),
+          fmpFetch(`key-metrics?symbol=${fmpSym}&period=annual&limit=10`),
+          fmpFetch(`financial-growth?symbol=${fmpSym}&period=annual&limit=10`),
+          fmpFetch(`grades-consensus?symbol=${fmpSym}`),
+          fmpFetch(`owner-earnings?symbol=${fmpSym}&period=annual&limit=5`),
+          fmpFetch(`revenue-product-segmentation?symbol=${fmpSym}&period=annual`),
+          fmpFetch(`revenue-geographic-segmentation?symbol=${fmpSym}&period=annual`),
+          fmpFetch(`stock-peers?symbol=${fmpSym}`),
+          fmpFetch(`earnings?symbol=${fmpSym}`),
+          fmpFetch(`price-target-summary?symbol=${fmpSym}`),
         ]);
 
         const safe = (resp, isArray=true) => {
@@ -3730,6 +3796,14 @@ export default {
           cached: false, updated: new Date().toISOString() }, corsHeaders);
       }
 
+      // DELETE /api/fundamentals?symbol=ENG — clear cached fundamentals for a symbol
+      if (path === "/api/fundamentals" && request.method === "DELETE") {
+        const symbol = (url.searchParams.get("symbol") || "").toUpperCase();
+        if (!symbol) return json({ error: "Missing ?symbol=" }, corsHeaders, 400);
+        await env.DB.prepare("DELETE FROM fundamentals WHERE symbol = ?").bind(symbol).run();
+        return json({ deleted: symbol }, corsHeaders);
+      }
+
       // GET /api/peer-ratios?symbols=MSFT,GOOG — lightweight batch fetch of PE & EV/EBITDA for peers
       if (path === "/api/peer-ratios" && request.method === "GET") {
         const symbolsParam = url.searchParams.get("symbols");
@@ -3738,9 +3812,10 @@ export default {
 
         const results = await Promise.allSettled(
           symbols.map(async sym => {
+            const fmpSym = toFMP(sym);
             const [kmResp, profResp] = await Promise.allSettled([
-              fetch(`${FMP_BASE}/key-metrics?symbol=${sym}&period=annual&limit=1&apikey=${FMP_KEY}`).then(r => r.json()),
-              fetch(`${FMP_BASE}/profile?symbol=${sym}&apikey=${FMP_KEY}`).then(r => r.json()),
+              fetch(`${FMP_BASE}/key-metrics?symbol=${fmpSym}&period=annual&limit=1&apikey=${FMP_KEY}`).then(r => r.json()),
+              fetch(`${FMP_BASE}/profile?symbol=${fmpSym}&apikey=${FMP_KEY}`).then(r => r.json()),
             ]);
             const km = kmResp.status === "fulfilled" ? (Array.isArray(kmResp.value) ? kmResp.value[0] : kmResp.value) : {};
             const prof = profResp.status === "fulfilled" ? (Array.isArray(profResp.value) ? profResp.value[0] : profResp.value) : {};
@@ -3812,16 +3887,17 @@ export default {
 
               // Fetch fresh — 10 calls per symbol (skip dividends in bulk to save API calls)
               try {
+                const fmpSym = toFMP(sym);
                 const [inc, bal, cf, prof, rat, rtg, dcfR, km, fg] = await Promise.all([
-                  fetch(`${FMP_BASE}/income-statement?symbol=${sym}&period=annual&limit=10&apikey=${FMP_KEY}`).then(r=>r.json()).catch(e=>{console.error("FMP fetch err:",e.message);return[];}),
-                  fetch(`${FMP_BASE}/balance-sheet-statement?symbol=${sym}&period=annual&limit=10&apikey=${FMP_KEY}`).then(r=>r.json()).catch(e=>{console.error("FMP fetch err:",e.message);return[];}),
-                  fetch(`${FMP_BASE}/cash-flow-statement?symbol=${sym}&period=annual&limit=10&apikey=${FMP_KEY}`).then(r=>r.json()).catch(e=>{console.error("FMP fetch err:",e.message);return[];}),
-                  fetch(`${FMP_BASE}/profile?symbol=${sym}&apikey=${FMP_KEY}`).then(r=>r.json()).catch(e=>{console.error("FMP fetch err:",e.message);return[];}),
-                  fetch(`${FMP_BASE}/ratios?symbol=${sym}&period=annual&limit=10&apikey=${FMP_KEY}`).then(r=>r.json()).catch(e=>{console.error("FMP fetch err:",e.message);return[];}),
-                  fetch(`${FMP_BASE}/ratings-snapshot?symbol=${sym}&apikey=${FMP_KEY}`).then(r=>r.json()).catch(e=>{console.error("FMP fetch err:",e.message);return[];}),
-                  fetch(`${FMP_BASE}/discounted-cash-flow?symbol=${sym}&apikey=${FMP_KEY}`).then(r=>r.json()).catch(e=>{console.error("FMP fetch err:",e.message);return{};}),
-                  fetch(`${FMP_BASE}/key-metrics?symbol=${sym}&period=annual&limit=10&apikey=${FMP_KEY}`).then(r=>r.json()).catch(e=>{console.error("FMP fetch err:",e.message);return[];}),
-                  fetch(`${FMP_BASE}/financial-growth?symbol=${sym}&period=annual&limit=10&apikey=${FMP_KEY}`).then(r=>r.json()).catch(e=>{console.error("FMP fetch err:",e.message);return[];}),
+                  fetch(`${FMP_BASE}/income-statement?symbol=${fmpSym}&period=annual&limit=10&apikey=${FMP_KEY}`).then(r=>r.json()).catch(e=>{console.error("FMP fetch err:",e.message);return[];}),
+                  fetch(`${FMP_BASE}/balance-sheet-statement?symbol=${fmpSym}&period=annual&limit=10&apikey=${FMP_KEY}`).then(r=>r.json()).catch(e=>{console.error("FMP fetch err:",e.message);return[];}),
+                  fetch(`${FMP_BASE}/cash-flow-statement?symbol=${fmpSym}&period=annual&limit=10&apikey=${FMP_KEY}`).then(r=>r.json()).catch(e=>{console.error("FMP fetch err:",e.message);return[];}),
+                  fetch(`${FMP_BASE}/profile?symbol=${fmpSym}&apikey=${FMP_KEY}`).then(r=>r.json()).catch(e=>{console.error("FMP fetch err:",e.message);return[];}),
+                  fetch(`${FMP_BASE}/ratios?symbol=${fmpSym}&period=annual&limit=10&apikey=${FMP_KEY}`).then(r=>r.json()).catch(e=>{console.error("FMP fetch err:",e.message);return[];}),
+                  fetch(`${FMP_BASE}/ratings-snapshot?symbol=${fmpSym}&apikey=${FMP_KEY}`).then(r=>r.json()).catch(e=>{console.error("FMP fetch err:",e.message);return[];}),
+                  fetch(`${FMP_BASE}/discounted-cash-flow?symbol=${fmpSym}&apikey=${FMP_KEY}`).then(r=>r.json()).catch(e=>{console.error("FMP fetch err:",e.message);return{};}),
+                  fetch(`${FMP_BASE}/key-metrics?symbol=${fmpSym}&period=annual&limit=10&apikey=${FMP_KEY}`).then(r=>r.json()).catch(e=>{console.error("FMP fetch err:",e.message);return[];}),
+                  fetch(`${FMP_BASE}/financial-growth?symbol=${fmpSym}&period=annual&limit=10&apikey=${FMP_KEY}`).then(r=>r.json()).catch(e=>{console.error("FMP fetch err:",e.message);return[];}),
                 ]);
                 const safe = (v, isArr=true) => isArr ? (Array.isArray(v)?v:[]) : (Array.isArray(v)?(v[0]||{}):(v||{}));
                 const income = safe(inc); const balance = safe(bal); const cashflow = safe(cf);
@@ -4814,7 +4890,11 @@ export default {
         const fecha = new Date().toISOString().slice(0, 10);
         if (agentParam) {
           // Run single agent synchronously for testing
-          const agentMap = { earnings: runEarningsAgent, dividend: runDividendAgent, macro: runMacroAgent, risk: runRiskAgent, trade: runTradeAgent };
+          const agentMap = {
+            regime: runRegimeAgent, earnings: runEarningsAgent, dividend: runDividendAgent,
+            macro: runMacroAgent, risk: runRiskAgent, trade: runTradeAgent, postmortem: runPostmortemAgent,
+            cache: async (env, fecha) => ({ agent: "cache", data: await cacheMarketIndicators(env) }),
+          };
           const fn = agentMap[agentParam];
           if (!fn) return json({ error: `Unknown agent: ${agentParam}` }, corsHeaders, 400);
           try {
@@ -5247,7 +5327,9 @@ Use real numbers from the data provided. If data is missing, use reasonable esti
 // AI AGENTS — 5 autonomous agents for portfolio monitoring
 // ═══════════════════════════════════════════════════════════════
 
-async function callAgentClaude(env, systemPrompt, userContent, maxTokens = 3000) {
+async function callAgentClaude(env, systemPrompt, userContent, opts = {}) {
+  const model = opts.model || "claude-haiku-4-5-20251001";
+  const maxTokens = opts.maxTokens || 3000;
   const resp = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -5256,7 +5338,7 @@ async function callAgentClaude(env, systemPrompt, userContent, maxTokens = 3000)
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
+      model,
       max_tokens: maxTokens,
       system: systemPrompt,
       messages: [{ role: "user", content: typeof userContent === "string" ? userContent : JSON.stringify(userContent) }],
@@ -5312,6 +5394,136 @@ async function storeInsights(env, agentName, fecha, insights) {
   return batch.length;
 }
 
+// ─── Helper: Cache Market Indicators ───────────────────────────
+async function cacheMarketIndicators(env) {
+  const MARKET_TICKERS = [
+    'SPY','QQQ','IWM','DIA',                          // indices
+    'XLK','XLF','XLE','XLV','XLU','XLP','XLI','XLRE', // sectors
+    'HYG','LQD','TLT','SHY',                          // credit
+    'QUAL','MTUM','VLUE',                              // factors
+    'GLD','USO','DBC',                                 // commodities
+    'UUP',                                             // dollar
+    '^VIX',                                            // volatility
+  ];
+
+  const results = {};
+  // Fetch in batches of 8 via Yahoo
+  for (let i = 0; i < MARKET_TICKERS.length; i += 8) {
+    const batch = MARKET_TICKERS.slice(i, i + 8);
+    const batchResults = await Promise.allSettled(
+      batch.map(async (ticker) => {
+        const resp = await fetchYahoo(
+          `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=5d`
+        );
+        if (!resp.ok) return null;
+        const data = await resp.json();
+        const meta = data?.chart?.result?.[0]?.meta;
+        const closes = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(v => v != null) || [];
+        if (!meta) return null;
+        const price = meta.regularMarketPrice;
+        const prevClose = meta.previousClose || meta.chartPreviousClose || price;
+        const firstClose = closes.length > 1 ? closes[0] : prevClose;
+        return {
+          ticker, price,
+          changePct: prevClose ? ((price - prevClose) / prevClose * 100) : 0,
+          change5dPct: firstClose ? ((price - firstClose) / firstClose * 100) : 0,
+          spark5d: closes.slice(-5),
+        };
+      })
+    );
+    for (const r of batchResults) {
+      if (r.status === "fulfilled" && r.value) results[r.value.ticker] = r.value;
+    }
+    if (i + 8 < MARKET_TICKERS.length) await new Promise(r => setTimeout(r, 1500));
+  }
+
+  // Store in agent_memory
+  await env.DB.prepare(
+    `INSERT INTO agent_memory (id, data, updated_at) VALUES ('market_indicators', ?, datetime('now'))
+     ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = datetime('now')`
+  ).bind(JSON.stringify(results)).run();
+
+  return results;
+}
+
+// ─── Helper: Get Market Indicators from cache ───��──────────────
+async function getMarketIndicators(env) {
+  const row = await env.DB.prepare("SELECT data FROM agent_memory WHERE id = 'market_indicators'").first();
+  return row?.data ? JSON.parse(row.data) : {};
+}
+
+// ─── Helper: Get/Set Agent Memory ──────────────────────────────
+async function getAgentMemory(env, id) {
+  const row = await env.DB.prepare("SELECT data FROM agent_memory WHERE id = ?").bind(id).first();
+  return row?.data ? JSON.parse(row.data) : null;
+}
+
+async function setAgentMemory(env, id, data) {
+  await env.DB.prepare(
+    `INSERT INTO agent_memory (id, data, updated_at) VALUES (?, ?, datetime('now'))
+     ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = datetime('now')`
+  ).bind(id, JSON.stringify(data)).run();
+}
+
+// ─── Agent 0: Market Regime (runs FIRST) ───────────────────────
+async function runRegimeAgent(env, fecha) {
+  const mkt = await getMarketIndicators(env);
+  if (!Object.keys(mkt).length) return { agent: "regime", skipped: true, reason: "no market data" };
+
+  // Build sector/factor comparisons
+  const spy = mkt['SPY'];
+  const sectorPerf = ['XLK','XLF','XLE','XLV','XLU','XLP','XLI','XLRE'].map(t => ({
+    ticker: t, changePct: mkt[t]?.changePct, change5d: mkt[t]?.change5dPct,
+  }));
+  const factorPerf = ['QUAL','MTUM','VLUE'].map(t => ({
+    ticker: t, changePct: mkt[t]?.changePct, change5d: mkt[t]?.change5dPct,
+    vsSpyPct: (mkt[t]?.changePct || 0) - (spy?.changePct || 0),
+  }));
+
+  const system = `You are a market regime analyst. Determine the current market state.
+Analyze:
+- Cyclicals (XLF/XLE/XLI) vs defensives (XLU/XLP/XLV): if defensives lead = risk-off
+- Credit (HYG/LQD falling = stress, TLT rising = flight-to-quality)
+- Factors (QUAL+MTUM+VLUE all losing vs SPY = indiscriminate selling)
+- VIX level and trend
+Respond ONLY JSON:
+{"severity":"info|warning|critical","title":"short title","summary":"3-4 sentence regime assessment",
+"details":{"regime":"bull|bear|transition-down|transition-up","regimeConfidence":1-10,
+"breadthSignal":"healthy|deteriorating|collapsed|recovering",
+"creditStress":"none|mild|elevated|severe","factorSignal":"rational-rotation|indiscriminate-selling|risk-on|mixed",
+"safeHavens":"working|failing|mixed","actionGuidance":"full-risk|reduce-risk|defensive|cash-priority",
+"sectorLeaders":[],"sectorLaggards":[],"vixRegime":"low|normal|elevated|crisis"},
+"score":1-10}
+Score 1=crisis, 10=strong bull.`;
+
+  const userContent = {
+    spy: { price: spy?.price, changePct: spy?.changePct, change5d: spy?.change5dPct },
+    vix: { price: mkt['^VIX']?.price, changePct: mkt['^VIX']?.changePct },
+    sectors: sectorPerf,
+    factors: factorPerf,
+    credit: { HYG: mkt['HYG'], LQD: mkt['LQD'], TLT: mkt['TLT'], SHY: mkt['SHY'] },
+    commodities: { GLD: mkt['GLD'], USO: mkt['USO'], DBC: mkt['DBC'] },
+    dollar: mkt['UUP'],
+    fecha,
+  };
+
+  const insight = await callAgentClaude(env, system, userContent);
+  insight.ticker = "_REGIME_";
+
+  // Save regime to agent_memory for other agents
+  await setAgentMemory(env, "regime_current", {
+    fecha,
+    regime: insight.details?.regime,
+    actionGuidance: insight.details?.actionGuidance,
+    creditStress: insight.details?.creditStress,
+    vixRegime: insight.details?.vixRegime,
+    score: insight.score,
+  });
+
+  const stored = await storeInsights(env, "regime", fecha, [insight]);
+  return { agent: "regime", insights: stored };
+}
+
 // ─── Agent 1: Earnings Monitor ─────────────────────────────────
 async function runEarningsAgent(env, fecha) {
   const { results: positions } = await env.DB.prepare(
@@ -5322,7 +5534,7 @@ async function runEarningsAgent(env, fecha) {
   const tickers = positions.map(p => p.ticker);
   const placeholders = tickers.map(() => "?").join(",");
   const { results: fundamentals } = await env.DB.prepare(
-    `SELECT symbol, earnings, income, estimates, profile FROM fundamentals WHERE symbol IN (${placeholders})`
+    `SELECT symbol, earnings, income, estimates, rev_segments, geo_segments, grades FROM fundamentals WHERE symbol IN (${placeholders})`
   ).bind(...tickers).all();
 
   const fundMap = {};
@@ -5331,30 +5543,41 @@ async function runEarningsAgent(env, fecha) {
       earnings: f.earnings ? JSON.parse(f.earnings) : null,
       income: f.income ? JSON.parse(f.income) : null,
       estimates: f.estimates ? JSON.parse(f.estimates) : null,
-      profile: f.profile ? JSON.parse(f.profile) : null,
+      revSegments: f.rev_segments ? JSON.parse(f.rev_segments) : null,
+      geoSegments: f.geo_segments ? JSON.parse(f.geo_segments) : null,
+      grades: f.grades ? JSON.parse(f.grades) : null,
     };
   }
 
-  // Only include positions with earnings data, limit data per ticker to stay under token limits
   const posData = positions.filter(p => fundMap[p.ticker]?.earnings).map(p => {
-    const e = fundMap[p.ticker].earnings;
-    const latest = Array.isArray(e) ? e.slice(0, 2) : e;
+    const f = fundMap[p.ticker];
+    const e = f.earnings;
     return {
       ticker: p.ticker, name: p.name, sector: p.sector,
-      earnings: latest,
-      estimates: fundMap[p.ticker].estimates?.slice?.(0, 1),
+      earnings: Array.isArray(e) ? e.slice(0, 2) : e,
+      estimates: f.estimates?.slice?.(0, 1),
+      revSegments: f.revSegments?.slice?.(0, 1),
+      geoSegments: f.geoSegments?.slice?.(0, 1),
+      analystGrades: Array.isArray(f.grades) ? f.grades.slice(0, 3) : null,
     };
-  }).slice(0, 40); // Cap at 40 positions to limit tokens
+  }).slice(0, 40);
 
   if (!posData.length) {
-    await storeInsights(env, "earnings", fecha, [{ ticker: "_GLOBAL_", severity: "info", title: "Sin datos de earnings", summary: "No hay datos de earnings disponibles en fundamentals cache.", details: {}, score: 5 }]);
+    await storeInsights(env, "earnings", fecha, [{ ticker: "_GLOBAL_", severity: "info", title: "Sin datos de earnings", summary: "No hay datos de earnings disponibles.", details: {}, score: 5 }]);
     return { agent: "earnings", insights: 0 };
   }
 
-  const system = `You are an earnings analyst monitoring a $1.3M dividend income portfolio held by a China-based fiscal resident.
-Analyze the latest earnings data for each company. Flag meaningful changes: revenue miss >3%, EPS miss, guidance changes, margin compression, or growth deceleration.
-Respond with ONLY a JSON array. Each element: {"ticker":"XX","severity":"info|warning|critical","title":"short title","summary":"2-3 sentence analysis","details":{"epsSurprise":null,"revenueSurprise":null,"marginTrend":"","keyRisks":[]},"score":1-10}
-Score 1=terrible, 10=excellent. Only include positions with notable findings. Max 15 entries.`;
+  const system = `You are an earnings analyst monitoring a $1.3M dividend income portfolio (China fiscal resident, 10% WHT US-China treaty).
+Analyze latest earnings. Flag: revenue miss >3%, EPS miss >5%, guidance changes, margin compression, analyst downgrades.
+Use revenue segments and geographic data when available to identify structural shifts.
+
+SEVERITY CALIBRATION:
+- critical = earnings miss >10% or dividend at risk due to earnings
+- warning = miss 3-10% or margin compression >200bps
+- info = beat or minor miss <3%
+
+Respond ONLY JSON array: [{"ticker":"XX","severity":"info|warning|critical","title":"short title","summary":"2-3 sentences","details":{"epsSurprise":null,"revenueSurprise":null,"marginTrend":"","analystAction":"","keyRisks":[]},"score":1-10}]
+Max 15 entries. Prioritize critical/warning first.`;
 
   const insights = await callAgentClaude(env, system, { positions: posData });
   const stored = await storeInsights(env, "earnings", fecha, Array.isArray(insights) ? insights : [insights]);
@@ -5371,8 +5594,20 @@ async function runDividendAgent(env, fecha) {
   const tickers = positions.map(p => p.ticker);
   const placeholders = tickers.map(() => "?").join(",");
   const { results: fundamentals } = await env.DB.prepare(
-    `SELECT symbol, ratios, cashflow, dividends, key_metrics, income FROM fundamentals WHERE symbol IN (${placeholders})`
+    `SELECT symbol, ratios, cashflow, dividends, key_metrics, owner_earnings FROM fundamentals WHERE symbol IN (${placeholders})`
   ).bind(...tickers).all();
+
+  // Real dividend payments from dividendos table (last 2 years)
+  const twoYearsAgo = new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10);
+  const { results: realDivs } = await env.DB.prepare(
+    `SELECT ticker, fecha, bruto, neto, wht_pct FROM dividendos WHERE fecha >= ? ORDER BY fecha DESC`
+  ).bind(twoYearsAgo).all();
+
+  const realDivMap = {};
+  for (const d of realDivs) {
+    if (!realDivMap[d.ticker]) realDivMap[d.ticker] = [];
+    realDivMap[d.ticker].push(d);
+  }
 
   const fundMap = {};
   for (const f of fundamentals) {
@@ -5381,7 +5616,7 @@ async function runDividendAgent(env, fecha) {
       cashflow: f.cashflow ? JSON.parse(f.cashflow) : null,
       dividends: f.dividends ? JSON.parse(f.dividends) : null,
       keyMetrics: f.key_metrics ? JSON.parse(f.key_metrics) : null,
-      income: f.income ? JSON.parse(f.income) : null,
+      ownerEarnings: f.owner_earnings ? JSON.parse(f.owner_earnings) : null,
     };
   }
 
@@ -5389,36 +5624,45 @@ async function runDividendAgent(env, fecha) {
     const f = fundMap[p.ticker] || {};
     const latestRatios = Array.isArray(f.ratios) ? f.ratios[0] : f.ratios;
     const latestCF = Array.isArray(f.cashflow) ? f.cashflow[0] : f.cashflow;
+    const ownerE = Array.isArray(f.ownerEarnings) ? f.ownerEarnings[0] : f.ownerEarnings;
     return {
       ticker: p.ticker, name: p.name, sector: p.sector,
       divTTM: p.div_ttm, yield: p.div_yield, yoc: p.yoc,
       payoutRatio: latestRatios?.payoutRatio || latestRatios?.dividendPayoutRatio,
-      fcfPerShare: latestCF?.freeCashFlowPerShare || latestCF?.freeCashFlow,
+      fcfPerShare: latestCF?.freeCashFlowPerShare,
+      ownerEarningsPerShare: ownerE?.ownerEarningsPerShare,
       debtToEquity: latestRatios?.debtEquityRatio,
       interestCoverage: latestRatios?.interestCoverage,
-      dividendHistory: Array.isArray(f.dividends) ? f.dividends.slice(0, 8) : f.dividends,
+      dividendHistory: Array.isArray(f.dividends) ? f.dividends.slice(0, 8) : null,
+      realPayments: (realDivMap[p.ticker] || []).slice(0, 6),
     };
-  }).slice(0, 35); // Cap to limit tokens
+  }).slice(0, 35);
 
-  const system = `You are a dividend safety analyst for a $1.3M dividend income portfolio.
-Rate each position's dividend sustainability. Flag: payout ratio >80%, declining FCF coverage, broken dividend streaks, rising debt.
-The portfolio owner is focused on growing dividend income — cuts or freezes are critical events.
-Respond with ONLY a JSON array. Each element: {"ticker":"XX","severity":"info|warning|critical","title":"short title","summary":"2-3 sentence analysis","details":{"payoutRatio":null,"fcfCoverage":null,"streakYears":null,"growthRate5y":null,"cutRisk":"low|medium|high","debtConcern":false},"score":1-10}
-Score 1=imminent cut risk, 10=extremely safe. Include all dividend positions. Max 20 entries, prioritize warnings/critical first.`;
+  const system = `You are a dividend safety analyst for a $1.3M dividend income portfolio (China fiscal resident).
+Rate each position's dividend sustainability using BOTH fundamentals AND real payment history.
+Use owner earnings (FCF adjusted for maintenance capex) over reported FCF when available — it's more accurate.
+
+SEVERITY CALIBRATION:
+- critical = payout ratio >100% FCF AND declining revenue, or confirmed dividend cut in history
+- warning = payout ratio >80%, or FCF coverage <1.2x, or debt/equity deteriorating
+- info = safe dividend with good coverage
+
+Respond ONLY JSON array: [{"ticker":"XX","severity":"info|warning|critical","title":"short title","summary":"2-3 sentences","details":{"payoutRatio":null,"fcfCoverage":null,"ownerEarningsCoverage":null,"streakYears":null,"cutRisk":"low|medium|high","debtConcern":false},"score":1-10}]
+Score 1=imminent cut, 10=fortress. Max 20 entries, critical/warning first.`;
 
   const insights = await callAgentClaude(env, system, { positions: posData });
   const stored = await storeInsights(env, "dividend", fecha, Array.isArray(insights) ? insights : [insights]);
   return { agent: "dividend", insights: stored };
 }
 
-// ─── Agent 3: Macro Sentinel ───────────────────────────────────
+// ─── Agent 3: Macro Sentinel (Sonnet — complex narrative synthesis) ───
 async function runMacroAgent(env, fecha) {
   const fmpKey = env.FMP_KEY;
   const today = new Date();
   const weekAgo = new Date(today - 7 * 86400000).toISOString().slice(0, 10);
   const todayStr = today.toISOString().slice(0, 10);
 
-  // Fetch economic calendar + treasury rates from FMP
+  // FMP economic calendar + treasury
   let econEvents = [], treasuryRates = [];
   try {
     const [econResp, treasuryResp] = await Promise.all([
@@ -5427,40 +5671,59 @@ async function runMacroAgent(env, fecha) {
     ]);
     if (econResp.ok) econEvents = await econResp.json();
     if (treasuryResp.ok) treasuryRates = await treasuryResp.json();
-  } catch (e) {
-    console.error("Macro FMP fetch error:", e.message);
-  }
+  } catch (e) { console.error("Macro FMP fetch error:", e.message); }
 
-  // Get VIX from price_cache
-  let vix = null;
-  try {
-    const vixRow = await env.DB.prepare("SELECT data FROM price_cache WHERE id = '^VIX'").first();
-    if (vixRow?.data) {
-      const vixData = JSON.parse(vixRow.data);
-      vix = vixData.regularMarketPrice || vixData.price;
-    }
-  } catch (_) {}
+  // Market indicators from cache (sectors, factors, credit, commodities)
+  const mkt = await getMarketIndicators(env);
+
+  // Current regime from agent_memory
+  const regime = await getAgentMemory(env, "regime_current");
 
   // Portfolio sector breakdown
   const { results: sectorRows } = await env.DB.prepare(
     "SELECT sector, SUM(market_value) as total FROM positions WHERE shares > 0 GROUP BY sector"
   ).all();
 
-  const system = `You are a macro strategist analyzing how recent economic events impact a $1.3M US-focused dividend income portfolio.
-The portfolio owner is a China fiscal resident receiving US dividends (10% WHT under US-China treaty).
-Focus on: interest rates, inflation (CPI/PCE), Fed decisions, employment data, yield curve, and USD/CNY impact.
-Respond with ONLY a JSON object: {"severity":"info|warning|critical","title":"short title","summary":"3-4 sentence macro outlook","details":{"rateOutlook":"","inflationTrend":"","yieldCurveSignal":"","usdCnyImpact":"","sectorImpacts":[],"keyRisks":[],"opportunities":[]},"score":1-10}
-Score 1=very bearish macro, 10=very bullish.`;
+  // Margin interest (cost of leverage)
+  const { results: marginRows } = await env.DB.prepare(
+    "SELECT mes, SUM(interes_usd) as total FROM margin_interest GROUP BY mes ORDER BY mes DESC LIMIT 3"
+  ).all();
+
+  const system = `You are a macro strategist analyzing a $1.35M dividend income portfolio (88 stocks, China fiscal resident, 10% WHT US-China treaty).
+
+FIRST reason step by step:
+1. REGIME: Risk-on, risk-off or transition? Use sector and factor data
+2. CREDIT: HYG/LQD spreads indicate stress? TLT flight-to-quality or sell-off?
+3. FACTORS: QUAL/MTUM/VLUE vs SPY — rational rotation or indiscriminate selling?
+4. SECTORS: Defensives (XLU/XLP/XLV) outperforming? Cyclicals (XLF/XLE/XLI) weak?
+5. COMMODITIES: GLD/USO signal inflation/geopolitics?
+6. IMPLICATION for dividend stocks: which portfolio sectors at risk?
+
+SEVERITY CALIBRATION:
+- critical = credit spreads blowing out (HYG -3%+ in week) or regime shift to bear
+- warning = sector rotation hurting portfolio or rate surprise
+- info = stable environment, minor shifts
+
+Respond ONLY JSON:
+{"severity":"info|warning|critical","title":"short title","summary":"4-5 sentence connected narrative synthesis (NOT a list of data points)",
+"details":{"regime":"risk-on|risk-off|transition","regimeConfidence":1-10,
+"creditStress":"none|mild|elevated|severe","factorSignal":"rational-rotation|indiscriminate-selling|risk-on|mixed",
+"sectorLeaders":[],"sectorLaggards":[],"rateOutlook":"","inflationTrend":"",
+"commoditySignal":"","portfolioImplications":[],"keyRisks":[],"opportunities":[]},
+"score":1-10}`;
 
   const userContent = {
-    vix,
-    economicEvents: Array.isArray(econEvents) ? econEvents.slice(0, 30) : [],
-    treasuryRates: Array.isArray(treasuryRates) ? treasuryRates.slice(0, 7) : [],
+    currentRegime: regime,
+    marketIndicators: mkt,
+    economicEvents: Array.isArray(econEvents) ? econEvents.slice(0, 25) : [],
+    treasuryRates: Array.isArray(treasuryRates) ? treasuryRates.slice(0, 5) : [],
     portfolioSectors: sectorRows,
+    marginInterest: marginRows,
     fecha: todayStr,
   };
 
-  const insight = await callAgentClaude(env, system, userContent);
+  // Use Sonnet for complex narrative synthesis
+  const insight = await callAgentClaude(env, system, userContent, { model: "claude-sonnet-4-20250514" });
   insight.ticker = "_MACRO_";
   const stored = await storeInsights(env, "macro", fecha, [insight]);
   return { agent: "macro", insights: stored };
@@ -5504,10 +5767,25 @@ async function runRiskAgent(env, fecha) {
     }
   }
 
-  const system = `You are a portfolio risk analyst for a $1.3M dividend income portfolio with ${positions.length} positions.
-Evaluate concentration risk, sector diversification, and drawdown exposure.
-Respond with ONLY a JSON object: {"severity":"info|warning|critical","title":"short title","summary":"3-4 sentence risk assessment","details":{"concentrationScore":1-10,"topRisks":[],"sectorConcentration":"","diversificationScore":1-10,"recommendations":[]},"score":1-10}
-Score 1=very risky, 10=well diversified.`;
+  // Margin interest cost
+  const { results: marginRows } = await env.DB.prepare(
+    "SELECT mes, SUM(interes_usd) as total FROM margin_interest GROUP BY mes ORDER BY mes DESC LIMIT 3"
+  ).all();
+
+  // Current regime context
+  const regime = await getAgentMemory(env, "regime_current");
+
+  const system = `You are a portfolio risk analyst for a $1.35M dividend income portfolio with ${positions.length} positions.
+Evaluate: concentration risk, sector diversification, drawdown exposure, leverage cost, and regime alignment.
+
+SEVERITY CALIBRATION:
+- critical = single position >15% AND falling >20%, or max drawdown >15%, or margin cost > dividend income
+- warning = top 5 > 40%, or max drawdown >8%, or sector >50% single sector
+- info = well-diversified, manageable drawdown
+
+Respond ONLY JSON: {"severity":"info|warning|critical","title":"short","summary":"3-4 sentences",
+"details":{"concentrationScore":1-10,"topRisks":[],"sectorConcentration":"","diversificationScore":1-10,
+"leverageCostVsIncome":"","regimeAlignment":"","recommendations":[]},"score":1-10}`;
 
   const userContent = {
     totalNLV: totalValue,
@@ -5519,6 +5797,8 @@ Score 1=very risky, 10=well diversified.`;
     maxDrawdown60d: Math.round(maxDrawdown * 1000) / 10,
     nlvTrend: nlvHistory.slice(0, 10),
     categories: positions.reduce((acc, p) => { acc[p.category || "OTHER"] = (acc[p.category || "OTHER"] || 0) + 1; return acc; }, {}),
+    marginInterest: marginRows,
+    currentRegime: regime,
   };
 
   const insight = await callAgentClaude(env, system, userContent);
@@ -5527,9 +5807,9 @@ Score 1=very risky, 10=well diversified.`;
   return { agent: "risk", insights: stored };
 }
 
-// ─── Agent 5: Trade Advisor ────────────────────────────────────
+// ─── Agent 5: Trade Advisor (Bull/Bear Debate — 3 calls) ──────
 async function runTradeAgent(env, fecha) {
-  // Read today's insights from agents 1-4
+  // Read today's insights from all other agents
   const { results: todayInsights } = await env.DB.prepare(
     "SELECT agent_name, ticker, severity, title, summary, score FROM agent_insights WHERE fecha = ? AND agent_name != 'trade'"
   ).bind(fecha).all();
@@ -5541,7 +5821,7 @@ async function runTradeAgent(env, fecha) {
      ON a.ticker = b.ticker AND a.updated_at = b.max_date`
   ).all();
 
-  // Positions with fundamentals valuation data
+  // Positions + fundamentals
   const { results: positions } = await env.DB.prepare(
     "SELECT ticker, name, shares, market_value, avg_price, last_price, pnl_pct, div_yield FROM positions WHERE shares > 0"
   ).all();
@@ -5551,15 +5831,18 @@ async function runTradeAgent(env, fecha) {
   if (tickers.length) {
     const placeholders = tickers.map(() => "?").join(",");
     const { results: fundRows } = await env.DB.prepare(
-      `SELECT symbol, dcf, price_target FROM fundamentals WHERE symbol IN (${placeholders})`
+      `SELECT symbol, dcf, price_target, grades FROM fundamentals WHERE symbol IN (${placeholders})`
     ).bind(...tickers).all();
     for (const f of fundRows) {
       dcfMap[f.symbol] = {
         dcf: f.dcf ? JSON.parse(f.dcf) : null,
         priceTarget: f.price_target ? JSON.parse(f.price_target) : null,
+        grades: f.grades ? JSON.parse(f.grades) : null,
       };
     }
   }
+
+  const regime = await getAgentMemory(env, "regime_current");
 
   const posData = positions.map(p => ({
     ticker: p.ticker, name: p.name, shares: p.shares,
@@ -5569,25 +5852,174 @@ async function runTradeAgent(env, fecha) {
     aiAction: aiAnalyses.find(a => a.ticker === p.ticker)?.action,
     fairValue: dcfMap[p.ticker]?.dcf?.[0]?.dcf || dcfMap[p.ticker]?.dcf?.dcf,
     priceTarget: dcfMap[p.ticker]?.priceTarget?.[0]?.targetConsensus || dcfMap[p.ticker]?.priceTarget?.targetConsensus,
-  }));
+    analystConsensus: dcfMap[p.ticker]?.grades?.slice?.(0, 2),
+  })).slice(0, 30);
 
-  const system = `You are a trade advisor synthesizing all agent insights into actionable recommendations for a $1.3M dividend income portfolio.
-You receive today's analysis from 4 specialized agents (earnings, dividends, macro, risk) plus existing AI scores.
-Generate buy/sell/hold/trim/add recommendations for the most actionable positions (max 10).
-Consider: valuation (DCF vs price), dividend safety, earnings momentum, macro context, and portfolio concentration.
-The owner favors income growth — avoid recommending sells of safe dividend growers unless seriously overvalued or fundamentally impaired.
-Respond with ONLY a JSON array. Each element: {"ticker":"XX","severity":"info|warning|critical","title":"ACTION: Ticker","summary":"2-3 sentence rationale","details":{"action":"BUY|SELL|HOLD|TRIM|ADD","conviction":"low|medium|high","targetPrice":null,"rationale":"","timeHorizon":"short|medium|long"},"score":1-10}
-Score reflects conviction: 1=low confidence, 10=very high confidence.`;
+  // ── Step 1: Bull Case (Haiku) ──
+  const bullSystem = `You are a BULL analyst. Argue IN FAVOR of each position based on agent insights.
+For each ticker flagged in today's insights, give 2-3 concrete bullish reasons with data.
+Also identify the top 5 positions worth ADDING to based on valuation and dividends.
+Respond ONLY JSON array: [{"ticker":"XX","bullCase":"...","upside":"...","addOpportunity":true/false}]
+Max 15 tickers.`;
 
-  const userContent = {
+  const bullResult = await callAgentClaude(env, bullSystem, {
+    todayInsights: todayInsights.filter(i => i.ticker && i.ticker !== '_GLOBAL_' && !i.ticker.startsWith('_')),
+    positions: posData, regime,
+  });
+
+  // ── Step 2: Bear Case (Haiku) — receives bull output ──
+  const bearSystem = `You are a BEAR analyst. Here are bullish arguments for portfolio positions.
+Counter-argue with CONCRETE risks and data the bulls ignore.
+For each position, identify the biggest risk and downside scenario.
+Respond ONLY JSON array: [{"ticker":"XX","bearCase":"...","downside":"...","keyRisk":"..."}]
+Max 15 tickers.`;
+
+  const bearResult = await callAgentClaude(env, bearSystem, {
+    bullArguments: bullResult,
+    todayInsights: todayInsights.filter(i => i.severity !== 'info'),
+    regime,
+  });
+
+  // ── Step 3: Synthesis (Sonnet) — receives bull + bear + all insights ──
+  const synthSystem = `You are a trade advisor synthesizing bull and bear arguments for a $1.35M dividend income portfolio.
+The conviction must reflect the STRENGTH of the debate:
+- If bull and bear are balanced → conviction LOW
+- If one clearly dominates → conviction HIGH
+The owner favors income growth — avoid selling safe dividend growers unless seriously impaired.
+
+Current market regime: ${regime?.regime || 'unknown'} (guidance: ${regime?.actionGuidance || 'unknown'})
+
+SEVERITY CALIBRATION:
+- critical = immediate action needed (position >10% AND impaired, or dividend cut imminent)
+- warning = review this week (valuation stretched or deteriorating fundamentals)
+- info = monitoring (no action needed now)
+
+Respond ONLY JSON array: [{"ticker":"XX","severity":"info|warning|critical","title":"ACTION: Ticker",
+"summary":"2-3 sentence rationale incorporating both bull and bear views",
+"details":{"action":"BUY|SELL|HOLD|TRIM|ADD","conviction":"low|medium|high",
+"bullSummary":"...","bearSummary":"...","targetPrice":null,"timeHorizon":"short|medium|long"},
+"score":1-10}]
+Max 10 most actionable recommendations. Score = conviction (1=low, 10=very high).`;
+
+  const synthResult = await callAgentClaude(env, synthSystem, {
+    bullArguments: bullResult,
+    bearArguments: bearResult,
     todayInsights,
-    positions: posData,
-    fecha,
-  };
+    positions: posData.slice(0, 20),
+  }, { model: "claude-sonnet-4-20250514" });
 
-  const insights = await callAgentClaude(env, system, userContent);
-  const stored = await storeInsights(env, "trade", fecha, Array.isArray(insights) ? insights : [insights]);
+  // Store signals for future postmortem tracking
+  const signals = Array.isArray(synthResult) ? synthResult : [synthResult];
+  for (const s of signals) {
+    if (s.ticker && s.details?.action && s.details.action !== 'HOLD') {
+      const pos = positions.find(p => p.ticker === s.ticker);
+      if (pos) {
+        await env.DB.prepare(
+          `INSERT INTO signal_tracking (original_fecha, ticker, action, price_at_signal, div_at_signal)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(original_fecha, ticker) DO UPDATE SET action=excluded.action, price_at_signal=excluded.price_at_signal`
+        ).bind(fecha, s.ticker, s.details.action, pos.last_price, pos.div_yield).run();
+      }
+    }
+  }
+
+  const stored = await storeInsights(env, "trade", fecha, signals);
   return { agent: "trade", insights: stored };
+}
+
+// ─── Agent 6: Signal Postmortem (pure calculation, no LLM) ─────
+async function runPostmortemAgent(env, fecha) {
+  // Find signals from 7 days and 30 days ago that haven't been evaluated
+  const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+
+  const { results: pendingSignals } = await env.DB.prepare(
+    `SELECT * FROM signal_tracking WHERE
+     (original_fecha <= ? AND price_7d IS NULL) OR
+     (original_fecha <= ? AND price_30d IS NULL)
+     ORDER BY original_fecha ASC LIMIT 50`
+  ).bind(sevenDaysAgo, thirtyDaysAgo).all();
+
+  if (!pendingSignals.length) return { agent: "postmortem", evaluated: 0 };
+
+  // Get current prices for these tickers
+  const tickers = [...new Set(pendingSignals.map(s => s.ticker))];
+  const placeholders = tickers.map(() => "?").join(",");
+  const { results: priceRows } = await env.DB.prepare(
+    `SELECT ticker, last_price, div_yield FROM positions WHERE ticker IN (${placeholders})`
+  ).bind(...tickers).all();
+
+  const priceMap = {};
+  for (const p of priceRows) priceMap[p.ticker] = p;
+
+  let evaluated = 0;
+  let correct = 0;
+  let incorrect = 0;
+
+  for (const signal of pendingSignals) {
+    const current = priceMap[signal.ticker];
+    if (!current?.last_price) continue;
+
+    const currentPrice = current.last_price;
+    const priceDiff = currentPrice - signal.price_at_signal;
+    const pnlPct = signal.price_at_signal > 0 ? (priceDiff / signal.price_at_signal * 100) : 0;
+
+    const daysSince = Math.floor((Date.now() - new Date(signal.original_fecha).getTime()) / 86400000);
+
+    if (daysSince >= 7 && !signal.price_7d) {
+      const pnl7d = pnlPct;
+      let outcome7d = "neutral";
+      if ((signal.action === "BUY" || signal.action === "ADD") && pnl7d > 2) outcome7d = "correct";
+      else if ((signal.action === "BUY" || signal.action === "ADD") && pnl7d < -2) outcome7d = "incorrect";
+      else if ((signal.action === "SELL" || signal.action === "TRIM") && pnl7d < -2) outcome7d = "correct";
+      else if ((signal.action === "SELL" || signal.action === "TRIM") && pnl7d > 2) outcome7d = "incorrect";
+
+      await env.DB.prepare(
+        "UPDATE signal_tracking SET price_7d = ?, pnl_7d_pct = ?, outcome = ?, evaluated_at = datetime('now') WHERE id = ?"
+      ).bind(currentPrice, Math.round(pnl7d * 100) / 100, outcome7d, signal.id).run();
+
+      if (outcome7d === "correct") correct++;
+      else if (outcome7d === "incorrect") incorrect++;
+      evaluated++;
+    }
+
+    if (daysSince >= 30 && !signal.price_30d) {
+      await env.DB.prepare(
+        "UPDATE signal_tracking SET price_30d = ?, pnl_30d_pct = ?, evaluated_at = datetime('now') WHERE id = ?"
+      ).bind(currentPrice, Math.round(pnlPct * 100) / 100, signal.id).run();
+      evaluated++;
+    }
+  }
+
+  // Compute overall accuracy and store in agent_memory
+  const { results: allEvaluated } = await env.DB.prepare(
+    "SELECT outcome, COUNT(*) as cnt FROM signal_tracking WHERE outcome IS NOT NULL GROUP BY outcome"
+  ).all();
+  const stats = {};
+  for (const r of allEvaluated) stats[r.outcome] = r.cnt;
+  const total = (stats.correct || 0) + (stats.incorrect || 0) + (stats.neutral || 0);
+  const accuracy = total > 0 ? Math.round((stats.correct || 0) / total * 100) : 0;
+
+  await setAgentMemory(env, "signal_accuracy", {
+    fecha, accuracy, total,
+    correct: stats.correct || 0,
+    incorrect: stats.incorrect || 0,
+    neutral: stats.neutral || 0,
+  });
+
+  // Store as insight if there are evaluated signals
+  if (evaluated > 0) {
+    await storeInsights(env, "postmortem", fecha, [{
+      ticker: "_POSTMORTEM_",
+      severity: accuracy < 40 ? "critical" : accuracy < 60 ? "warning" : "info",
+      title: `Signal Accuracy: ${accuracy}% (${total} signals)`,
+      summary: `${correct} correct, ${incorrect} incorrect, ${stats.neutral || 0} neutral out of ${total} evaluated signals. Evaluated ${evaluated} new signals today.`,
+      details: { accuracy, total, correct, incorrect, neutral: stats.neutral || 0, evaluatedToday: evaluated },
+      score: accuracy / 10,
+    }]);
+  }
+
+  return { agent: "postmortem", evaluated, accuracy, correct, incorrect };
 }
 
 // ─── Dividend Cut/Raise Detection ─────────────────────────────
@@ -5734,19 +6166,31 @@ async function runAllAgents(env) {
   console.log(`[Agents] Starting all agents for ${fecha}`);
   const results = {};
 
-  // Run sequentially to avoid Claude API rate limits (30k tokens/min)
+  // Step 0: Cache market indicators (no LLM, just Yahoo Finance)
+  try {
+    const mktData = await cacheMarketIndicators(env);
+    results.marketCache = { tickers: Object.keys(mktData).length };
+    console.log(`[Agents] Market indicators cached: ${Object.keys(mktData).length} tickers`);
+  } catch (e) {
+    results.marketCache = { error: e.message };
+    console.error(`[Agents] Market cache failed:`, e.message);
+  }
+
+  // Pipeline order: Regime first → analysis agents → Trade Advisor last → Postmortem
   const agents = [
-    ['earnings', runEarningsAgent],
-    ['dividend', runDividendAgent],
-    ['macro', runMacroAgent],
-    ['risk', runRiskAgent],
-    ['trade', runTradeAgent],  // Must run last (reads other agents' output)
+    ['regime', runRegimeAgent],       // Step 1: sets regime context for all others
+    ['earnings', runEarningsAgent],   // Step 2: Haiku
+    ['dividend', runDividendAgent],   // Step 3: Haiku
+    ['risk', runRiskAgent],           // Step 4: Haiku (reads regime)
+    ['macro', runMacroAgent],         // Step 5: Sonnet (reads regime + market data)
+    ['trade', runTradeAgent],         // Step 6: Haiku bull + Haiku bear + Sonnet synth
+    ['postmortem', runPostmortemAgent], // Step 7: No LLM (pure calculation)
   ];
 
   for (let i = 0; i < agents.length; i++) {
     const [name, fn] = agents[i];
-    // Wait 10s between agents to respect rate limits
-    if (i > 0) await new Promise(r => setTimeout(r, 10000));
+    // Wait 10s between LLM agents to respect rate limits (skip for postmortem)
+    if (i > 0 && name !== 'postmortem') await new Promise(r => setTimeout(r, 10000));
     try {
       results[name] = await fn(env, fecha);
       console.log(`[Agents] ${name} done:`, JSON.stringify(results[name]));

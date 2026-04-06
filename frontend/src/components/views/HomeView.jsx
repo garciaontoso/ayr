@@ -184,7 +184,7 @@ function AirplaneMode({ portfolioList }) {
 
     const API = API_URL;
     const allTickers = portfolioList.map(p => p.ticker);
-    const usTickers = allTickers.filter(t => !t.includes(":"));
+    const usTickers = allTickers; // Worker FMP_MAP handles foreign ticker conversion
     const cache = await caches.open("ayr-offline-data");
     let errors = 0;
 

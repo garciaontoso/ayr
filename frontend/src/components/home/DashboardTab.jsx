@@ -34,7 +34,7 @@ export default function DashboardTab() {
   // ── Earnings Calendar: fetch upcoming earnings for portfolio tickers ──
   useEffect(() => {
     if (!portfolioList?.length) return;
-    const tickers = portfolioList.map(p => p.ticker).filter(t => t && !t.includes(":")).slice(0, 50);
+    const tickers = portfolioList.map(p => p.ticker).filter(Boolean).slice(0, 50); // Worker FMP_MAP handles foreign tickers
     if (!tickers.length) return;
     fetch(`${API_URL}/api/earnings-batch?symbols=${tickers.join(",")}`)
       .then(r => r.json())
@@ -50,7 +50,7 @@ export default function DashboardTab() {
     setCorrLoading(true);
     try {
       const top15 = [...portfolioList]
-        .filter(p => p.weight > 0 && !p.ticker.includes(":"))
+        .filter(p => p.weight > 0)
         .sort((a, b) => (b.weight || 0) - (a.weight || 0))
         .slice(0, 15);
       const from = new Date(Date.now() - 100 * 86400000).toISOString().slice(0, 10);

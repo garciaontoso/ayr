@@ -266,7 +266,7 @@ export default function PortfolioTab() {
   }, [portfolioTotals?.positions]);
 
   const loadFundamentals = useCallback(async () => {
-    const tickers = (portfolioTotals?.positions || []).map(p=>p.ticker).filter(t=>!t.includes(":"));
+    const tickers = (portfolioTotals?.positions || []).map(p=>p.ticker); // Worker FMP_MAP handles foreign tickers
     if (!tickers.length) return;
     setFundLoading(true);
     try {
@@ -301,7 +301,7 @@ export default function PortfolioTab() {
   }, [portfolioTotals?.positions]);
 
   const loadDGR = useCallback(async () => {
-    const tickers = (portfolioTotals?.positions || []).map(p=>p.ticker).filter(t=>!t.includes(":"));
+    const tickers = (portfolioTotals?.positions || []).map(p=>p.ticker); // Worker FMP_MAP handles foreign tickers
     if (!tickers.length) return;
     setDgrLoading(true);
     try {

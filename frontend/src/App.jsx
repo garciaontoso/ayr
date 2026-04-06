@@ -1381,7 +1381,7 @@ function buildPositionsFromCB() {
       try { setDivStreaks(JSON.parse(sessionStorage.getItem(streakKey + '-data')) || {}); } catch {}
       return;
     }
-    const usTickers = portfolioList.filter(p => !p.ticker.includes(":")).map(p => p.ticker);
+    const usTickers = portfolioList.map(p => p.ticker); // Worker FMP_MAP handles foreign tickers
     if (!usTickers.length) return;
     const loadBatch = async () => {
       const all = {};

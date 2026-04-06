@@ -27,7 +27,9 @@ const AGENTS = [
   { id: 'dividend', name: 'Dividend Safety', icon: '🛡️', desc: 'Payout, FCF, streak' },
   { id: 'macro',    name: 'Macro Sentinel',  icon: '🌍', desc: 'Rates, CPI, Fed, FX' },
   { id: 'risk',     name: 'Portfolio Risk',   icon: '⚠️', desc: 'Concentration, drawdown' },
-  { id: 'trade',    name: 'Trade Advisor',    icon: '🎯', desc: 'Buy/sell/hold signals' },
+  { id: 'trade',    name: 'Trade Advisor',    icon: '🎯', desc: 'Bull/bear debate' },
+  { id: 'regime',   name: 'Market Regime',    icon: '🧭', desc: 'Risk-on/off, sectors, credit' },
+  { id: 'postmortem', name: 'Signal Postmortem', icon: '📋', desc: 'Signal accuracy tracking' },
 ];
 
 const SEV_COLORS = { critical: RED, warning: YELLOW, info: GREEN };
@@ -83,11 +85,19 @@ export default function AgentesTab() {
     setRunning(true);
     try {
       await fetch(`${API_URL}/api/agent-run`, { method: 'POST' });
-      await fetchInsights();
+      // Agents run in background (~5 min). Auto-refresh every 30s while running.
+      let checks = 0;
+      const interval = setInterval(async () => {
+        checks++;
+        await fetchInsights();
+        if (checks >= 12) { clearInterval(interval); setRunning(false); } // Stop after 6 min
+      }, 30000);
+      // Also refresh immediately
+      setTimeout(() => fetchInsights(), 5000);
     } catch (e) {
       console.error('Agent run error:', e);
+      setRunning(false);
     }
-    setRunning(false);
   };
 
   // Group insights by agent for cards
@@ -120,7 +130,7 @@ export default function AgentesTab() {
             AI Agents
           </h2>
           <p style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: FM, margin: '4px 0 0' }}>
-            5 agentes monitorizando tu portfolio diariamente a las 11:00 Madrid
+            7 agentes monitorizando tu portfolio diariamente a las 11:00 Madrid
           </p>
         </div>
         <button
