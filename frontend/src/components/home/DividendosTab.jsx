@@ -577,13 +577,15 @@ export default function DividendosTab() {
     divForm, setDivForm, divFilter, setDivFilter,
     divSort, setDivSort, divCalYear, setDivCalYear,
     addDivEntry, deleteDivEntry,
-    POS_STATIC,
+    POS_STATIC, getCountry, FLAGS,
     DIV_BY_YEAR, DIV_BY_MONTH,
     portfolioTotals, FORWARD_DIV,
   } = useHome();
 
   const [section, setSection] = useState("dashboard");
   const [soloActuales, setSoloActuales] = useState(true);
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('div_view') || "neto"); // "bruto" | "neto"
+  const isNeto = viewMode === "neto";
 
   // Set of tickers currently owned (sh > 0)
   const ownedTickers = useMemo(() => {
@@ -595,41 +597,105 @@ export default function DividendosTab() {
   }, [POS_STATIC]);
 
   const divTTM = portfolioTotals?.totalDivUSD || 0;
+  const avgWhtRate = divLog.length > 0 ? divLog.reduce((s,d) => s + (d.gross||0), 0) : 0;
+  const avgNetRate = avgWhtRate > 0 ? divLog.reduce((s,d) => s + (d.net||0), 0) / avgWhtRate : 0.94;
+  const avgWhtPct = avgWhtRate > 0 ? (1 - avgNetRate) * 100 : 0;
+  const divTTMnet = divTTM * avgNetRate;
+  const currentYear = String(new Date().getFullYear());
+  const lastYear = String(new Date().getFullYear() - 1);
+  const currentYearEntries = divLog.filter(d => d.date?.startsWith(currentYear));
+  const currentYearGross = currentYearEntries.reduce((s,d) => s + (d.gross || 0), 0);
+  const currentYearNet = currentYearEntries.reduce((s,d) => s + (d.net || 0), 0);
+  const lastYearEntries = divLog.filter(d => d.date?.startsWith(lastYear));
+  const lastYearGross = lastYearEntries.reduce((s,d) => s + (d.gross || 0), 0);
+  const lastYearNet = lastYearEntries.reduce((s,d) => s + (d.net || 0), 0);
+  // YTD comparison: same period last year
+  const today = new Date();
+  const currentDOY = Math.floor((today - new Date(today.getFullYear(),0,1)) / 86400000);
+  const lastYearSamePeriod = lastYearEntries.filter(d => {
+    const dt = new Date(d.date);
+    return Math.floor((dt - new Date(dt.getFullYear(),0,1)) / 86400000) <= currentDOY;
+  });
+  const lastYearYTDGross = lastYearSamePeriod.reduce((s,d) => s + (d.gross || 0), 0);
+  const timeUnits = [
+    {u:"a\u00f1o",div:1,d:0},{u:"mes",div:12,d:0},{u:"d\u00eda",div:365,d:2},{u:"hora",div:8760,d:3},{u:"min",div:525600,d:4}
+  ];
 
   return (
 <div style={{display:"flex",flexDirection:"column",gap:12}}>
-  {/* Desglose TTM */}
+  {/* Proyectado + Cobrado año pasado */}
+  <div style={{display:"grid",gridTemplateColumns:divTTM>0&&lastYearGross>0?"1fr 1fr":"1fr",gap:8}}>
   {divTTM > 0 && (
     <div style={{background:"var(--card)",border:"1px solid rgba(200,164,78,.2)",borderRadius:14,padding:"14px 18px"}}>
-      <div style={{fontSize:11,fontWeight:600,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:8}}>DIVIDENDOS TTM</div>
-      <div style={{display:"flex",gap:12,flexWrap:"wrap",alignItems:"baseline"}}>
-        <div style={{display:"flex",flexDirection:"column",alignItems:"center",padding:"6px 14px",background:"rgba(200,164,78,.08)",borderRadius:10,minWidth:80}}>
-          <span style={{fontSize:20,fontWeight:800,color:"var(--gold)",fontFamily:"var(--fm)"}}>${divTTM>=1000?_sf(divTTM/1000,1)+"K":_sf(divTTM,0)}</span>
-          <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>/ a&#241;o</span>
-        </div>
-        {[
-          {v:divTTM/12, u:"mes", d:0},
-          {v:divTTM/365, u:"d\u00eda", d:2},
-          {v:divTTM/8760, u:"hora", d:3},
-          {v:divTTM/525600, u:"min", d:4},
-        ].map((item,i) => (
-          <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",padding:"6px 10px",borderRadius:8,minWidth:60}}>
-            <span style={{fontSize:14,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>${_sf(item.v,item.d)}</span>
-            <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>/ {item.u}</span>
-          </div>
-        ))}
+      <div style={{fontSize:11,fontWeight:600,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:8}}>PROYECCIÓN ANUAL</div>
+      <div style={{display:"grid",gridTemplateColumns:`repeat(${timeUnits.length}, 1fr)`,gap:4}}>
+        {timeUnits.map((t,i) => {
+          const primary = isNeto ? divTTMnet : divTTM;
+          const secondary = isNeto ? divTTM : divTTMnet;
+          const pColor = isNeto ? "var(--green)" : "var(--gold)";
+          const sColor = isNeto ? "var(--gold)" : "var(--green)";
+          return (
+          <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",padding:"6px 4px",background:i===0?`${pColor}11`:"transparent",borderRadius:8}}>
+            <span style={{fontSize:i===0?18:13,fontWeight:800,color:pColor,fontFamily:"var(--fm)"}}>${primary/t.div>=1000?_sf(primary/t.div/1000,1)+"K":_sf(primary/t.div,t.d)}</span>
+            <span style={{fontSize:i===0?14:10,fontWeight:600,color:sColor,fontFamily:"var(--fm)",marginTop:1,opacity:.6}}>${secondary/t.div>=1000?_sf(secondary/t.div/1000,1)+"K":_sf(secondary/t.div,t.d)}</span>
+            <span style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:1}}>/ {t.u}</span>
+          </div>);
+        })}
       </div>
     </div>
   )}
+  {/* Cobrado año actual YTD */}
+  {(currentYearGross > 0 || lastYearGross > 0) && (
+    <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"14px 18px"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+        <span style={{fontSize:11,fontWeight:600,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5}}>COBRADO {currentYear} (YTD)</span>
+        <span style={{fontSize:10,fontFamily:"var(--fm)"}}>
+          <span style={{color:"var(--red)"}}>{currentYearGross>0?_sf((1-currentYearNet/currentYearGross)*100,1):avgWhtPct>0?_sf(avgWhtPct,1):"0"}% WHT</span>
+          <span style={{color:"var(--text-tertiary)"}}> · {currentYearEntries.length} cobros</span>
+          {lastYearYTDGross>0 && (() => {
+            const curr = isNeto ? currentYearNet : currentYearGross;
+            const prev = isNeto ? lastYearSamePeriod.reduce((s,d)=>s+(d.net||0),0) : lastYearYTDGross;
+            return <span style={{color:curr>=prev?"var(--green)":"var(--red)",marginLeft:6}}>
+              {curr>=prev?"+":""}{prev>0?_sf((curr/prev-1)*100,0):"—"}% vs {lastYear}
+            </span>;
+          })()}
+        </span>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+        <div style={{textAlign:"center",padding:"8px 4px",background:"rgba(200,164,78,.06)",borderRadius:8}}>
+          <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>BRUTO</div>
+          <div style={{fontSize:20,fontWeight:800,color:"var(--gold)",fontFamily:"var(--fm)"}}>${currentYearGross>=1000?_sf(currentYearGross/1000,1)+"K":_sf(currentYearGross,0)}</div>
+        </div>
+        <div style={{textAlign:"center",padding:"8px 4px",background:"rgba(48,209,88,.06)",borderRadius:8}}>
+          <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>NETO</div>
+          <div style={{fontSize:20,fontWeight:800,color:"var(--green)",fontFamily:"var(--fm)"}}>${currentYearNet>=1000?_sf(currentYearNet/1000,1)+"K":_sf(currentYearNet,0)}</div>
+        </div>
+        <div style={{textAlign:"center",padding:"8px 4px",background:"rgba(255,69,58,.04)",borderRadius:8}}>
+          <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>RETENIDO</div>
+          <div style={{fontSize:20,fontWeight:800,color:"var(--red)",fontFamily:"var(--fm)"}}>${(currentYearGross-currentYearNet)>=1000?_sf((currentYearGross-currentYearNet)/1000,1)+"K":_sf(currentYearGross-currentYearNet,0)}</div>
+        </div>
+      </div>
+      {lastYearGross > 0 && (
+        <div style={{marginTop:8,padding:"6px 10px",background:"var(--subtle-bg)",borderRadius:8,display:"flex",justifyContent:"space-between",fontSize:10,fontFamily:"var(--fm)"}}>
+          <span style={{color:"var(--text-tertiary)"}}>{lastYear} total:</span>
+          <span><span style={{color:"var(--text-secondary)"}}>B ${fDol(lastYearGross)}</span> · <span style={{color:"var(--green)"}}>N ${fDol(lastYearNet)}</span> · <span style={{color:"var(--red)"}}>{_sf((1-lastYearNet/lastYearGross)*100,1)}% ret</span> · <span style={{color:"var(--text-tertiary)"}}>{lastYearEntries.length} cobros</span></span>
+        </div>
+      )}
+    </div>
+  )}
+  </div>
 
-  {/* Sub-tab toggle */}
+  {/* Sub-tab toggle + Bruto/Neto switch */}
   <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-    {[{id:"dashboard",lbl:"📊 Dashboard"},{id:"proyeccion",lbl:"🔭 Proyección"},{id:"calendario",lbl:"📅 Calendario"}].map(t=>(
+    {[{id:"dashboard",lbl:"📊 Dashboard"},{id:"ranking",lbl:"🏆 Ranking"},{id:"proyeccion",lbl:"🔭 Proyección"},{id:"calendario",lbl:"📅 Calendario"}].map(t=>(
       <button key={t.id} onClick={()=>setSection(t.id)} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${section===t.id?"var(--gold)":"transparent"}`,background:section===t.id?"var(--gold-dim)":"transparent",color:section===t.id?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:section===t.id?700:500,cursor:"pointer",fontFamily:"var(--fb)",transition:"all .15s"}}>{t.lbl}</button>
     ))}
-    <div style={{marginLeft:"auto"}}/>
-    <button onClick={()=>setSoloActuales(!soloActuales)} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${soloActuales?"rgba(48,209,88,.5)":"var(--border)"}`,background:soloActuales?"rgba(48,209,88,.12)":"var(--subtle-bg)",color:soloActuales?"var(--green)":"var(--text-tertiary)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)",transition:"all .15s",letterSpacing:.3}}>
-      {soloActuales?"\u2713 Solo actuales":"\u25CB Todas las posiciones"}
+    <div style={{marginLeft:"auto"}} />
+    <button onClick={()=>{const next=isNeto?"bruto":"neto";setViewMode(next);localStorage.setItem('div_view',next);}}
+      style={{padding:"5px 12px",borderRadius:8,border:`1px solid ${isNeto?"rgba(48,209,88,.3)":"rgba(200,164,78,.3)"}`,
+        background:isNeto?"rgba(48,209,88,.08)":"rgba(200,164,78,.08)",
+        color:isNeto?"var(--green)":"var(--gold)",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)",transition:"all .15s"}}>
+      {isNeto?"NETO":"BRUTO"}
     </button>
   </div>
 
@@ -650,8 +716,10 @@ export default function DividendosTab() {
       {/* KPIs */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))",gap:10}}>
         {[
-          {l:"PROYECCIÓN ANUAL",v:"$"+fDol(annual),c:"var(--gold)"},
-          {l:"MEDIA MENSUAL",v:"$"+fDol(monthlyAvg),c:"var(--green)"},
+          {l:"PROYECCIÓN ANUAL",v:"$"+fDol(isNeto?annual*avgNetRate:annual),c:isNeto?"var(--green)":"var(--gold)"},
+          {l:isNeto?"ANUAL BRUTO":"ANUAL NETO",v:"$"+fDol(isNeto?annual:annual*avgNetRate),c:isNeto?"var(--gold)":"var(--green)"},
+          {l:"MEDIA MENSUAL",v:"$"+fDol(isNeto?monthlyAvg*avgNetRate:monthlyAvg),c:isNeto?"var(--green)":"var(--gold)"},
+          {l:"WHT MEDIO",v:_sf(avgWhtPct,1)+"%",c:"var(--red)"},
           {l:"POSICIONES",v:byTicker.length,c:"var(--text-primary)"},
           {l:"CRECIMIENTO YoY",v:growthYoy!=null?(growthYoy>=0?"+":"")+_sf(growthYoy,1)+"%":"—",c:growthYoy>=0?"var(--green)":"var(--red)"},
         ].map((k,i)=>(
@@ -662,20 +730,28 @@ export default function DividendosTab() {
         ))}
       </div>
 
-      {/* Monthly projection bars */}
+      {/* Monthly projection bars — bruto + neto */}
       <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
-        <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:12}}>📅 Ingreso Proyectado por Mes</div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <span style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)"}}>📅 Ingreso Proyectado por Mes</span>
+          <span style={{fontSize:9,fontFamily:"var(--fm)",display:"flex",gap:8}}><span style={{color:"var(--gold)"}}>■ bruto</span><span style={{color:"var(--green)"}}>■ neto</span></span>
+        </div>
         <div style={{display:"flex",alignItems:"flex-end",gap:4,height:160}}>
           {monthly.map((m,i)=>{
             const h = maxMonth > 0 ? (m.amount / maxMonth * 100) : 0;
+            const hNet = maxMonth > 0 ? (m.amount * avgNetRate / maxMonth * 100) : 0;
+            const netAmt = m.amount * avgNetRate;
             const monthLabel = m.month?.slice(5,7);
             const MNAMES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
             const mName = MNAMES[parseInt(monthLabel,10)-1] || monthLabel;
             return (
               <div key={m.month} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%",gap:2}}>
+                <div style={{fontSize:8,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)"}}>${netAmt>=1000?_sf(netAmt/1000,1)+"K":_sf(netAmt,0)}</div>
                 <div style={{fontSize:9,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>${m.amount>=1000?_sf(m.amount/1000,1)+"K":_sf(m.amount,0)}</div>
-                <div style={{width:"100%",maxWidth:40,height:`${Math.max(h,3)}%`,background:"rgba(200,164,78,0.5)",borderRadius:"4px 4px 0 0",transition:"height .3s"}}
-                  title={`${m.month}: $${fDol(m.amount)} — ${(m.payments||[]).map(p=>p.ticker).join(", ")}`}/>
+                <div style={{width:"100%",maxWidth:40,position:"relative",height:`${Math.max(h,3)}%`}}>
+                  <div style={{position:"absolute",bottom:0,width:"100%",height:"100%",background:"rgba(200,164,78,0.25)",borderRadius:"4px 4px 0 0"}}/>
+                  <div style={{position:"absolute",bottom:0,width:"100%",height:`${h>0?hNet/h*100:0}%`,background:"rgba(48,209,88,0.5)",borderRadius:"4px 4px 0 0"}}/>
+                </div>
                 <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600}}>{mName}</div>
               </div>
             );
@@ -691,7 +767,7 @@ export default function DividendosTab() {
         <div style={{overflowX:"auto"}}>
           <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
             <thead><tr>
-              {["TICKER","DPS","SHARES","FREQ","ANUAL $","MENSUAL $","%"].map((h,i)=>
+              {["TICKER","DPS","SHARES","FREQ","ANUAL B","ANUAL N","MENSUAL N","%"].map((h,i)=>
                 <th key={i} style={{padding:"6px 10px",textAlign:i>0?"right":"left",color:"var(--text-tertiary)",fontSize:9,fontWeight:600,fontFamily:"var(--fm)",borderBottom:"1px solid var(--border)"}}>{h}</th>)}
             </tr></thead>
             <tbody>
@@ -705,7 +781,8 @@ export default function DividendosTab() {
                     <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{t.shares?.toLocaleString()}</td>
                     <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{freqLabel}</td>
                     <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",fontWeight:700,color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)"}}>${fDol(t.annual)}</td>
-                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--green)",borderBottom:"1px solid var(--subtle-bg)"}}>${fDol(t.monthly_avg)}</td>
+                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",fontWeight:700,color:"var(--green)",borderBottom:"1px solid var(--subtle-bg)"}}>${fDol(t.annual*avgNetRate)}</td>
+                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--green)",borderBottom:"1px solid var(--subtle-bg)"}}>${fDol(t.monthly_avg*avgNetRate)}</td>
                     <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{_sf(pct,1)}%</td>
                   </tr>
                 );
@@ -720,23 +797,84 @@ export default function DividendosTab() {
   {/* Calendario Section */}
   {section === "calendario" && <CalendarioSection divLog={divLog} POS_STATIC={POS_STATIC} ownedTickers={ownedTickers} soloActuales={soloActuales} />}
 
+  {/* Ranking Section — Top Payers */}
+  {section === "ranking" && (() => {
+    const allDiv = divLog.filter(d => d.date && d.gross);
+    const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth()-12);
+    const r12m = allDiv.filter(d => d.date >= cutoff.toISOString().slice(0,10));
+    const byTicker = {}; r12m.forEach(d => { const t=d.ticker; if(!t)return; if(!byTicker[t])byTicker[t]={g:0,n:0,c:0}; byTicker[t].g+=d.gross||0; byTicker[t].n+=d.net||0; byTicker[t].c++; });
+    const topAll = Object.entries(byTicker).sort((a,b)=>b[1].g-a[1].g);
+    const maxG = topAll.length>0?topAll[0][1].g:1;
+    const totalG = r12m.reduce((s,d)=>s+(d.gross||0),0);
+    // By country
+    const byCountry = {};
+    r12m.forEach(d => { const cc = getCountry?.(d.ticker, d.currency)||"US"; if(!byCountry[cc])byCountry[cc]={g:0,n:0,c:0,fl:FLAGS?.[cc]||""}; byCountry[cc].g+=d.gross||0; byCountry[cc].n+=d.net||0; byCountry[cc].c++; });
+    const countryRank = Object.entries(byCountry).sort((a,b)=>b[1].g-a[1].g);
+    return <>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
+            <span style={{fontSize:12,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)"}}>Top Payers (12m)</span>
+            <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Total: <b style={{color:"var(--gold)"}}>${fDol(totalG)}</b></span>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:3}}>
+            {topAll.slice(0,25).map(([t,d],i)=>{
+              const pct = maxG > 0 ? (d.g/maxG*100) : 0;
+              const cc = getCountry?.(t)||"US";
+              const fl = FLAGS?.[cc]||"";
+              return <div key={t} style={{display:"flex",alignItems:"center",gap:6,height:20}}>
+                <span style={{width:14,fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"right"}}>{i+1}</span>
+                <span style={{fontSize:11}}>{fl}</span>
+                <span style={{width:48,fontSize:9,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)",overflow:"hidden",textOverflow:"ellipsis"}}>{t}</span>
+                <div style={{flex:1,height:10,background:"var(--subtle-bg)",borderRadius:3,overflow:"hidden"}}>
+                  <div style={{width:`${pct}%`,height:"100%",background:"linear-gradient(90deg,var(--gold),rgba(200,164,78,.2))",borderRadius:3}}/>
+                </div>
+                <span style={{width:55,fontSize:10,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",textAlign:"right"}}>${d.g>=1000?_sf(d.g/1000,1)+"K":_sf(d.g,0)}</span>
+                <span style={{width:20,fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"right"}}>{d.c}</span>
+              </div>;
+            })}
+          </div>
+        </div>
+        <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:14}}>
+          <div style={{fontSize:12,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:10}}>Por País (12m)</div>
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            {countryRank.map(([cc,d])=>{
+              const pct = totalG>0?(d.g/totalG*100):0;
+              const whtPct = d.g>0?((d.g-d.n)/d.g*100):0;
+              return <div key={cc} style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:16}}>{d.fl}</span>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:10,fontFamily:"var(--fm)",marginBottom:2}}>
+                    <span style={{fontWeight:600,color:"var(--text-primary)"}}>{cc} · {d.c} cobros</span>
+                    <span><b style={{color:"var(--text-primary)"}}>${fDol(d.g)}</b> <span style={{color:"var(--text-tertiary)"}}>({_sf(pct,1)}%)</span></span>
+                  </div>
+                  <div style={{height:6,background:"var(--subtle-bg)",borderRadius:3,overflow:"hidden"}}>
+                    <div style={{width:`${pct}%`,height:"100%",background:"var(--gold)",borderRadius:3}}/>
+                  </div>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:9,fontFamily:"var(--fm)",marginTop:2,color:"var(--text-tertiary)"}}>
+                    <span>Neto: <b style={{color:"var(--green)"}}>${fDol(d.n)}</b></span>
+                    <span>Ret: <b style={{color:"var(--red)"}}>{_sf(whtPct,1)}%</b></span>
+                  </div>
+                </div>
+              </div>;
+            })}
+          </div>
+        </div>
+      </div>
+    </>;
+  })()}
+
   {/* Dashboard Section — Redesigned */}
   {section === "dashboard" && (() => {
     if (divLoading) return <InlineLoading message="Cargando dividendos..." />;
     if (divLog.length === 0) return <EmptyState icon="💰" title="Sin datos de dividendos" subtitle="Sincroniza con IB o espera a que se importen los datos." />;
     const filtered = divLog.filter(d => {
-      if (soloActuales && d.ticker && !ownedTickers.has(d.ticker)) return false;
       if (divFilter.year !== "all" && !d.date?.startsWith(divFilter.year)) return false;
       if (divFilter.month && divFilter.month !== "all" && !d.date?.startsWith(divFilter.month)) return false;
       if (divFilter.ticker && !d.ticker?.toUpperCase().includes(divFilter.ticker.toUpperCase())) return false;
       return true;
     });
-    const totalGross = filtered.reduce((s,d) => s+(d.gross||0), 0);
-    const totalNet = filtered.reduce((s,d) => s+(d.net||0), 0);
-    const totalTax = totalGross - totalNet;
-    const taxRate = totalGross > 0 ? (totalTax / totalGross * 100) : 0;
-    const uniqueTickers = new Set(filtered.map(d=>d.ticker)).size;
-    const all = divLog.filter(d => d.date && d.gross && (!soloActuales || !d.ticker || ownedTickers.has(d.ticker)));
+    const all = divLog.filter(d => d.date && d.gross);
     const byYear = {}; all.forEach(d => { const y=d.date.slice(0,4); if(!byYear[y])byYear[y]={g:0,n:0,c:0}; byYear[y].g+=d.gross||0; byYear[y].n+=d.net||0; byYear[y].c++; });
     const yearKeys = Object.keys(byYear).sort();
     const maxYearG = Math.max(...yearKeys.map(y=>byYear[y].g),1);
@@ -745,7 +883,10 @@ export default function DividendosTab() {
     const maxMonthG = Math.max(...monthKeys.map(m=>byMonth[m].g),1);
     const fireTarget = 3500;
     const last12m = all.filter(d => { const c=new Date(); c.setMonth(c.getMonth()-12); return d.date>=c.toISOString().slice(0,10); });
+    const gross12m = last12m.reduce((s,d)=>s+(d.gross||0),0);
     const net12m = last12m.reduce((s,d)=>s+(d.net||0),0);
+    const tax12m = gross12m - net12m;
+    const taxRate12m = gross12m > 0 ? (tax12m / gross12m * 100) : 0;
     const avgNetMonth = net12m/12;
     const firePct = Math.min(avgNetMonth/fireTarget*100,100);
     const byCalMonth = {}; all.forEach(d => { const k=d.date.slice(0,4)+"-"+d.date.slice(5,7); if(!byCalMonth[k])byCalMonth[k]={g:0,n:0}; byCalMonth[k].g+=d.gross||0; byCalMonth[k].n+=d.net||0; });
@@ -769,11 +910,11 @@ export default function DividendosTab() {
       {/* ── Row 1: KPIs compactos ── */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(100px, 1fr))",gap:6}}>
         {[
-          {l:"GROSS",v:"$"+fDol(totalGross),c:"var(--gold)"},
-          {l:"NET",v:"$"+fDol(totalNet),c:"var(--green)"},
-          {l:"TAX",v:_sf(taxRate,0)+"%",c:"var(--red)"},
-          {l:"NET/MES",v:"$"+fDol(avgNetMonth),c:avgNetMonth>=fireTarget?"var(--green)":"var(--orange)"},
-          {l:"COBROS",v:filtered.length,c:"var(--text-primary)"},
+          {l:isNeto?"NETO TTM":"BRUTO TTM",v:"$"+fDol(isNeto?net12m:gross12m),c:isNeto?"var(--green)":"var(--gold)"},
+          {l:isNeto?"BRUTO TTM":"NETO TTM",v:"$"+fDol(isNeto?gross12m:net12m),c:isNeto?"var(--gold)":"var(--green)"},
+          {l:"WHT",v:_sf(taxRate12m,0)+"%",c:"var(--red)"},
+          {l:isNeto?"NETO/MES":"BRUTO/MES",v:"$"+fDol(isNeto?avgNetMonth:gross12m/12),c:(isNeto?avgNetMonth:gross12m/12)>=fireTarget?"var(--green)":"var(--orange)"},
+          {l:"COBROS TTM",v:last12m.length,c:"var(--text-primary)"},
           {l:"FIRE",v:_sf(firePct,0)+"%",c:firePct>=100?"var(--green)":"var(--orange)"},
         ].map((k,i)=>(
           <div key={i} style={{padding:"8px 10px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:10}}>
@@ -789,11 +930,12 @@ export default function DividendosTab() {
           const grid = {};
           all.forEach(d => { const y=d.date?.slice(0,4),m=d.date?.slice(5,7); if(!y||!m)return; if(!grid[y])grid[y]={}; if(!grid[y][m])grid[y][m]={g:0,n:0}; grid[y][m].g+=d.gross||0; grid[y][m].n+=d.net||0; });
           const gYears = Object.keys(grid).sort().reverse();
-          const allVals = gYears.flatMap(y => Object.values(grid[y]).map(v=>v.g));
+          const gn = isNeto ? "n" : "g";
+          const allVals = gYears.flatMap(y => Object.values(grid[y]).map(v=>v[gn]));
           const maxV = Math.max(...allVals, 1);
           // Annual totals
           const annTotals = {};
-          gYears.forEach(y => { annTotals[y] = Object.values(grid[y]).reduce((s,v)=>s+v.g,0); });
+          gYears.forEach(y => { annTotals[y] = Object.values(grid[y]).reduce((s,v)=>s+v[gn],0); });
           const thS = {padding:"4px 5px",fontSize:9,fontWeight:600,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"center",borderBottom:"1px solid var(--border)"};
           return (
             <div style={{overflowX:"auto"}}>
@@ -811,7 +953,7 @@ export default function DividendosTab() {
                     <tr key={y}>
                       <td style={{padding:"3px 5px",fontSize:11,fontWeight:700,color:yi===0?"var(--gold)":"var(--text-secondary)",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>{y}</td>
                       {["01","02","03","04","05","06","07","08","09","10","11","12"].map(m => {
-                        const v = grid[y]?.[m]?.g || 0;
+                        const v = grid[y]?.[m]?.[gn] || 0;
                         if (!v) return <td key={m} style={{padding:"2px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)"}}><span style={{fontSize:8,color:"var(--text-tertiary)",opacity:.2}}>—</span></td>;
                         const intensity = Math.min(v / maxV, 1);
                         const bg = `rgba(200,164,78,${0.08 + intensity * 0.5})`;
@@ -875,9 +1017,13 @@ export default function DividendosTab() {
       {/* ── Row 4: Top Payers + Filters + Form en una línea ── */}
       <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
         <select value={divFilter.year} onChange={e=>setDivFilter(p=>({...p,year:e.target.value,month:"all"}))} style={{padding:"5px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:10,fontFamily:"var(--fm)"}}>
-          <option value="all">Todos</option>
+          <option value="all">Todos los años</option>
           {[...new Set(divLog.map(d=>d.date?.slice(0,4)).filter(Boolean))].sort().reverse().map(y=><option key={y} value={y}>{y}</option>)}
         </select>
+        {divFilter.year !== "all" && <select value={divFilter.month||"all"} onChange={e=>setDivFilter(p=>({...p,month:e.target.value}))} style={{padding:"5px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:10,fontFamily:"var(--fm)"}}>
+          <option value="all">Todos los meses</option>
+          {["01","02","03","04","05","06","07","08","09","10","11","12"].map(m=><option key={m} value={divFilter.year+"-"+m}>{["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"][parseInt(m)-1]}</option>)}
+        </select>}
         <input type="text" placeholder="Ticker..." value={divFilter.ticker} onChange={e=>setDivFilter(p=>({...p,ticker:e.target.value}))} style={{width:80,padding:"5px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:10,fontFamily:"var(--fm)"}}/>
         <button onClick={()=>setDivShowForm(!divShowForm)} style={{padding:"5px 12px",borderRadius:6,border:"1px solid var(--gold)",background:divShowForm?"var(--gold)":"var(--gold-dim)",color:divShowForm?"#000":"var(--gold)",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>{divShowForm?"✕":"+ Div"}</button>
       </div>
@@ -889,49 +1035,31 @@ export default function DividendosTab() {
         <button onClick={()=>{if(divForm.date&&divForm.ticker&&divForm.gross){addDivEntry(divForm);setDivForm(p=>({...p,ticker:"",gross:0,net:0,shares:0}));}}} style={{padding:"5px 14px",borderRadius:5,border:"none",background:"var(--gold)",color:"#000",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>Guardar</button>
       </div></div>)}
 
-      {/* ── Row 5: Top 15 payers (compact horizontal bars) ── */}
-      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:14}}>
-        <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-          <span style={{fontSize:12,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)"}}>Top Payers (12m)</span>
-          <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Total: <b style={{color:"var(--gold)"}}>${fDol(recent12m.reduce((s,d)=>s+(d.gross||0),0))}</b></span>
-        </div>
-        <div style={{display:"flex",flexDirection:"column",gap:3}}>
-          {topPayers.slice(0,15).map(([t,d],i)=>{
-            const pct = maxTickerG > 0 ? (d.g/maxTickerG*100) : 0;
-            return <div key={t} style={{display:"flex",alignItems:"center",gap:6,height:20}}>
-              <span style={{width:14,fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"right"}}>{i+1}</span>
-              <span style={{width:42,fontSize:9,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)",overflow:"hidden",textOverflow:"ellipsis"}}>{t}</span>
-              <div style={{flex:1,height:10,background:"var(--subtle-bg)",borderRadius:3,overflow:"hidden"}}>
-                <div style={{width:`${pct}%`,height:"100%",background:"linear-gradient(90deg,var(--gold),rgba(200,164,78,.2))",borderRadius:3}}/>
-              </div>
-              <span style={{width:50,fontSize:10,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",textAlign:"right"}}>${d.g>=1000?_sf(d.g/1000,1)+"K":_sf(d.g,0)}</span>
-            </div>;
-          })}
-        </div>
-      </div>
-
-      {/* ── Row 6: Cobros table (sortable) ── */}
+      {/* ── Row 5: Cobros table (sortable) ── */}
       {(() => {
         const cols = [
-          {k:"date",l:"FECHA",a:"left"},{k:"ticker",l:"TICKER",a:"left"},
-          {k:"gross",l:"GROSS",a:"right"},{k:"tax",l:"RET%",a:"right"},
-          {k:"wht",l:"WHT",a:"right"},{k:"net",l:"NET",a:"right"},
-          {k:"shares",l:"SH",a:"right"},{k:"dps",l:"DPS",a:"right"},
-          {k:"excess",l:"RECUP",a:"right"},{k:"broker",l:"BRK",a:"left"},
-          {k:"",l:"",a:"center"},
+          {k:"date",l:"FECHA",a:"left"},{k:"country",l:"",a:"center"},{k:"ticker",l:"TICKER",a:"left"},
+          {k:"gross",l:"BRUTO",a:"right"},{k:"tax",l:"RET%",a:"right"},
+          {k:"wht",l:"RETENCIÓN",a:"right"},{k:"net",l:"NETO",a:"right"},
+          {k:"shares",l:"ACCIONES",a:"right"},{k:"dps",l:"DPS",a:"right"},
         ];
+        // Country filter
+        const countrySet = {};
+        filtered.forEach(d => { const cc = getCountry?.(d.ticker, d.currency) || "US"; const fl = FLAGS?.[cc] || ""; if (fl) countrySet[cc] = fl; });
+        const countryFilter = divFilter.country || "all";
         const sk = divSort.col, sa = divSort.asc;
-        const sorted = [...filtered].sort((a,b) => {
+        const countryFiltered = countryFilter === "all" ? filtered : filtered.filter(d => (getCountry?.(d.ticker, d.currency) || "US") === countryFilter);
+        const sorted = [...countryFiltered].sort((a,b) => {
           let va, vb;
           if (sk==="date") { va=a.date||""; vb=b.date||""; }
           else if (sk==="ticker") { va=a.ticker||""; vb=b.ticker||""; }
+          else if (sk==="country") { va=getCountry?.(a.ticker,a.currency)||""; vb=getCountry?.(b.ticker,b.currency)||""; }
           else if (sk==="gross") { va=a.gross||0; vb=b.gross||0; }
           else if (sk==="net") { va=a.net||0; vb=b.net||0; }
           else if (sk==="tax") { va=a.taxPct||0; vb=b.taxPct||0; }
           else if (sk==="shares") { va=a.shares||0; vb=b.shares||0; }
           else if (sk==="dps") { va=a.dpsGross||(a.shares&&a.gross?a.gross/a.shares:0); vb=b.dpsGross||(b.shares&&b.gross?b.gross/b.shares:0); }
           else if (sk==="wht") { va=a.whtAmount||0; vb=b.whtAmount||0; }
-          else if (sk==="excess") { va=(a.excessIrpf||0)+(a.excessForeign||0); vb=(b.excessIrpf||0)+(b.excessForeign||0); }
           else { va=a.date||""; vb=b.date||""; }
           if (typeof va==="string") return sa?va.localeCompare(vb):vb.localeCompare(va);
           return sa?va-vb:vb-va;
@@ -941,32 +1069,48 @@ export default function DividendosTab() {
         const td0 = {padding:"4px 6px",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)",fontSize:10};
         return (
         <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
-          <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span style={{fontSize:12,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fd)"}}>Cobros · {filtered.length}</span>
-            <button onClick={()=>{const blob=new Blob([JSON.stringify(divLog,null,2)],{type:"application/json"});const u=URL.createObjectURL(blob);const a=document.createElement("a");a.href=u;a.download="dividendos_ar.json";a.click();URL.revokeObjectURL(u);}} style={{padding:"3px 8px",borderRadius:4,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)"}}>Export</button>
+          <div style={{padding:"10px 14px",borderBottom:"1px solid var(--border)",display:"flex",flexDirection:"column",gap:6}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:12,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fd)"}}>Cobros · {sorted.length}</span>
+              <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>
+                Bruto <b style={{color:"var(--text-primary)"}}>${fDol(sorted.reduce((s,d)=>s+(d.gross||0),0))}</b>
+                {" · "}Neto <b style={{color:"var(--green)"}}>${fDol(sorted.reduce((s,d)=>s+(d.net||0),0))}</b>
+                {" · "}Ret <b style={{color:"var(--red)"}}>${fDol(sorted.reduce((s,d)=>s+((d.whtAmount||0)>0?d.whtAmount:(d.gross||0)-(d.net||0)),0))}</b>
+              </span>
+            </div>
+            <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
+              <button onClick={()=>setDivFilter(p=>({...p,country:"all"}))} style={{padding:"3px 8px",borderRadius:5,border:`1px solid ${countryFilter==="all"?"var(--gold)":"var(--border)"}`,background:countryFilter==="all"?"var(--gold-dim)":"transparent",color:countryFilter==="all"?"var(--gold)":"var(--text-tertiary)",fontSize:9,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>Todos</button>
+              {Object.entries(countrySet).sort((a,b)=>{
+                const ca = filtered.filter(d=>(getCountry?.(d.ticker,d.currency)||"US")===a[0]).reduce((s,d)=>s+(d.gross||0),0);
+                const cb = filtered.filter(d=>(getCountry?.(d.ticker,d.currency)||"US")===b[0]).reduce((s,d)=>s+(d.gross||0),0);
+                return cb-ca;
+              }).map(([cc,fl])=>{
+                const cnt = filtered.filter(d=>(getCountry?.(d.ticker,d.currency)||"US")===cc).length;
+                return <button key={cc} onClick={()=>setDivFilter(p=>({...p,country:p.country===cc?"all":cc}))} style={{padding:"3px 8px",borderRadius:5,border:`1px solid ${countryFilter===cc?"var(--gold)":"var(--border)"}`,background:countryFilter===cc?"var(--gold-dim)":"transparent",color:countryFilter===cc?"var(--gold)":"var(--text-tertiary)",fontSize:10,cursor:"pointer",fontFamily:"var(--fm)"}}>{fl} {cnt}</button>;
+              })}
+            </div>
           </div>
-          <div style={{overflowX:"auto",maxHeight:400}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:750}}>
+          <div style={{overflowX:"auto",maxHeight:500}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:700}}>
               <thead><tr>{cols.map((c,i)=>
-                <th key={i} onClick={()=>ts(c.k)} style={{padding:"5px 6px",textAlign:c.a,color:divSort.col===c.k?"var(--gold)":"var(--text-tertiary)",fontSize:8,fontWeight:600,fontFamily:"var(--fm)",borderBottom:"1px solid var(--border)",cursor:c.k?"pointer":"default",userSelect:"none",position:"sticky",top:0,background:"var(--bg)",whiteSpace:"nowrap"}}>{c.l}{ar(c.k)}</th>
+                <th key={i} onClick={()=>ts(c.k)} style={{padding:"5px 6px",textAlign:c.a,color:divSort.col===c.k?"var(--gold)":"var(--text-tertiary)",fontSize:8,fontWeight:600,fontFamily:"var(--fm)",borderBottom:"1px solid var(--border)",cursor:c.k?"pointer":"default",userSelect:"none",position:"sticky",top:0,background:"var(--bg)",whiteSpace:"nowrap",zIndex:1}}>{c.l}{ar(c.k)}</th>
               )}</tr></thead>
-              <tbody>{sorted.slice(0,200).map((d,i) => {
+              <tbody>{sorted.slice(0,500).map((d,i) => {
                 const dps = d.dpsGross || (d.shares && d.gross ? d.gross/d.shares : 0);
                 const wht = d.whtAmount || (d.gross && d.net ? d.gross - d.net : 0);
-                const recup = (d.excessIrpf||0) + (d.excessForeign||0);
+                const cc = getCountry?.(d.ticker, d.currency) || "US";
+                const flag = FLAGS?.[cc] || "";
                 return (
                 <tr key={d.id||i} style={{background:i%2?"var(--row-alt)":"transparent"}}>
                   <td style={{...td0,color:"var(--text-primary)"}}>{d.date}</td>
+                  <td style={{...td0,textAlign:"center",fontSize:12}}>{flag}</td>
                   <td style={{...td0,fontWeight:600,color:"var(--gold)"}}>{d.ticker}</td>
                   <td style={{...td0,textAlign:"right",fontWeight:600,color:"var(--text-primary)"}}>${_sf(d.gross||0,2)}</td>
-                  <td style={{...td0,textAlign:"right",color:"var(--red)"}}>{d.taxPct||0}%</td>
-                  <td style={{...td0,textAlign:"right",color:"var(--red)",opacity:.7}}>{wht>0?"-$"+_sf(wht,2):""}</td>
+                  <td style={{...td0,textAlign:"right",color:d.taxPct>0?"var(--red)":"var(--text-tertiary)"}}>{d.taxPct>0?d.taxPct+"%":"0%"}</td>
+                  <td style={{...td0,textAlign:"right",color:"var(--red)",opacity:.7}}>{wht>0.01?"-$"+_sf(wht,2):"—"}</td>
                   <td style={{...td0,textAlign:"right",fontWeight:600,color:"var(--green)"}}>${_sf(d.net||0,2)}</td>
                   <td style={{...td0,textAlign:"right",color:"var(--text-secondary)"}}>{d.shares||""}</td>
                   <td style={{...td0,textAlign:"right",color:"var(--gold)"}}>{dps>0?"$"+_sf(dps,3):""}</td>
-                  <td style={{...td0,textAlign:"right",color:recup>0?"#64d2ff":"var(--text-tertiary)"}}>{recup>0?"$"+_sf(recup,2):""}</td>
-                  <td style={{...td0,textAlign:"left",color:"var(--text-tertiary)",fontSize:9}}>{d.broker!=="IB"?d.broker:""}</td>
-                  <td style={{padding:"2px 4px",borderBottom:"1px solid var(--subtle-bg)"}}><button onClick={()=>deleteDivEntry(d.id)} style={{width:16,height:16,borderRadius:3,border:"none",background:"transparent",color:"var(--red)",fontSize:7,cursor:"pointer",opacity:.3}}>✕</button></td>
                 </tr>);
               })}</tbody>
             </table>

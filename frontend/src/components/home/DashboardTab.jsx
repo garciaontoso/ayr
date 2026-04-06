@@ -27,7 +27,7 @@ export default function DashboardTab() {
   const {
     portfolioTotals, portfolioList, privacyMode, hide, hideN,
     openAnalysis, POS_STATIC, getCountry, FLAGS,
-    CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_CAT, CASH_DATA, MARGIN_INTEREST_DATA, FI_TRACK, FIRE_PROJ, FIRE_PARAMS, ANNUAL_PL,
+    CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, DIV_BY_MONTH, GASTOS_CAT, CASH_DATA, MARGIN_INTEREST_DATA, FI_TRACK, FIRE_PROJ, FIRE_PARAMS, ANNUAL_PL,
     ibData, ibDiscrepancies,
   } = useHome();
 
@@ -190,7 +190,7 @@ return (
         {l:"CASH",v:hide(`$${fDol(ibData.summary.totalCash?.amount||0)}`),c:(ibData.summary.totalCash?.amount||0)<0?"var(--red)":"var(--text-primary)"},
         {l:"MARGEN",v:hide(`$${fDol(ibData.summary.initMargin?.amount||0)}`),c:((ibData.summary.initMargin?.amount||0)/(ibData.summary.nlv?.amount||1))>0.5?"var(--red)":"var(--text-secondary)"},
         {l:"POSICIONES",v:`${(ibData.positions||[]).filter(p=>p.assetClass==="STK"&&p.shares>0).length}`,c:"var(--text-primary)",sub:`${(ibData.positions||[]).filter(p=>p.assetClass==="OPT").length} opciones`},
-        {l:"CUENTAS",v:`${(ibData.summary.accounts||[]).length||4}`,c:"var(--gold)",sub:ibData.lastSync?new Date(ibData.lastSync).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}):""},
+        {l:"CUENTAS",v:`${(ibData.summary.accounts||[]).length||4}`,c:"var(--gold)",sub:ibData.cached?`📋 ${ibData.lastSync||""}`:(ibData.lastSync?new Date(ibData.lastSync).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}):"")},
       ].map((k,i)=>(
         <div key={i} style={{padding:"10px 14px",background:"rgba(100,210,255,.03)",border:"1px solid rgba(100,210,255,.12)",borderRadius:12}}>
           <div style={{fontSize:9,color:"#64d2ff",fontFamily:"var(--fm)",fontWeight:600,letterSpacing:.5}}>{k.l}</div>
@@ -335,30 +335,40 @@ return (
     </div>
   )}
 
-  {/* ── Income This Year vs Last Year — Bar Chart ── */}
-  {INCOME_DATA.length > 0 && (() => {
+  {/* ── Dividendos This Year vs Last Year — Bar Chart (pure dividends only) ── */}
+  {Object.keys(DIV_BY_MONTH || {}).length > 0 && (() => {
     const curYear = String(new Date().getFullYear());
     const prevYear = String(parseInt(curYear) - 1);
     const months = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
     const curData = months.map((_, i) => {
       const m = `${curYear}-${String(i + 1).padStart(2, "0")}`;
-      return INCOME_DATA.filter(d => d.m === m).reduce((s, d) => s + (d.total || 0), 0);
+      return DIV_BY_MONTH[m]?.n || 0; // neto
+    });
+    const curDataG = months.map((_, i) => {
+      const m = `${curYear}-${String(i + 1).padStart(2, "0")}`;
+      return DIV_BY_MONTH[m]?.g || 0; // bruto
     });
     const prevData = months.map((_, i) => {
       const m = `${prevYear}-${String(i + 1).padStart(2, "0")}`;
-      return INCOME_DATA.filter(d => d.m === m).reduce((s, d) => s + (d.total || 0), 0);
+      return DIV_BY_MONTH[m]?.n || 0;
     });
-    const max = Math.max(...curData, ...prevData, 1);
-    const curTotal = curData.reduce((s, v) => s + v, 0);
-    const prevTotal = prevData.reduce((s, v) => s + v, 0);
+    const prevDataG = months.map((_, i) => {
+      const m = `${prevYear}-${String(i + 1).padStart(2, "0")}`;
+      return DIV_BY_MONTH[m]?.g || 0;
+    });
+    const max = Math.max(...curDataG, ...prevDataG, 1);
+    const curTotal = curDataG.reduce((s, v) => s + v, 0);
+    const curTotalN = curData.reduce((s, v) => s + v, 0);
+    const prevTotal = prevDataG.reduce((s, v) => s + v, 0);
+    const prevTotalN = prevData.reduce((s, v) => s + v, 0);
     const curMonth = new Date().getMonth();
 
     return (
     <div style={{padding:"12px 16px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:12}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-        <div style={{fontSize:11,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>📊 Income {curYear} vs {prevYear}</div>
+        <div style={{fontSize:11,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>💰 Dividendos {curYear} vs {prevYear}</div>
         <div style={{fontSize:10,fontFamily:"var(--fm)"}}>
-          <span style={{color:"var(--gold)"}}>■</span> {curYear}: {hide("$"+fDol(curTotal))}
+          <span style={{color:"var(--gold)"}}>■</span> {curYear}: {hide("$"+fDol(curTotal))} <span style={{color:"var(--green)",fontSize:9}}>({hide("$"+fDol(curTotalN))} neto)</span>
           <span style={{color:"var(--text-tertiary)",marginLeft:8}}>■</span> {prevYear}: {hide("$"+fDol(prevTotal))}
         </div>
       </div>
@@ -366,8 +376,8 @@ return (
         {months.map((m, i) => (
           <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
             <div style={{display:"flex",gap:1,alignItems:"flex-end",width:"100%",justifyContent:"center",height:40}}>
-              <div style={{width:"40%",background:i<=curMonth?"var(--gold)":"rgba(200,164,78,.2)",borderRadius:"2px 2px 0 0",height:`${Math.max((curData[i]/max)*40,1)}px`,transition:"height .3s"}} title={`${curYear} ${m}: $${_sf(curData[i],0)}`}/>
-              <div style={{width:"40%",background:"var(--border-hover)",borderRadius:"2px 2px 0 0",height:`${Math.max((prevData[i]/max)*40,1)}px`}} title={`${prevYear} ${m}: $${_sf(prevData[i],0)}`}/>
+              <div style={{width:"40%",background:i<=curMonth?"var(--gold)":"rgba(200,164,78,.2)",borderRadius:"2px 2px 0 0",height:`${Math.max((curDataG[i]/max)*40,1)}px`,transition:"height .3s"}} title={`${curYear} ${m}: B $${_sf(curDataG[i],0)} · N $${_sf(curData[i],0)}`}/>
+              <div style={{width:"40%",background:"var(--border-hover)",borderRadius:"2px 2px 0 0",height:`${Math.max((prevDataG[i]/max)*40,1)}px`}} title={`${prevYear} ${m}: B $${_sf(prevDataG[i],0)} · N $${_sf(prevData[i],0)}`}/>
             </div>
             <span style={{fontSize:7,color:i===curMonth?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:i===curMonth?700:400}}>{m}</span>
           </div>

@@ -67,8 +67,7 @@ const Loading = () => <div style={{padding:"24px",display:"flex",flexDirection:"
 // MAIN APP
 // ═══════════════════════════════════════════
 
-// ─── Cost Basis Data — loaded from storage or imported via JSON ───
-// To load your data: go to any company's 📋, click "↑ Importar", select costbasis_app.json
+// ─── Cost Basis Data — empty placeholders, populated at runtime via JSON import or IB Flex sync ───
 const CB_DATA = {};
 const CB_META = {};
 const expandCB = (compact) => {
@@ -152,33 +151,12 @@ export default function ARApp() {
   const LIVE_DPS = apiData?.LIVE_DPS || {};
   const FORWARD_DIV = apiData?.FORWARD_DIV || {annual_projected:0,monthly:[],by_ticker:[]};
 
-  // ═══ Pre-loaded: Diageo PLC (DEO) — GuruFocus Feb 2026 ═══
-  const DEO_DATA = {
-    2025:{revenue:20245,grossProfit:12173,operatingIncome:4335,netIncome:2354,eps:4.23,dps:4.14,sharesOut:557,totalDebt:24401,cash:2647,equity:11090,retainedEarnings:10274,ocf:4297,capex:1612,interestExpense:1104,depreciation:1718,taxProvision:999},
-    2024:{revenue:20269,grossProfit:12198,operatingIncome:6001,netIncome:3870,eps:6.91,dps:4.01,sharesOut:560,totalDebt:22105,cash:1405,equity:10032,retainedEarnings:9783,ocf:4105,capex:1510,interestExpense:1134,depreciation:493,taxProvision:1294},
-    2023:{revenue:20555,grossProfit:12266,operatingIncome:5547,netIncome:4445,eps:7.83,dps:3.64,sharesOut:568,totalDebt:21355,cash:2062,equity:9856,retainedEarnings:8876,ocf:3636,capex:1417,interestExpense:951,depreciation:1297,taxProvision:1163},
-    2022:{revenue:20516,grossProfit:12593,operatingIncome:5897,netIncome:4280,eps:7.36,dps:3.96,sharesOut:581,totalDebt:19385,cash:3068,equity:9435,retainedEarnings:8490,ocf:5213,capex:1457,interestExpense:1217,depreciation:1064,taxProvision:1398},
-    2021:{revenue:17623,grossProfit:10650,operatingIncome:5164,netIncome:3681,eps:6.28,dps:3.73,sharesOut:586,totalDebt:20885,cash:3868,equity:9545,retainedEarnings:7004,ocf:5057,capex:866,interestExpense:686,depreciation:619,taxProvision:1255},
-    2020:{revenue:14465,grossProfit:8737,operatingIncome:4293,netIncome:1734,eps:2.95,dps:3.45,sharesOut:589,totalDebt:21239,cash:4180,equity:8336,retainedEarnings:5346,ocf:2856,capex:862,interestExpense:703,depreciation:2264,taxProvision:725},
-    2019:{revenue:16306,grossProfit:10140,operatingIncome:5122,netIncome:4005,eps:6.60,dps:3.47,sharesOut:607,totalDebt:16073,cash:1338,equity:10596,retainedEarnings:7492,ocf:4116,capex:850,interestExpense:641,depreciation:474,taxProvision:1138},
-    2018:{revenue:15902,grossProfit:9843,operatingIncome:4993,netIncome:3951,eps:6.33,dps:3.46,sharesOut:624,totalDebt:13148,cash:1175,equity:13006,retainedEarnings:7434,ocf:4032,capex:764,interestExpense:548,depreciation:645,taxProvision:779},
-    2017:{revenue:15677,grossProfit:9588,operatingIncome:4630,netIncome:3463,eps:5.49,dps:3.04,sharesOut:631,totalDebt:12002,cash:1581,equity:13417,retainedEarnings:7123,ocf:4075,capex:674,interestExpense:597,depreciation:470,taxProvision:952},
-    2016:{revenue:13995,grossProfit:8321,operatingIncome:3669,netIncome:2995,eps:4.76,dps:3.41,sharesOut:630,totalDebt:13843,cash:1651,equity:11386,retainedEarnings:5020,ocf:3401,capex:675,interestExpense:627,depreciation:631,taxProvision:662},
-    2015:{revenue:17003,grossProfit:9754,operatingIncome:4398,netIncome:3744,eps:5.95,dps:3.34,sharesOut:629,totalDebt:15883,cash:769,equity:12220,retainedEarnings:5714,ocf:4011,capex:1003,interestExpense:852,depreciation:692,taxProvision:733},
-    2014:{revenue:17471,grossProfit:10609,operatingIncome:4610,netIncome:3970,eps:6.08,dps:3.20,sharesOut:629,totalDebt:16189,cash:1119,equity:11621,retainedEarnings:4152,ocf:3049,capex:1093,interestExpense:790,depreciation:1071,taxProvision:761},
-    2013:{revenue:17183,grossProfit:10470,operatingIncome:5138,netIncome:3728,eps:5.92,dps:2.83,sharesOut:629,totalDebt:15746,cash:2677,equity:10696,retainedEarnings:2647,ocf:3091,capex:967,interestExpense:787,depreciation:605,taxProvision:771},
-    2012:{revenue:16711,grossProfit:10101,operatingIncome:4882,netIncome:3003,eps:4.76,dps:2.64,sharesOut:627,totalDebt:13915,cash:1690,equity:8777,retainedEarnings:368,ocf:3292,capex:749,interestExpense:801,depreciation:639,taxProvision:1588},
-    2011:{revenue:15970,grossProfit:9525,operatingIncome:4171,netIncome:3054,eps:4.89,dps:2.49,sharesOut:625,totalDebt:13183,cash:2546,equity:8430,retainedEarnings:-313,ocf:3509,capex:673,interestExpense:894,depreciation:566,taxProvision:551},
-    2010:{revenue:14721,grossProfit:8551,operatingIncome:3875,netIncome:2452,eps:3.94,dps:2.33,sharesOut:623,totalDebt:13540,cash:2335,equity:6032,retainedEarnings:-2073,ocf:3607,capex:563,interestExpense:884,depreciation:560,taxProvision:718},
-    2009:{revenue:13000,grossProfit:7500,operatingIncome:3400,netIncome:2200,eps:3.50,dps:2.20,sharesOut:620,totalDebt:14000,cash:2100,equity:5800,retainedEarnings:-2500,ocf:3200,capex:520,interestExpense:900,depreciation:540,taxProvision:650},
-    2008:{revenue:12500,grossProfit:7200,operatingIncome:3200,netIncome:2000,eps:3.20,dps:2.10,sharesOut:618,totalDebt:13500,cash:1800,equity:5500,retainedEarnings:-2800,ocf:3000,capex:500,interestExpense:880,depreciation:520,taxProvision:600},
-  };
+  // Financial data for analysis — loaded via "Importar" JSON or FMP API
   const [fin, setFin] = useState(()=>{
     const o = {};
     YEARS.forEach(y => { o[y] = {revenue:0,grossProfit:0,operatingIncome:0,netIncome:0,eps:0,dps:0,sharesOut:0,totalDebt:0,cash:0,equity:0,retainedEarnings:0,ocf:0,capex:0,interestExpense:0,depreciation:0,taxProvision:0}; });
     return o;
   });
-  // NOTE: DEO_DATA is kept as example data — load via "Importar" JSON or will integrate API later
   const [cfg, setCfg] = useState({ticker:"",name:"",price:0,currency:"USD",beta:1.0,riskFree:4.0,marketPremium:5.5,taxRate:28,manualDiscount:0,manualGrowth:0,useWACC:true});
   const [tab, setTab] = useState("dash");
   const [anim, setAnim] = useState(false);
@@ -284,6 +262,7 @@ export default function ARApp() {
             fecha: today, nlv: summary.nlv.amount, cash: summary.totalCash?.amount || 0,
             positionsValue: summary.grossPosition?.amount || 0, marginUsed: summary.initMargin?.amount || 0,
             accounts: (summary.accounts || []).length || 4, positionsCount: positions.length,
+            buyingPower: summary.buyingPower?.amount || 0,
           }),
         }).catch(() => {});
       }
@@ -297,6 +276,21 @@ export default function ARApp() {
   // IB cloud sync status message
   const [ibSyncMsg, setIbSyncMsg] = useState(null);
 
+  // Load cached IB snapshot immediately (D1 only, no IB session needed)
+  // Then try live IB data which overwrites if successful
+  useEffect(() => {
+    if (!dataLoaded) return;
+    // Always load cached snapshot first so Dashboard has data even without IB session
+    fetch(`${API_URL}/api/ib-cached-snapshot`).then(r => r.json()).then(snap => {
+      if (snap?.summary?.nlv?.amount > 0) {
+        setIbData(prev => {
+          if (prev.loaded && !prev.cached) return prev; // live data already loaded, don't overwrite
+          return { positions: snap.positions || [], ledger: {}, summary: snap.summary, trades: [], loaded: true, loading: false, cached: true, lastSync: snap.summary.fecha || null, errors: {} };
+        });
+      }
+    }).catch(() => {});
+  }, [dataLoaded]);
+
   // Auto-sync IB data once per session: call cloud sync endpoint + load IB data
   useEffect(() => {
     if (!dataLoaded) return;
@@ -307,7 +301,7 @@ export default function ARApp() {
     // 1. Load IB live data (portfolio, ledger, summary, trades)
     loadIBData();
 
-    // 2. Cloud auto-sync: import recent trades + save NLV (background, non-blocking)
+    // 2. Cloud auto-sync: import recent trades + save NLV + sync positions (background)
     setIbSyncMsg("Sincronizando IB...");
     fetch(`${API_URL}/api/ib-auto-sync`, { method: "POST" })
       .then(r => r.json())
@@ -318,6 +312,7 @@ export default function ARApp() {
           const parts = [];
           if (data.trades_imported > 0) parts.push(`${data.trades_imported} trades`);
           if (data.nlv_updated) parts.push("NLV");
+          if (data.ib_positions_synced > 0) parts.push(`${data.ib_positions_synced} pos`);
           setIbSyncMsg(parts.length ? `IB sync: ${parts.join(", ")}` : "IB sincronizado");
           setTimeout(() => setIbSyncMsg(null), 5000);
         }
@@ -773,11 +768,12 @@ function buildPositionsFromCB() {
     });
   }, []);
 
-  const portfolioList = useMemo(() => Object.entries(positions).filter(([,v])=>v.list==="portfolio").map(([k,v])=>({ticker:k,...v})), [positions]);
+  const portfolioList = useMemo(() => Object.entries(positions).filter(([,v])=>v.list==="portfolio"&&(v.shares>0||v.sh>0)).map(([k,v])=>({ticker:k,...v})), [positions]);
   const watchlistList = useMemo(() => Object.entries(positions).filter(([,v])=>v.list==="watchlist").map(([k,v])=>({ticker:k,...v})), [positions]);
   
   // Historical positions: from DB holdings + POS_STATIC entries marked as historial
-  const [historialList] = useState(() => {
+  const [historialList, setHistorialList] = useState([]);
+  useEffect(() => {
     const fromDB = HIST_INIT.map(h => ({
       ticker: h.t, name: h.t, shares: h.s||0, adjustedBasis: 0,
       totalDivs: h.d||0, totalOptCredit: h.o||0, txnCount: h.n||0,
@@ -789,10 +785,9 @@ function buildPositionsFromCB() {
       currency: v.c||"USD", hasCB: true, list: "historial"
     }));
     // Merge: static entries take priority (they have more data)
-    const dbTickers = new Set(fromDB.map(h => h.ticker));
     const merged = [...fromStatic, ...fromDB.filter(h => !fromStatic.find(s => s.ticker === h.ticker))];
-    return merged;
-  });
+    setHistorialList(merged);
+  }, [HIST_INIT, D1_POSITIONS]);
   
   // ── Dividend Log (replaces DIVIDENDOS Google Sheet) ──
   const [divLog, setDivLog] = useState([]);
@@ -1066,7 +1061,12 @@ function buildPositionsFromCB() {
     setCtrlEditId(null);
   }, [reloadCtrlFromApi]);
   
-  const deleteCtrlEntry = useCallback((id) => {
+  const deleteCtrlEntry = useCallback(async (id) => {
+    // Delete from D1 database
+    try {
+      await fetch(`${API_URL}/api/patrimonio/${id}`, { method: 'DELETE' });
+    } catch(e) { console.error('Delete patrimonio error:', e); }
+    // Update local state
     setCtrlLog(prev => {
       const next = prev.filter(c => c.id !== id);
       if (storageAvailable()) window.storage.set("control:log", JSON.stringify(next), true).catch(()=>{});
@@ -1168,7 +1168,10 @@ function buildPositionsFromCB() {
         costTotalUSD = (ib.avgCost || 0) * (ib.shares || 0) * (ibCcy === "USD" ? 1 : ibFx);
         pnlUSD = (ib.unrealizedPnl || 0) * (ibCcy === "USD" ? 1 : ibFx);
         pnlPct = costTotalUSD !== 0 ? pnlUSD / Math.abs(costTotalUSD) : 0;
-        divAnnualUSD = (LIVE_DPS[p.ticker]?.dps || p.divTTM || 0) * (ib.shares || p.shares || 0);
+        // DPS is in the position's local currency — convert to USD
+        const divCcyIB = p.currency || ibCcy || "USD";
+        const rawDpsIB = (LIVE_DPS[p.ticker]?.dps || p.divTTM || 0);
+        divAnnualUSD = toUSD(rawDpsIB * (ib.shares || p.shares || 0), divCcyIB);
         dataSource = "IB";
       } else {
         // FMP fallback
@@ -1176,7 +1179,10 @@ function buildPositionsFromCB() {
         costTotalUSD = p.totalInvertido || 0;
         pnlUSD = valueUSD - costTotalUSD;
         pnlPct = p.pnlPct || (costTotalUSD !== 0 ? pnlUSD / Math.abs(costTotalUSD) : 0);
-        divAnnualUSD = (LIVE_DPS[p.ticker]?.dps || p.divTTM || 0) * (p.shares || 0);
+        // DPS is in the position's local currency — convert to USD
+        const divCcyFMP = p.currency || "USD";
+        const rawDpsFMP = (LIVE_DPS[p.ticker]?.dps || p.divTTM || 0);
+        divAnnualUSD = toUSD(rawDpsFMP * (p.shares || 0), divCcyFMP);
         dataSource = "FMP";
       }
 
@@ -1201,7 +1207,7 @@ function buildPositionsFromCB() {
         ibAvgCost: ib?.avgCost ?? null,
       };
     });
-  }, [portfolioList, toEUR, ibPositionMap, fxRates]);
+  }, [portfolioList, toUSD, toEUR, ibPositionMap, fxRates, LIVE_DPS]);
 
   // Compute discrepancies separately (not inside useMemo with setState)
   const ibDiscrepancies = useMemo(() => {
@@ -1252,9 +1258,10 @@ function buildPositionsFromCB() {
   // ── Deferred code (needs portfolioList + portfolioTotals + ibData) ──
 
   // Live price refresh (uses portfolioList — must be after its declaration)
+  // Includes ALL tickers (foreign with ":"), handles GBX conversion, recalculates USD values
   const refreshLivePrices = useCallback(async () => {
     try {
-      const tickers = portfolioList.map(p => p.ticker).filter(t => !t.includes(":")).join(",");
+      const tickers = portfolioList.map(p => p.ticker).join(",");
       if (!tickers) return;
       const r = await fetch(`${API_URL}/api/prices?tickers=${tickers}&live=1`);
       const d = await r.json();
@@ -1263,7 +1270,28 @@ function buildPositionsFromCB() {
           const updated = { ...prev };
           for (const [ticker, priceInfo] of Object.entries(d.prices)) {
             if (updated[ticker] && priceInfo?.price) {
-              updated[ticker] = { ...updated[ticker], lastPrice: priceInfo.price, dayChange: priceInfo.changePct || 0, dayChangeAbs: priceInfo.change || 0, priceUpdated: true };
+              const p = updated[ticker];
+              const newPrice = priceInfo.price;
+              const shares = p.shares || 0;
+              const ccy = p.currency || "USD";
+              const fx = p.fx || 1;
+              // Recalculate USD value with proper FX and GBX handling
+              const newUsdValue = ccy === "USD" ? newPrice * shares
+                : ccy === "GBX" ? (newPrice / 100) * shares * fx
+                : newPrice * shares * fx;
+              const totalInvested = p.totalInvertido || (p.avgCost || 0) * shares * (ccy === "USD" ? 1 : fx);
+              const pnlAbs = newUsdValue - totalInvested;
+              const pnlPct = totalInvested > 0 ? (pnlAbs / totalInvested) : 0;
+              updated[ticker] = {
+                ...p,
+                lastPrice: newPrice,
+                usdValue: newUsdValue,
+                marketValue: newPrice * shares,
+                pnlAbs, pnlPct,
+                dayChange: priceInfo.changePct || 0,
+                dayChangeAbs: priceInfo.change || 0,
+                priceUpdated: true,
+              };
             }
           }
           return updated;
@@ -2100,6 +2128,7 @@ function buildPositionsFromCB() {
                 {fmpLoading?"⏳":"⚡ Cargar"}
               </button>
               <button onClick={saveCurrentCompany} style={{padding:"4px 8px",borderRadius:100,border:"1px solid rgba(100,210,255,.25)",background:"rgba(100,210,255,.06)",color:"#64d2ff",fontSize:10,cursor:"pointer",fontFamily:"var(--fm)",alignSelf:"flex-end",flexShrink:0}}>💾</button>
+              {cfg.ticker && <button onClick={()=>window.open(`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(cfg.ticker)}`,"_blank")} style={{padding:"4px 8px",borderRadius:100,border:"1px solid rgba(48,209,88,.25)",background:"rgba(48,209,88,.06)",color:"var(--green)",fontSize:10,cursor:"pointer",fontFamily:"var(--fm)",alignSelf:"flex-end",flexShrink:0}} title="Abrir en TradingView">📈</button>}
               {cfg.ticker && <>
                 <button onClick={()=>{navigator.clipboard.writeText(cfg.ticker);setToast({message:`${cfg.ticker} copiado`,type:"info"});}} title="Copiar ticker" style={{padding:"4px 8px",borderRadius:100,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)",alignSelf:"flex-end",flexShrink:0}}>📋</button>
                 <a href={`https://finance.yahoo.com/quote/${cfg.ticker}`} target="_blank" rel="noopener" title="Yahoo Finance" style={{padding:"4px 6px",borderRadius:100,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,textDecoration:"none",fontFamily:"var(--fm)",alignSelf:"flex-end",flexShrink:0}}>Y!</a>

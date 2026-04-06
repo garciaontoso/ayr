@@ -5,16 +5,60 @@ export async function fetchViaFMP(ticker, { forceRefresh = false } = {}) {
   const refreshParam = forceRefresh ? "&refresh=1" : "";
   const resp = await fetch(`${API_URL}/api/fundamentals?symbol=${encodeURIComponent(ticker)}${refreshParam}`);
   if (!resp.ok) throw new Error(`API error ${resp.status}`);
-  const data = await resp.json();
+  let data = await resp.json();
 
-  // Handle SW offline response — try localStorage fallback
+  // Handle SW offline response — try localStorage fallback, then Cache API direct read
   if (data && data.error === "offline") {
+    // 1) Try localStorage (airplane mode saves parsed fin + fmpExtra here)
     const stored = await loadCompanyFromStorage(ticker);
-    if (stored && stored.fin && Object.keys(stored.fin).length > 0) {
+    if (stored && stored.fin && typeof stored.fin === 'object' && Object.keys(stored.fin).length > 0) {
       console.info(`[FMP] ${ticker}: usando datos offline de localStorage`);
+      // Normalize structure: airplane mode stores fmpExtra wrapped, but callers expect fmpRating/fmpDCF flat
+      if (stored.fmpExtra && !stored.fmpRating) {
+        stored.fmpRating = stored.fmpExtra.rating || {};
+        stored.fmpDCF = stored.fmpExtra.dcf || {};
+        stored.fmpEstimates = stored.fmpExtra.estimates || [];
+        stored.fmpPriceTarget = stored.fmpExtra.priceTarget || {};
+        stored.fmpKeyMetrics = stored.fmpExtra.keyMetrics || [];
+        stored.fmpFinGrowth = stored.fmpExtra.finGrowth || [];
+        stored.fmpGrades = stored.fmpExtra.grades || {};
+        stored.fmpOwnerEarnings = stored.fmpExtra.ownerEarnings || [];
+        stored.fmpRevSegments = stored.fmpExtra.revSegments || [];
+        stored.fmpGeoSegments = stored.fmpExtra.geoSegments || [];
+        stored.fmpPeers = stored.fmpExtra.peers || [];
+        stored.fmpEarnings = stored.fmpExtra.earnings || [];
+        stored.fmpPtSummary = stored.fmpExtra.ptSummary || {};
+        if (!stored.profile) stored.profile = stored.fmpExtra.profile || {};
+      }
       return stored;
     }
-    throw new Error(`${ticker}: sin conexion y sin datos en cache local`);
+    // 2) Try Cache API directly (airplane mode also stores raw API responses there)
+    if (data && data.error === "offline") {
+      try {
+        const cache = await caches.open("ayr-offline-data");
+        const cachedResp = await cache.match(`${API_URL}/api/fundamentals?symbol=${encodeURIComponent(ticker)}`);
+        if (!cachedResp) {
+          // Also try without encodeURIComponent (airplane mode saves with raw ticker)
+          const cachedResp2 = await cache.match(`${API_URL}/api/fundamentals?symbol=${ticker}`);
+          if (cachedResp2) {
+            const cachedData = await cachedResp2.json();
+            if (cachedData && cachedData.income && cachedData.income.length > 0) {
+              console.info(`[FMP] ${ticker}: usando datos offline de Cache API (raw key)`);
+              data = cachedData;
+            }
+          }
+        } else {
+          const cachedData = await cachedResp.json();
+          if (cachedData && cachedData.income && cachedData.income.length > 0) {
+            console.info(`[FMP] ${ticker}: usando datos offline de Cache API`);
+            data = cachedData;
+          }
+        }
+      } catch(e) { console.warn(`[FMP] ${ticker}: Cache API fallback failed:`, e.message); }
+    }
+    if (data && data.error === "offline") {
+      throw new Error(`${ticker}: sin conexion y sin datos en cache local`);
+    }
   }
 
   if (!data.income || data.income.length === 0) throw new Error(`No hay datos de FMP para ${ticker}. ¿Es un ticker US?`);

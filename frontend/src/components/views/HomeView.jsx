@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { CURRENCIES, DISPLAY_CCYS, APP_VERSION, API_URL } from '../../constants/index.js';
+import { saveCompanyToStorage } from '../../utils/storage.js';
 import { PortfolioTab } from '../home';
 import { ErrorBoundary } from '../ui';
 
@@ -265,12 +266,62 @@ function AirplaneMode({ portfolioList }) {
       setDlCurrent(3);
     }
 
-    // ── Phase 3: Fundamentals per ticker ──
+    // ── Phase 3: Fundamentals per ticker (cache + save slim data to localStorage) ──
     setDlTotal(usTickers.length); setDlCurrent(0);
     setDlPhase("Fundamentales");
+    const M = v => (v || 0) / 1e6; // millions helper
     for (let i = 0; i < usTickers.length; i += 5) {
       const batch = usTickers.slice(i, i + 5);
-      await Promise.all(batch.map(t => cacheFetch(`${API}/api/fundamentals?symbol=${t}`)));
+      await Promise.all(batch.map(async (t) => {
+        try {
+          const fundamentalsUrl = `${API}/api/fundamentals?symbol=${encodeURIComponent(t)}`;
+          const r = await fetch(fundamentalsUrl);
+          if (!r.ok) { errors++; return; }
+          const clone = r.clone();
+          await cache.put(fundamentalsUrl, clone);
+          const data = await r.json();
+          if (!data || !data.income || data.income.length === 0) return;
+          // Parse fin inline (same logic as fetchViaFMP but avoids extra fetch)
+          const fin = {};
+          const incByY = {}, balByY = {}, cfByY = {}, ratByY = {};
+          data.income.forEach(d => { incByY[d.fiscalYear] = d; });
+          (data.balance||[]).forEach(d => { balByY[d.fiscalYear] = d; });
+          (data.cashflow||[]).forEach(d => { cfByY[d.fiscalYear] = d; });
+          (data.ratios||[]).forEach(d => { if(d.fiscalYear) ratByY[d.fiscalYear] = d; });
+          const years = [...new Set([...Object.keys(incByY),...Object.keys(balByY),...Object.keys(cfByY)])].sort().reverse().slice(0,10);
+          years.forEach(yS => {
+            const y=+yS, inc=incByY[yS]||{}, bal=balByY[yS]||{}, cf=cfByY[yS]||{}, rat=ratByY[yS]||{};
+            fin[y] = { revenue:M(inc.revenue), grossProfit:M(inc.grossProfit), operatingIncome:M(inc.operatingIncome),
+              netIncome:M(inc.netIncome), eps:inc.epsDiluted||inc.eps||0, dps:rat.dividendPerShare||0,
+              sharesOut:M(inc.weightedAverageShsOutDil||inc.weightedAverageShsOut),
+              totalDebt:M((bal.totalDebt||0)||((bal.longTermDebt||0)+(bal.shortTermDebt||0))),
+              cash:M(bal.cashAndCashEquivalents||bal.cashAndShortTermInvestments||0),
+              equity:M(bal.totalStockholdersEquity||bal.totalEquity||0), retainedEarnings:M(bal.retainedEarnings||0),
+              ocf:M(cf.operatingCashFlow||cf.netCashProvidedByOperatingActivities||0),
+              capex:Math.abs(M(cf.capitalExpenditure||0)), interestExpense:M(inc.interestExpense||0),
+              depreciation:M(inc.depreciationAndAmortization||cf.depreciationAndAmortization||0),
+              taxProvision:M(inc.incomeTaxExpense||0) };
+          });
+          if (data.dividends?.length > 0) {
+            const dpsByY = {};
+            data.dividends.forEach(d => { const y=new Date(d.date||d.paymentDate||"").getFullYear(); if(y>=2010) dpsByY[y]=(dpsByY[y]||0)+(d.dividend||d.adjDividend||0); });
+            Object.keys(dpsByY).forEach(yS => { const y=+yS; if(fin[y]) fin[y].dps=Math.round(dpsByY[y]*100)/100; });
+          }
+          if (Object.keys(fin).length === 0) return;
+          const prof = data.profile||{};
+          // Save slim data (~25KB vs 145KB with _rawFMP)
+          await saveCompanyToStorage(t, {
+            fin, cfg: { ticker:t.toUpperCase(), name:prof.companyName||t, price:prof.price||0, currency:prof.currency||"USD", beta:prof.beta||1.0 },
+            profile: { sector:prof.sector, industry:prof.industry, country:prof.country, companyName:prof.companyName, description:(prof.description||"").slice(0,200) },
+            fmpExtra: {
+              rating:data.rating||{}, dcf:data.dcf||{}, estimates:data.estimates||[], priceTarget:data.priceTarget||{},
+              keyMetrics:data.keyMetrics||[], finGrowth:data.finGrowth||[], grades:data.grades||{},
+              ownerEarnings:data.ownerEarnings||[], revSegments:data.revSegments||[], geoSegments:data.geoSegments||[],
+              peers:data.peers||[], earnings:data.earnings||[], ptSummary:data.ptSummary||{}, profile:prof,
+            },
+          });
+        } catch(e) { errors++; console.warn(`[Offline] ${t}:`, e.message); }
+      }));
       setDlCurrent(Math.min(i + 5, usTickers.length));
     }
 

@@ -301,7 +301,10 @@ export default function PortfolioTab() {
 
   return (
       <div style={{display:"flex",flexDirection:"column",gap:6}}>
-        {/* IB-style live header */}
+        {/* IB-style live header
+            NOTE on scope: NLV = total IB account value (stocks + options + cash).
+            P&L = unrealized P&L for STK positions only, divided by STK cost basis.
+            These intentionally differ: NLV shows total wealth, P&L shows stock performance. */}
         {portfolioList.length>0 && (() => {
           const nlv = ibData?.summary?.nlv?.amount || portfolioTotals.totalValueUSD;
           const totalPnl = ibData?.loaded ? (ibData.positions||[]).filter(p=>p.assetClass==="STK").reduce((s,p)=>s+(p.unrealizedPnl||0),0) : portfolioTotals.pnlUSD;
@@ -312,7 +315,7 @@ export default function PortfolioTab() {
           return (
           <div style={{display:"flex",gap:12,padding:"6px 0",flexWrap:"wrap",alignItems:"center"}}>
             <div style={{fontFamily:"var(--fm)"}}><span style={{fontSize:9,color:"var(--text-tertiary)"}}>NLV </span><span style={{fontSize:20,fontWeight:700,color:"var(--text-primary)"}}>{hide("$"+fDol(nlv))}</span></div>
-            <div style={{fontFamily:"var(--fm)"}}><span style={{fontSize:9,color:"var(--text-tertiary)"}}>P&L </span><span style={{fontSize:16,fontWeight:700,color:totalPnl>=0?"var(--green)":"var(--red)"}}>{hide((totalPnl>=0?"+":"")+fDol(totalPnl))}</span><span style={{fontSize:10,color:totalPnl>=0?"var(--green)":"var(--red)",marginLeft:4,opacity:.7}}>{pnlPct>=0?"+":""}{_sf(pnlPct,1)}%</span></div>
+            <div style={{fontFamily:"var(--fm)"}} title="Stocks P&L only (excludes options + cash)"><span style={{fontSize:9,color:"var(--text-tertiary)"}}>P&L </span><span style={{fontSize:16,fontWeight:700,color:totalPnl>=0?"var(--green)":"var(--red)"}}>{hide((totalPnl>=0?"+":"")+fDol(totalPnl))}</span><span style={{fontSize:10,color:totalPnl>=0?"var(--green)":"var(--red)",marginLeft:4,opacity:.7}}>{pnlPct>=0?"+":""}{_sf(pnlPct,1)}%</span></div>
             <div style={{fontFamily:"var(--fm)"}}><span style={{fontSize:9,color:"var(--text-tertiary)"}}>Div </span><span style={{fontSize:14,fontWeight:700,color:"var(--gold)"}}>{hide("$"+fDol(portfolioTotals.totalDivUSD))}</span><span style={{fontSize:9,color:"var(--gold)",marginLeft:3,opacity:.6}}>YOC {_sf(portfolioTotals.yocUSD*100,1)}%</span></div>
             <div onClick={()=>setHomeTab("nomina")} style={{fontFamily:"var(--fm)",cursor:"pointer",padding:"2px 8px",borderRadius:6,background:"var(--gold-dim)",border:"1px solid var(--gold)",opacity:.85,transition:"opacity .15s"}} onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=.85} title="Ver Mi Nomina"><span style={{fontSize:13,fontWeight:700,color:"var(--gold)"}}>{hide("$"+fDol(portfolioTotals.totalDivUSD/12))}/mes</span></div>
             {isLive && <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:4,fontSize:9,fontFamily:"var(--fm)",color:"var(--green)"}}><span style={{width:6,height:6,borderRadius:3,background:"var(--green)",display:"inline-block",animation:"pulse 2s infinite"}}/>LIVE {lastSync}</div>}

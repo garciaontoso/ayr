@@ -201,6 +201,17 @@ async function ensureMigrations(env) {
       try { await env.DB.prepare(ddl).run(); } catch(e) { /* index may already exist or table missing */ }
     }
 
+    // ─── v3.3 migrations: IB snapshot columns ───
+    const alterMigrations = [
+      "ALTER TABLE nlv_history ADD COLUMN buying_power REAL DEFAULT 0",
+      "ALTER TABLE positions ADD COLUMN ib_shares REAL DEFAULT 0",
+      "ALTER TABLE positions ADD COLUMN ib_avg_cost REAL DEFAULT 0",
+      "ALTER TABLE positions ADD COLUMN ib_price REAL DEFAULT 0",
+    ];
+    for (const ddl of alterMigrations) {
+      try { await env.DB.prepare(ddl).run(); } catch(e) { /* column already exists */ }
+    }
+
     _migrated = true;
   } catch(e) {
     console.error("Migration error:", e.message);
@@ -533,7 +544,8 @@ async function performAutoSync(env) {
     errors.push("Trades fetch error: " + e.message);
   }
 
-  // 3. Fetch account summary and save NLV
+  // 3. Fetch account summary and save NLV + buying power
+  let totalBuyingPower = 0;
   try {
     const today = new Date().toISOString().slice(0, 10);
     let totalNlv = 0, totalCash = 0, totalGross = 0, totalMargin = 0;
@@ -545,23 +557,65 @@ async function performAutoSync(env) {
       totalCash += get(summary, "totalcashvalue");
       totalGross += get(summary, "grosspositionvalue");
       totalMargin += get(summary, "initmarginreq");
+      totalBuyingPower += get(summary, "buyingpower");
     }
 
     if (totalNlv > 0) {
       await env.DB.prepare(
-        "INSERT OR REPLACE INTO nlv_history (fecha, nlv, cash, positions_value, margin_used, accounts, positions_count) VALUES (?,?,?,?,?,?,?)"
-      ).bind(today, totalNlv, totalCash, totalGross, totalMargin, accountIds.length, 0).run();
+        "INSERT OR REPLACE INTO nlv_history (fecha, nlv, cash, positions_value, margin_used, accounts, positions_count, buying_power) VALUES (?,?,?,?,?,?,?,?)"
+      ).bind(today, totalNlv, totalCash, totalGross, totalMargin, accountIds.length, 0, totalBuyingPower).run();
       nlvUpdated = true;
     }
   } catch(e) {
     errors.push("NLV save error: " + e.message);
   }
 
-  // 4. Fetch recent dividends from IB orders/transactions
-  // IB OAuth doesn't have a direct dividends endpoint, but we can check
-  // the trades endpoint for dividend-related entries. For comprehensive dividend
-  // sync we rely on the existing loadIBData flow + manual Flex imports.
-  // However, we can check cost_basis for recent option assignments that generated dividends.
+  // 4. Fetch IB positions and save ib_shares/ib_avg_cost/ib_price to positions table
+  let ibPositionsSynced = 0;
+  try {
+    // Re-warm portfolio endpoint (IB requires /portfolio/accounts hit before positions)
+    await ib("GET", "/portfolio/accounts");
+    const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HGK:9616"};
+    const merged = {};
+    for (const accountId of accountIds) {
+      for (let page = 0; page < 5; page++) {
+        const positions = await ib("GET", `/portfolio/${accountId}/positions/${page}`);
+        if (!positions || !Array.isArray(positions) || !positions.length) break;
+        for (const p of positions) {
+          if (!p.position || p.position === 0 || p.assetClass !== "STK") continue;
+          const ticker = IB_MAP[p.ticker] || p.ticker || "";
+          if (!ticker) continue;
+          if (merged[ticker]) {
+            merged[ticker].shares += p.position || 0;
+            merged[ticker].mktValue += p.mktValue || 0;
+          } else {
+            merged[ticker] = { ticker, shares: p.position || 0, mktPrice: p.mktPrice || 0, mktValue: p.mktValue || 0, avgCost: p.avgCost || 0, currency: p.currency || "USD" };
+          }
+        }
+      }
+    }
+    // Upsert ib_shares for current positions
+    const ibTickers = [];
+    const stmts = [];
+    for (const [ticker, p] of Object.entries(merged)) {
+      if (Math.abs(p.mktValue) < 50 || p.mktPrice <= 0) continue;
+      ibTickers.push(ticker);
+      stmts.push(env.DB.prepare(
+        `UPDATE positions SET ib_shares=?, ib_avg_cost=?, ib_price=?, updated_at=datetime('now') WHERE ticker=?`
+      ).bind(p.shares, p.avgCost, p.mktPrice, ticker));
+      ibPositionsSynced++;
+    }
+    for (let i = 0; i < stmts.length; i += 50) {
+      await env.DB.batch(stmts.slice(i, i + 50));
+    }
+    // Zero out sold positions (ib_shares was > 0 but ticker no longer in IB)
+    if (ibTickers.length > 0) {
+      const placeholders = ibTickers.map(() => "?").join(",");
+      await env.DB.prepare(`UPDATE positions SET ib_shares=0, ib_avg_cost=0, ib_price=0 WHERE ib_shares > 0 AND ticker NOT IN (${placeholders})`).bind(...ibTickers).run();
+    }
+  } catch(e) {
+    errors.push("IB positions sync error: " + e.message);
+  }
 
   return {
     ok: true,
@@ -569,6 +623,7 @@ async function performAutoSync(env) {
     trades_imported: tradesImported,
     trades_skipped: tradesSkipped,
     nlv_updated: nlvUpdated,
+    ib_positions_synced: ibPositionsSynced,
     accounts: accountIds.length,
     errors: errors.length ? errors : undefined,
   };
@@ -658,19 +713,25 @@ export default {
         return json(results, corsHeaders);
       }
 
-      // GET /api/dividendos/resumen — por año
+      // GET /api/dividendos/resumen — por año (en USD)
       if (path === "/api/dividendos/resumen" && request.method === "GET") {
         const { results } = await env.DB.prepare(
-          `SELECT substr(fecha,1,4) as anio, SUM(bruto) as bruto, SUM(neto) as neto, COUNT(*) as cobros
+          `SELECT substr(fecha,1,4) as anio,
+           ROUND(SUM(CASE WHEN bruto_usd > 0 THEN bruto_usd ELSE bruto END),2) as bruto,
+           ROUND(SUM(CASE WHEN neto_usd > 0 THEN neto_usd ELSE neto END),2) as neto,
+           COUNT(*) as cobros
            FROM dividendos GROUP BY substr(fecha,1,4) ORDER BY anio DESC`
         ).all();
         return json(results, corsHeaders);
       }
 
-      // GET /api/dividendos/mensual — por mes
+      // GET /api/dividendos/mensual — por mes (en USD)
       if (path === "/api/dividendos/mensual" && request.method === "GET") {
         const { results } = await env.DB.prepare(
-          `SELECT substr(fecha,1,7) as mes, SUM(bruto) as bruto, SUM(neto) as neto, COUNT(*) as cobros
+          `SELECT substr(fecha,1,7) as mes,
+           ROUND(SUM(CASE WHEN bruto_usd > 0 THEN bruto_usd ELSE bruto END),2) as bruto,
+           ROUND(SUM(CASE WHEN neto_usd > 0 THEN neto_usd ELSE neto END),2) as neto,
+           COUNT(*) as cobros
            FROM dividendos GROUP BY substr(fecha,1,7) ORDER BY mes DESC`
         ).all();
         return json(results, corsHeaders);
@@ -2067,9 +2128,36 @@ export default {
           const numErr = validateNumber(body.nlv, 'nlv');
           if (numErr) return validationError(numErr, corsHeaders);
           await env.DB.prepare(
-            "INSERT OR REPLACE INTO nlv_history (fecha, nlv, cash, positions_value, margin_used, accounts, positions_count) VALUES (?,?,?,?,?,?,?)"
-          ).bind(fecha, body.nlv||0, body.cash||0, body.positionsValue||0, body.marginUsed||0, body.accounts||0, body.positionsCount||0).run();
+            "INSERT OR REPLACE INTO nlv_history (fecha, nlv, cash, positions_value, margin_used, accounts, positions_count, buying_power) VALUES (?,?,?,?,?,?,?,?)"
+          ).bind(fecha, body.nlv||0, body.cash||0, body.positionsValue||0, body.marginUsed||0, body.accounts||0, body.positionsCount||0, body.buyingPower||0).run();
           return json({ ok: true, fecha }, corsHeaders);
+        } catch(e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // GET /api/ib-cached-snapshot — Dashboard data without live IB session (D1 only)
+      if (path === "/api/ib-cached-snapshot" && request.method === "GET") {
+        try {
+          const latest = await env.DB.prepare("SELECT * FROM nlv_history ORDER BY fecha DESC LIMIT 1").first();
+          const { results: ibPositions } = await env.DB.prepare(
+            "SELECT ticker, name, shares, ib_shares, ib_avg_cost, ib_price, last_price, currency, sector, market_value FROM positions WHERE ib_shares > 0"
+          ).all();
+          return json({
+            summary: latest ? {
+              nlv: { amount: latest.nlv, currency: "USD" },
+              buyingPower: { amount: latest.buying_power || 0, currency: "USD" },
+              totalCash: { amount: latest.cash || 0, currency: "USD" },
+              initMargin: { amount: latest.margin_used || 0, currency: "USD" },
+              grossPosition: { amount: latest.positions_value || 0, currency: "USD" },
+              accounts: Array.from({ length: latest.accounts || 4 }),
+              fecha: latest.fecha,
+            } : null,
+            positions: (ibPositions || []).map(p => ({
+              ticker: p.ticker, name: p.name, shares: p.ib_shares, mktPrice: p.ib_price || p.last_price,
+              mktValue: (p.ib_shares || 0) * (p.ib_price || p.last_price || 0),
+              avgCost: p.ib_avg_cost, currency: p.currency || "USD", sector: p.sector || "",
+              assetClass: "STK", appShares: p.shares,
+            })),
+          }, corsHeaders);
         } catch(e) { return json({ error: e.message }, corsHeaders, 500); }
       }
 
@@ -2234,23 +2322,47 @@ export default {
             try { await env.DB.batch(batch); tradesInserted += batch.length; } catch { tradesSkipped += batch.length; }
           }
 
-          // Import dividends into dividendos table using batch
+          // Import dividends — aggregate by (settleDate, symbol) across accounts
+          // Dividends/PIL → bruto, Withholding Tax → wht
           let divsInserted = 0, divsSkipped = 0;
-          const divStmts = [];
+          const divAgg = {};
           for (const c of cashTxns) {
             const type = (c.type || "").toLowerCase();
-            if (!type.includes("dividend") && !type.includes("payment in lieu")) continue;
-            if (!c.symbol || !c.reportDate) continue;
+            if (!type.includes("dividend") && !type.includes("payment in lieu") && !type.includes("withholding")) continue;
+            if (!c.symbol) continue;
             const ticker = mapTicker(c.symbol);
-            const fecha = c.reportDate.length === 8
-              ? `${c.reportDate.slice(0,4)}-${c.reportDate.slice(4,6)}-${c.reportDate.slice(6,8)}`
-              : c.reportDate;
+            const rawDate = c.settleDate || c.reportDate || "";
+            const fecha = rawDate.length === 8
+              ? `${rawDate.slice(0,4)}-${rawDate.slice(4,6)}-${rawDate.slice(6,8)}`
+              : rawDate;
+            if (!fecha) continue;
             const amount = parseFloat(c.amount) || 0;
-            if (amount === 0) continue;
-
+            const key = `${fecha}|${ticker}`;
+            const fxRate = parseFloat(c.fxRateToBase) || 1;
+            if (!divAgg[key]) divAgg[key] = { ticker, fecha, bruto: 0, wht: 0, divisa: c.currency || "USD", fxRate };
+            if (type.includes("withholding")) {
+              divAgg[key].wht += amount; // negative
+            } else {
+              divAgg[key].bruto += amount;
+            }
+          }
+          const divStmts = [];
+          for (const d of Object.values(divAgg)) {
+            const bruto = Math.round(d.bruto * 100) / 100;
+            const wht = Math.round(d.wht * 100) / 100;
+            const neto = Math.round((d.bruto + d.wht) * 100) / 100;
+            if (bruto === 0 && neto === 0) continue;
+            const whtRate = bruto > 0 ? Math.round((-wht / bruto) * 10000) / 10000 : 0;
+            const whtAmount = Math.round(-wht * 100) / 100;
+            // Convert to USD: if currency is USD, fx=1; otherwise use IB's fxRateToBase (which is to USD)
+            const fxUSD = d.divisa === "USD" ? 1 : (d.fxRate || 1);
+            const brutoUSD = Math.round(bruto * fxUSD * 100) / 100;
+            const netoUSD = Math.round(neto * fxUSD * 100) / 100;
             divStmts.push(env.DB.prepare(
-              "INSERT INTO dividendos (ticker, fecha, div_total, divisa, notas) SELECT ?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM dividendos WHERE ticker=? AND fecha=? AND ABS(div_total - ?) < 0.01)"
-            ).bind(ticker, fecha, amount, c.currency || "USD", `IB ${c.type || ""} [${c.accountId || ""}]`, ticker, fecha, amount));
+              `INSERT INTO dividendos (ticker, fecha, bruto, neto, divisa, wht_rate, wht_amount, broker, notas, bruto_usd, neto_usd, fx_to_usd)
+               SELECT ?,?,?,?,?,?,?,'IB',?,?,?,?
+               WHERE NOT EXISTS (SELECT 1 FROM dividendos WHERE ticker=? AND fecha=? AND ABS(bruto - ?) < 0.05)`
+            ).bind(d.ticker, d.fecha, bruto, neto, d.divisa, whtRate, whtAmount, `IB Flex sync`, brutoUSD, netoUSD, fxUSD, d.ticker, d.fecha, bruto));
           }
           for (let i = 0; i < divStmts.length; i += 80) {
             const batch = divStmts.slice(i, i + 80);
@@ -2411,6 +2523,33 @@ export default {
       }
 
       // PUT /api/positions/:ticker/notes — save position notes (buy thesis)
+      // PATCH /api/positions/:ticker — partial update position fields
+      if (path.match(/^\/api\/positions\/[^/]+$/) && !path.includes("/notes") && request.method === "PATCH") {
+        try {
+          const ticker = decodeURIComponent(path.split("/")[3]);
+          const body = await request.json();
+          const allowed = ["name","last_price","avg_price","cost_basis","shares","currency","fx","strategy","category","list","market_value","usd_value","total_invested","pnl_pct","pnl_abs","div_ttm","div_yield","yoc","market_cap","sector","extra","notes"];
+          const sets = [], vals = [];
+          for (const [k, v] of Object.entries(body)) {
+            if (allowed.includes(k)) { sets.push(`${k} = ?`); vals.push(v); }
+          }
+          if (!sets.length) return json({ error: "No valid fields" }, corsHeaders, 400);
+          sets.push("updated_at = datetime('now')");
+          vals.push(ticker);
+          const r = await env.DB.prepare(`UPDATE positions SET ${sets.join(', ')} WHERE ticker = ?`).bind(...vals).run();
+          return json({ ok: true, ticker, updated: sets.length - 1, changes: r?.changes || 0 }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // DELETE /api/positions/:ticker — remove a position
+      if (path.match(/^\/api\/positions\/[^/]+$/) && !path.includes("/notes") && request.method === "DELETE") {
+        try {
+          const ticker = decodeURIComponent(path.split("/")[3]);
+          const r = await env.DB.prepare("DELETE FROM positions WHERE ticker = ?").bind(ticker).run();
+          return json({ ok: true, ticker, deleted: r?.changes || 0 }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
       if (path.match(/^\/api\/positions\/[^/]+\/notes$/) && request.method === "PUT") {
         try {
           const ticker = decodeURIComponent(path.split("/")[3]);
@@ -2484,20 +2623,20 @@ export default {
             }
           }
 
-          // Upsert into positions table (only stocks > $100 value)
+          // Upsert IB data into positions table (ib_shares/ib_avg_cost/ib_price — keeps app shares separate)
           let synced = 0;
           const stmts = [];
+          const syncedTickers = [];
           for (const [ticker, p] of Object.entries(merged)) {
             if (Math.abs(p.mktValue) < 100 || p.mktPrice <= 0) continue;
-            const ccy = p.currency || "USD";
+            syncedTickers.push(ticker);
             stmts.push(env.DB.prepare(
-              `INSERT INTO positions (ticker, name, last_price, avg_price, cost_basis, shares, currency, category, list, market_value, usd_value, total_invested, pnl_pct, pnl_abs, sector, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
-               ON CONFLICT(ticker) DO UPDATE SET last_price=excluded.last_price, avg_price=excluded.avg_price, cost_basis=excluded.cost_basis, shares=excluded.shares, market_value=excluded.market_value, usd_value=excluded.usd_value, total_invested=excluded.total_invested, pnl_pct=excluded.pnl_pct, pnl_abs=excluded.pnl_abs, updated_at=datetime('now')`
+              `INSERT INTO positions (ticker, name, last_price, ib_shares, ib_avg_cost, ib_price, currency, category, list, market_value, sector, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+               ON CONFLICT(ticker) DO UPDATE SET last_price=excluded.last_price, ib_shares=excluded.ib_shares, ib_avg_cost=excluded.ib_avg_cost, ib_price=excluded.ib_price, market_value=excluded.market_value, updated_at=datetime('now')`
             ).bind(
-              ticker, p.name, p.mktPrice, p.avgCost, p.avgCost, p.shares, ccy, "COMPANY", "portfolio",
-              p.mktValue, p.mktValue, p.avgCost * p.shares, p.shares > 0 && p.avgCost > 0 ? p.unrealizedPnl / (p.avgCost * p.shares) : 0,
-              p.unrealizedPnl, p.sector
+              ticker, p.name, p.mktPrice, p.shares, p.avgCost, p.mktPrice, p.currency || "USD", "COMPANY", "portfolio",
+              p.mktValue, p.sector
             ));
             synced++;
           }
@@ -2505,6 +2644,11 @@ export default {
           // Execute in batches
           for (let i = 0; i < stmts.length; i += 50) {
             await env.DB.batch(stmts.slice(i, i + 50));
+          }
+          // Zero out sold positions
+          if (syncedTickers.length > 0) {
+            const ph = syncedTickers.map(() => "?").join(",");
+            await env.DB.prepare(`UPDATE positions SET ib_shares=0, ib_avg_cost=0, ib_price=0 WHERE ib_shares > 0 AND ticker NOT IN (${ph})`).bind(...syncedTickers).run();
           }
 
           return json({ ok: true, accounts: accountIds.length, synced, total: Object.keys(merged).length }, corsHeaders);
@@ -2578,7 +2722,8 @@ export default {
       }
 
       // GET /api/dividend-dps-live — live DPS for all portfolio positions
-      // Strategy: Use ACTUAL dividend history from dividendos table (TTM) + FMP fundamentals cache
+      // Strategy: Annualize from most recent per-share payment (avoids share-accumulation bias)
+      // Falls back to FMP cache, then positions.div_ttm
       // Returns { [ticker]: { dps, yield, frequency, source } }
       if (path === "/api/dividend-dps-live" && request.method === "GET") {
         try {
@@ -2590,7 +2735,6 @@ export default {
           const result = {};
 
           // Reverse alias map: position ticker → possible dividendos tickers
-          // IB stores dividends with raw IB symbols, positions use normalized tickers
           const POS_TO_DIV_ALIASES = {
             "BME:VIS":["VIS","VIS.D","VISCOFAN"],"BME:AMS":["AMS","AMS.D"],
             "HKG:9618":["9618","JD"],"HKG:1052":["1052"],"HKG:1910":["1910"],
@@ -2598,58 +2742,98 @@ export default {
             "IIPR-PRA":["IIPR PRA","IIPRPRA"],
           };
 
-          // 2. Calculate TTM dividends from actual dividend history (most accurate!)
-          const ttmDate = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
-          const ttmDivs = await env.DB.prepare(
-            `SELECT ticker, SUM(bruto) as ttm_gross, COUNT(*) as payments
-             FROM dividendos WHERE fecha >= ? GROUP BY ticker`
-          ).bind(ttmDate).all();
+          // 2. Get recent dividend payments per ticker (last 14 months, ordered by date desc)
+          //    We need individual payments to compute per-share DPS and detect frequency
+          const recentDate = new Date(Date.now() - 420 * 86400000).toISOString().slice(0, 10);
+          const recentDivs = await env.DB.prepare(
+            `SELECT ticker, fecha, bruto, shares FROM dividendos WHERE fecha >= ? ORDER BY fecha DESC`
+          ).bind(recentDate).all();
 
-          const ttmMap = {};
-          for (const row of (ttmDivs.results || [])) {
-            ttmMap[row.ticker] = { gross: row.ttm_gross, payments: row.payments };
+          // Build per-ticker arrays of recent payments
+          const paymentsByTicker = {};
+          for (const row of (recentDivs.results || [])) {
+            if (!paymentsByTicker[row.ticker]) paymentsByTicker[row.ticker] = [];
+            paymentsByTicker[row.ticker].push(row);
           }
 
-          // Helper: find TTM data for a position ticker (checking aliases)
-          const findTTM = (ticker) => {
-            if (ttmMap[ticker]) return ttmMap[ticker];
+          // Helper: find payments for a position ticker (checking aliases)
+          const findPayments = (ticker) => {
+            if (paymentsByTicker[ticker]?.length) return paymentsByTicker[ticker];
             const aliases = POS_TO_DIV_ALIASES[ticker];
             if (aliases) {
               for (const alt of aliases) {
-                if (ttmMap[alt]) return ttmMap[alt];
+                if (paymentsByTicker[alt]?.length) return paymentsByTicker[alt];
               }
             }
-            return null;
+            return [];
           };
 
-          // 3. Get payment frequency from last 14 months of history per ticker
-          const freqDate = new Date(Date.now() - 420 * 86400000).toISOString().slice(0, 10);
-          const freqData = await env.DB.prepare(
-            `SELECT ticker, COUNT(*) as count FROM dividendos WHERE fecha >= ? GROUP BY ticker`
-          ).bind(freqDate).all();
-          const freqMap = {};
-          for (const row of (freqData.results || [])) {
-            const c = row.count;
-            freqMap[row.ticker] = c >= 11 ? "monthly" : c >= 3 ? "quarterly" : c >= 1 ? "semiannual" : "annual";
-          }
+          // Helper: detect frequency from payment dates
+          const detectFrequency = (payments) => {
+            if (payments.length < 2) return { freq: "quarterly", n: 4 }; // default
+            // Count distinct payment dates in TTM window
+            const ttmCutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+            const ttmPayments = payments.filter(p => p.fecha >= ttmCutoff);
+            const count = ttmPayments.length;
+            if (count >= 11) return { freq: "monthly", n: 12 };
+            if (count >= 3) return { freq: "quarterly", n: 4 };
+            // If only 1-2 payments in TTM, look at gap between last 2 payments
+            if (payments.length >= 2) {
+              const d1 = new Date(payments[0].fecha);
+              const d2 = new Date(payments[1].fecha);
+              const gapDays = Math.abs(d1 - d2) / 86400000;
+              if (gapDays < 50) return { freq: "monthly", n: 12 };
+              if (gapDays < 120) return { freq: "quarterly", n: 4 };
+              if (gapDays < 270) return { freq: "semiannual", n: 2 };
+              return { freq: "annual", n: 1 };
+            }
+            if (count >= 1) return { freq: "semiannual", n: 2 };
+            return { freq: "quarterly", n: 4 };
+          };
 
-          // 4. For each ticker: prefer TTM actual dividends, fallback to FMP cache, then positions.div_ttm
+          // Helper: compute annualized DPS from most recent payment
+          const calcAnnualizedDPS = (payments) => {
+            if (!payments.length) return { dps: 0, freq: "quarterly", n: 4, payments_ttm: 0 };
+            const { freq, n } = detectFrequency(payments);
+            // Use most recent payment's per-share amount
+            const last = payments[0]; // already sorted desc
+            const lastDPS = last.shares > 0 ? (last.bruto / last.shares) : 0;
+            const ttmCutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+            const ttmPayments = payments.filter(p => p.fecha >= ttmCutoff);
+            return {
+              dps: lastDPS * n,
+              freq,
+              n,
+              payments_ttm: ttmPayments.length,
+              last_dps: lastDPS,
+              ttm_total: ttmPayments.reduce((s, p) => s + (p.bruto || 0), 0),
+            };
+          };
+
+          // 3. For each ticker: prefer annualized actual, fallback to FMP cache, then positions.div_ttm
           for (const ticker of tickers) {
             const pos = (positions.results || []).find(p => p.ticker === ticker);
-            const shares = pos?.shares || 0;
             const price = pos?.last_price || 0;
-            const ttm = findTTM(ticker);
+            const payments = findPayments(ticker);
 
             let dps = 0;
             let source = "none";
+            let frequency = "quarterly";
+            let ttmTotal = 0;
+            let paymentsTTM = 0;
 
-            if (ttm && ttm.gross > 0 && shares > 0) {
-              // Best: actual TTM dividends / current shares
-              dps = ttm.gross / shares;
-              source = "ttm_actual";
+            if (payments.length > 0) {
+              const calc = calcAnnualizedDPS(payments);
+              if (calc.dps > 0) {
+                dps = calc.dps;
+                source = "ttm_actual";
+                frequency = calc.freq;
+                ttmTotal = calc.ttm_total || 0;
+                paymentsTTM = calc.payments_ttm || 0;
+              }
             }
 
-            // Fallback: FMP fundamentals cache
+            // Fallback: FMP fundamentals cache (already annualized DPS)
             if (!dps) {
               const cached = await env.DB.prepare(
                 "SELECT ratios FROM fundamentals WHERE symbol = ?"
@@ -2664,22 +2848,21 @@ export default {
               }
             }
 
-            // Last fallback: positions.div_ttm
+            // Last fallback: positions.div_ttm (already annualized)
             if (!dps && pos?.div_ttm > 0) {
               dps = pos.div_ttm;
               source = "positions";
             }
 
             const dy = price > 0 && dps > 0 ? dps / price : 0;
-            const frequency = freqMap[ticker] || "quarterly";
 
             result[ticker] = {
               dps: Math.round(dps * 100) / 100,
               yield: Math.round(dy * 10000) / 10000,
               frequency,
               source,
-              ttm_total: ttm?.gross ? Math.round(ttm.gross) : 0,
-              payments_ttm: ttm?.payments || 0,
+              ttm_total: ttmTotal ? Math.round(ttmTotal) : 0,
+              payments_ttm: paymentsTTM,
             };
           }
 
@@ -2703,47 +2886,63 @@ export default {
             "IIPR-PRA":["IIPR PRA","IIPRPRA"],
           };
 
-          // 2. Get DPS from TTM actual dividends
-          const ttmDate = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
-          const ttmDivs = await env.DB.prepare(
-            `SELECT ticker, SUM(bruto) as ttm_gross FROM dividendos WHERE fecha >= ? GROUP BY ticker`
-          ).bind(ttmDate).all();
-          const ttmMap = {};
-          for (const row of (ttmDivs.results || [])) ttmMap[row.ticker] = row.ttm_gross;
+          // 2. Get recent dividend payments per ticker (last 14 months) for annualized DPS
+          const recentDate = new Date(Date.now() - 420 * 86400000).toISOString().slice(0, 10);
+          const recentDivs = await env.DB.prepare(
+            `SELECT ticker, fecha, bruto, shares FROM dividendos WHERE fecha >= ? ORDER BY fecha DESC`
+          ).bind(recentDate).all();
 
-          const findTTMFwd = (ticker) => {
-            if (ttmMap[ticker]) return ttmMap[ticker];
+          const paymentsByTicker = {};
+          for (const row of (recentDivs.results || [])) {
+            if (!paymentsByTicker[row.ticker]) paymentsByTicker[row.ticker] = [];
+            paymentsByTicker[row.ticker].push(row);
+          }
+
+          const findPaymentsFwd = (ticker) => {
+            if (paymentsByTicker[ticker]?.length) return paymentsByTicker[ticker];
             const aliases = POS_TO_DIV_ALIASES[ticker];
-            if (aliases) { for (const alt of aliases) { if (ttmMap[alt]) return ttmMap[alt]; } }
-            return 0;
+            if (aliases) { for (const alt of aliases) { if (paymentsByTicker[alt]?.length) return paymentsByTicker[alt]; } }
+            return [];
           };
 
-          // Frequency
-          const freqDate = new Date(Date.now() - 420 * 86400000).toISOString().slice(0, 10);
-          const freqData = await env.DB.prepare(
-            `SELECT ticker, COUNT(*) as count FROM dividendos WHERE fecha >= ? GROUP BY ticker`
-          ).bind(freqDate).all();
-          const freqMap = {};
-          for (const row of (freqData.results || [])) {
-            const c = row.count;
-            freqMap[row.ticker] = c >= 11 ? "monthly" : c >= 3 ? "quarterly" : c >= 1 ? "semiannual" : "annual";
-          }
-          const findFreq = (ticker) => {
-            if (freqMap[ticker]) return freqMap[ticker];
-            const aliases = POS_TO_DIV_ALIASES[ticker];
-            if (aliases) { for (const alt of aliases) { if (freqMap[alt]) return freqMap[alt]; } }
-            return "quarterly";
+          const detectFreqFwd = (payments) => {
+            if (payments.length < 2) return { freq: "quarterly", n: 4 };
+            const ttmCutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+            const ttmPayments = payments.filter(p => p.fecha >= ttmCutoff);
+            const count = ttmPayments.length;
+            if (count >= 11) return { freq: "monthly", n: 12 };
+            if (count >= 3) return { freq: "quarterly", n: 4 };
+            if (payments.length >= 2) {
+              const d1 = new Date(payments[0].fecha);
+              const d2 = new Date(payments[1].fecha);
+              const gapDays = Math.abs(d1 - d2) / 86400000;
+              if (gapDays < 50) return { freq: "monthly", n: 12 };
+              if (gapDays < 120) return { freq: "quarterly", n: 4 };
+              if (gapDays < 270) return { freq: "semiannual", n: 2 };
+              return { freq: "annual", n: 1 };
+            }
+            if (count >= 1) return { freq: "semiannual", n: 2 };
+            return { freq: "quarterly", n: 4 };
           };
 
           const dpsMap = {};
           for (const ticker of tickers) {
             const pos = (positions.results || []).find(p => p.ticker === ticker);
-            const shares = pos?.shares || 0;
+            const payments = findPaymentsFwd(ticker);
             let dps = 0;
-            const ttmGross = findTTMFwd(ticker);
-            if (ttmGross && shares > 0) dps = ttmGross / shares;
+            let frequency = "quarterly";
+
+            if (payments.length > 0) {
+              const { freq, n } = detectFreqFwd(payments);
+              const last = payments[0];
+              const lastDPS = last.shares > 0 ? (last.bruto / last.shares) : 0;
+              dps = lastDPS * n;
+              frequency = freq;
+            }
+
+            // Fallback to positions.div_ttm (already annualized)
             if (!dps) dps = pos?.div_ttm || 0;
-            dpsMap[ticker] = { dps, frequency: findFreq(ticker) };
+            dpsMap[ticker] = { dps, frequency };
           }
 
           // 3. Get last dividend dates per ticker from dividendos table
@@ -3021,9 +3220,12 @@ export default {
             const age = Date.now() - new Date(cached.updated_at).getTime();
             if (age < 24 * 3600 * 1000) { // 24h cache
               try {
+                const cachedIncome = JSON.parse(cached.income || "[]");
+                // Don't serve cached data with empty income (likely a failed FMP fetch)
+                if (cachedIncome.length === 0) throw new Error("cached income empty — re-fetch");
                 return json({
                   symbol: cached.symbol,
-                  income: JSON.parse(cached.income || "[]"),
+                  income: cachedIncome,
                   balance: JSON.parse(cached.balance || "[]"),
                   cashflow: JSON.parse(cached.cashflow || "[]"),
                   profile: JSON.parse(cached.profile || "{}"),
@@ -3054,30 +3256,32 @@ export default {
 
         // Fetch from FMP (19 parallel calls — 6 original + 13 new)
         const sym = symbol.toUpperCase();
+        const fmpFetch = (ep) => fetchWithRetry(`${FMP_BASE}/${ep}&apikey=${FMP_KEY}`, {}, { maxRetries: 2, baseDelay: 800 }).then(r=>r.json());
+        const fmpFetchPath = (ep) => fetchWithRetry(`${FMP_BASE}/${ep}?apikey=${FMP_KEY}`, {}, { maxRetries: 2, baseDelay: 800 }).then(r=>r.json());
         const [incResp, balResp, cfResp, profResp, divResp, ratResp,
                ratingResp, dcfResp, estResp, ptResp, kmResp, fgResp, gradesResp, oeResp,
                revSegResp, geoSegResp, peersResp, earningsResp, ptSummResp] = await Promise.allSettled([
           // Original 6
-          fetch(`${FMP_BASE}/income-statement?symbol=${sym}&period=annual&limit=10&apikey=${FMP_KEY}`).then(r=>r.json()),
-          fetch(`${FMP_BASE}/balance-sheet-statement?symbol=${sym}&period=annual&limit=10&apikey=${FMP_KEY}`).then(r=>r.json()),
-          fetch(`${FMP_BASE}/cash-flow-statement?symbol=${sym}&period=annual&limit=10&apikey=${FMP_KEY}`).then(r=>r.json()),
-          fetch(`${FMP_BASE}/profile?symbol=${sym}&apikey=${FMP_KEY}`).then(r=>r.json()),
-          fetch(`${FMP_BASE}/historical-price-eod/dividend/${sym}?apikey=${FMP_KEY}`).then(r=>r.json()),
-          fetch(`${FMP_BASE}/ratios?symbol=${sym}&period=annual&limit=10&apikey=${FMP_KEY}`).then(r=>r.json()),
+          fmpFetch(`income-statement?symbol=${sym}&period=annual&limit=10`),
+          fmpFetch(`balance-sheet-statement?symbol=${sym}&period=annual&limit=10`),
+          fmpFetch(`cash-flow-statement?symbol=${sym}&period=annual&limit=10`),
+          fmpFetch(`profile?symbol=${sym}`),
+          fmpFetchPath(`historical-price-eod/dividend/${sym}`),
+          fmpFetch(`ratios?symbol=${sym}&period=annual&limit=10`),
           // +13 new endpoints
-          fetch(`${FMP_BASE}/ratings-snapshot?symbol=${sym}&apikey=${FMP_KEY}`).then(r=>r.json()),
-          fetch(`${FMP_BASE}/discounted-cash-flow?symbol=${sym}&apikey=${FMP_KEY}`).then(r=>r.json()),
-          fetch(`${FMP_BASE}/analyst-estimates?symbol=${sym}&period=annual&limit=5&apikey=${FMP_KEY}`).then(r=>r.json()),
-          fetch(`${FMP_BASE}/price-target-consensus?symbol=${sym}&apikey=${FMP_KEY}`).then(r=>r.json()),
-          fetch(`${FMP_BASE}/key-metrics?symbol=${sym}&period=annual&limit=10&apikey=${FMP_KEY}`).then(r=>r.json()),
-          fetch(`${FMP_BASE}/financial-growth?symbol=${sym}&period=annual&limit=10&apikey=${FMP_KEY}`).then(r=>r.json()),
-          fetch(`${FMP_BASE}/grades-consensus?symbol=${sym}&apikey=${FMP_KEY}`).then(r=>r.json()),
-          fetch(`${FMP_BASE}/owner-earnings?symbol=${sym}&period=annual&limit=5&apikey=${FMP_KEY}`).then(r=>r.json()),
-          fetch(`${FMP_BASE}/revenue-product-segmentation?symbol=${sym}&period=annual&apikey=${FMP_KEY}`).then(r=>r.json()),
-          fetch(`${FMP_BASE}/revenue-geographic-segmentation?symbol=${sym}&period=annual&apikey=${FMP_KEY}`).then(r=>r.json()),
-          fetch(`${FMP_BASE}/stock-peers?symbol=${sym}&apikey=${FMP_KEY}`).then(r=>r.json()),
-          fetch(`${FMP_BASE}/earnings?symbol=${sym}&apikey=${FMP_KEY}`).then(r=>r.json()),
-          fetch(`${FMP_BASE}/price-target-summary?symbol=${sym}&apikey=${FMP_KEY}`).then(r=>r.json()),
+          fmpFetch(`ratings-snapshot?symbol=${sym}`),
+          fmpFetch(`discounted-cash-flow?symbol=${sym}`),
+          fmpFetch(`analyst-estimates?symbol=${sym}&period=annual&limit=5`),
+          fmpFetch(`price-target-consensus?symbol=${sym}`),
+          fmpFetch(`key-metrics?symbol=${sym}&period=annual&limit=10`),
+          fmpFetch(`financial-growth?symbol=${sym}&period=annual&limit=10`),
+          fmpFetch(`grades-consensus?symbol=${sym}`),
+          fmpFetch(`owner-earnings?symbol=${sym}&period=annual&limit=5`),
+          fmpFetch(`revenue-product-segmentation?symbol=${sym}&period=annual`),
+          fmpFetch(`revenue-geographic-segmentation?symbol=${sym}&period=annual`),
+          fmpFetch(`stock-peers?symbol=${sym}`),
+          fmpFetch(`earnings?symbol=${sym}`),
+          fmpFetch(`price-target-summary?symbol=${sym}`),
         ]);
 
         const safe = (resp, isArray=true) => {
@@ -3107,7 +3311,13 @@ export default {
         const earnings = safe(earningsResp);
         const ptSummary = safe(ptSummResp, false);
 
-        // Store in D1
+        // Only store in D1 if we got actual income data (prevents caching failed FMP responses)
+        if (income.length === 0) {
+          return json({ symbol: sym, income, balance, cashflow, profile, dividends, ratios,
+            rating, dcf, estimates, priceTarget, keyMetrics, finGrowth, grades, ownerEarnings,
+            revSegments, geoSegments, peers, earnings, ptSummary,
+            cached: false, partial: true, updated: new Date().toISOString() }, corsHeaders);
+        }
         await env.DB.prepare(
           `INSERT INTO fundamentals (symbol, income, balance, cashflow, profile, dividends, ratios,
            rating, dcf, estimates, price_target, key_metrics, fin_growth, grades, owner_earnings,

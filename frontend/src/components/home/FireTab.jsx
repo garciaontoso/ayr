@@ -618,440 +618,248 @@ if (!pat && !gastosAnnual && divLog.length === 0) {
 
 return (
 <div style={{display:"flex",flexDirection:"column",gap:14}}>
-  {/* Toggle row: sections + currency */}
-  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-    <div style={{display:"flex",gap:4}}>
-      {[{id:"dashboard",lbl:"📊 Dashboard"},{id:"yournumber",lbl:"🔢 Your Number"}].map(t=>(
-        <button key={t.id} onClick={()=>setFireSection(t.id)} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${fireSection===t.id?"var(--gold)":"var(--border)"}`,background:fireSection===t.id?"var(--gold-dim)":"transparent",color:fireSection===t.id?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:fireSection===t.id?700:500,cursor:"pointer",fontFamily:"var(--fb)"}}>{t.lbl}</button>
-      ))}
-    </div>
-    <div style={{display:"flex",gap:8,alignItems:"center"}}>
-      <button onClick={()=>setUseBaseReal(!useBaseReal)} title="Base real = Espana + China obligatorio. Excluye gastos voluntarios de China." style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${useBaseReal?"var(--gold)":"var(--border)"}`,background:useBaseReal?"var(--gold-dim)":"transparent",color:useBaseReal?"var(--gold)":"var(--text-tertiary)",fontSize:10,fontWeight:useBaseReal?700:500,cursor:"pointer",fontFamily:"var(--fm)",whiteSpace:"nowrap"}}>
-        {useBaseReal ? "🎯 Base Real" : "🌏 Todos Gastos"}
-      </button>
-      <div style={{display:"flex",borderRadius:8,border:"1px solid var(--border)",overflow:"hidden"}}>
-        {["EUR","USD"].map(c=><button key={c} onClick={()=>setFireCcy(c)} style={{padding:"6px 16px",border:"none",background:fireCcy===c?"var(--gold-dim)":"transparent",color:fireCcy===c?"var(--gold)":"var(--text-tertiary)",fontSize:12,fontWeight:fireCcy===c?700:500,cursor:"pointer",fontFamily:"var(--fm)"}}>{c==="EUR"?"€ EUR":"$ USD"}</button>)}
-      </div>
-    </div>
+  {/* Toggle: Dashboard | Your Number */}
+  <div style={{display:"flex",gap:4}}>
+    {[{id:"dashboard",lbl:"📊 Dashboard"},{id:"yournumber",lbl:"🔢 Tu Número"}].map(t=>(
+      <button key={t.id} onClick={()=>setFireSection(t.id)} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${fireSection===t.id?"var(--gold)":"var(--border)"}`,background:fireSection===t.id?"var(--gold-dim)":"transparent",color:fireSection===t.id?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:fireSection===t.id?700:500,cursor:"pointer",fontFamily:"var(--fb)"}}>{t.lbl}</button>
+    ))}
   </div>
-
-  {/* Base Real comparison banner */}
-  {useBaseReal && (
-    <div style={{padding:"12px 16px",background:"rgba(214,158,46,.06)",borderRadius:12,border:"1px solid rgba(214,158,46,.15)",display:"flex",flexWrap:"wrap",gap:12,alignItems:"center",justifyContent:"center"}}>
-      <div style={{textAlign:"center",flex:"1 1 140px"}}>
-        <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600}}>FIRE TODOS GASTOS</div>
-        <div style={{fontSize:14,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{sym}{fK(swr35)}</div>
-        <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{sym}{gastosAvg.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</div>
-      </div>
-      <div style={{fontSize:14,color:"var(--text-tertiary)"}}>vs</div>
-      <div style={{textAlign:"center",flex:"1 1 140px"}}>
-        <div style={{fontSize:8,color:"var(--gold)",fontFamily:"var(--fm)",fontWeight:700}}>FIRE BASE REAL</div>
-        <div style={{fontSize:14,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>{sym}{fK(swr35BaseReal)}</div>
-        <div style={{fontSize:9,color:"var(--gold)",fontFamily:"var(--fm)"}}>{sym}{baseRealM.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</div>
-      </div>
-      <div style={{textAlign:"center",flex:"1 1 140px"}}>
-        <div style={{fontSize:8,color:"var(--green)",fontFamily:"var(--fm)",fontWeight:600}}>AHORRO</div>
-        <div style={{fontSize:14,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)"}}>{sym}{fK(swr35 - swr35BaseReal)}</div>
-        <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontStyle:"italic"}}>sin China voluntario</div>
-      </div>
-    </div>
-  )}
-
-  {/* FI_TRACK sync warning */}
-  {(() => {
-    const now = new Date();
-    const currentMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-    const latestFI = FI_TRACK && FI_TRACK.length > 0
-      ? [...FI_TRACK].sort((a,b) => (a.m||"").localeCompare(b.m||"")).slice(-1)[0]?.m
-      : null;
-    if (!latestFI || latestFI < currentMonth) {
-      const missingLabel = latestFI
-        ? (() => { const [y,m] = currentMonth.split('-'); const mNames = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"]; return `${mNames[parseInt(m,10)-1]} ${y}`; })()
-        : "desconocido";
-      return (
-        <div style={{padding:"10px 14px",background:"rgba(255,159,10,.08)",border:"1px solid rgba(255,159,10,.25)",borderRadius:10,display:"flex",alignItems:"center",gap:8}}>
-          <span style={{fontSize:14}}>&#9888;&#65039;</span>
-          <span style={{fontSize:11,color:"var(--orange)",fontFamily:"var(--fm)",fontWeight:600}}>
-            Datos de {missingLabel} no sincronizados
-          </span>
-          <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginLeft:4}}>
-            ({latestFI ? `ultimo: ${latestFI}` : "sin datos FI_TRACK"})
-          </span>
-        </div>
-      );
-    }
-    return null;
-  })()}
-
-  {/* DIVIDENDOS vs GASTOS — Comparison Card */}
-  {(() => {
-    const divTTM = portfolioTotals?.totalDivUSD || 0;
-    const divMonthlyUSD = divTTM / 12;
-    const divMonthly = isUSD ? divMonthlyUSD : divMonthlyUSD / fxEurUsd;
-    const divAnnual = divMonthly * 12;
-    const coveragePct = gastosAvg > 0 ? (divMonthly / gastosAvg * 100) : 0;
-
-    // Dividend CAGR from DIV_BY_YEAR (net, last 3+ years)
-    const dYears = Object.keys(DIV_BY_YEAR || {}).sort();
-    let divCAGR = null;
-    let yearsUsed = 0;
-    let projYears = null;
-    if (dYears.length >= 3) {
-      const first = dYears[0];
-      const last = dYears[dYears.length - 1];
-      const n = parseInt(last) - parseInt(first);
-      const vFirst = DIV_BY_YEAR[first]?.n || 0;
-      const vLast = DIV_BY_YEAR[last]?.n || 0;
-      if (n > 0 && vFirst > 0 && vLast > 0) {
-        divCAGR = (Math.pow(vLast / vFirst, 1 / n) - 1) * 100;
-        yearsUsed = n;
-        // Project years to cover expenses: divAnnualUSD * (1+cagr)^Y >= gastosAnnualUSD
-        const divAnnualUSD = divTTM;
-        const gastosAnnualUSD = isUSD ? gastosAnnual : gastosAnnual * fxEurUsd;
-        if (divAnnualUSD > 0 && gastosAnnualUSD > divAnnualUSD && divCAGR > 0) {
-          const cagr = divCAGR / 100;
-          projYears = Math.ceil(Math.log(gastosAnnualUSD / divAnnualUSD) / Math.log(1 + cagr));
-        } else if (divAnnualUSD >= gastosAnnualUSD) {
-          projYears = 0;
-        }
-      }
-    }
-
-    // Bar widths
-    const maxBar = Math.max(divMonthly, gastosAvg, 1);
-
-    return (
-      <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:16,padding:20}}>
-        <div style={{fontSize:14,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:4}}>
-          Dividendos vs Gastos Mensuales
-        </div>
-        <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:12}}>Gastos reales (media 12 meses, incluye China + Espa&ntilde;a)</div>
-
-        {/* Side-by-side bars */}
-        <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:16}}>
-          {/* Dividends bar */}
-          <div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-              <span style={{fontSize:10,color:"var(--green)",fontFamily:"var(--fm)",fontWeight:600}}>Dividendos (TTM)</span>
-              <span style={{fontSize:14,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)"}}>{sym}{divMonthly.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</span>
-            </div>
-            <div style={{height:20,background:"var(--subtle-border)",borderRadius:6,overflow:"hidden",position:"relative"}}>
-              <div style={{width:`${Math.min(divMonthly/maxBar*100,100)}%`,height:"100%",background:"linear-gradient(90deg, rgba(48,209,88,.3), rgba(48,209,88,.6))",borderRadius:6,transition:"width .3s"}} />
-            </div>
-          </div>
-          {/* Expenses bar */}
-          <div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-              <span style={{fontSize:10,color:"var(--red)",fontFamily:"var(--fm)",fontWeight:600}}>Gastos</span>
-              <span style={{fontSize:14,fontWeight:700,color:"var(--red)",fontFamily:"var(--fm)"}}>{sym}{gastosAvg.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</span>
-            </div>
-            <div style={{height:20,background:"var(--subtle-border)",borderRadius:6,overflow:"hidden",position:"relative"}}>
-              <div style={{width:`${Math.min(gastosAvg/maxBar*100,100)}%`,height:"100%",background:"linear-gradient(90deg, rgba(255,69,58,.3), rgba(255,69,58,.6))",borderRadius:6,transition:"width .3s"}} />
-            </div>
-          </div>
-        </div>
-
-        {/* Coverage result */}
-        <div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:16,padding:"14px 0",borderTop:"1px solid var(--border)",borderBottom:"1px solid var(--border)",flexWrap:"wrap"}}>
-          <div style={{textAlign:"center"}}>
-            <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,marginBottom:2}}>COBERTURA</div>
-            <div style={{fontSize:32,fontWeight:800,color:coveragePct>=100?"var(--green)":coveragePct>=50?"var(--gold)":"var(--red)",fontFamily:"var(--fm)",lineHeight:1}}>{_sf(coveragePct,1)}%</div>
-          </div>
-          <div style={{width:1,height:40,background:"var(--border)"}} />
-          <div style={{textAlign:"center"}}>
-            <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,marginBottom:2}}>GAP MENSUAL</div>
-            <div style={{fontSize:20,fontWeight:700,color:(divMonthly-gastosAvg)>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)"}}>{(divMonthly-gastosAvg)>=0?"+":""}{sym}{(divMonthly-gastosAvg).toLocaleString(undefined,{maximumFractionDigits:0})}</div>
-          </div>
-          {divCAGR !== null && (
-            <>
-              <div style={{width:1,height:40,background:"var(--border)"}} />
-              <div style={{textAlign:"center"}}>
-                <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,marginBottom:2}}>DIV CAGR ({yearsUsed}a)</div>
-                <div style={{fontSize:20,fontWeight:700,color:divCAGR>0?"var(--green)":"var(--red)",fontFamily:"var(--fm)"}}>{_sf(divCAGR,1)}%</div>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Trajectory projection */}
-        {divCAGR !== null && divCAGR > 0 && (
-          <div style={{marginTop:14,padding:"12px 16px",background:projYears===0?"rgba(48,209,88,.06)":"rgba(214,158,46,.06)",borderRadius:10,textAlign:"center"}}>
-            {projYears === 0 ? (
-              <div style={{fontSize:12,fontWeight:600,color:"var(--green)",fontFamily:"var(--fm)"}}>
-                Los dividendos ya cubren los gastos
-              </div>
-            ) : projYears !== null ? (
-              <div style={{fontSize:12,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>
-                A un <span style={{fontWeight:700,color:"var(--gold)"}}>{_sf(divCAGR,1)}% CAGR</span>, los dividendos cubriran los gastos en{' '}
-                <span style={{fontWeight:700,color:"var(--gold)"}}>{projYears} {projYears===1?"ano":"anos"}</span>
-                <span style={{fontSize:10,color:"var(--text-tertiary)",marginLeft:6}}>(~{new Date().getFullYear()+projYears})</span>
-              </div>
-            ) : (
-              <div style={{fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>
-                Crecimiento {_sf(divCAGR,1)}% anual ({yearsUsed} anos de datos)
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  })()}
 
   {fireSection === "yournumber" && <YourNumberSection pat={pat} divNetA={divNetA} gastosAnnual={gastosAnnual} espRealistaA={espRealistaA} baseRealA={baseRealA} fxEurUsd={fxEurUsd} fireCcy={fireCcy} />}
   {fireSection === "dashboard" && <>
 
-  {/* GASTOS MENSUALES POR DIVISA — con filtro año */}
+  {/* ── SECTION 1: Hero — Cobertura central + KPIs ── */}
+  <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:10}}>
+    {/* Big coverage % */}
+    <div style={{padding:"20px 30px",background:activeDivCoversPct>=100?"rgba(48,209,88,.06)":activeDivCoversPct>=50?"rgba(214,158,46,.06)":"rgba(255,69,58,.06)",border:`2px solid ${activeDivCoversPct>=100?"rgba(48,209,88,.3)":activeDivCoversPct>=50?"rgba(214,158,46,.3)":"rgba(255,69,58,.3)"}`,borderRadius:16,textAlign:"center",display:"flex",flexDirection:"column",justifyContent:"center",minWidth:160}}>
+      <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,fontWeight:600,marginBottom:4}}>COBERTURA NETA</div>
+      <div style={{fontSize:52,fontWeight:900,color:activeDivCoversPct>=100?"var(--green)":activeDivCoversPct>=50?"var(--gold)":"var(--red)",fontFamily:"var(--fm)",lineHeight:1}}>{_sf(activeDivCoversPct,0)}%</div>
+      <div style={{fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:6}}>div neto / gastos</div>
+      <div style={{maxWidth:140,margin:"8px auto 0",height:6,background:"var(--subtle-bg2)",borderRadius:3,overflow:"hidden"}}><div style={{width:`${Math.min(activeDivCoversPct,100)}%`,height:"100%",background:activeDivCoversPct>=100?"var(--green)":"var(--gold)",borderRadius:3}}/></div>
+    </div>
+    {/* KPI grid */}
+    <div style={{display:"grid",gridTemplateColumns:"repeat(3, 1fr)",gap:8}}>
+      {[
+        {l:"PATRIMONIO",v:`$${fDol(patUSD)}`,c:"var(--text-primary)",sub:`FIRE: $${fK(swr35)} (${_sf(patUSD/swr35*100,0)}%)`},
+        {l:"DIV NETO TTM",v:`$${fDol(divNet12mUSD)}`,c:"var(--green)",sub:`$${_sf(divNetMUSD,0)}/mes · $${_sf(divNetMUSD/30,1)}/dia`},
+        {l:"GASTOS TTM",v:`$${fDol(toDisp(avgEur,avgCny,avgUsd)*12)}`,c:"var(--red)",sub:`$${_sf(toDisp(avgEur,avgCny,avgUsd),0)}/mes`},
+        {l:"GAP MENSUAL",v:`${activeGapM>=0?"+":"-"}$${_sf(Math.abs(activeGapM),0)}`,c:activeGapM>=0?"var(--green)":"var(--red)",sub:activeGapM>=0?"superavit":"deficit mensual"},
+        {l:"TASA DE AHORRO",v:`${_sf(savingsRate,0)}%`,c:savingsRate>30?"var(--green)":savingsRate>15?"var(--gold)":"var(--red)",sub:`div+sueldo-gastos`},
+        {l:"FIRE NUMBER @3.5%",v:`$${fK(swr35)}`,c:"var(--gold)",sub:`${_sf(patUSD/swr35*100,0)}% patrimonio`},
+      ].map((k,i)=>(
+        <div key={i} style={{padding:"10px 12px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:10}}>
+          <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,fontWeight:600}}>{k.l}</div>
+          <div style={{fontSize:16,fontWeight:800,color:k.c,fontFamily:"var(--fm)",marginTop:2}}>{k.v}</div>
+          <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>{k.sub}</div>
+        </div>
+      ))}
+    </div>
+  </div>
+
+
+  {/* ── SECTION 3: Cobertura por Escenario ── */}
+  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:8}}>
+    {[
+      {l:"VIDA ACTUAL",sub:"China + España",m:gastosAvg,pct:divCoversPct,bg:"rgba(255,159,10,.04)",bc:"rgba(255,159,10,.15)"},
+      {l:"BASE REAL",sub:"ESP + CN obligatorio",m:baseRealM,pct:baseRealCoversPct,bg:"rgba(214,158,46,.06)",bc:"rgba(214,158,46,.2)"},
+      {l:"ESPAÑA REALISTA",sub:"EUR + vida diaria CN",m:espRealistaM,pct:espCoversPct,bg:"rgba(48,209,88,.04)",bc:"rgba(48,209,88,.15)"},
+      {l:"FIJOS ESPAÑA",sub:"solo EUR",m:espBaseM,pct:espBasePct,bg:"rgba(100,210,255,.04)",bc:"rgba(100,210,255,.12)"},
+    ].map((s,i)=>{
+      const gap = divNetM - s.m;
+      return <div key={i} style={{padding:16,background:s.bg,border:`1px solid ${s.bc}`,borderRadius:14,textAlign:"center"}}>
+        <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.8,marginBottom:4,fontWeight:600}}>{s.l}</div>
+        <div style={{fontSize:36,fontWeight:800,color:s.pct>=100?"var(--green)":s.pct>=70?"var(--gold)":"var(--red)",fontFamily:"var(--fm)",lineHeight:1}}>{_sf(s.pct,0)}%</div>
+        <div style={{maxWidth:180,margin:"8px auto",height:5,background:"var(--subtle-bg2)",borderRadius:3,overflow:"hidden"}}><div style={{width:`${Math.min(s.pct,100)}%`,height:"100%",background:s.pct>=100?"var(--green)":"var(--gold)",borderRadius:3}}/></div>
+        <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>${_sf(s.m,0)}/mes</div>
+        <div style={{fontSize:10,fontWeight:700,color:gap>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)",marginTop:4}}>{gap>=0?"+":""}${_sf(gap,0)}/mes</div>
+        <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2,fontStyle:"italic"}}>{s.sub}</div>
+      </div>;
+    })}
+  </div>
+
+  {/* ── SECTION 3b: Monthly Breakdown Table ── */}
   {(() => {
+    const [period, setPeriod] = [fireGastosYear, setFireGastosYear];
+    const allM = Object.keys(GASTOS_MONTH).sort();
+    const now = new Date();
+    const getMonths = (p) => {
+      if (p === "6m") return allM.slice(-6);
+      if (p === "12m" || !p) return allM.slice(-12);
+      if (p === "24m") return allM.slice(-24);
+      return allM.filter(m => m.startsWith(p)); // year like "2025"
+    };
+    const selMonths = getMonths(period || "12m");
+    const years = [...new Set(allM.map(m=>m.slice(0,4)))].sort().reverse();
     const mNames = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-    const allYears = [...new Set(gMonths.map(m=>m.slice(0,4)))].sort().reverse();
-    const selYear = fireGastosYear || allYears[0] || "2026";
-    const yearMonths = gMonths.filter(m=>m.startsWith(selYear)).sort().reverse();
-    const yearTotal = yearMonths.reduce((s,m)=>s+toDisp(gNative[m]?.eur||0,gNative[m]?.cny||0,gNative[m]?.usd||0),0);
-    const yearAvg = yearMonths.length > 0 ? yearTotal / yearMonths.length : 0;
-    return <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:16,padding:20}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <div style={{fontSize:14,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)"}}>Gastos Mensuales por Divisa</div>
-        <div style={{display:"flex",gap:4}}>
-          {allYears.map(y=><button key={y} onClick={()=>setFireGastosYear(y)} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${selYear===y?"var(--gold)":"var(--border)"}`,background:selYear===y?"var(--gold-dim)":"transparent",color:selYear===y?"var(--gold)":"var(--text-tertiary)",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>{y}</button>)}
+
+    // Build rows
+    const rows = selMonths.map(m => {
+      const g = gNative[m] || {eur:0,cny:0,usd:0};
+      const totalAll = toDisp(g.eur, g.cny, g.usd);
+      const totalSinChina = toDisp(g.eur, 0, g.usd);
+      const dNet = divByMonth[m]?.n || 0;
+      const dNetDisp = isUSD ? dNet : dNet / fxEurUsd;
+      const covAll = totalAll > 0 ? (dNetDisp/totalAll*100) : 0;
+      const covSinCN = totalSinChina > 0 ? (dNetDisp/totalSinChina*100) : 0;
+      return { m, eur: g.eur, cny: g.cny, usd: g.usd, totalAll, totalSinChina, dNet: dNetDisp, covAll, covSinCN };
+    }).reverse();
+
+    const sumGAll = rows.reduce((s,r) => s+r.totalAll, 0);
+    const sumGSin = rows.reduce((s,r) => s+r.totalSinChina, 0);
+    const sumDiv = rows.reduce((s,r) => s+r.dNet, 0);
+    const avgGAll = rows.length > 0 ? sumGAll/rows.length : 0;
+    const avgDiv = rows.length > 0 ? sumDiv/rows.length : 0;
+
+    const td = {padding:"5px 8px",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)",fontSize:11};
+
+    return <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
+        <span style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)"}}>Gastos vs Dividendos Mensual</span>
+        <div style={{display:"flex",gap:3}}>
+          {["6m","12m","24m",...years].map(p=>(
+            <button key={p} onClick={()=>setFireGastosYear(p)} style={{padding:"3px 8px",borderRadius:5,border:`1px solid ${(period||"12m")===p?"var(--gold)":"var(--border)"}`,background:(period||"12m")===p?"var(--gold-dim)":"transparent",color:(period||"12m")===p?"var(--gold)":"var(--text-tertiary)",fontSize:9,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>{p}</button>
+          ))}
         </div>
       </div>
-      {/* Year summary */}
-      <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
-        <div style={{padding:"8px 14px",background:"var(--subtle-bg)",borderRadius:8,display:"flex",gap:8,alignItems:"center"}}>
-          <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>TOTAL {selYear}</span>
-          <span style={{fontSize:16,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{sym}{yearTotal.toLocaleString(undefined,{maximumFractionDigits:0})}</span>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:6,marginBottom:10}}>
+        <div style={{padding:"6px 10px",background:"var(--subtle-bg)",borderRadius:6,fontSize:9,fontFamily:"var(--fm)"}}>
+          <span style={{color:"var(--text-tertiary)"}}>Media gastos: </span><b style={{color:"var(--red)"}}>${_sf(avgGAll,0)}/mes</b>
         </div>
-        <div style={{padding:"8px 14px",background:"var(--subtle-bg)",borderRadius:8,display:"flex",gap:8,alignItems:"center"}}>
-          <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>MEDIA/MES</span>
-          <span style={{fontSize:16,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>{sym}{yearAvg.toLocaleString(undefined,{maximumFractionDigits:0})}</span>
+        <div style={{padding:"6px 10px",background:"var(--subtle-bg)",borderRadius:6,fontSize:9,fontFamily:"var(--fm)"}}>
+          <span style={{color:"var(--text-tertiary)"}}>Media div neto: </span><b style={{color:"var(--green)"}}>${_sf(avgDiv,0)}/mes</b>
         </div>
-        <div style={{padding:"8px 14px",background:"var(--subtle-bg)",borderRadius:8,display:"flex",gap:8,alignItems:"center"}}>
-          <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>MESES</span>
-          <span style={{fontSize:16,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{yearMonths.length}</span>
+        <div style={{padding:"6px 10px",background:"var(--subtle-bg)",borderRadius:6,fontSize:9,fontFamily:"var(--fm)"}}>
+          <span style={{color:"var(--text-tertiary)"}}>Cobertura media: </span><b style={{color:avgGAll>0&&avgDiv/avgGAll>=1?"var(--green)":"var(--gold)"}}>{avgGAll>0?_sf(avgDiv/avgGAll*100,0):0}%</b>
         </div>
       </div>
-      {/* Monthly grid */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
-        {yearMonths.map(m => {
-          const d = gNative[m] || {eur:0,cny:0,usd:0};
-          const mi = parseInt(m.slice(5,7))-1;
-          const total = toDisp(d.eur, d.cny, d.usd);
-          const maxM = Math.max(...yearMonths.map(mm=>toDisp(gNative[mm]?.eur||0,gNative[mm]?.cny||0,gNative[mm]?.usd||0)),1);
-          const pct = total/maxM*100;
-          return <div key={m} style={{padding:"10px 12px",background:"var(--row-alt)",borderRadius:10,border:"1px solid var(--subtle-border)"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-              <span style={{fontSize:11,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{mNames[mi]}</span>
-              <span style={{fontSize:14,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{sym}{total.toLocaleString(undefined,{maximumFractionDigits:0})}</span>
-            </div>
-            <div style={{height:4,background:"var(--subtle-bg2)",borderRadius:2,marginBottom:6,overflow:"hidden"}}><div style={{width:`${pct}%`,height:"100%",background:"var(--gold)",borderRadius:2,opacity:.5}}/></div>
-            <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-              {d.eur > 0 && <span style={{fontSize:8,padding:"1px 5px",borderRadius:3,background:"rgba(48,209,88,.06)",color:"var(--green)",fontFamily:"var(--fm)"}}>🇪🇸 €{d.eur.toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
-              {d.cny > 0 && <span style={{fontSize:8,padding:"1px 5px",borderRadius:3,background:"rgba(255,69,58,.06)",color:"var(--red)",fontFamily:"var(--fm)"}}>🇨🇳 ¥{d.cny.toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
-              {d.usd > 0 && <span style={{fontSize:8,padding:"1px 5px",borderRadius:3,background:"rgba(10,132,255,.06)",color:"#0a84ff",fontFamily:"var(--fm)"}}>🇺🇸 ${d.usd.toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
-            </div>
-          </div>;
-        })}
+      {/* Bar chart with exact numbers */}
+      <div style={{overflowX:"auto",marginBottom:14}}>
+        <div style={{display:"flex",alignItems:"flex-end",gap:2,minWidth:Math.max(rows.length*70,400),height:220,padding:"0 4px"}}>
+          {[...rows].reverse().map((r,i) => {
+            const maxBar = Math.max(...rows.map(rr => Math.max(rr.totalAll, rr.dNet)), 1);
+            const hD = r.dNet / maxBar * 160;
+            const hG = r.totalAll / maxBar * 160;
+            const covCol = r.covAll >= 100 ? "var(--green)" : r.covAll >= 50 ? "var(--gold)" : "var(--red)";
+            const mi = parseInt(r.m.slice(5,7))-1;
+            return <div key={r.m} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",minWidth:55}}>
+              {/* Coverage % on top */}
+              <div style={{fontSize:10,fontWeight:800,color:covCol,fontFamily:"var(--fm)",marginBottom:2}}>{_sf(r.covAll,0)}%</div>
+              {/* Bars side by side */}
+              <div style={{display:"flex",gap:2,alignItems:"flex-end",width:"100%",justifyContent:"center",height:160}}>
+                {/* Div bar */}
+                <div style={{width:"42%",maxWidth:28,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%"}}>
+                  <div style={{fontSize:8,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)",marginBottom:1,whiteSpace:"nowrap"}}>${r.dNet>=1000?_sf(r.dNet/1000,1)+"K":_sf(r.dNet,0)}</div>
+                  <div style={{width:"100%",height:Math.max(hD,3),background:"rgba(48,209,88,.65)",borderRadius:"3px 3px 0 0"}}/>
+                </div>
+                {/* Gastos bar */}
+                <div style={{width:"42%",maxWidth:28,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%"}}>
+                  <div style={{fontSize:8,fontWeight:700,color:"var(--red)",fontFamily:"var(--fm)",marginBottom:1,whiteSpace:"nowrap"}}>${r.totalAll>=1000?_sf(r.totalAll/1000,1)+"K":_sf(r.totalAll,0)}</div>
+                  <div style={{width:"100%",height:Math.max(hG,3),background:"rgba(255,69,58,.45)",borderRadius:"3px 3px 0 0"}}/>
+                </div>
+              </div>
+              {/* Month label */}
+              <div style={{fontSize:9,fontWeight:600,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginTop:4}}>{mNames[mi]}</div>
+              <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{r.m.slice(0,4)}</div>
+            </div>;
+          })}
+        </div>
+        <div style={{display:"flex",gap:14,justifyContent:"center",marginTop:6,fontSize:9,fontFamily:"var(--fm)"}}>
+          <span style={{display:"flex",alignItems:"center",gap:3}}><span style={{display:"inline-block",width:10,height:10,borderRadius:2,background:"rgba(48,209,88,.65)"}}/> Div neto</span>
+          <span style={{display:"flex",alignItems:"center",gap:3}}><span style={{display:"inline-block",width:10,height:10,borderRadius:2,background:"rgba(255,69,58,.45)"}}/> Gastos</span>
+        </div>
+      </div>
+
+      <div style={{overflowX:"auto",maxHeight:400}}>
+        <table style={{width:"100%",borderCollapse:"collapse",minWidth:650}}>
+          <thead><tr>
+            {["MES","EUR","CNY","USD","TOTAL","SIN CHINA","DIV NETO","COB %","COB s/CN"].map((h,i)=>
+              <th key={i} style={{padding:"5px 8px",textAlign:i?"right":"left",color:"var(--text-tertiary)",fontSize:8,fontWeight:600,fontFamily:"var(--fm)",borderBottom:"1px solid var(--border)",position:"sticky",top:0,background:"var(--bg)"}}>{h}</th>
+            )}
+          </tr></thead>
+          <tbody>
+            {rows.map((r,i) => {
+              const mi = parseInt(r.m.slice(5,7))-1;
+              return <tr key={r.m} style={{background:i%2?"var(--row-alt)":"transparent"}}>
+                <td style={{...td,fontWeight:600,color:"var(--text-secondary)"}}>{mNames[mi]} {r.m.slice(2,4)}</td>
+                <td style={{...td,textAlign:"right",color:r.eur>0?"var(--text-primary)":"var(--text-tertiary)"}}>€{_sf(r.eur,0)}</td>
+                <td style={{...td,textAlign:"right",color:r.cny>0?"var(--text-primary)":"var(--text-tertiary)"}}>¥{_sf(r.cny,0)}</td>
+                <td style={{...td,textAlign:"right",color:r.usd>0?"var(--text-primary)":"var(--text-tertiary)"}}>{r.usd>0?`$${_sf(r.usd,0)}`:"-"}</td>
+                <td style={{...td,textAlign:"right",fontWeight:700,color:"var(--red)"}}>${_sf(r.totalAll,0)}</td>
+                <td style={{...td,textAlign:"right",color:"var(--orange)"}}>${_sf(r.totalSinChina,0)}</td>
+                <td style={{...td,textAlign:"right",fontWeight:700,color:"var(--green)"}}>${_sf(r.dNet,0)}</td>
+                <td style={{...td,textAlign:"right",fontWeight:700,color:r.covAll>=100?"var(--green)":r.covAll>=50?"var(--gold)":"var(--red)"}}>{_sf(r.covAll,0)}%</td>
+                <td style={{...td,textAlign:"right",fontWeight:600,color:r.covSinCN>=100?"var(--green)":r.covSinCN>=50?"var(--gold)":"var(--text-secondary)"}}>{_sf(r.covSinCN,0)}%</td>
+              </tr>;
+            })}
+          </tbody>
+        </table>
       </div>
     </div>;
   })()}
 
-  {/* DESGLOSE MEDIAS */}
-  <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:16,padding:20}}>
-    <div style={{fontSize:14,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:14}}>Media Mensual (últimos 12m)</div>
-    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:10,marginBottom:14}}>
-      <div style={{padding:"12px",background:"var(--row-alt)",borderRadius:10,textAlign:"center",border:"1px solid var(--subtle-border)"}}>
-        <div style={{fontSize:16,marginBottom:2}}>🇪🇸</div>
-        <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>ESPAÑA</div>
-        <div style={{fontSize:20,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>€{avgEur.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
-      </div>
-      <div style={{padding:"12px",background:"rgba(239,68,68,.03)",borderRadius:10,textAlign:"center",border:"1px solid rgba(239,68,68,.06)"}}>
-        <div style={{fontSize:16,marginBottom:2}}>🇨🇳</div>
-        <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>CHINA VIDA</div>
-        <div style={{fontSize:20,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>¥{avgCnyVida.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
-        <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>≈ €{cnyVidaEur.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
-      </div>
-      <div style={{padding:"12px",background:"rgba(239,68,68,.03)",borderRadius:10,textAlign:"center",border:"1px solid rgba(239,68,68,.04)"}}>
-        <div style={{fontSize:16,marginBottom:2}}>🏠</div>
-        <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>SOLO-CHINA</div>
-        <div style={{fontSize:20,fontWeight:700,color:"#ef4444",fontFamily:"var(--fm)"}}>¥{avgCnyChinaOnly.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
-        <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>alquiler, utils, viajes</div>
-      </div>
-    </div>
-    <div style={{padding:"10px 14px",background:"var(--subtle-bg)",borderRadius:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-      <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>TOTAL</span>
-      <span style={{fontSize:18,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{sym}{gastosAvg.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</span>
-      <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{sym}{gastosAnnual.toLocaleString(undefined,{maximumFractionDigits:0})}/año</span>
-    </div>
-  </div>
-
-  {/* BANNER — 4 escenarios cobertura dividendos */}
-  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10}}>
-    <div style={{padding:"20px",background:"rgba(255,159,10,.04)",border:"1px solid rgba(255,159,10,.15)",borderRadius:16,textAlign:"center"}}>
-      <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,marginBottom:6}}>VIDA ACTUAL (CHINA + ESPANA)</div>
-      <div style={{fontSize:42,fontWeight:700,color:divCoversPct>=100?"var(--green)":"var(--orange)",fontFamily:"var(--fm)",lineHeight:1}}>{_sf(divCoversPct,0)}%</div>
-      <div style={{maxWidth:200,margin:"10px auto 0",height:6,background:"var(--subtle-bg2)",borderRadius:3,overflow:"hidden"}}><div style={{width:`${Math.min(divCoversPct,100)}%`,height:"100%",background:divCoversPct>=100?"var(--green)":"var(--orange)",borderRadius:3}}/></div>
-      <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:6}}>{sym}{gastosAvg.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</div>
-    </div>
-    <div style={{padding:"20px",background:`rgba(214,158,46,${useBaseReal?".08":".04"})`,border:`1px solid rgba(214,158,46,${useBaseReal?".3":".12"})`,borderRadius:16,textAlign:"center"}}>
-      <div style={{fontSize:9,color:useBaseReal?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,marginBottom:6,fontWeight:useBaseReal?700:400}}>BASE REAL (FIRE)</div>
-      <div style={{fontSize:42,fontWeight:700,color:baseRealCoversPct>=100?"var(--green)":"var(--gold)",fontFamily:"var(--fm)",lineHeight:1}}>{_sf(baseRealCoversPct,0)}%</div>
-      <div style={{maxWidth:200,margin:"10px auto 0",height:6,background:"var(--subtle-bg2)",borderRadius:3,overflow:"hidden"}}><div style={{width:`${Math.min(baseRealCoversPct,100)}%`,height:"100%",background:baseRealCoversPct>=100?"var(--green)":"var(--gold)",borderRadius:3}}/></div>
-      <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:6}}>{sym}{baseRealM.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</div>
-      <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2,fontStyle:"italic"}}>Espana + China oblig.</div>
-    </div>
-    <div style={{padding:"20px",background:"rgba(48,209,88,.04)",border:"1px solid rgba(48,209,88,.15)",borderRadius:16,textAlign:"center"}}>
-      <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,marginBottom:6}}>VIDA EN ESPANA (REALISTA)</div>
-      <div style={{fontSize:42,fontWeight:700,color:espCoversPct>=100?"var(--green)":"#d69e2e",fontFamily:"var(--fm)",lineHeight:1}}>{_sf(espCoversPct,0)}%</div>
-      <div style={{maxWidth:200,margin:"10px auto 0",height:6,background:"var(--subtle-bg2)",borderRadius:3,overflow:"hidden"}}><div style={{width:`${Math.min(espCoversPct,100)}%`,height:"100%",background:espCoversPct>=100?"var(--green)":"#d69e2e",borderRadius:3}}/></div>
-      <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:6}}>{sym}{espRealistaM.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</div>
-    </div>
-    <div style={{padding:"20px",background:"rgba(100,210,255,.04)",border:"1px solid rgba(100,210,255,.12)",borderRadius:16,textAlign:"center"}}>
-      <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,marginBottom:6}}>GASTOS FIJOS ESPANA</div>
-      <div style={{fontSize:42,fontWeight:700,color:espBasePct>=100?"var(--green)":"var(--text-secondary)",fontFamily:"var(--fm)",lineHeight:1}}>{_sf(espBasePct,0)}%</div>
-      <div style={{maxWidth:200,margin:"10px auto 0",height:6,background:"var(--subtle-bg2)",borderRadius:3,overflow:"hidden"}}><div style={{width:`${Math.min(espBasePct,100)}%`,height:"100%",background:espBasePct>=100?"var(--green)":"var(--text-secondary)",borderRadius:3}}/></div>
-      <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:6}}>{sym}{espBaseM.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</div>
-    </div>
-  </div>
-
-  {/* DIVIDENDOS vs GASTOS */}
-  <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:16,padding:20}}>
-    <div style={{fontSize:14,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:16}}>💰 Dividendos vs Gastos ({fireCcy})</div>
-    <div style={{display:"flex",gap:20,alignItems:"center",justifyContent:"center",flexWrap:"wrap"}}>
-      <div style={{textAlign:"center",flex:"1 1 180px"}}>
-        <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:4}}>DIVIDENDOS NET / MES</div>
-        <div style={{fontSize:28,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)"}}>{sym}{fK(divNetM)}</div>
-        <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{sym}{fK(divNetA)}/año</div>
-      </div>
-      <div style={{fontSize:20,color:"var(--text-tertiary)"}}>vs</div>
-      <div style={{textAlign:"center",flex:"1 1 180px"}}>
-        <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginBottom:4}}>GASTOS TOTALES / MES</div>
-        <div style={{fontSize:28,fontWeight:700,color:"var(--red)",fontFamily:"var(--fm)"}}>{sym}{fK(gastosAvg)}</div>
-        <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>🇪🇸 realista: {sym}{fK(espRealistaM)}</div>
-      </div>
-    </div>
-    <div style={{textAlign:"center",marginTop:14,padding:"10px 0",borderTop:"1px solid var(--border)"}}>
-      <span style={{fontSize:18,fontWeight:700,color:retCol(gapM),fontFamily:"var(--fm)"}}>{gapM>=0?"+":""}{sym}{fK(gapM)}/mes</span>
-      <span style={{fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginLeft:8}}>{gapM>=0?"superávit":"déficit"}</span>
-    </div>
-  </div>
-
-  {/* METRICS + FIRE GAUGE */}
-  <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"stretch"}}>
-    {/* KPI cards */}
-    <div style={{flex:"1 1 400px",display:"flex",gap:10,flexWrap:"wrap"}}>
-      {[
-        {l:"PATRIMONIO",v:`${sym}${fDol(pat)}`,c:"var(--text-primary)"},
-        {l:"RENT. NECESARIA",v:`${_sf(activeFireRet,1)}%`,sub:useBaseReal?"base real":"sobre patrimonio",c:activeFireRet<4?"var(--green)":activeFireRet<7?"var(--gold)":"var(--red)"},
-        {l:"AÑOS PARA FIRE",v:activeYearsToFire===0?"✓ YA":activeYearsToFire>=50?"50+":String(activeYearsToFire),sub:useBaseReal?"base real @3.5%":"@3.5% + 7% return",c:activeYearsToFire===0?"var(--green)":activeYearsToFire<5?"var(--gold)":"var(--orange)"},
-        {l:"TASA DE AHORRO",v:`${_sf(savingsRate,0)}%`,sub:`${savingsM>=0?"+":""}${sym}${fK(savingsM)}/mes`,c:savingsRate>30?"var(--green)":savingsRate>15?"var(--gold)":"var(--red)"},
-      ].map((k,i)=>(<div key={i} style={{flex:"1 1 130px",padding:"12px 14px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:12}}><div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,fontWeight:600,marginBottom:4}}>{k.l}</div><div style={{fontSize:20,fontWeight:700,color:k.c,fontFamily:"var(--fm)"}}>{k.v}</div>{k.sub&&<div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>{k.sub}</div>}</div>))}
-    </div>
-    {/* FIRE Progress Gauge */}
-    {(() => {
-      const firePct = Math.min(swr35 > 0 ? (pat / swr35 * 100) : 0, 150);
-      const clampPct = Math.min(firePct, 100);
-      const gR = 70, gCx = 90, gCy = 80;
-      const startAngle = Math.PI;
-      const endAngle = 0;
-      const gaugeAngle = startAngle - (clampPct / 100) * Math.PI;
-      const arcEnd = (angle) => ({ x: gCx + gR * Math.cos(angle), y: gCy - gR * Math.sin(angle) });
-      const pStart = arcEnd(startAngle);
-      const pEnd = arcEnd(gaugeAngle);
-      const largeArc = clampPct > 50 ? 1 : 0;
-      // Color based on pct
-      const gaugeColor = clampPct >= 66 ? '#30d158' : clampPct >= 33 ? '#ffd60a' : '#ff453a';
-      const bgArcStart = arcEnd(startAngle);
-      const bgArcEnd = arcEnd(endAngle);
-      return (
-        <div style={{flex:"0 0 180px",padding:"14px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
-          <svg viewBox="0 0 180 100" style={{width:180,height:100}}>
-            <defs>
-              <linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor="#ff453a" />
-                <stop offset="50%" stopColor="#ffd60a" />
-                <stop offset="100%" stopColor="#30d158" />
-              </linearGradient>
-            </defs>
-            {/* Background arc */}
-            <path d={`M${bgArcStart.x},${bgArcStart.y} A${gR},${gR} 0 1,1 ${bgArcEnd.x},${bgArcEnd.y}`} fill="none" stroke="var(--subtle-bg2)" strokeWidth="10" strokeLinecap="round" />
-            {/* Colored arc */}
-            {clampPct > 0 && (
-              <path d={`M${pStart.x},${pStart.y} A${gR},${gR} 0 ${largeArc},1 ${pEnd.x},${pEnd.y}`} fill="none" stroke={gaugeColor} strokeWidth="10" strokeLinecap="round" />
-            )}
-            {/* Center text */}
-            <text x={gCx} y={gCy - 8} textAnchor="middle" fill={gaugeColor} fontSize="26" fontWeight="800" fontFamily="var(--fm)">{Math.round(firePct)}%</text>
-            <text x={gCx} y={gCy + 8} textAnchor="middle" fill="var(--text-tertiary)" fontSize="8" fontWeight="600" fontFamily="var(--fm)">FIRE Progress</text>
-          </svg>
-          <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"center",marginTop:2}}>
-            {sym}{fK(pat)} / {sym}{fK(swr35)}
-          </div>
-        </div>
-      );
-    })()}
-  </div>
-
-  {/* MONTHLY NATIVE BREAKDOWN TABLE */}
+  {/* ── SECTION 4: Freedom Numbers ── */}
   <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
-    <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:10}}>📅 Gastos Mensuales por Divisa</div>
-    <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:500}}><thead><tr>
-      {["MES","🇪🇸 EUR","🇨🇳 CNY","$ USD","TOTAL "+fireCcy,"DIV NET","CUBRE"].map((h,i)=><th key={i} style={{padding:"5px 8px",textAlign:i?"right":"left",color:"var(--text-tertiary)",fontSize:8,fontWeight:600,fontFamily:"var(--fm)",borderBottom:"1px solid var(--border)"}}>{h}</th>)}
+    <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:12}}>Freedom Numbers</div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:8}}>
+      {[
+        {l:"@3% SWR",fn:gastosAnnual/0.03},{l:"@3.5% SWR",fn:swr35},{l:"@4% SWR",fn:gastosAnnual/0.04},
+        {l:"BASE REAL",fn:baseRealA/0.035,sub:"ESP+CN oblig"},{l:"ESPAÑA",fn:espRealistaA/0.035,sub:"realista"},{l:"LEAN 70%",fn:gastosAnnual*0.7/0.035},
+      ].map((f,i)=>{
+        const pct=f.fn>0?(patUSD/f.fn*100):0;
+        const divPct=f.fn>0?(divNet12mUSD/(f.fn*0.035)*100):0;
+        return <div key={i} style={{padding:12,background:"var(--row-alt)",borderRadius:10,border:"1px solid var(--subtle-border)"}}>
+          <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,marginBottom:4}}>{f.l}{f.sub?` (${f.sub})`:""}</div>
+          <div style={{fontSize:16,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>${fK(f.fn)}</div>
+          <div style={{height:5,background:"var(--subtle-bg2)",borderRadius:3,marginTop:6,overflow:"hidden"}}><div style={{width:`${Math.min(pct,100)}%`,height:"100%",background:pct>=100?"var(--green)":"var(--gold)",borderRadius:3}}/></div>
+          <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
+            <span style={{fontSize:9,fontWeight:600,color:pct>=100?"var(--green)":"var(--gold)",fontFamily:"var(--fm)"}}>{_sf(pct,0)}% pat</span>
+            <span style={{fontSize:9,color:divPct>=100?"var(--green)":"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{_sf(divPct,0)}% div</span>
+          </div>
+        </div>;
+      })}
+    </div>
+  </div>
+
+  {/* ── SECTION 5: Dividendos Netos por Año ── */}
+  <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
+    <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:12}}>Dividendos Netos por Año</div>
+    <div style={{display:"flex",alignItems:"flex-end",gap:6,height:140}}>
+      {divYK.map((y,i)=>{
+        const d=divByYear[y]; const nV=d.n; const mx=Math.max(...divYK.map(k=>divByYear[k].n),1); const h=nV/mx*100;
+        const prev=i>0?divByYear[divYK[i-1]].n:0; const gr=prev>0?((nV-prev)/prev*100):null;
+        return <div key={y} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%"}}>
+          {gr!=null&&<div style={{fontSize:7,fontWeight:600,color:retCol(gr),fontFamily:"var(--fm)",marginBottom:2}}>{gr>=0?"+":""}{_sf(gr,0)}%</div>}
+          <div style={{fontSize:9,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)",marginBottom:2}}>${fK(nV)}</div>
+          <div style={{width:"100%",maxWidth:36,height:`${Math.max(h,4)}%`,background:"var(--green)",borderRadius:"4px 4px 0 0",opacity:.6}}/>
+          <div style={{fontSize:9,fontWeight:600,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginTop:3}}>{y}</div>
+        </div>;
+      })}
+    </div>
+  </div>
+
+  {/* ── SECTION 6: Escenarios Table ── */}
+  <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
+    <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:10}}>Escenarios</div>
+    <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:450}}><thead><tr>
+      {["","GASTOS/AÑO","FREEDOM #","PAT %","DIV %","GAP/MES"].map((h,i)=><th key={i} style={{padding:"5px 8px",textAlign:i?"right":"left",color:"var(--text-tertiary)",fontSize:8,fontWeight:600,fontFamily:"var(--fm)",borderBottom:"1px solid var(--border)"}}>{h}</th>)}
     </tr></thead><tbody>
-      {[...last12g].reverse().map((m,i) => {
-        const g = gNative[m]||{eur:0,cny:0,usd:0};
-        const total = toDisp(g.eur, g.cny, g.usd);
-        const divN = isUSD ? (divByMonth[m]?.n||0) : (divByMonth[m]?.n||0)/fxEurUsd;
-        const pct = total > 0 ? (divN/total*100) : 0;
-        const mn = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"][parseInt(m.slice(5), 10)-1];
-        return (<tr key={m} style={{background:i%2?"var(--row-alt)":"transparent"}}>
-          <td style={{padding:"5px 8px",fontWeight:600,fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)"}}>{mn} {m.slice(2,4)}</td>
-          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>€{(g.eur||0).toLocaleString(undefined,{maximumFractionDigits:0})}</td>
-          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>¥{(g.cny||0).toLocaleString(undefined,{maximumFractionDigits:0})}</td>
-          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:g.usd>0?"var(--text-primary)":"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{g.usd>0?`$${_sf(g.usd,0)}`:"-"}</td>
-          <td style={{padding:"5px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{sym}{total.toLocaleString(undefined,{maximumFractionDigits:0})}</td>
-          <td style={{padding:"5px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:"var(--green)",borderBottom:"1px solid var(--subtle-bg)"}}>{sym}{divN.toLocaleString(undefined,{maximumFractionDigits:0})}</td>
-          <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,fontFamily:"var(--fm)",color:pct>=100?"var(--green)":pct>=50?"var(--gold)":"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{_sf(pct,0)}%</td>
-        </tr>);
+      {[
+        {l:"Vida Actual",g:gastosAnnual},{l:"Base Real",g:baseRealA,hl:true},{l:"España Realista",g:espRealistaA},
+        {l:"Lean (70%)",g:gastosAnnual*0.7},{l:"Ultra (50%)",g:gastosAnnual*0.5},{l:"Fat (+30%)",g:gastosAnnual*1.3},
+      ].map((s,i)=>{
+        const fn=s.g/0.035; const pp=fn>0?(patUSD/fn*100):0; const dp=s.g>0?(divNet12mUSD/s.g*100):0; const gap=(divNet12mUSD-s.g)/12;
+        return <tr key={i} style={{background:s.hl?"rgba(214,158,46,.06)":i%2?"var(--row-alt)":"transparent"}}>
+          <td style={{padding:"5px 8px",fontWeight:s.hl?700:500,fontFamily:"var(--fm)",color:s.hl?"var(--gold)":"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>{s.l}</td>
+          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>${fK(s.g)}</td>
+          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)"}}>${fK(fn)}</td>
+          <td style={{padding:"5px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:pp>=100?"var(--green)":"var(--orange)",borderBottom:"1px solid var(--subtle-bg)"}}>{_sf(pp,0)}%</td>
+          <td style={{padding:"5px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:dp>=100?"var(--green)":"var(--orange)",borderBottom:"1px solid var(--subtle-bg)"}}>{_sf(dp,0)}%</td>
+          <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,fontFamily:"var(--fm)",color:gap>=0?"var(--green)":"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{gap>=0?"+":""}${_sf(Math.abs(gap),0)}</td>
+        </tr>;
       })}
     </tbody></table></div>
   </div>
 
-  {/* FREEDOM NUMBERS */}
-  <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
-    <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:12}}>🎯 Freedom Numbers ({fireCcy})</div>
-    <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-      {[{l:"@3%",fn:activeGastosA/0.03},{l:"@3.5%",fn:activeSwr35},{l:"@4%",fn:activeGastosA/0.04},{l:"BASE REAL @3.5%",fn:baseRealA/0.035,sub:"ESP+CN oblig",hl:useBaseReal},{l:"ESPANA @3.5%",fn:espRealistaA/0.035,sub:"solo EUR"},{l:"LEAN @3.5%",fn:activeGastosA*0.7/0.035,sub:"70%"}].map((f,i)=>{const pct=f.fn>0?(pat/f.fn*100):0;const dP=f.fn>0?(divNetA/(f.fn*0.035)*100):0;return(<div key={i} style={{flex:"1 1 110px",padding:"12px",background:f.hl?"rgba(214,158,46,.06)":"var(--row-alt)",borderRadius:10,border:`1px solid ${f.hl?"rgba(214,158,46,.2)":"var(--subtle-border)"}`}}><div style={{fontSize:9,color:f.hl?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,marginBottom:4}}>{f.l}{f.sub?` (${f.sub})`:""}</div><div style={{fontSize:16,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>{sym}{fK(f.fn)}</div><div style={{height:5,background:"var(--subtle-bg2)",borderRadius:3,marginTop:6,overflow:"hidden"}}><div style={{width:`${Math.min(pct,100)}%`,height:"100%",background:pct>=100?"var(--green)":"var(--gold)",borderRadius:3}}/></div><div style={{display:"flex",justifyContent:"space-between",marginTop:4}}><span style={{fontSize:9,fontWeight:600,color:pct>=100?"var(--green)":"var(--gold)",fontFamily:"var(--fm)"}}>{_sf(pct,0)}%</span><span style={{fontSize:9,color:dP>=100?"var(--green)":"var(--text-tertiary)",fontFamily:"var(--fm)"}}>div {_sf(dP,0)}%</span></div></div>);})}
-    </div>
-  </div>
-
-  {/* DIV TRAJECTORY */}
-  <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
-    <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:12}}>📈 Dividendos Netos por Año</div>
-    <div style={{display:"flex",alignItems:"flex-end",gap:8,height:130}}>
-      {divYK.length > 0 && divYK.map((y,i)=>{const d=divByYear[y];const nV=isUSD?d.n:d.n/fxEurUsd;const mx=Math.max(...divYK.map(k=>isUSD?divByYear[k].n:divByYear[k].n/fxEurUsd),1);const h=nV/mx*100;const prev=i>0?(isUSD?divByYear[divYK[i-1]].n:divByYear[divYK[i-1]].n/fxEurUsd):0;const gr=prev>0?((nV-prev)/prev*100):null;return(<div key={y} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%"}}>{gr!=null&&<div style={{fontSize:7,fontWeight:600,color:retCol(gr),fontFamily:"var(--fm)",marginBottom:2}}>{gr>=0?"+":""}{_sf(gr,0)}%</div>}<div style={{fontSize:8,fontWeight:600,color:"var(--green)",fontFamily:"var(--fm)",marginBottom:2}}>{sym}{fK(nV)}</div><div style={{width:"100%",maxWidth:32,height:`${Math.max(h,4)}%`,background:"var(--green)",borderRadius:"3px 3px 0 0",opacity:.6}}/><div style={{fontSize:9,fontWeight:600,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginTop:3}}>{y}</div></div>);})}
-    </div>
-  </div>
-
-  {/* SCENARIOS */}
-  <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
-    <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:10}}>🧪 Escenarios</div>
-    <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:450}}><thead><tr>{["","GASTOS","FREEDOM","PAT","DIV","GAP"].map((h,i)=><th key={i} style={{padding:"5px 8px",textAlign:i?"right":"left",color:"var(--text-tertiary)",fontSize:8,fontWeight:600,fontFamily:"var(--fm)",borderBottom:"1px solid var(--border)"}}>{h}</th>)}</tr></thead><tbody>
-      {[{l:"🌏 Actual",g:gastosAnnual},{l:"🎯 Base Real",g:baseRealA,hl:true},{l:"🇪🇸 Espana",g:espRealistaA},{l:"🔻 Lean (70%)",g:gastosAnnual*0.7},{l:"🔻🔻 Ultra (50%)",g:gastosAnnual*0.5},{l:"🔺 Fat (+30%)",g:gastosAnnual*1.3}].map((s,i)=>{const fn=s.g/0.035;const pp=fn>0?(pat/fn*100):0;const dp=s.g>0?(divNetA/s.g*100):0;const gap=divNetA-s.g;return(<tr key={i} style={{background:s.hl?"rgba(214,158,46,.06)":i%2?"var(--row-alt)":"transparent"}}><td style={{padding:"5px 8px",fontWeight:s.hl?700:600,fontFamily:"var(--fm)",color:s.hl?"var(--gold)":"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>{s.l}</td><td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{sym}{fK(s.g)}</td><td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)"}}>{sym}{fK(fn)}</td><td style={{padding:"5px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:pp>=100?"var(--green)":"var(--orange)",borderBottom:"1px solid var(--subtle-bg)"}}>{_sf(pp,0)}%</td><td style={{padding:"5px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:dp>=100?"var(--green)":"var(--orange)",borderBottom:"1px solid var(--subtle-bg)"}}>{_sf(dp,0)}%</td><td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,fontFamily:"var(--fm)",color:gap>=0?"var(--green)":"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{gap>=0?"+":""}{sym}{fK(gap)}</td></tr>);})}
-    </tbody></table></div>
-  </div>
-
-  {/* INSIGHTS */}
-  <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:16}}>
-    <div style={{fontSize:13,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:8}}>💡 Conclusiones</div>
-    <div style={{display:"flex",flexDirection:"column",gap:4,fontSize:11,fontFamily:"var(--fm)",color:"var(--text-secondary)"}}>
-      <div>• Gastas <span style={{fontWeight:600}}>€{avgEur.toLocaleString(undefined,{maximumFractionDigits:0})}/mes en España</span> + <span style={{fontWeight:600}}>¥{avgCny.toLocaleString(undefined,{maximumFractionDigits:0})}/mes en China</span></div>
-      <div>• Total convertido: <span style={{color:"var(--red)",fontWeight:700}}>{sym}{gastosAvg.toLocaleString(undefined,{maximumFractionDigits:0})}/mes</span></div>
-      <div>• Dividendos netos: <span style={{color:"var(--green)",fontWeight:700}}>{sym}{fK(divNetM)}/mes</span> → cubren el <span style={{fontWeight:700,color:divCoversPct>=100?"var(--green)":"var(--orange)"}}>{_sf(divCoversPct,0)}%</span></div>
-      <div>• 🇪🇸 Si te vas a España (sin China): cubres el <span style={{fontWeight:700,color:espCoversPct>=100?"var(--green)":"var(--gold)"}}>{_sf(espCoversPct,0)}%</span></div>
-      {gapM<0&&<div>• Déficit: <span style={{color:"var(--red)"}}>-{sym}{fK(Math.abs(gapM))}/mes</span></div>}
-      {gapM>=0&&<div>• 🎉 <span style={{color:"var(--green)",fontWeight:700}}>Superávit de {sym}{fK(gapM)}/mes</span></div>}
-      <div style={{marginTop:4,fontSize:10,color:"var(--text-tertiary)",fontStyle:"italic"}}>FX: €1 = ${_sf(fxEurUsd,2)} · ¥1 = €{_sf(fxCnyEur,4)} · Gastos en divisa nativa, solo se convierten para el total.</div>
-    </div>
-  </div>
   </>}
 </div>
 );
