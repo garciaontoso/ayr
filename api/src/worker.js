@@ -834,7 +834,7 @@ async function autoPatrimonioSnapshot(env, { force = false } = {}) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
     
@@ -4793,15 +4793,18 @@ export default {
         return json({ insights: parsed, count: parsed.length }, corsHeaders);
       }
 
-      // POST /api/agent-run — manual trigger for all agents
+      // POST /api/agent-run — manual trigger for all agents (runs in background)
       if (path === "/api/agent-run" && request.method === "POST") {
-        try {
-          await ensureMigrations(env);
-          const result = await runAllAgents(env);
-          return json({ ok: true, ...result }, corsHeaders);
-        } catch (e) {
-          return json({ error: e.message }, corsHeaders, 500);
-        }
+        await ensureMigrations(env);
+        ctx.waitUntil((async () => {
+          try {
+            const result = await runAllAgents(env);
+            console.log("Manual agent run completed:", JSON.stringify(result));
+          } catch (e) {
+            console.error("Manual agent run failed:", e.message);
+          }
+        })());
+        return json({ ok: true, message: "Agents started in background (~5 min). Refresh insights to see results." }, corsHeaders);
       }
 
       // POST /api/ib-auto-sync — cloud-based trade/NLV sync (replaces Mac cron dependency)
@@ -4902,13 +4905,15 @@ export default {
     } catch(e) {
       console.error("Dividend change check failed:", e.message);
     }
-    // Run AI agents
-    try {
-      const agentResults = await runAllAgents(env);
-      console.log("AI agents completed:", JSON.stringify(agentResults));
-    } catch(e) {
-      console.error("AI agents cron failed:", e.message);
-    }
+    // Run AI agents in background (takes ~5min due to rate limit delays)
+    ctx.waitUntil((async () => {
+      try {
+        const agentResults = await runAllAgents(env);
+        console.log("AI agents completed:", JSON.stringify(agentResults));
+      } catch(e) {
+        console.error("AI agents cron failed:", e.message);
+      }
+    })());
   },
 };
 
@@ -5540,7 +5545,7 @@ Score reflects conviction: 1=low confidence, 10=very high confidence.`;
 
 // ─── Dividend Cut/Raise Detection ─────────────────────────────
 // Compares live DPS (annualized from recent dividendos) with stored div_ttm
-// Alerts if change > 10%. Stores in alerts table with tipo DIV_CUT / DIV_RAISE
+// Alerts if change > 5%. Stores in alerts table with tipo DIV_CUT / DIV_RAISE
 async function checkDividendChanges(env) {
   const today = new Date().toISOString().slice(0, 10);
   const FMP_KEY = env.FMP_KEY;
@@ -5647,10 +5652,10 @@ async function checkDividendChanges(env) {
 
     const changePct = ((liveDPS - pos.div_ttm) / pos.div_ttm) * 100;
 
-    // Only alert if change > 10%
-    if (Math.abs(changePct) <= 10) continue;
+    // Only alert if change > 5%
+    if (Math.abs(changePct) <= 5) continue;
 
-    const isCut = changePct < -10;
+    const isCut = changePct < -5;
     const tipo = isCut ? "DIV_CUT" : "DIV_RAISE";
     const icon = isCut ? "⚠️" : "📈";
     const label = isCut ? "Dividend Cut" : "Dividend Raise";
