@@ -14,7 +14,7 @@ function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA
     {
       name: "🏠 Vida Actual",
       lifestyleCost: Math.round(gastosAnnual > 0 ? (isUSD ? gastosAnnual : gastosAnnual) : 50000),
-      guaranteedIncome: Math.round(isUSD ? 23000 * fxEurUsd : 23000), // estimated guaranteed
+      guaranteedIncome: 0, // no pension / no guaranteed income
       inflation: 3.6,
       yearsBefore: 10,
       yearsIn: 40,
@@ -27,7 +27,7 @@ function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA
     {
       name: "🚀 Agresivo",
       lifestyleCost: Math.round(gastosAnnual > 0 ? (isUSD ? gastosAnnual : gastosAnnual) : 50000),
-      guaranteedIncome: Math.round(divNetA > 0 ? divNetA : 6000),
+      guaranteedIncome: 0, // no pension / no guaranteed income
       inflation: 3.6,
       yearsBefore: 10,
       yearsIn: 40,
@@ -40,7 +40,7 @@ function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA
     {
       name: "🎯 Base Real",
       lifestyleCost: Math.round(baseRealA > 0 ? baseRealA : 40000),
-      guaranteedIncome: Math.round(divNetA > 0 ? divNetA : 6000),
+      guaranteedIncome: 0, // no pension / no guaranteed income
       inflation: 3.6,
       yearsBefore: 10,
       yearsIn: 40,
@@ -53,7 +53,7 @@ function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA
     {
       name: "🇪🇸 Solo Espana",
       lifestyleCost: Math.round(espRealistaA > 0 ? espRealistaA : 45000),
-      guaranteedIncome: Math.round(divNetA > 0 ? divNetA : 6000),
+      guaranteedIncome: 0, // no pension / no guaranteed income
       inflation: 3.6,
       yearsBefore: 15,
       yearsIn: 35,
@@ -246,7 +246,7 @@ function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA
               ['Año jubilación', r.retirementYear, 'var(--text-primary)'],
               ['Capital acumulado', fN(r.capital), 'var(--text-primary)'],
               ['Coste vida jubilación/año', fN(r.costAtRetirement), 'var(--red)'],
-              ['Ingreso garantizado/año', fN(r.guaranteedAtRetirement), 'var(--green)'],
+              ...(r.guaranteedAtRetirement > 0 ? [['Ingreso garantizado/año', fN(r.guaranteedAtRetirement), 'var(--green)']] : []),
               ['Necesitas generar/año', fN(r.requiredAtRetirement), 'var(--orange)'],
               ['YOUR NUMBER', fN(r.yourNumber), 'var(--gold)'],
               ['OVER / (UNDER)', fNs(r.overUnder), r.overUnder >= 0 ? 'var(--green)' : 'var(--red)'],

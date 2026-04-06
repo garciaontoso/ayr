@@ -70,24 +70,27 @@ function TaxReportSection({ hide, openAnalysis, pill, card, hd }) {
 }
 
 const MONTHS = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-const SECTOR_MAP = {
-  ACN:"Technology",AMCR:"Materials",AMT:"Real Estate",ARE:"Real Estate",AZJ:"Industrials",
-  BIZD:"Financials","BME:AMS":"Technology","BME:VIS":"Consumer Staples",
-  CAG:"Consumer Staples",CLPR:"Real Estate",CMCSA:"Communication",CNSWF:"Technology",
-  CPB:"Consumer Staples",CUBE:"Real Estate",CZR:"Consumer Disc.",DEO:"Consumer Staples",
-  DIDIY:"Technology",EMN:"Materials",ENG:"Utilities",FDJU:"Consumer Disc.",FDS:"Financials",
-  FLO:"Consumer Staples",GEO:"Real Estate",GIS:"Consumer Staples",GPC:"Consumer Disc.",
-  GQG:"Financials",HEN3:"Consumer Staples","HKG:9616":"Technology","HKG:1052":"Industrials",
-  "HKG:1910":"Consumer Disc.","HKG:2219":"Healthcare","HKG:9618":"Consumer Disc.",
-  HR:"Healthcare",HRB:"Financials",IIPR:"Real Estate",KHC:"Consumer Staples",KRG:"Real Estate",
-  LANDP:"Real Estate",LSEG:"Financials",LW:"Consumer Staples",LYB:"Materials",
+// Fallback sector map — only used when D1 positions lack a sector value.
+// Primary source: POS_STATIC[ticker].sec (populated from D1 positions.sector column).
+const SECTOR_FALLBACK = {
+  ACN:"Technology",ADP:"Industrials",AHRT:"Real Estate",AMCR:"Materials",AMT:"Real Estate",
+  ARE:"Real Estate",AZJ:"Industrials",BIZD:"Financials","BME:AMS":"Technology",
+  "BME:VIS":"Consumer Staples",BX:"Financials",CAG:"Consumer Staples",CLPR:"Real Estate",
+  CMCSA:"Communication",CNSWF:"Technology",CPB:"Consumer Staples",CUBE:"Real Estate",
+  DEO:"Consumer Staples",DIVO:"Financials",EMN:"Materials",ENG:"Utilities",
+  FDJU:"Consumer Disc.",FDS:"Financials",FLO:"Consumer Staples",GIS:"Consumer Staples",
+  GPC:"Consumer Disc.",GQG:"Financials",HEN3:"Consumer Staples","HKG:9616":"Technology",
+  "HKG:1052":"Industrials","HKG:1910":"Consumer Disc.","HKG:2219":"Healthcare",
+  "HKG:9618":"Consumer Disc.",HR:"Healthcare",HRB:"Financials",IIPR:"Real Estate",
+  "IIPR-PRA":"Real Estate",ITRK:"Technology",KHC:"Consumer Staples",KMB:"Consumer Staples",
+  KRG:"Real Estate",LANDP:"Real Estate",LSEG:"Financials",LW:"Consumer Staples",
   MDV:"Real Estate",MO:"Consumer Staples",MSDL:"Financials",MTN:"Consumer Disc.",
   "NET.UN":"Real Estate",NNN:"Real Estate",NOMD:"Consumer Staples",NVO:"Healthcare",
-  O:"Real Estate",OBDC:"Financials",OMC:"Communication",OWL:"Financials",OZON:"Technology",
-  PATH:"Technology",PAYX:"Industrials",PEP:"Consumer Staples",PFE:"Healthcare",
-  PG:"Consumer Staples",PYPL:"Financials",RAND:"Financials",REXR:"Real Estate",
-  RHI:"Industrials",RICK:"Consumer Disc.",RYN:"Real Estate",SAFE:"Real Estate",
-  SCHD:"Financials",SHUR:"Real Estate",SPHD:"Financials",SUI:"Real Estate",
+  O:"Real Estate",OBDC:"Financials",OMC:"Communication",OWL:"Financials",PATH:"Technology",
+  PAYX:"Industrials",PEP:"Consumer Staples",PFE:"Healthcare",PG:"Consumer Staples",
+  PYPL:"Financials",RAND:"Financials",REXR:"Real Estate",RHI:"Industrials",
+  RICK:"Consumer Disc.",RYN:"Real Estate",SAFE:"Real Estate",SCHD:"Financials",
+  SHUR:"Real Estate",SPHD:"Financials",SPY:"Financials",SUI:"Real Estate",
   TAP:"Consumer Staples",TROW:"Financials",UNH:"Healthcare",VICI:"Real Estate",
   WEEL:"Financials",WEN:"Consumer Disc.",WKL:"Technology",WPC:"Real Estate",
   XYZ:"Financials",YYY:"Financials",ZTS:"Healthcare",
@@ -170,7 +173,7 @@ export default function IncomeLabTab() {
     const bySector = {};
     const totalVal = pos.reduce((s,p) => s + (p.valueUSD||0), 0) || 1;
     pos.forEach(p => {
-      const sec = SECTOR_MAP[p.ticker] || POS_STATIC[p.ticker]?.sec || "Otros";
+      const sec = POS_STATIC[p.ticker]?.sec || SECTOR_FALLBACK[p.ticker] || "Otros";
       if (!bySector[sec]) bySector[sec] = {value:0, count:0, tickers:[]};
       bySector[sec].value += (p.valueUSD||0);
       bySector[sec].count++;
