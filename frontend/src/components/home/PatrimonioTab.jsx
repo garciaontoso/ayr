@@ -10,7 +10,7 @@ import { EmptyState } from '../ui/EmptyState.jsx';
 function SnapshotsSection() {
   const {
     ctrlLog, ctrlShowForm, setCtrlShowForm,
-    ctrlForm, setCtrlForm, addCtrlEntry, ctrlEditId, setCtrlEditId,
+    ctrlForm, setCtrlForm, addCtrlEntry, deleteCtrlEntry, ctrlEditId, setCtrlEditId,
     fxRates, ibData, loadIBData,
   } = useHome();
 
@@ -317,6 +317,7 @@ function SnapshotsSection() {
               <td style={{...td0,color:"#ff9f0a"}}>{c.btcEur ? `€${Math.round(c.btcEur).toLocaleString()}` : "—"}</td>
               <td style={{padding:"6px 10px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)"}}>
                 <button onClick={()=>startEdit(c)} style={{border:"none",background:"none",color:"var(--text-tertiary)",cursor:"pointer",fontSize:11,padding:"2px 4px"}} title="Editar">✏️</button>
+                <button onClick={()=>{if(window.confirm(`¿Eliminar snapshot ${c.d}?`))deleteCtrlEntry(c.id)}} style={{border:"none",background:"none",color:"var(--text-tertiary)",cursor:"pointer",fontSize:11,padding:"2px 4px",marginLeft:2}} title="Eliminar">🗑️</button>
               </td>
             </tr>;
           })}

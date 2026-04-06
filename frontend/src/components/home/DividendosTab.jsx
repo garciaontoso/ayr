@@ -150,7 +150,14 @@ function CalendarioSection({ divLog, POS_STATIC, ownedTickers, soloActuales }) {
 
   // Load real ex-dates from FMP
   useEffect(() => {
-    const tickers = Object.keys(POS_STATIC).filter(t => !t.includes(":")).join(",");
+    const tickers = Object.keys(POS_STATIC)
+      .map(t => {
+        if (t.startsWith("BME:")) return t.replace("BME:", "");
+        if (t.includes(":")) return null;
+        return t;
+      })
+      .filter(Boolean)
+      .join(",");
     if (!tickers) return;
     fetch(`${API_URL}/api/dividend-calendar?symbols=${tickers}`)
       .then(r => r.json())

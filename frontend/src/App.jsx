@@ -1954,7 +1954,7 @@ function buildPositionsFromCB() {
     GASTO_CAT_LIST,
     // Control
     ctrlLog, ctrlShowForm, setCtrlShowForm,
-    ctrlForm, setCtrlForm, addCtrlEntry, ctrlEditId, setCtrlEditId,
+    ctrlForm, setCtrlForm, addCtrlEntry, deleteCtrlEntry, ctrlEditId, setCtrlEditId,
     // Research
     researchOpenList, setResearchOpenList, researchAdvanced, setResearchAdvanced,
     researchHide, setResearchHide, researchCapFilter, setResearchCapFilter,

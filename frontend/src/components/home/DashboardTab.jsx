@@ -583,7 +583,7 @@ return (
       {l:"Δ PATRIMONIO",v:hide(`$${fDol((latest.pu||0)-(first.pu||0))}`),sub:privacyMode?"•••":`${totalGrowth>=0?"+":""}${_sf(totalGrowth,1)}% (${first.d?.slice(0,7)||"?"} → ${latest.d?.slice(0,7)||"?"})`,c:totalGrowth>=0?"var(--green)":"var(--red)"},
       {l:`DIVIDENDOS ${latestDivYear?.[0]||""}`,v:hide(`$${fDol(latestDivYear?.[1]?.g||0)}`),sub:privacyMode?"•••":`Net $${fDol(latestDivYear?.[1]?.n||0)} · ${latestDivYear?.[1]?.c||0}x`,c:"var(--gold)"},
       {l:"INGRESOS BOLSA",v:hide(`$${fDol(prevTotal)}`),sub:privacyMode?"•••":`${curYear} YTD: $${fDol(ytdTotal)}`,c:"var(--green)"},
-      {l:"YIELD",v:`${_sf(latestDivYear?.[1]?.g>0&&bestPatUsd>0?(latestDivYear[1].g/bestPatUsd*100):0,1)}%`,sub:privacyMode?"•••":`YOC ${_sf(latestDivYear?.[1]?.g>0&&(latest.br||0)>0?(latestDivYear[1].g/(latest.br)*100):0,1)}%`,c:"var(--gold)"},
+      {l:"YIELD",v:`${_sf(portfolioTotals?.yieldUSD>0?(portfolioTotals.yieldUSD*100):0,1)}%`,sub:privacyMode?"•••":`YOC ${_sf(portfolioTotals?.yocUSD>0?(portfolioTotals.yocUSD*100):0,1)}%`,c:"var(--gold)"},
     ].map((k,i)=>(
       <div key={i} style={{flex:"1 1 140px",padding:"10px 14px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:12}}>
         <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.6,fontWeight:600,marginBottom:4}}>{k.l}</div>

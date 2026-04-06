@@ -28,7 +28,7 @@ describe('Constants', () => {
   it('HOME_TABS has essential tabs', () => {
     const ids = HOME_TABS.map(t => t.id);
     expect(ids).toContain('portfolio');
-    expect(ids).toContain('covered-calls');
+    expect(ids).toContain('income');
     expect(ids).toContain('dividendos');
     expect(ids).toContain('trades');
     expect(ids).toContain('fire');
