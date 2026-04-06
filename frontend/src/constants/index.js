@@ -63,4 +63,5 @@ export const HOME_TABS = [
   {id:"watchlist",lbl:"Watchlist",ico:"👁"},
   {id:"historial",lbl:"Historial",ico:"📦"},
   {id:"research",lbl:"Research",ico:"🔍"},
+  {id:"agentes",lbl:"Agentes",ico:"🤖"},
 ];

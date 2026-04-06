@@ -142,8 +142,9 @@ export default function DividendsTab() {
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))",gap:12,marginBottom:16}}>
             {[
               {l:"Últimos 12 Meses",v:S.growthLast12m},
-              {l:"CAGR 5 Años",v:S.growthLast5y,sub:"anualizado"},
-              {l:"CAGR 10 Años",v:S.growthLast10y,sub:"anualizado"},
+              {l:"CAGR 3 Años",v:divCAGR3,sub:"anualizado"},
+              {l:"CAGR 5 Años",v:S.growthLast5y||divCAGR5,sub:"anualizado"},
+              {l:"CAGR 10 Años",v:S.growthLast10y||divCAGR10,sub:"anualizado"},
             ].map((x,i)=>(
               <div key={i} style={{textAlign:"center",padding:"14px",background:"var(--row-alt)",borderRadius:10,border:"1px solid var(--subtle-border)"}}>
                 <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textTransform:"uppercase",letterSpacing:.5}}>{x.l}</div>
@@ -155,6 +156,23 @@ export default function DividendsTab() {
           <div style={{fontSize:12,fontWeight:600,color:"var(--text-secondary)",marginBottom:10}}>Dividendo por Acción — Histórico</div>
           <DivBar data={histYrs.filter(y=>fin[y]?.dps>0).map(y=>({y,v:fin[y]?.dps||0}))} formatFn={v=>`$${_sf(v,2)}`}
             colorFn={(v,y,i)=>{const prev=i>0?(fin[histYrs.filter(yr=>fin[yr]?.dps>0)[i-1]]?.dps||0):v;return v>prev?cGreen:v<prev?cRed:cGold;}} height={110}/>
+
+          {/* YoY Dividend Growth Rate chart */}
+          {(() => {
+            const dpsYears = histYrs.filter(y => fin[y]?.dps > 0);
+            const yoyData = [];
+            for (let i = 1; i < dpsYears.length; i++) {
+              const prev = fin[dpsYears[i-1]]?.dps || 0;
+              const cur = fin[dpsYears[i]]?.dps || 0;
+              if (prev > 0) yoyData.push({ y: dpsYears[i], v: ((cur - prev) / prev) * 100 });
+            }
+            if (yoyData.length < 2) return null;
+            return (<>
+              <div style={{fontSize:12,fontWeight:600,color:"var(--text-secondary)",marginBottom:10,marginTop:16}}>Tasa de Crecimiento YoY (%)</div>
+              <DivBar data={yoyData} formatFn={v=>`${v>=0?"+":""}${_sf(v,1)}%`}
+                colorFn={v=>v>5?cGreen:v>0?cGold:cRed} height={90}/>
+            </>);
+          })()}
         </Card>
 
         {/* ══════ PAYOUT + COVERAGE CHARTS ══════ */}

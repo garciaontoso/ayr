@@ -55,7 +55,7 @@ async function ensureMigrations(env) {
 
     // Add columns to fundamentals (idempotent)
     const fundCols = ["rating","dcf","estimates","price_target","key_metrics","fin_growth",
-                      "grades","owner_earnings","rev_segments","geo_segments","peers","earnings","pt_summary"];
+                      "grades","owner_earnings","rev_segments","geo_segments","peers","earnings","pt_summary","dgr"];
     for (const col of fundCols) {
       try { await env.DB.prepare(`ALTER TABLE fundamentals ADD COLUMN ${col} TEXT`).run(); } catch(e) { /* already exists */ }
     }
@@ -173,6 +173,23 @@ async function ensureMigrations(env) {
       updated_at TEXT DEFAULT (datetime('now'))
     )`).run();
     await env.DB.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_analysis_ticker_date ON ai_analysis(ticker, analysis_date)`).run();
+
+    // agent_insights table (AI agent outputs)
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS agent_insights (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_name TEXT NOT NULL,
+      fecha TEXT NOT NULL,
+      ticker TEXT NOT NULL DEFAULT '_GLOBAL_',
+      severity TEXT NOT NULL DEFAULT 'info',
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      details TEXT DEFAULT '{}',
+      score REAL DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(agent_name, fecha, ticker)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_insights_fecha ON agent_insights(fecha)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_agent_insights_agent ON agent_insights(agent_name)`).run();
 
     // push_subscriptions table (Web Push)
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS push_subscriptions (
@@ -2692,6 +2709,25 @@ export default {
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
       }
 
+      // GET /api/alerts/dividend-changes — recent dividend cut/raise alerts
+      if (path === "/api/alerts/dividend-changes" && request.method === "GET") {
+        try {
+          const limit = parseInt(url.searchParams.get("limit") || "50");
+          const { results } = await env.DB.prepare(
+            "SELECT * FROM alerts WHERE tipo IN ('DIV_CUT','DIV_RAISE') ORDER BY created_at DESC LIMIT ?"
+          ).bind(limit).all();
+          return json({ alerts: results || [], count: (results || []).length }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // POST /api/alerts/check-dividend-changes — manually trigger dividend change detection
+      if (path === "/api/alerts/check-dividend-changes" && request.method === "POST") {
+        try {
+          const result = await checkDividendChanges(env);
+          return json(result, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
       // ─── POSITIONS (D1 — replaces POS_STATIC) ───
 
       // GET /api/positions — all positions
@@ -3076,6 +3112,14 @@ export default {
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
       }
 
+      // POST /api/refresh-div-ttm — manually trigger div_ttm refresh for all positions
+      if (path === "/api/refresh-div-ttm" && request.method === "POST") {
+        try {
+          const result = await refreshDivTTM(env);
+          return json(result, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
       // GET /api/dividend-forward — 12-month forward dividend projection
       if (path === "/api/dividend-forward" && request.method === "GET") {
         try {
@@ -3390,6 +3434,111 @@ export default {
             } catch { results[sym] = { streak: 0, years: 0 }; }
           }));
         }
+        return json(results, corsHeaders);
+      }
+
+      // GET /api/dividend-growth?tickers=AAPL,O,SCHD — DGR (1Y/3Y/5Y/10Y) + streak for multiple tickers
+      // Also supports single ticker: GET /api/dividend-growth/AAPL
+      if ((path === "/api/dividend-growth" || path.startsWith("/api/dividend-growth/")) && request.method === "GET") {
+        let tickers;
+        if (path !== "/api/dividend-growth") {
+          // Single ticker from path
+          tickers = [path.split("/api/dividend-growth/")[1].trim().toUpperCase()];
+        } else {
+          tickers = (url.searchParams.get("tickers") || "").split(",").map(t => t.trim().toUpperCase()).filter(Boolean).slice(0, 60);
+        }
+        if (!tickers.length) return json({ error: "Missing ?tickers= or /api/dividend-growth/:ticker" }, corsHeaders, 400);
+        const forceRefresh = url.searchParams.get("refresh") === "1";
+
+        const results = {};
+
+        // Helper: calculate DGR from annual dividend totals
+        const calcDGR = (byYear) => {
+          const sortedYears = Object.entries(byYear).sort((a, b) => b[0] - a[0]); // newest first
+          if (sortedYears.length < 2) return { dgr1: null, dgr3: null, dgr5: null, dgr10: null, streak: 0, history: byYear };
+          const currentYear = new Date().getFullYear();
+          // Use most recent full year (or current year if it has dividends)
+          const latestYear = parseInt(sortedYears[0][0]);
+          const latestDiv = sortedYears[0][1];
+
+          const calcCAGR = (n) => {
+            const targetYear = latestYear - n;
+            const entry = sortedYears.find(([y]) => parseInt(y) === targetYear);
+            if (!entry || entry[1] <= 0 || latestDiv <= 0) return null;
+            return Math.pow(latestDiv / entry[1], 1 / n) - 1;
+          };
+
+          // Streak: consecutive years of growth (newest to oldest)
+          let streak = 0;
+          for (let j = 0; j < sortedYears.length - 1; j++) {
+            if (sortedYears[j][1] > sortedYears[j + 1][1] * 0.995) streak++; // 0.5% tolerance for rounding
+            else break;
+          }
+
+          return {
+            dgr1: calcCAGR(1),
+            dgr3: calcCAGR(3),
+            dgr5: calcCAGR(5),
+            dgr10: calcCAGR(10),
+            streak,
+            latestDiv,
+            latestYear,
+            history: byYear,
+          };
+        };
+
+        // Process in batches of 5
+        for (let i = 0; i < tickers.length; i += 5) {
+          const batch = tickers.slice(i, i + 5);
+          await Promise.all(batch.map(async sym => {
+            try {
+              // Check cache first (fundamentals.dgr column, 24h TTL)
+              if (!forceRefresh) {
+                const cached = await env.DB.prepare("SELECT dgr, updated_at FROM fundamentals WHERE symbol = ?").bind(sym).first();
+                if (cached && cached.dgr && cached.updated_at) {
+                  const age = Date.now() - new Date(cached.updated_at).getTime();
+                  if (age < 24 * 3600 * 1000) {
+                    try {
+                      results[sym] = JSON.parse(cached.dgr);
+                      return;
+                    } catch {}
+                  }
+                }
+              }
+
+              // Fetch dividend history from FMP
+              const resp = await fetchWithRetry(`${FMP_BASE}/dividends?symbol=${sym}&apikey=${FMP_KEY}`, {}, { maxRetries: 2, baseDelay: 1000 });
+              const data = await resp.json();
+              if (!Array.isArray(data) || !data.length) {
+                results[sym] = { dgr1: null, dgr3: null, dgr5: null, dgr10: null, streak: 0, history: {} };
+                return;
+              }
+
+              // Group by year, sum annual dividends
+              const byYear = {};
+              data.forEach(d => {
+                const y = parseInt((d.date || d.paymentDate || "").slice(0, 4));
+                if (y > 2000) byYear[y] = (byYear[y] || 0) + (d.adjDividend || d.dividend || 0);
+              });
+
+              const dgrResult = calcDGR(byYear);
+              results[sym] = dgrResult;
+
+              // Cache in fundamentals.dgr column
+              try {
+                await env.DB.prepare(
+                  `INSERT INTO fundamentals (symbol, dgr, updated_at) VALUES (?, ?, datetime('now'))
+                   ON CONFLICT(symbol) DO UPDATE SET dgr=excluded.dgr, updated_at=datetime('now')`
+                ).bind(sym, JSON.stringify(dgrResult)).run();
+              } catch {}
+            } catch (e) {
+              results[sym] = { dgr1: null, dgr3: null, dgr5: null, dgr10: null, streak: 0, error: e.message };
+            }
+          }));
+          // Small delay between batches
+          if (i + 5 < tickers.length) await new Promise(r => setTimeout(r, 300));
+        }
+
         return json(results, corsHeaders);
       }
 
@@ -4622,6 +4771,39 @@ export default {
         }, corsHeaders);
       }
 
+      // ─── AI AGENTS ──────────────────────────────────────────────
+
+      // GET /api/agent-insights — retrieve agent insights
+      if (path === "/api/agent-insights" && request.method === "GET") {
+        const agent = url.searchParams.get("agent");
+        const severity = url.searchParams.get("severity");
+        const ticker = url.searchParams.get("ticker");
+        const days = parseInt(url.searchParams.get("days") || "7", 10);
+        const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+
+        let sql = "SELECT * FROM agent_insights WHERE fecha >= ?";
+        const params = [since];
+        if (agent) { sql += " AND agent_name = ?"; params.push(agent); }
+        if (severity) { sql += " AND severity = ?"; params.push(severity); }
+        if (ticker) { sql += " AND ticker = ?"; params.push(ticker); }
+        sql += " ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END, fecha DESC LIMIT 200";
+
+        const { results } = await env.DB.prepare(sql).bind(...params).all();
+        const parsed = results.map(r => ({ ...r, details: r.details ? JSON.parse(r.details) : {} }));
+        return json({ insights: parsed, count: parsed.length }, corsHeaders);
+      }
+
+      // POST /api/agent-run — manual trigger for all agents
+      if (path === "/api/agent-run" && request.method === "POST") {
+        try {
+          await ensureMigrations(env);
+          const result = await runAllAgents(env);
+          return json({ ok: true, ...result }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
       // POST /api/ib-auto-sync — cloud-based trade/NLV sync (replaces Mac cron dependency)
       if (path === "/api/ib-auto-sync" && request.method === "POST") {
         try {
@@ -4706,8 +4888,170 @@ export default {
     } catch(e) {
       console.error("Patrimonio auto-snapshot failed:", e.message);
     }
+    // Refresh div_ttm & div_yield for all positions (daily)
+    try {
+      const divResult = await refreshDivTTM(env);
+      console.log("div_ttm refresh completed:", JSON.stringify(divResult));
+    } catch(e) {
+      console.error("div_ttm refresh failed:", e.message);
+    }
+    // Check dividend cuts/raises
+    try {
+      const divChangeResult = await checkDividendChanges(env);
+      console.log("Dividend change check completed:", JSON.stringify(divChangeResult));
+    } catch(e) {
+      console.error("Dividend change check failed:", e.message);
+    }
+    // Run AI agents
+    try {
+      const agentResults = await runAllAgents(env);
+      console.log("AI agents completed:", JSON.stringify(agentResults));
+    } catch(e) {
+      console.error("AI agents cron failed:", e.message);
+    }
   },
 };
+
+// ═══════════════════════════════════════════════════════════════
+// refreshDivTTM — update div_ttm & div_yield in positions table
+// Uses same logic as /api/dividend-dps-live (annualized from last payment)
+// ═══════════════════════════════════════════════════════════════
+async function refreshDivTTM(env) {
+  const positions = await env.DB.prepare(
+    "SELECT ticker, shares, div_ttm, last_price FROM positions WHERE shares > 0"
+  ).all();
+  const tickers = (positions.results || []).map(p => p.ticker).filter(Boolean);
+  if (!tickers.length) return { updated: 0, skipped: 0, total: 0 };
+
+  const POS_TO_DIV_ALIASES = {
+    "BME:VIS":["VIS","VIS.D","VISCOFAN"],"BME:AMS":["AMS","AMS.D"],
+    "HKG:9618":["9618","JD"],"HKG:1052":["1052"],"HKG:1910":["1910"],
+    "HKG:2219":["2219"],"HKG:9616":["9616"],
+    "IIPR-PRA":["IIPR PRA","IIPRPRA"],
+  };
+
+  // Fetch recent dividends (14 months)
+  const recentDate = new Date(Date.now() - 420 * 86400000).toISOString().slice(0, 10);
+  const recentDivs = await env.DB.prepare(
+    "SELECT ticker, fecha, bruto, shares FROM dividendos WHERE fecha >= ? ORDER BY fecha DESC"
+  ).bind(recentDate).all();
+
+  const paymentsByTicker = {};
+  for (const row of (recentDivs.results || [])) {
+    if (!paymentsByTicker[row.ticker]) paymentsByTicker[row.ticker] = [];
+    paymentsByTicker[row.ticker].push(row);
+  }
+
+  const findPayments = (ticker) => {
+    if (paymentsByTicker[ticker]?.length) return paymentsByTicker[ticker];
+    const aliases = POS_TO_DIV_ALIASES[ticker];
+    if (aliases) {
+      for (const alt of aliases) {
+        if (paymentsByTicker[alt]?.length) return paymentsByTicker[alt];
+      }
+    }
+    return [];
+  };
+
+  const deduplicateByDate = (payments) => {
+    const byDate = {};
+    for (const p of payments) {
+      if (!byDate[p.fecha]) byDate[p.fecha] = { ...p, bruto: 0, neto: 0 };
+      byDate[p.fecha].bruto += (p.bruto || 0);
+      byDate[p.fecha].neto += (p.neto || 0);
+    }
+    return Object.values(byDate).sort((a, b) => b.fecha.localeCompare(a.fecha));
+  };
+
+  const detectFrequency = (payments) => {
+    const deduped = deduplicateByDate(payments);
+    if (deduped.length < 2) return { freq: "quarterly", n: 4 };
+    const ttmCutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+    const ttmDeduped = deduped.filter(p => p.fecha >= ttmCutoff);
+    const count = ttmDeduped.length;
+    if (count >= 11) return { freq: "monthly", n: 12 };
+    if (count >= 6) return { freq: "quarterly", n: 4 };
+    if (count >= 3) return { freq: "quarterly", n: 4 };
+    if (deduped.length >= 2) {
+      const d1 = new Date(deduped[0].fecha);
+      const d2 = new Date(deduped[1].fecha);
+      const gapDays = Math.abs(d1 - d2) / 86400000;
+      if (gapDays < 50 && gapDays > 0) return { freq: "monthly", n: 12 };
+      if (gapDays < 120) return { freq: "quarterly", n: 4 };
+      if (gapDays < 270) return { freq: "semiannual", n: 2 };
+      return { freq: "annual", n: 1 };
+    }
+    if (count >= 1) return { freq: "semiannual", n: 2 };
+    return { freq: "quarterly", n: 4 };
+  };
+
+  const calcAnnualizedDPS = (payments) => {
+    if (!payments.length) return { dps: 0 };
+    const { n } = detectFrequency(payments);
+    const deduped = deduplicateByDate(payments);
+    const last = deduped[0];
+    const origPayments = payments.filter(p => p.fecha === last.fecha);
+    const maxShares = Math.max(...origPayments.map(p => p.shares || 0));
+    const totalBruto = origPayments.reduce((s, p) => s + (p.bruto || 0), 0);
+    const lastDPS = maxShares > 0 ? (totalBruto / maxShares) : 0;
+    return { dps: lastDPS * n };
+  };
+
+  let updated = 0;
+  let skipped = 0;
+  const details = [];
+
+  for (const ticker of tickers) {
+    const pos = (positions.results || []).find(p => p.ticker === ticker);
+    const price = pos?.last_price || 0;
+    const payments = findPayments(ticker);
+
+    let dps = 0;
+
+    // Primary: annualized from actual payments
+    if (payments.length > 0) {
+      const calc = calcAnnualizedDPS(payments);
+      if (calc.dps > 0) dps = calc.dps;
+    }
+
+    // Fallback: FMP fundamentals cache
+    if (!dps) {
+      const cached = await env.DB.prepare(
+        "SELECT ratios FROM fundamentals WHERE symbol = ?"
+      ).bind(ticker).first();
+      if (cached?.ratios) {
+        try {
+          const ratios = JSON.parse(cached.ratios || "[]");
+          const latest = Array.isArray(ratios) ? ratios[0] : ratios;
+          dps = latest?.dividendPerShare || latest?.dividendPerShareTTM || 0;
+        } catch {}
+      }
+    }
+
+    // Don't overwrite non-zero with zero
+    if (!dps && pos?.div_ttm > 0) {
+      skipped++;
+      continue;
+    }
+    if (!dps) {
+      skipped++;
+      continue;
+    }
+
+    const dy = price > 0 ? dps / price : 0;
+    const roundedDps = Math.round(dps * 100) / 100;
+    const roundedYield = Math.round(dy * 10000) / 10000;
+
+    await env.DB.prepare(
+      "UPDATE positions SET div_ttm = ?, div_yield = ? WHERE ticker = ?"
+    ).bind(roundedDps, roundedYield, ticker).run();
+
+    updated++;
+    details.push({ ticker, div_ttm: roundedDps, div_yield: roundedYield });
+  }
+
+  return { updated, skipped, total: tickers.length, details };
+}
 
 function json(data, corsHeaders, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -4861,6 +5205,505 @@ Use real numbers from the data provided. If data is missing, use reasonable esti
     verdict: parsed.verdict,
     analyzed_at: new Date().toISOString(),
   };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// AI AGENTS — 5 autonomous agents for portfolio monitoring
+// ═══════════════════════════════════════════════════════════════
+
+async function callAgentClaude(env, systemPrompt, userContent, maxTokens = 3000) {
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": env.ANTHROPIC_API_KEY || "",
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: maxTokens,
+      system: systemPrompt,
+      messages: [{ role: "user", content: typeof userContent === "string" ? userContent : JSON.stringify(userContent) }],
+    }),
+  });
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`Claude API error ${resp.status}: ${errText}`);
+  }
+  const result = await resp.json();
+  const rawText = result.content?.[0]?.text || "";
+  const cleaned = rawText.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {
+    // Try to extract JSON array or object from response
+    const arrMatch = cleaned.match(/\[[\s\S]*\]/);
+    const objMatch = cleaned.match(/\{[\s\S]*\}/);
+    const extracted = arrMatch ? arrMatch[0] : objMatch ? objMatch[0] : null;
+    if (extracted) return JSON.parse(extracted);
+    throw new Error(`JSON parse failed: ${e.message} — raw: ${cleaned.slice(0, 200)}`);
+  }
+}
+
+async function storeInsights(env, agentName, fecha, insights) {
+  const stmt = env.DB.prepare(`
+    INSERT INTO agent_insights (agent_name, fecha, ticker, severity, title, summary, details, score)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(agent_name, fecha, ticker) DO UPDATE SET
+      severity = excluded.severity, title = excluded.title, summary = excluded.summary,
+      details = excluded.details, score = excluded.score, created_at = datetime('now')
+  `);
+  const batch = insights.map(i =>
+    stmt.bind(agentName, fecha, i.ticker || "_GLOBAL_", i.severity || "info", i.title, i.summary, JSON.stringify(i.details || {}), i.score || 0)
+  );
+  if (batch.length) await env.DB.batch(batch);
+  return batch.length;
+}
+
+// ─── Agent 1: Earnings Monitor ─────────────────────────────────
+async function runEarningsAgent(env, fecha) {
+  const { results: positions } = await env.DB.prepare(
+    "SELECT ticker, name, shares, sector FROM positions WHERE shares > 0"
+  ).all();
+  if (!positions.length) return { agent: "earnings", skipped: true };
+
+  const tickers = positions.map(p => p.ticker);
+  const placeholders = tickers.map(() => "?").join(",");
+  const { results: fundamentals } = await env.DB.prepare(
+    `SELECT symbol, earnings, income, estimates, profile FROM fundamentals WHERE symbol IN (${placeholders})`
+  ).bind(...tickers).all();
+
+  const fundMap = {};
+  for (const f of fundamentals) {
+    fundMap[f.symbol] = {
+      earnings: f.earnings ? JSON.parse(f.earnings) : null,
+      income: f.income ? JSON.parse(f.income) : null,
+      estimates: f.estimates ? JSON.parse(f.estimates) : null,
+      profile: f.profile ? JSON.parse(f.profile) : null,
+    };
+  }
+
+  // Only include positions with earnings data, limit data per ticker to stay under token limits
+  const posData = positions.filter(p => fundMap[p.ticker]?.earnings).map(p => {
+    const e = fundMap[p.ticker].earnings;
+    const latest = Array.isArray(e) ? e.slice(0, 2) : e;
+    return {
+      ticker: p.ticker, name: p.name, sector: p.sector,
+      earnings: latest,
+      estimates: fundMap[p.ticker].estimates?.slice?.(0, 1),
+    };
+  }).slice(0, 40); // Cap at 40 positions to limit tokens
+
+  if (!posData.length) {
+    await storeInsights(env, "earnings", fecha, [{ ticker: "_GLOBAL_", severity: "info", title: "Sin datos de earnings", summary: "No hay datos de earnings disponibles en fundamentals cache.", details: {}, score: 5 }]);
+    return { agent: "earnings", insights: 0 };
+  }
+
+  const system = `You are an earnings analyst monitoring a $1.3M dividend income portfolio held by a China-based fiscal resident.
+Analyze the latest earnings data for each company. Flag meaningful changes: revenue miss >3%, EPS miss, guidance changes, margin compression, or growth deceleration.
+Respond with ONLY a JSON array. Each element: {"ticker":"XX","severity":"info|warning|critical","title":"short title","summary":"2-3 sentence analysis","details":{"epsSurprise":null,"revenueSurprise":null,"marginTrend":"","keyRisks":[]},"score":1-10}
+Score 1=terrible, 10=excellent. Only include positions with notable findings. Max 15 entries.`;
+
+  const insights = await callAgentClaude(env, system, { positions: posData });
+  const stored = await storeInsights(env, "earnings", fecha, Array.isArray(insights) ? insights : [insights]);
+  return { agent: "earnings", insights: stored };
+}
+
+// ─── Agent 2: Dividend Safety ──────────────────────────────────
+async function runDividendAgent(env, fecha) {
+  const { results: positions } = await env.DB.prepare(
+    "SELECT ticker, name, shares, div_ttm, div_yield, yoc, sector FROM positions WHERE shares > 0 AND div_ttm > 0"
+  ).all();
+  if (!positions.length) return { agent: "dividend", skipped: true };
+
+  const tickers = positions.map(p => p.ticker);
+  const placeholders = tickers.map(() => "?").join(",");
+  const { results: fundamentals } = await env.DB.prepare(
+    `SELECT symbol, ratios, cashflow, dividends, key_metrics, income FROM fundamentals WHERE symbol IN (${placeholders})`
+  ).bind(...tickers).all();
+
+  const fundMap = {};
+  for (const f of fundamentals) {
+    fundMap[f.symbol] = {
+      ratios: f.ratios ? JSON.parse(f.ratios) : null,
+      cashflow: f.cashflow ? JSON.parse(f.cashflow) : null,
+      dividends: f.dividends ? JSON.parse(f.dividends) : null,
+      keyMetrics: f.key_metrics ? JSON.parse(f.key_metrics) : null,
+      income: f.income ? JSON.parse(f.income) : null,
+    };
+  }
+
+  const posData = positions.map(p => {
+    const f = fundMap[p.ticker] || {};
+    const latestRatios = Array.isArray(f.ratios) ? f.ratios[0] : f.ratios;
+    const latestCF = Array.isArray(f.cashflow) ? f.cashflow[0] : f.cashflow;
+    return {
+      ticker: p.ticker, name: p.name, sector: p.sector,
+      divTTM: p.div_ttm, yield: p.div_yield, yoc: p.yoc,
+      payoutRatio: latestRatios?.payoutRatio || latestRatios?.dividendPayoutRatio,
+      fcfPerShare: latestCF?.freeCashFlowPerShare || latestCF?.freeCashFlow,
+      debtToEquity: latestRatios?.debtEquityRatio,
+      interestCoverage: latestRatios?.interestCoverage,
+      dividendHistory: Array.isArray(f.dividends) ? f.dividends.slice(0, 8) : f.dividends,
+    };
+  }).slice(0, 35); // Cap to limit tokens
+
+  const system = `You are a dividend safety analyst for a $1.3M dividend income portfolio.
+Rate each position's dividend sustainability. Flag: payout ratio >80%, declining FCF coverage, broken dividend streaks, rising debt.
+The portfolio owner is focused on growing dividend income — cuts or freezes are critical events.
+Respond with ONLY a JSON array. Each element: {"ticker":"XX","severity":"info|warning|critical","title":"short title","summary":"2-3 sentence analysis","details":{"payoutRatio":null,"fcfCoverage":null,"streakYears":null,"growthRate5y":null,"cutRisk":"low|medium|high","debtConcern":false},"score":1-10}
+Score 1=imminent cut risk, 10=extremely safe. Include all dividend positions. Max 20 entries, prioritize warnings/critical first.`;
+
+  const insights = await callAgentClaude(env, system, { positions: posData });
+  const stored = await storeInsights(env, "dividend", fecha, Array.isArray(insights) ? insights : [insights]);
+  return { agent: "dividend", insights: stored };
+}
+
+// ─── Agent 3: Macro Sentinel ───────────────────────────────────
+async function runMacroAgent(env, fecha) {
+  const fmpKey = env.FMP_KEY;
+  const today = new Date();
+  const weekAgo = new Date(today - 7 * 86400000).toISOString().slice(0, 10);
+  const todayStr = today.toISOString().slice(0, 10);
+
+  // Fetch economic calendar + treasury rates from FMP
+  let econEvents = [], treasuryRates = [];
+  try {
+    const [econResp, treasuryResp] = await Promise.all([
+      fetch(`https://financialmodelingprep.com/stable/economic-calendar?from=${weekAgo}&to=${todayStr}&apikey=${fmpKey}`),
+      fetch(`https://financialmodelingprep.com/stable/treasury?from=${weekAgo}&to=${todayStr}&apikey=${fmpKey}`),
+    ]);
+    if (econResp.ok) econEvents = await econResp.json();
+    if (treasuryResp.ok) treasuryRates = await treasuryResp.json();
+  } catch (e) {
+    console.error("Macro FMP fetch error:", e.message);
+  }
+
+  // Get VIX from price_cache
+  let vix = null;
+  try {
+    const vixRow = await env.DB.prepare("SELECT data FROM price_cache WHERE id = '^VIX'").first();
+    if (vixRow?.data) {
+      const vixData = JSON.parse(vixRow.data);
+      vix = vixData.regularMarketPrice || vixData.price;
+    }
+  } catch (_) {}
+
+  // Portfolio sector breakdown
+  const { results: sectorRows } = await env.DB.prepare(
+    "SELECT sector, SUM(market_value) as total FROM positions WHERE shares > 0 GROUP BY sector"
+  ).all();
+
+  const system = `You are a macro strategist analyzing how recent economic events impact a $1.3M US-focused dividend income portfolio.
+The portfolio owner is a China fiscal resident receiving US dividends (10% WHT under US-China treaty).
+Focus on: interest rates, inflation (CPI/PCE), Fed decisions, employment data, yield curve, and USD/CNY impact.
+Respond with ONLY a JSON object: {"severity":"info|warning|critical","title":"short title","summary":"3-4 sentence macro outlook","details":{"rateOutlook":"","inflationTrend":"","yieldCurveSignal":"","usdCnyImpact":"","sectorImpacts":[],"keyRisks":[],"opportunities":[]},"score":1-10}
+Score 1=very bearish macro, 10=very bullish.`;
+
+  const userContent = {
+    vix,
+    economicEvents: Array.isArray(econEvents) ? econEvents.slice(0, 30) : [],
+    treasuryRates: Array.isArray(treasuryRates) ? treasuryRates.slice(0, 7) : [],
+    portfolioSectors: sectorRows,
+    fecha: todayStr,
+  };
+
+  const insight = await callAgentClaude(env, system, userContent);
+  insight.ticker = "_MACRO_";
+  const stored = await storeInsights(env, "macro", fecha, [insight]);
+  return { agent: "macro", insights: stored };
+}
+
+// ─── Agent 4: Portfolio Risk ───────────────────────────────────
+async function runRiskAgent(env, fecha) {
+  const { results: positions } = await env.DB.prepare(
+    "SELECT ticker, name, shares, market_value, sector, pnl_pct, div_yield, category FROM positions WHERE shares > 0"
+  ).all();
+  if (!positions.length) return { agent: "risk", skipped: true };
+
+  const totalValue = positions.reduce((s, p) => s + (p.market_value || 0), 0);
+
+  // NLV history for drawdown
+  const { results: nlvHistory } = await env.DB.prepare(
+    "SELECT fecha, nlv FROM nlv_history ORDER BY fecha DESC LIMIT 60"
+  ).all();
+
+  // Compute concentration metrics
+  const sorted = [...positions].sort((a, b) => (b.market_value || 0) - (a.market_value || 0));
+  const top5Weight = sorted.slice(0, 5).reduce((s, p) => s + (p.market_value || 0), 0) / (totalValue || 1);
+  const maxWeight = (sorted[0]?.market_value || 0) / (totalValue || 1);
+
+  const sectorMap = {};
+  for (const p of positions) {
+    const s = p.sector || "Unknown";
+    sectorMap[s] = (sectorMap[s] || 0) + (p.market_value || 0);
+  }
+  const sectorWeights = Object.entries(sectorMap).map(([s, v]) => ({ sector: s, weight: v / (totalValue || 1), value: v })).sort((a, b) => b.weight - a.weight);
+
+  // Max drawdown from NLV
+  let maxDrawdown = 0;
+  if (nlvHistory.length > 1) {
+    let peak = nlvHistory[nlvHistory.length - 1]?.nlv || 0;
+    for (let i = nlvHistory.length - 2; i >= 0; i--) {
+      const nlv = nlvHistory[i]?.nlv || 0;
+      if (nlv > peak) peak = nlv;
+      const dd = (peak - nlv) / peak;
+      if (dd > maxDrawdown) maxDrawdown = dd;
+    }
+  }
+
+  const system = `You are a portfolio risk analyst for a $1.3M dividend income portfolio with ${positions.length} positions.
+Evaluate concentration risk, sector diversification, and drawdown exposure.
+Respond with ONLY a JSON object: {"severity":"info|warning|critical","title":"short title","summary":"3-4 sentence risk assessment","details":{"concentrationScore":1-10,"topRisks":[],"sectorConcentration":"","diversificationScore":1-10,"recommendations":[]},"score":1-10}
+Score 1=very risky, 10=well diversified.`;
+
+  const userContent = {
+    totalNLV: totalValue,
+    positionCount: positions.length,
+    top5: sorted.slice(0, 5).map(p => ({ ticker: p.ticker, weight: (p.market_value || 0) / (totalValue || 1) })),
+    top5Weight: Math.round(top5Weight * 1000) / 10,
+    maxSingleWeight: Math.round(maxWeight * 1000) / 10,
+    sectorWeights,
+    maxDrawdown60d: Math.round(maxDrawdown * 1000) / 10,
+    nlvTrend: nlvHistory.slice(0, 10),
+    categories: positions.reduce((acc, p) => { acc[p.category || "OTHER"] = (acc[p.category || "OTHER"] || 0) + 1; return acc; }, {}),
+  };
+
+  const insight = await callAgentClaude(env, system, userContent);
+  insight.ticker = "_PORTFOLIO_";
+  const stored = await storeInsights(env, "risk", fecha, [insight]);
+  return { agent: "risk", insights: stored };
+}
+
+// ─── Agent 5: Trade Advisor ────────────────────────────────────
+async function runTradeAgent(env, fecha) {
+  // Read today's insights from agents 1-4
+  const { results: todayInsights } = await env.DB.prepare(
+    "SELECT agent_name, ticker, severity, title, summary, score FROM agent_insights WHERE fecha = ? AND agent_name != 'trade'"
+  ).bind(fecha).all();
+
+  // Latest AI analysis per ticker
+  const { results: aiAnalyses } = await env.DB.prepare(
+    `SELECT a.ticker, a.score, a.action, a.summary FROM ai_analysis a
+     INNER JOIN (SELECT ticker, MAX(updated_at) as max_date FROM ai_analysis GROUP BY ticker) b
+     ON a.ticker = b.ticker AND a.updated_at = b.max_date`
+  ).all();
+
+  // Positions with fundamentals valuation data
+  const { results: positions } = await env.DB.prepare(
+    "SELECT ticker, name, shares, market_value, avg_price, last_price, pnl_pct, div_yield FROM positions WHERE shares > 0"
+  ).all();
+
+  const tickers = positions.map(p => p.ticker);
+  let dcfMap = {};
+  if (tickers.length) {
+    const placeholders = tickers.map(() => "?").join(",");
+    const { results: fundRows } = await env.DB.prepare(
+      `SELECT symbol, dcf, price_target FROM fundamentals WHERE symbol IN (${placeholders})`
+    ).bind(...tickers).all();
+    for (const f of fundRows) {
+      dcfMap[f.symbol] = {
+        dcf: f.dcf ? JSON.parse(f.dcf) : null,
+        priceTarget: f.price_target ? JSON.parse(f.price_target) : null,
+      };
+    }
+  }
+
+  const posData = positions.map(p => ({
+    ticker: p.ticker, name: p.name, shares: p.shares,
+    price: p.last_price, avgCost: p.avg_price, pnlPct: p.pnl_pct,
+    yield: p.div_yield, value: p.market_value,
+    aiScore: aiAnalyses.find(a => a.ticker === p.ticker)?.score,
+    aiAction: aiAnalyses.find(a => a.ticker === p.ticker)?.action,
+    fairValue: dcfMap[p.ticker]?.dcf?.[0]?.dcf || dcfMap[p.ticker]?.dcf?.dcf,
+    priceTarget: dcfMap[p.ticker]?.priceTarget?.[0]?.targetConsensus || dcfMap[p.ticker]?.priceTarget?.targetConsensus,
+  }));
+
+  const system = `You are a trade advisor synthesizing all agent insights into actionable recommendations for a $1.3M dividend income portfolio.
+You receive today's analysis from 4 specialized agents (earnings, dividends, macro, risk) plus existing AI scores.
+Generate buy/sell/hold/trim/add recommendations for the most actionable positions (max 10).
+Consider: valuation (DCF vs price), dividend safety, earnings momentum, macro context, and portfolio concentration.
+The owner favors income growth — avoid recommending sells of safe dividend growers unless seriously overvalued or fundamentally impaired.
+Respond with ONLY a JSON array. Each element: {"ticker":"XX","severity":"info|warning|critical","title":"ACTION: Ticker","summary":"2-3 sentence rationale","details":{"action":"BUY|SELL|HOLD|TRIM|ADD","conviction":"low|medium|high","targetPrice":null,"rationale":"","timeHorizon":"short|medium|long"},"score":1-10}
+Score reflects conviction: 1=low confidence, 10=very high confidence.`;
+
+  const userContent = {
+    todayInsights,
+    positions: posData,
+    fecha,
+  };
+
+  const insights = await callAgentClaude(env, system, userContent);
+  const stored = await storeInsights(env, "trade", fecha, Array.isArray(insights) ? insights : [insights]);
+  return { agent: "trade", insights: stored };
+}
+
+// ─── Dividend Cut/Raise Detection ─────────────────────────────
+// Compares live DPS (annualized from recent dividendos) with stored div_ttm
+// Alerts if change > 10%. Stores in alerts table with tipo DIV_CUT / DIV_RAISE
+async function checkDividendChanges(env) {
+  const today = new Date().toISOString().slice(0, 10);
+  const FMP_KEY = env.FMP_KEY;
+  const FMP_BASE = "https://financialmodelingprep.com/stable";
+
+  // 1. Get all positions with shares > 0 and div_ttm > 0 (skip new/zero positions)
+  const positions = await env.DB.prepare(
+    "SELECT ticker, name, shares, div_ttm, last_price FROM positions WHERE shares > 0 AND div_ttm > 0"
+  ).all();
+  const posList = positions.results || [];
+  if (!posList.length) return { checked: 0, alerts: 0 };
+
+  // 2. Compute live DPS for each position (same logic as /api/dividend-dps-live)
+  const POS_TO_DIV_ALIASES = {
+    "BME:VIS":["VIS","VIS.D","VISCOFAN"],"BME:AMS":["AMS","AMS.D"],
+    "HKG:9618":["9618","JD"],"HKG:1052":["1052"],"HKG:1910":["1910"],
+    "HKG:2219":["2219"],"HKG:9616":["9616"],
+    "IIPR-PRA":["IIPR PRA","IIPRPRA"],
+  };
+
+  const recentDate = new Date(Date.now() - 420 * 86400000).toISOString().slice(0, 10);
+  const recentDivs = await env.DB.prepare(
+    "SELECT ticker, fecha, bruto, shares FROM dividendos WHERE fecha >= ? ORDER BY fecha DESC"
+  ).bind(recentDate).all();
+
+  const paymentsByTicker = {};
+  for (const row of (recentDivs.results || [])) {
+    if (!paymentsByTicker[row.ticker]) paymentsByTicker[row.ticker] = [];
+    paymentsByTicker[row.ticker].push(row);
+  }
+
+  const findPayments = (ticker) => {
+    if (paymentsByTicker[ticker]?.length) return paymentsByTicker[ticker];
+    const aliases = POS_TO_DIV_ALIASES[ticker];
+    if (aliases) {
+      for (const alt of aliases) {
+        if (paymentsByTicker[alt]?.length) return paymentsByTicker[alt];
+      }
+    }
+    return [];
+  };
+
+  const deduplicateByDate = (payments) => {
+    const byDate = {};
+    for (const p of payments) {
+      if (!byDate[p.fecha]) byDate[p.fecha] = { ...p, bruto: 0 };
+      byDate[p.fecha].bruto += (p.bruto || 0);
+    }
+    return Object.values(byDate).sort((a, b) => b.fecha.localeCompare(a.fecha));
+  };
+
+  const detectFrequency = (payments) => {
+    const deduped = deduplicateByDate(payments);
+    if (deduped.length < 2) return 4;
+    const ttmCutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+    const count = deduped.filter(p => p.fecha >= ttmCutoff).length;
+    if (count >= 11) return 12;
+    if (count >= 3) return 4;
+    if (deduped.length >= 2) {
+      const gapDays = Math.abs(new Date(deduped[0].fecha) - new Date(deduped[1].fecha)) / 86400000;
+      if (gapDays < 50 && gapDays > 0) return 12;
+      if (gapDays < 120) return 4;
+      if (gapDays < 270) return 2;
+      return 1;
+    }
+    return 4;
+  };
+
+  const calcLiveDPS = (payments) => {
+    if (!payments.length) return 0;
+    const n = detectFrequency(payments);
+    const deduped = deduplicateByDate(payments);
+    const last = deduped[0];
+    const origPayments = payments.filter(p => p.fecha === last.fecha);
+    const maxShares = Math.max(...origPayments.map(p => p.shares || 0));
+    const totalBruto = origPayments.reduce((s, p) => s + (p.bruto || 0), 0);
+    const lastDPS = maxShares > 0 ? (totalBruto / maxShares) : 0;
+    return lastDPS * n;
+  };
+
+  // 3. Compare and generate alerts
+  let alertCount = 0;
+  const alertsGenerated = [];
+
+  for (const pos of posList) {
+    const payments = findPayments(pos.ticker);
+    let liveDPS = calcLiveDPS(payments);
+
+    // If no dividend payments found, try FMP fundamentals cache
+    if (!liveDPS) {
+      try {
+        const cached = await env.DB.prepare(
+          "SELECT ratios FROM fundamentals WHERE symbol = ?"
+        ).bind(pos.ticker).first();
+        if (cached?.ratios) {
+          const ratios = JSON.parse(cached.ratios || "[]");
+          const latest = Array.isArray(ratios) ? ratios[0] : ratios;
+          liveDPS = latest?.dividendPerShare || latest?.dividendPerShareTTM || 0;
+        }
+      } catch {}
+    }
+
+    if (!liveDPS || !pos.div_ttm) continue;
+
+    const changePct = ((liveDPS - pos.div_ttm) / pos.div_ttm) * 100;
+
+    // Only alert if change > 10%
+    if (Math.abs(changePct) <= 10) continue;
+
+    const isCut = changePct < -10;
+    const tipo = isCut ? "DIV_CUT" : "DIV_RAISE";
+    const icon = isCut ? "⚠️" : "📈";
+    const label = isCut ? "Dividend Cut" : "Dividend Raise";
+    const titulo = `${icon} ${pos.ticker} ${label} ${changePct > 0 ? "+" : ""}${changePct.toFixed(1)}%`;
+    const detalle = `DPS: $${pos.div_ttm.toFixed(2)} → $${liveDPS.toFixed(2)} · ${pos.name || pos.ticker}`;
+
+    // Dedup: check if alert already exists for this ticker+tipo today
+    const exists = await env.DB.prepare(
+      "SELECT id FROM alerts WHERE fecha=? AND tipo=? AND ticker=? LIMIT 1"
+    ).bind(today, tipo, pos.ticker).first();
+
+    if (!exists) {
+      await env.DB.prepare(
+        "INSERT INTO alerts (fecha, tipo, titulo, detalle, ticker, valor) VALUES (?,?,?,?,?,?)"
+      ).bind(today, tipo, titulo, detalle, pos.ticker, changePct).run();
+      alertCount++;
+      alertsGenerated.push({ ticker: pos.ticker, tipo, oldDPS: pos.div_ttm, newDPS: liveDPS, changePct });
+    }
+  }
+
+  return { checked: posList.length, alerts: alertCount, details: alertsGenerated };
+}
+
+// ─── Agent Orchestrator ────────────────────────────────────────
+async function runAllAgents(env) {
+  const fecha = new Date().toISOString().slice(0, 10);
+  console.log(`[Agents] Starting all agents for ${fecha}`);
+  const results = {};
+
+  // Run sequentially to avoid Claude API rate limits (30k tokens/min)
+  const agents = [
+    ['earnings', runEarningsAgent],
+    ['dividend', runDividendAgent],
+    ['macro', runMacroAgent],
+    ['risk', runRiskAgent],
+    ['trade', runTradeAgent],  // Must run last (reads other agents' output)
+  ];
+
+  for (let i = 0; i < agents.length; i++) {
+    const [name, fn] = agents[i];
+    // Wait 65s between agents to respect 30k tokens/min rate limit
+    if (i > 0) await new Promise(r => setTimeout(r, 65000));
+    try {
+      results[name] = await fn(env, fecha);
+      console.log(`[Agents] ${name} done:`, JSON.stringify(results[name]));
+    } catch (e) {
+      results[name] = { error: e.message };
+      console.error(`[Agents] ${name} failed:`, e.message);
+    }
+  }
+
+  console.log(`[Agents] All completed`);
+  return results;
 }
 
 // ═══════════════════════════════════════════════════════════════

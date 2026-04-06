@@ -62,8 +62,18 @@ const COL_DEFS = [
     val:p=>(p.divAnnualUSD||0)/12, fmt:v=>v>0?"$"+_sf(v,0):"\u2014", color:v=>v>0?"var(--gold)":"var(--text-tertiary)", sortV:p=>(p.divAnnualUSD||0)/12 },
   { id:"payoutRatio", label:"PAYOUT%", group:"Dividendo", w:"46px", defaultOn:false,
     val:p=>p._fund?.payoutRatio||0, fmt:v=>v>0?_sf(v*100,0)+"%":"\u2014", color:v=>v>0.8?"var(--red)":v>0.6?"var(--gold)":"var(--text-primary)", sortV:p=>p._fund?.payoutRatio||0 },
-  { id:"divGrowth5y", label:"DG 5Y", group:"Dividendo", w:"42px", defaultOn:false,
-    val:p=>p._fund?.divGrowth5y||0, fmt:v=>v!==0?_sf(v*100,1)+"%":"\u2014", color:v=>v>0?"var(--green)":v<0?"var(--red)":"var(--text-tertiary)", sortV:p=>p._fund?.divGrowth5y||0 },
+  { id:"divGrowth5y", label:"DGR 5Y", group:"Dividendo", w:"48px", defaultOn:false, isDGR:true,
+    val:p=>p._dgr?.dgr5!=null?p._dgr.dgr5:(p._fund?.divGrowth5y||0), fmt:v=>v!==0?(v>=0?"+":"")+_sf(v*100,1)+"%":"\u2014",
+    color:v=>v>0.05?"var(--green)":v>0.01?"var(--gold)":"var(--red)", sortV:p=>p._dgr?.dgr5||p._fund?.divGrowth5y||0 },
+  { id:"divGrowth1y", label:"DGR 1Y", group:"Dividendo", w:"48px", defaultOn:false, isDGR:true,
+    val:p=>p._dgr?.dgr1||0, fmt:v=>v!==0?(v>=0?"+":"")+_sf(v*100,1)+"%":"\u2014",
+    color:v=>v>0.05?"var(--green)":v>0.01?"var(--gold)":"var(--red)", sortV:p=>p._dgr?.dgr1||0 },
+  { id:"divGrowth3y", label:"DGR 3Y", group:"Dividendo", w:"48px", defaultOn:false, isDGR:true,
+    val:p=>p._dgr?.dgr3||0, fmt:v=>v!==0?(v>=0?"+":"")+_sf(v*100,1)+"%":"\u2014",
+    color:v=>v>0.05?"var(--green)":v>0.01?"var(--gold)":"var(--red)", sortV:p=>p._dgr?.dgr3||0 },
+  { id:"divGrowth10y", label:"DGR 10Y", group:"Dividendo", w:"48px", defaultOn:false, isDGR:true,
+    val:p=>p._dgr?.dgr10||0, fmt:v=>v!==0?(v>=0?"+":"")+_sf(v*100,1)+"%":"\u2014",
+    color:v=>v>0.05?"var(--green)":v>0.01?"var(--gold)":"var(--red)", sortV:p=>p._dgr?.dgr10||0 },
   { id:"exDate", label:"EX-DATE", group:"Dividendo", w:"56px", defaultOn:false,
     val:p=>p._fund?.exDivDate||"", fmt:v=>v||"\u2014", sortV:p=>p._fund?.exDivDate||"9999" },
   { id:"pe", label:"P/E", group:"Valoracion", w:"40px", defaultOn:false,
@@ -211,6 +221,13 @@ export default function PortfolioTab() {
   });
   const [fundLoading, setFundLoading] = useState(false);
 
+  // DGR (Dividend Growth Rate) data — loaded when DGR columns are visible
+  const DGR_CACHE_KEY = "ayr_dgr_cache";
+  const [dgrData, setDgrData] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem(DGR_CACHE_KEY)); if (s && s.data && s.ts && Date.now() - s.ts < 24*3600*1000) return s.data; } catch {} return {};
+  });
+  const [dgrLoading, setDgrLoading] = useState(false);
+
   useEffect(() => { localStorage.setItem(COLS_KEY, JSON.stringify(visibleCols)); }, [visibleCols]);
 
   useEffect(() => {
@@ -283,15 +300,40 @@ export default function PortfolioTab() {
     setFundLoading(false);
   }, [portfolioTotals?.positions]);
 
+  const loadDGR = useCallback(async () => {
+    const tickers = (portfolioTotals?.positions || []).map(p=>p.ticker).filter(t=>!t.includes(":"));
+    if (!tickers.length) return;
+    setDgrLoading(true);
+    try {
+      // Load in batches of 30
+      const allResults = {};
+      for (let i = 0; i < tickers.length; i += 30) {
+        const batch = tickers.slice(i, i + 30);
+        const resp = await fetch(`${API_URL}/api/dividend-growth?tickers=${batch.join(",")}`);
+        if (resp.ok) {
+          const data = await resp.json();
+          Object.assign(allResults, data);
+        }
+      }
+      setDgrData(allResults);
+      localStorage.setItem(DGR_CACHE_KEY, JSON.stringify({ data: allResults, ts: Date.now() }));
+    } catch(e) { console.error("DGR load error:", e); }
+    setDgrLoading(false);
+  }, [portfolioTotals?.positions]);
+
   const enrichedPositions = useMemo(() => {
-    return (portfolioTotals?.positions || []).map(p => ({ ...p, _fund: fundData[p.ticker] || null }));
-  }, [portfolioTotals?.positions, fundData]);
+    return (portfolioTotals?.positions || []).map(p => ({ ...p, _fund: fundData[p.ticker] || null, _dgr: dgrData[p.ticker] || null }));
+  }, [portfolioTotals?.positions, fundData, dgrData]);
 
   const activeCols = useMemo(() => visibleCols.map(id => COL_DEFS.find(c => c.id === id)).filter(Boolean), [visibleCols]);
 
   const needsFund = useMemo(() => {
-    const fc = new Set(["pe","fwdPE","pb","evEbitda","roe","debtEq","payoutRatio","divGrowth5y","exDate","ytd"]);
+    const fc = new Set(["pe","fwdPE","pb","evEbitda","roe","debtEq","payoutRatio","exDate","ytd"]);
     return activeCols.some(c => fc.has(c.id));
+  }, [activeCols]);
+
+  const needsDGR = useMemo(() => {
+    return activeCols.some(c => c.isDGR);
   }, [activeCols]);
 
   if (!portfolioList || portfolioList.length === 0) {
@@ -453,6 +495,10 @@ export default function PortfolioTab() {
                       {fundLoading ? "Cargando fundamentales..." : Object.keys(fundData).length > 0 ? "Recargar P/E, ROE, D/E..." : "Cargar P/E, ROE, D/E..."}
                     </button>
                     {Object.keys(fundData).length > 0 && <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2,textAlign:"center"}}>{Object.keys(fundData).length} tickers cargados</div>}
+                    <button onClick={loadDGR} disabled={dgrLoading} style={{width:"100%",padding:"5px 10px",borderRadius:6,border:"1px solid var(--green)",background:"rgba(48,209,88,.08)",color:"var(--green)",fontSize:10,fontWeight:600,cursor:dgrLoading?"wait":"pointer",fontFamily:"var(--fm)",marginTop:4}}>
+                      {dgrLoading ? "Cargando DGR..." : Object.keys(dgrData).length > 0 ? "Recargar DGR 1Y/3Y/5Y/10Y" : "Cargar DGR 1Y/3Y/5Y/10Y"}
+                    </button>
+                    {Object.keys(dgrData).length > 0 && <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2,textAlign:"center"}}>{Object.keys(dgrData).length} tickers DGR</div>}
                   </div>
                 </div>
               )}
@@ -497,6 +543,12 @@ export default function PortfolioTab() {
               <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",padding:"4px 8px",background:"rgba(200,164,78,.06)",borderRadius:6,marginBottom:4,display:"flex",alignItems:"center",gap:6}}>
                 Columnas de valoracion visibles.
                 <button onClick={loadFundamentals} disabled={fundLoading} style={{padding:"2px 8px",borderRadius:4,border:"1px solid var(--gold)",background:"var(--gold-dim)",color:"var(--gold)",fontSize:9,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>{fundLoading?"Cargando...":"Cargar datos"}</button>
+              </div>
+            )}
+            {needsDGR && Object.keys(dgrData).length === 0 && (
+              <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",padding:"4px 8px",background:"rgba(48,209,88,.06)",borderRadius:6,marginBottom:4,display:"flex",alignItems:"center",gap:6}}>
+                Columnas DGR visibles.
+                <button onClick={loadDGR} disabled={dgrLoading} style={{padding:"2px 8px",borderRadius:4,border:"1px solid var(--green)",background:"rgba(48,209,88,.08)",color:"var(--green)",fontSize:9,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>{dgrLoading?"Cargando...":"Cargar DGR"}</button>
               </div>
             )}
             <div style={{overflowX:"auto",borderRadius:8,border:"1px solid var(--border)"}}>
@@ -545,6 +597,17 @@ export default function PortfolioTab() {
                         if (c.id === "sector") {
                           const sc = getSectorColor(p.sector);
                           return (<td key={c.id} style={{padding:"3px 3px",verticalAlign:"middle",textAlign:"left",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}><span style={{fontSize:9,color:sc||"var(--text-tertiary)"}} title={p.sector||""}>{c.fmt(c.val(p),p)}</span></td>);
+                        }
+                        // DGR columns: show tooltip with 1Y/3Y/5Y/10Y breakdown
+                        if (c.isDGR && p._dgr) {
+                          const d = p._dgr;
+                          const fmtDGR = v => v != null ? (v >= 0 ? "+" : "") + _sf(v * 100, 1) + "%" : "\u2014";
+                          const dgrColor = v => v != null ? (v > 0.05 ? "#30d158" : v > 0.01 ? "#ffd60a" : "#ff453a") : "var(--text-tertiary)";
+                          const val = c.val(p);
+                          const formatted = c.fmt(val, p);
+                          const cellColor = c.color ? c.color(val) : "var(--text-primary)";
+                          const tooltip = `DGR ${p.ticker}\n1Y: ${fmtDGR(d.dgr1)}\n3Y: ${fmtDGR(d.dgr3)}\n5Y: ${fmtDGR(d.dgr5)}\n10Y: ${fmtDGR(d.dgr10)}\nStreak: ${d.streak||0} yrs`;
+                          return (<td key={c.id} title={tooltip} style={{padding:"3px 3px",textAlign:"right",verticalAlign:"middle",fontFamily:"var(--fm)",fontSize:10,fontWeight:600,color:cellColor,whiteSpace:"nowrap",cursor:"help"}}>{formatted}</td>);
                         }
                         const val = c.val(p);
                         const formatted = c.fmt(val, p);
