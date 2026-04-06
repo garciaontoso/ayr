@@ -1193,6 +1193,9 @@ function buildPositionsFromCB() {
       const shares = ib?.shares || p.shares || 0;
       const lastPrice = ib?.mktPrice || p.lastPrice || 0;
 
+      // Dynamic yield — computed at runtime from current price/value, not stale D1
+      const divYield = valueUSD > 0 && divAnnualUSD > 0 ? divAnnualUSD / valueUSD : 0;
+
       return {
         ...p, ccy, dataSource,
         shares, lastPrice,
@@ -1203,6 +1206,7 @@ function buildPositionsFromCB() {
         valueUSD, costTotalUSD, divAnnualUSD,
         pnlUSD, pnlPct,
         valueEUR, costTotalEUR, divAnnualEUR,
+        divYield,
         ibPnl: ib?.unrealizedPnl ?? null,
         ibAvgCost: ib?.avgCost ?? null,
       };

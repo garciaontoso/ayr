@@ -307,8 +307,27 @@ export default function PortfolioTab() {
             These intentionally differ: NLV shows total wealth, P&L shows stock performance. */}
         {portfolioList.length>0 && (() => {
           const nlv = ibData?.summary?.nlv?.amount || portfolioTotals.totalValueUSD;
-          const totalPnl = ibData?.loaded ? (ibData.positions||[]).filter(p=>p.assetClass==="STK").reduce((s,p)=>s+(p.unrealizedPnl||0),0) : portfolioTotals.pnlUSD;
-          const costTotal = ibData?.loaded ? (ibData.positions||[]).filter(p=>p.assetClass==="STK").reduce((s,p)=>s+((p.avgCost||0)*(p.shares||0)),0) : portfolioTotals.totalCostUSD;
+          // IB P&L: if IB is loaded but returns $0 (weekends/off-hours), fall back to portfolioTotals or cached value
+          let totalPnl, costTotal;
+          if (ibData?.loaded) {
+            const ibPnl = (ibData.positions||[]).filter(p=>p.assetClass==="STK").reduce((s,p)=>s+(p.unrealizedPnl||0),0);
+            const ibCost = (ibData.positions||[]).filter(p=>p.assetClass==="STK").reduce((s,p)=>s+((p.avgCost||0)*(p.shares||0)),0);
+            if (ibPnl === 0 && portfolioTotals.pnlUSD !== 0) {
+              // IB returned zero (market closed) — use computed fallback
+              totalPnl = portfolioTotals.pnlUSD;
+              costTotal = portfolioTotals.totalCostUSD;
+            } else {
+              totalPnl = ibPnl;
+              costTotal = ibCost;
+              // Cache non-zero P&L for future fallback
+              if (ibPnl !== 0) {
+                try { localStorage.setItem('ayr_last_pnl', JSON.stringify({pnl:ibPnl,cost:ibCost,ts:Date.now()})); } catch(e) {}
+              }
+            }
+          } else {
+            totalPnl = portfolioTotals.pnlUSD;
+            costTotal = portfolioTotals.totalCostUSD;
+          }
           const pnlPct = costTotal > 0 ? (totalPnl / costTotal * 100) : (portfolioTotals.pnlPctUSD * 100);
           const lastSync = ibData?.lastSync ? new Date(ibData.lastSync).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "";
           const isLive = ibData?.loaded;

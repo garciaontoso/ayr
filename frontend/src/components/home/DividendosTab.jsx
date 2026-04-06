@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { API_URL } from '../../constants/index.js';
@@ -600,6 +600,26 @@ export default function DividendosTab() {
   const avgWhtRate = divLog.length > 0 ? divLog.reduce((s,d) => s + (d.gross||0), 0) : 0;
   const avgNetRate = avgWhtRate > 0 ? divLog.reduce((s,d) => s + (d.net||0), 0) / avgWhtRate : 0.94;
   const avgWhtPct = avgWhtRate > 0 ? (1 - avgNetRate) * 100 : 0;
+
+  // Per-ticker WHT net rates — computed from historical dividends
+  const tickerNetRates = useMemo(() => {
+    const byTicker = {};
+    divLog.forEach(d => {
+      if (!d.ticker || !d.gross) return;
+      if (!byTicker[d.ticker]) byTicker[d.ticker] = { gross: 0, net: 0 };
+      byTicker[d.ticker].gross += d.gross || 0;
+      byTicker[d.ticker].net += d.net || 0;
+    });
+    const rates = {};
+    for (const [t, v] of Object.entries(byTicker)) {
+      rates[t] = v.gross > 0 ? v.net / v.gross : avgNetRate;
+    }
+    return rates;
+  }, [divLog, avgNetRate]);
+
+  // Helper: get net rate for a ticker (falls back to global avg)
+  const getTickerNetRate = useCallback((ticker) => tickerNetRates[ticker] ?? avgNetRate, [tickerNetRates, avgNetRate]);
+
   const divTTMnet = divTTM * avgNetRate;
   const currentYear = String(new Date().getFullYear());
   const lastYear = String(new Date().getFullYear() - 1);
@@ -709,6 +729,15 @@ export default function DividendosTab() {
     const growthYoy = fwd.growth_yoy;
     const maxMonth = Math.max(...monthly.map(m => m.amount || 0), 1);
 
+    // Per-ticker net annual total (uses per-ticker WHT rates)
+    const annualNet = byTicker.reduce((s, t) => s + t.annual * getTickerNetRate(t.ticker), 0);
+    const monthlyAvgNet = annualNet / 12;
+    // Per-month net using per-ticker rates from payment breakdown
+    const monthlyNets = monthly.map(m => {
+      if (m.payments?.length) return m.payments.reduce((s, p) => s + p.amount * getTickerNetRate(p.ticker), 0);
+      return m.amount * avgNetRate; // fallback if no payment breakdown
+    });
+
     if (!annual) return <EmptyState icon="🔭" title="Sin datos de proyección" subtitle="Los datos de DPS se están cargando desde FMP." />;
 
     return (
@@ -716,9 +745,9 @@ export default function DividendosTab() {
       {/* KPIs */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))",gap:10}}>
         {[
-          {l:"PROYECCIÓN ANUAL",v:"$"+fDol(isNeto?annual*avgNetRate:annual),c:isNeto?"var(--green)":"var(--gold)"},
-          {l:isNeto?"ANUAL BRUTO":"ANUAL NETO",v:"$"+fDol(isNeto?annual:annual*avgNetRate),c:isNeto?"var(--gold)":"var(--green)"},
-          {l:"MEDIA MENSUAL",v:"$"+fDol(isNeto?monthlyAvg*avgNetRate:monthlyAvg),c:isNeto?"var(--green)":"var(--gold)"},
+          {l:"PROYECCIÓN ANUAL",v:"$"+fDol(isNeto?annualNet:annual),c:isNeto?"var(--green)":"var(--gold)"},
+          {l:isNeto?"ANUAL BRUTO":"ANUAL NETO",v:"$"+fDol(isNeto?annual:annualNet),c:isNeto?"var(--gold)":"var(--green)"},
+          {l:"MEDIA MENSUAL",v:"$"+fDol(isNeto?monthlyAvgNet:monthlyAvg),c:isNeto?"var(--green)":"var(--gold)"},
           {l:"WHT MEDIO",v:_sf(avgWhtPct,1)+"%",c:"var(--red)"},
           {l:"POSICIONES",v:byTicker.length,c:"var(--text-primary)"},
           {l:"CRECIMIENTO YoY",v:growthYoy!=null?(growthYoy>=0?"+":"")+_sf(growthYoy,1)+"%":"—",c:growthYoy>=0?"var(--green)":"var(--red)"},
@@ -739,8 +768,8 @@ export default function DividendosTab() {
         <div style={{display:"flex",alignItems:"flex-end",gap:4,height:160}}>
           {monthly.map((m,i)=>{
             const h = maxMonth > 0 ? (m.amount / maxMonth * 100) : 0;
-            const hNet = maxMonth > 0 ? (m.amount * avgNetRate / maxMonth * 100) : 0;
-            const netAmt = m.amount * avgNetRate;
+            const netAmt = monthlyNets[i] || (m.amount * avgNetRate);
+            const hNet = maxMonth > 0 ? (netAmt / maxMonth * 100) : 0;
             const monthLabel = m.month?.slice(5,7);
             const MNAMES = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
             const mName = MNAMES[parseInt(monthLabel,10)-1] || monthLabel;
@@ -774,6 +803,8 @@ export default function DividendosTab() {
               {byTicker.map((t,i) => {
                 const pct = annual > 0 ? (t.annual / annual * 100) : 0;
                 const freqLabel = {monthly:"M",quarterly:"Q",semiannual:"S",annual:"A"}[t.frequency] || "Q";
+                const tRate = getTickerNetRate(t.ticker);
+                const tWht = (1 - tRate) * 100;
                 return (
                   <tr key={t.ticker} style={{background:i%2?"var(--row-alt)":"transparent"}}>
                     <td style={{padding:"5px 10px",fontFamily:"var(--fm)",fontWeight:600,color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>{t.ticker}</td>
@@ -781,8 +812,8 @@ export default function DividendosTab() {
                     <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{t.shares?.toLocaleString()}</td>
                     <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{freqLabel}</td>
                     <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",fontWeight:700,color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)"}}>${fDol(t.annual)}</td>
-                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",fontWeight:700,color:"var(--green)",borderBottom:"1px solid var(--subtle-bg)"}}>${fDol(t.annual*avgNetRate)}</td>
-                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--green)",borderBottom:"1px solid var(--subtle-bg)"}}>${fDol(t.monthly_avg*avgNetRate)}</td>
+                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",fontWeight:700,color:"var(--green)",borderBottom:"1px solid var(--subtle-bg)"}} title={`WHT: ${_sf(tWht,1)}%`}>${fDol(t.annual*tRate)}</td>
+                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--green)",borderBottom:"1px solid var(--subtle-bg)"}}>${fDol(t.monthly_avg*tRate)}</td>
                     <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{_sf(pct,1)}%</td>
                   </tr>
                 );

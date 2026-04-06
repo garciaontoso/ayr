@@ -2768,21 +2768,34 @@ export default {
             return [];
           };
 
-          // Helper: detect frequency from payment dates
+          // Helper: deduplicate payments by date (IB Flex imports same dividend per sub-account)
+          const deduplicateByDate = (payments) => {
+            const byDate = {};
+            for (const p of payments) {
+              if (!byDate[p.fecha]) byDate[p.fecha] = { ...p, bruto: 0, neto: 0 };
+              byDate[p.fecha].bruto += (p.bruto || 0);
+              byDate[p.fecha].neto += (p.neto || 0);
+            }
+            return Object.values(byDate).sort((a, b) => b.fecha.localeCompare(a.fecha));
+          };
+
+          // Helper: detect frequency from payment dates (uses deduplicated payments)
           const detectFrequency = (payments) => {
-            if (payments.length < 2) return { freq: "quarterly", n: 4 }; // default
+            const deduped = deduplicateByDate(payments);
+            if (deduped.length < 2) return { freq: "quarterly", n: 4 }; // default
             // Count distinct payment dates in TTM window
             const ttmCutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
-            const ttmPayments = payments.filter(p => p.fecha >= ttmCutoff);
-            const count = ttmPayments.length;
+            const ttmDeduped = deduped.filter(p => p.fecha >= ttmCutoff);
+            const count = ttmDeduped.length;
             if (count >= 11) return { freq: "monthly", n: 12 };
+            if (count >= 6) return { freq: "quarterly", n: 4 };
             if (count >= 3) return { freq: "quarterly", n: 4 };
-            // If only 1-2 payments in TTM, look at gap between last 2 payments
-            if (payments.length >= 2) {
-              const d1 = new Date(payments[0].fecha);
-              const d2 = new Date(payments[1].fecha);
+            // If only 1-2 distinct dates in TTM, look at gap between last 2 distinct dates
+            if (deduped.length >= 2) {
+              const d1 = new Date(deduped[0].fecha);
+              const d2 = new Date(deduped[1].fecha);
               const gapDays = Math.abs(d1 - d2) / 86400000;
-              if (gapDays < 50) return { freq: "monthly", n: 12 };
+              if (gapDays < 50 && gapDays > 0) return { freq: "monthly", n: 12 };
               if (gapDays < 120) return { freq: "quarterly", n: 4 };
               if (gapDays < 270) return { freq: "semiannual", n: 2 };
               return { freq: "annual", n: 1 };
@@ -2795,9 +2808,15 @@ export default {
           const calcAnnualizedDPS = (payments) => {
             if (!payments.length) return { dps: 0, freq: "quarterly", n: 4, payments_ttm: 0 };
             const { freq, n } = detectFrequency(payments);
-            // Use most recent payment's per-share amount
-            const last = payments[0]; // already sorted desc
-            const lastDPS = last.shares > 0 ? (last.bruto / last.shares) : 0;
+            // Deduplicate to get correct per-date totals (multi-account imports)
+            const deduped = deduplicateByDate(payments);
+            // Use most recent deduplicated payment's per-share amount
+            const last = deduped[0];
+            // For multi-account: sum bruto across accounts, use max shares (not sum)
+            const origPayments = payments.filter(p => p.fecha === last.fecha);
+            const maxShares = Math.max(...origPayments.map(p => p.shares || 0));
+            const totalBruto = origPayments.reduce((s, p) => s + (p.bruto || 0), 0);
+            const lastDPS = maxShares > 0 ? (totalBruto / maxShares) : 0;
             const ttmCutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
             const ttmPayments = payments.filter(p => p.fecha >= ttmCutoff);
             return {
@@ -2905,18 +2924,29 @@ export default {
             return [];
           };
 
+          // Deduplicate payments by date (same as dps-live)
+          const dedupByDateFwd = (payments) => {
+            const byDate = {};
+            for (const p of payments) {
+              if (!byDate[p.fecha]) byDate[p.fecha] = { ...p, bruto: 0, neto: 0 };
+              byDate[p.fecha].bruto += (p.bruto || 0);
+            }
+            return Object.values(byDate).sort((a, b) => b.fecha.localeCompare(a.fecha));
+          };
+
           const detectFreqFwd = (payments) => {
-            if (payments.length < 2) return { freq: "quarterly", n: 4 };
+            const deduped = dedupByDateFwd(payments);
+            if (deduped.length < 2) return { freq: "quarterly", n: 4 };
             const ttmCutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
-            const ttmPayments = payments.filter(p => p.fecha >= ttmCutoff);
-            const count = ttmPayments.length;
+            const ttmDeduped = deduped.filter(p => p.fecha >= ttmCutoff);
+            const count = ttmDeduped.length;
             if (count >= 11) return { freq: "monthly", n: 12 };
             if (count >= 3) return { freq: "quarterly", n: 4 };
-            if (payments.length >= 2) {
-              const d1 = new Date(payments[0].fecha);
-              const d2 = new Date(payments[1].fecha);
+            if (deduped.length >= 2) {
+              const d1 = new Date(deduped[0].fecha);
+              const d2 = new Date(deduped[1].fecha);
               const gapDays = Math.abs(d1 - d2) / 86400000;
-              if (gapDays < 50) return { freq: "monthly", n: 12 };
+              if (gapDays < 50 && gapDays > 0) return { freq: "monthly", n: 12 };
               if (gapDays < 120) return { freq: "quarterly", n: 4 };
               if (gapDays < 270) return { freq: "semiannual", n: 2 };
               return { freq: "annual", n: 1 };
@@ -2934,8 +2964,13 @@ export default {
 
             if (payments.length > 0) {
               const { freq, n } = detectFreqFwd(payments);
-              const last = payments[0];
-              const lastDPS = last.shares > 0 ? (last.bruto / last.shares) : 0;
+              // Deduplicate for correct per-date DPS
+              const deduped = dedupByDateFwd(payments);
+              const last = deduped[0];
+              const origPayments = payments.filter(p => p.fecha === last.fecha);
+              const maxShares = Math.max(...origPayments.map(p => p.shares || 0));
+              const totalBruto = origPayments.reduce((s, p) => s + (p.bruto || 0), 0);
+              const lastDPS = maxShares > 0 ? (totalBruto / maxShares) : 0;
               dps = lastDPS * n;
               frequency = freq;
             }
