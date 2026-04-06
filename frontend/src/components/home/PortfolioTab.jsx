@@ -118,6 +118,7 @@ export default function PortfolioTab() {
     getCountry, FLAGS, POS_STATIC, CompanyRow,
     ibData, divStreaks,
     setHomeTab,
+    CACHED_PNL,
   } = useHome();
 
   const [quickFilter, setQuickFilter] = useState("");
@@ -307,7 +308,7 @@ export default function PortfolioTab() {
             These intentionally differ: NLV shows total wealth, P&L shows stock performance. */}
         {portfolioList.length>0 && (() => {
           const nlv = ibData?.summary?.nlv?.amount || portfolioTotals.totalValueUSD;
-          // IB P&L: if IB is loaded but returns $0 (weekends/off-hours), fall back to portfolioTotals or cached value
+          // IB P&L: if IB is loaded but returns $0 (weekends/off-hours), fall back to portfolioTotals, then server cache, then localStorage
           let totalPnl, costTotal;
           if (ibData?.loaded) {
             const ibPnl = (ibData.positions||[]).filter(p=>p.assetClass==="STK").reduce((s,p)=>s+(p.unrealizedPnl||0),0);
@@ -316,10 +317,25 @@ export default function PortfolioTab() {
               // IB returned zero (market closed) — use computed fallback
               totalPnl = portfolioTotals.pnlUSD;
               costTotal = portfolioTotals.totalCostUSD;
+            } else if (ibPnl === 0 && portfolioTotals.pnlUSD === 0) {
+              // Both IB and portfolioTotals are zero — use server-side cache or localStorage
+              const serverPnl = CACHED_PNL?.pnl || 0;
+              const serverCost = CACHED_PNL?.cost || 0;
+              if (serverPnl !== 0) {
+                totalPnl = serverPnl;
+                costTotal = serverCost;
+              } else {
+                // Last resort: localStorage
+                try {
+                  const ls = JSON.parse(localStorage.getItem('ayr_last_pnl') || '{}');
+                  totalPnl = ls.pnl || 0;
+                  costTotal = ls.cost || 0;
+                } catch(e) { totalPnl = 0; costTotal = 0; }
+              }
             } else {
               totalPnl = ibPnl;
               costTotal = ibCost;
-              // Cache non-zero P&L for future fallback
+              // Cache non-zero P&L for future fallback (localStorage + server)
               if (ibPnl !== 0) {
                 try { localStorage.setItem('ayr_last_pnl', JSON.stringify({pnl:ibPnl,cost:ibCost,ts:Date.now()})); } catch(e) {}
               }
@@ -327,6 +343,15 @@ export default function PortfolioTab() {
           } else {
             totalPnl = portfolioTotals.pnlUSD;
             costTotal = portfolioTotals.totalCostUSD;
+            // If portfolioTotals also zero, try server cache
+            if (totalPnl === 0 && costTotal === 0) {
+              const serverPnl = CACHED_PNL?.pnl || 0;
+              const serverCost = CACHED_PNL?.cost || 0;
+              if (serverPnl !== 0) {
+                totalPnl = serverPnl;
+                costTotal = serverCost;
+              }
+            }
           }
           const pnlPct = costTotal > 0 ? (totalPnl / costTotal * 100) : (portfolioTotals.pnlPctUSD * 100);
           const lastSync = ibData?.lastSync ? new Date(ibData.lastSync).toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "";

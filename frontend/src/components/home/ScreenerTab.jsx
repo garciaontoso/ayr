@@ -164,7 +164,7 @@ export default function ScreenerTab() {
                 </td>
                 <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>
                   {(() => {
-                    const IB_MAP = {"BME:VIS":"VIS","BME:AMS":"AMS","IIPR-PRA":"IIPR PRA","HKG:9618":"9618","HKG:1052":"1052","HKG:2219":"2219","HKG:1910":"1910","HGK:9616":"9616"};
+                    const IB_MAP = {"BME:VIS":"VIS","BME:AMS":"AMS","IIPR-PRA":"IIPR PRA","HKG:9618":"9618","HKG:1052":"1052","HKG:2219":"2219","HKG:1910":"1910","HKG:9616":"9616"};
                     const ibTicker = IB_MAP[item.symbol] || item.symbol;
                     const ibPos = (ibData?.positions||[]).find(p => (p.ticker === ibTicker || p.ticker === item.symbol) && p.assetClass === "STK");
                     if (!ibPos) return <span style={{color:"var(--text-tertiary)",fontSize:9}}>—</span>;

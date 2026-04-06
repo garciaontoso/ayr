@@ -158,7 +158,7 @@ function WhatIfSimulator({
   );
 
   const nlv = portfolioTotals?.nlv || portfolioTotals?.totalValue || 1;
-  const totalDiv = portfolioTotals?.totalDiv || portfolioList.reduce((s, p) => s + ((p.divTTM || 0) * (p.shares || 0)), 0);
+  const totalDiv = portfolioTotals?.totalDivUSD || 0;
 
   // ── Sell simulation ──
   const sellSim = useMemo(() => {

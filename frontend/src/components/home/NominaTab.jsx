@@ -113,7 +113,7 @@ function CoberturaCard({ monthlyDiv, monthlyExp, privacyMode, sym }) {
 }
 
 /* ── Section 3: Monthly payroll grid ── */
-function NominaMensual({ DIV_BY_MONTH, portfolioList, privacyMode, sym }) {
+function NominaMensual({ DIV_BY_MONTH, annualDivUSD, privacyMode, sym }) {
   const curYear = new Date().getFullYear();
   const curMonth = new Date().getMonth(); // 0-indexed
 
@@ -122,9 +122,8 @@ function NominaMensual({ DIV_BY_MONTH, portfolioList, privacyMode, sym }) {
     let total = 0;
     let max = 1;
 
-    // Calculate projected monthly from portfolio
-    const totalAnnualDiv = portfolioList.reduce((sum, p) => sum + ((p.divTTM || 0) * (p.shares || 0)), 0);
-    const projectedMonthly = totalAnnualDiv / 12;
+    // Use the single source of truth (portfolioTotals.totalDivUSD) for projections
+    const projectedMonthly = (annualDivUSD || 0) / 12;
 
     for (let m = 0; m < 12; m++) {
       const key = `${curYear}-${String(m + 1).padStart(2, "0")}`;
@@ -136,7 +135,7 @@ function NominaMensual({ DIV_BY_MONTH, portfolioList, privacyMode, sym }) {
       data.push({ month: m, actual: isPast ? actual : 0, projected: isPast ? 0 : projectedMonthly, total, isPast });
     }
     return { monthData: data, maxVal: max, runningTotal: total };
-  }, [DIV_BY_MONTH, portfolioList, curYear, curMonth]);
+  }, [DIV_BY_MONTH, annualDivUSD, curYear, curMonth]);
 
   const barW = 48, barH = 80, gap = 6;
   const svgW = 12 * (barW + gap);
@@ -204,20 +203,20 @@ function NominaMensual({ DIV_BY_MONTH, portfolioList, privacyMode, sym }) {
 }
 
 /* ── Section 4: Top dividend payers ── */
-function TopPayers({ portfolioList, privacyMode, sym }) {
+function TopPayers({ positions, privacyMode, sym }) {
   const topPayers = useMemo(() => {
-    return portfolioList
+    return (positions || [])
       .map(p => ({
         ticker: p.ticker,
         name: p.name || p.ticker,
-        annual: (p.divTTM || 0) * (p.shares || 0),
-        monthly: ((p.divTTM || 0) * (p.shares || 0)) / 12,
-        yld: p.divYieldTTM || p.divYield || 0,
+        annual: p.divAnnualUSD || 0,
+        monthly: (p.divAnnualUSD || 0) / 12,
+        yld: p.divYield || p.divYieldTTM || 0,
       }))
       .filter(p => p.annual > 0)
       .sort((a, b) => b.annual - a.annual)
       .slice(0, 15);
-  }, [portfolioList]);
+  }, [positions]);
 
   const maxAnnual = topPayers.length > 0 ? topPayers[0].annual : 1;
 
@@ -494,10 +493,10 @@ export default function NominaTab() {
       </div>
 
       {/* Section 3: Monthly grid */}
-      <NominaMensual DIV_BY_MONTH={DIV_BY_MONTH} portfolioList={portfolioList} privacyMode={privacyMode} sym={sym} />
+      <NominaMensual DIV_BY_MONTH={DIV_BY_MONTH} annualDivUSD={annualDivUSD} privacyMode={privacyMode} sym={sym} />
 
       {/* Section 4: Top payers */}
-      <TopPayers portfolioList={portfolioList} privacyMode={privacyMode} sym={sym} />
+      <TopPayers positions={portfolioTotals?.positions} privacyMode={privacyMode} sym={sym} />
 
       {/* Section 5: YoY growth */}
       <CrecimientoCard DIV_BY_YEAR={DIV_BY_YEAR} privacyMode={privacyMode} sym={sym} />

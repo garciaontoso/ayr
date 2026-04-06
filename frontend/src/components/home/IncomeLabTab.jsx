@@ -77,7 +77,7 @@ const SECTOR_MAP = {
   CPB:"Consumer Staples",CUBE:"Real Estate",CZR:"Consumer Disc.",DEO:"Consumer Staples",
   DIDIY:"Technology",EMN:"Materials",ENG:"Utilities",FDJU:"Consumer Disc.",FDS:"Financials",
   FLO:"Consumer Staples",GEO:"Real Estate",GIS:"Consumer Staples",GPC:"Consumer Disc.",
-  GQG:"Financials",HEN3:"Consumer Staples","HGK:9616":"Technology","HKG:1052":"Industrials",
+  GQG:"Financials",HEN3:"Consumer Staples","HKG:9616":"Technology","HKG:1052":"Industrials",
   "HKG:1910":"Consumer Disc.","HKG:2219":"Healthcare","HKG:9618":"Consumer Disc.",
   HR:"Healthcare",HRB:"Financials",IIPR:"Real Estate",KHC:"Consumer Staples",KRG:"Real Estate",
   LANDP:"Real Estate",LSEG:"Financials",LW:"Consumer Staples",LYB:"Materials",

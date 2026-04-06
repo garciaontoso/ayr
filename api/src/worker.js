@@ -575,7 +575,7 @@ async function performAutoSync(env) {
   try {
     // Re-warm portfolio endpoint (IB requires /portfolio/accounts hit before positions)
     await ib("GET", "/portfolio/accounts");
-    const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HGK:9616"};
+    const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616"};
     const merged = {};
     for (const accountId of accountIds) {
       for (let page = 0; page < 5; page++) {
@@ -627,6 +627,57 @@ async function performAutoSync(env) {
     accounts: accountIds.length,
     errors: errors.length ? errors : undefined,
   };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Cache P&L: fetch IB STK positions, compute unrealized P&L, store in D1
+// Used by POST /api/cache-pnl and the scheduled cron trigger
+// ═══════════════════════════════════════════════════════════════
+async function cachePnlFromIB(env) {
+  const { lst, consumerKey, accessToken } = await getIBSession(env);
+  const ib = (m, e, b) => ibAuthFetch(lst, consumerKey, accessToken, m, e, b);
+
+  const accounts = await ib("GET", "/portfolio/accounts");
+  const accountIds = (Array.isArray(accounts) ? accounts : []).map(a => a.accountId || a.id).filter(Boolean);
+  if (!accountIds.length) throw new Error("No IB accounts found for P&L cache");
+
+  let totalPnl = 0, totalCost = 0;
+  for (const accountId of accountIds) {
+    for (let page = 0; page < 5; page++) {
+      const positions = await ib("GET", `/portfolio/${accountId}/positions/${page}`);
+      if (!positions || !Array.isArray(positions) || !positions.length) break;
+      for (const p of positions) {
+        if (!p.position || p.position === 0 || p.assetClass !== "STK") continue;
+        totalPnl += p.unrealizedPnl || 0;
+        totalCost += (p.avgCost || 0) * (p.position || 0);
+      }
+    }
+  }
+
+  // Only cache if P&L is non-zero (market is open and returning real data)
+  if (totalPnl === 0 && totalCost === 0) {
+    return { ok: true, cached: false, reason: "P&L is zero (market likely closed)" };
+  }
+
+  const pnlPct = totalCost > 0 ? (totalPnl / totalCost) : 0;
+  const data = JSON.stringify({ pnl: totalPnl, cost: totalCost, pnlPct });
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO price_cache (id, data, updated_at) VALUES ('__pnl_cache__', ?, datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
+    ).bind(data).run();
+  } catch(e) {
+    // Table might not exist yet
+    await env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS price_cache (id TEXT PRIMARY KEY, data TEXT, updated_at TEXT)`
+    ).run();
+    await env.DB.prepare(
+      `INSERT OR REPLACE INTO price_cache (id, data, updated_at) VALUES ('__pnl_cache__', ?, datetime('now'))`
+    ).bind(data).run();
+  }
+
+  return { ok: true, cached: true, pnl: totalPnl, cost: totalCost, pnlPct };
 }
 
 export default {
@@ -1348,11 +1399,11 @@ export default {
         "AZJ": "AZJ.AX", "GQG": "GQG.AX",               // Australia
         "BME:AMS": "AMS.MC", "BME:VIS": "VIS.MC",        // Spain
         "ENG": "ENG.MC", "SHUR": "SHUR.AS",              // Spain / Netherlands
-        "FDJU": "FDJ.PA", "WKL": "WKL.AS",               // France / Netherlands
+        "FDJU": "FDJ.PA", "WKL": "WKL.AS", "RAND": "RAND.AS", // France / Netherlands
         "HEN3": "HEN3.DE",                                 // Germany
-        "HGK:9616": "9616.HK", "HKG:1052": "1052.HK",   // Hong Kong
+        "HKG:9616": "9616.HK", "HKG:1052": "1052.HK",   // Hong Kong
         "HKG:1910": "1910.HK", "HKG:2219": "2219.HK", "HKG:9618": "9618.HK",
-        "LSEG": "LSEG.L",                                 // London (GBX)
+        "ITRK": "ITRK.L", "LSEG": "LSEG.L",               // London (GBX)
         "NET.UN": "NET-UN.TO",                             // Canada
         // US ADRs / special
         "CNSWF": "CNSWF", "DIDIY": "DIDIY",
@@ -2295,7 +2346,7 @@ export default {
           }
 
           // IB ticker → App ticker mapping (same as sync-ib)
-          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HGK:9616","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA"};
+          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA"};
           const mapTicker = (sym) => IB_MAP[sym] || sym;
 
           // Import trades into cost_basis table using batch (D1 limit: 100 statements per batch)
@@ -2595,7 +2646,7 @@ export default {
           const accounts = await ib("GET", "/portfolio/accounts");
           const accountIds = (Array.isArray(accounts) ? accounts : []).map(a => a.accountId || a.id).filter(Boolean);
 
-          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HGK:9616"};
+          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616"};
 
           // Collect all positions across accounts
           const merged = {};
@@ -2738,7 +2789,7 @@ export default {
           const POS_TO_DIV_ALIASES = {
             "BME:VIS":["VIS","VIS.D","VISCOFAN"],"BME:AMS":["AMS","AMS.D"],
             "HKG:9618":["9618","JD"],"HKG:1052":["1052"],"HKG:1910":["1910"],
-            "HKG:2219":["2219"],"HGK:9616":["9616"],
+            "HKG:2219":["2219"],"HKG:9616":["9616"],
             "IIPR-PRA":["IIPR PRA","IIPRPRA"],
           };
 
@@ -2901,7 +2952,7 @@ export default {
           const POS_TO_DIV_ALIASES = {
             "BME:VIS":["VIS","VIS.D"],"BME:AMS":["AMS","AMS.D"],
             "HKG:9618":["9618","JD"],"HKG:1052":["1052"],"HKG:1910":["1910"],
-            "HKG:2219":["2219"],"HGK:9616":["9616"],
+            "HKG:2219":["2219"],"HKG:9616":["9616"],
             "IIPR-PRA":["IIPR PRA","IIPRPRA"],
           };
 
@@ -3069,7 +3120,7 @@ export default {
       // POST /api/dividendos/fix-tickers — normalize IB tickers in existing dividend records
       if (path === "/api/dividendos/fix-tickers" && request.method === "POST") {
         try {
-          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HGK:9616","VIS.D":"BME:VIS","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA"};
+          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616","VIS.D":"BME:VIS","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA"};
           let fixed = 0;
           for (const [ibTicker, appTicker] of Object.entries(IB_MAP)) {
             const result = await env.DB.prepare(
@@ -3907,7 +3958,7 @@ export default {
           ["GPC","Genuine Parts Co",100,"USD",1,"COMPANY","YO","Consumer Discretionary","USA",105.74],
           ["GQG","GQG Partners Inc",2000,"AUD",0.6989,"COMPANY","GORKA","Financials","Australia",1.75],
           ["HEN3","Henkel AG & Co KGaA",150,"EUR",1.14635,"COMPANY","GORKA","Consumer Staples","Germany",70.08],
-          ["HGK:9616","Neutech Group Limited",8000,"HKD",0.127706581,"COMPANY","GORKA","Technology","Hong Kong",2.54],
+          ["HKG:9616","Neutech Group Limited",8000,"HKD",0.127706581,"COMPANY","GORKA","Technology","Hong Kong",2.54],
           ["HKG:1052","Yuexiu Transport Infrastructure Ltd",16000,"HKD",0.127706581,"COMPANY","GORKA","Industrials","Hong Kong",4.49],
           ["HKG:1910","Samsonite Group SA",900,"HKD",0.127706581,"COMPANY","GORKA","Consumer Discretionary","Hong Kong",16.1],
           ["HKG:2219","Chaoju Eye Care Holdings Ltd",20000,"HKD",0.127706581,"COMPANY","GORKA","Healthcare","Hong Kong",2.56],
@@ -4446,6 +4497,31 @@ export default {
         }
       }
 
+      // POST /api/cache-pnl — fetch IB portfolio, compute STK P&L, cache in D1
+      if (path === "/api/cache-pnl" && request.method === "POST") {
+        try {
+          const result = await cachePnlFromIB(env);
+          return json(result, corsHeaders);
+        } catch(e) {
+          return json({ error: "cache-pnl error: " + e.message }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/cached-pnl — return last cached P&L values
+      if (path === "/api/cached-pnl" && request.method === "GET") {
+        try {
+          const row = await env.DB.prepare(
+            "SELECT data, updated_at FROM price_cache WHERE id = '__pnl_cache__'"
+          ).first();
+          if (row && row.data) {
+            return json({ ...JSON.parse(row.data), timestamp: row.updated_at }, corsHeaders);
+          }
+          return json({ pnl: 0, cost: 0, pnlPct: 0, timestamp: null }, corsHeaders);
+        } catch(e) {
+          return json({ pnl: 0, cost: 0, pnlPct: 0, timestamp: null }, corsHeaders);
+        }
+      }
+
       // 404
       return new Response(JSON.stringify({ error: "Not found", path }), {
         status: 404,
@@ -4469,6 +4545,13 @@ export default {
       console.log("IB auto-sync completed:", JSON.stringify(result));
     } catch(e) {
       console.error("IB auto-sync cron failed:", e.message);
+    }
+    // Cache P&L separately (auto-sync may succeed but P&L cache is independent)
+    try {
+      const pnlResult = await cachePnlFromIB(env);
+      console.log("P&L cache completed:", JSON.stringify(pnlResult));
+    } catch(e) {
+      console.error("P&L cache cron failed:", e.message);
     }
   },
 };

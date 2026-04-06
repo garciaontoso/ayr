@@ -40,11 +40,12 @@ export async function fetchAllData() {
       safeFetch("/api/positions", {positions:[]}),
       safeFetch("/api/dividend-dps-live", {}),
       safeFetch("/api/dividend-forward", {annual_projected:0,monthly:[],by_ticker:[]}),
+      safeFetch("/api/cached-pnl", {pnl:0,cost:0,pnlPct:0,timestamp:null}),
     ];
 
     const results = await Promise.all(endpoints);
     const errors = results.map(r => r.error).filter(Boolean);
-    const [patrimonio, ingresos, divResumen, divMensual, divAll, gastosMensual, gastosAll, holdings, fire, pl, config, categorias, cashData, marginInterest, positionsData, liveDpsData, forwardDivData] = results.map(r => r.data);
+    const [patrimonio, ingresos, divResumen, divMensual, divAll, gastosMensual, gastosAll, holdings, fire, pl, config, categorias, cashData, marginInterest, positionsData, liveDpsData, forwardDivData, cachedPnlData] = results.map(r => r.data);
 
     // Map API responses to expected formats
     const CTRL_DATA = patrimonio.map(p => ({
@@ -151,6 +152,7 @@ export async function fetchAllData() {
 
     const LIVE_DPS = liveDpsData || {};
     const FORWARD_DIV = forwardDivData || {annual_projected:0,monthly:[],by_ticker:[]};
+    const CACHED_PNL = cachedPnlData || {pnl:0,cost:0,pnlPct:0,timestamp:null};
 
     return {
       ok: true,
@@ -158,7 +160,7 @@ export async function fetchAllData() {
       CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, DIV_BY_MONTH, GASTOS_MONTH,
       FIRE_PROJ, FIRE_PARAMS, ANNUAL_PL, FI_TRACK, HIST_INIT, GASTO_CATS,
       _DIV_ENTRIES, _GASTO_ENTRIES, GASTOS_CAT, CASH_DATA, MARGIN_INTEREST_DATA,
-      D1_POSITIONS, LIVE_DPS, FORWARD_DIV,
+      D1_POSITIONS, LIVE_DPS, FORWARD_DIV, CACHED_PNL,
     };
   } catch(e) {
     console.error("Failed to fetch data from API:", e);

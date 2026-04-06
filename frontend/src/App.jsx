@@ -150,6 +150,7 @@ export default function ARApp() {
   const D1_POSITIONS = apiData?.D1_POSITIONS || {};
   const LIVE_DPS = apiData?.LIVE_DPS || {};
   const FORWARD_DIV = apiData?.FORWARD_DIV || {annual_projected:0,monthly:[],by_ticker:[]};
+  const CACHED_PNL = apiData?.CACHED_PNL || {pnl:0,cost:0,pnlPct:0,timestamp:null};
 
   // Financial data for analysis — loaded via "Importar" JSON or FMP API
   const [fin, setFin] = useState(()=>{
@@ -364,7 +365,7 @@ export default function ARApp() {
     // Explicit mappings for tickers that need override
     const map = {"ENG":"ES","FDJU":"FR","BME:AMS":"ES","BME:VIS":"ES","LSEG":"GB","DEO":"US","NVO":"US","CNSWF":"CA","DIDIY":"US","NOMD":"US","LYB":"US","ACN":"US"};
     if (map[ticker]) return map[ticker];
-    if (ticker.startsWith("HGK:") || ticker.startsWith("HKG:")) return "HK";
+    if (ticker.startsWith("HKG:")) return "HK";
     if (ticker.startsWith("BME:")) return "ES";
     if (/^\d{4}$/.test(ticker)) return "HK";
     if (ccy === "CAD") return "CA";
@@ -1102,7 +1103,7 @@ function buildPositionsFromCB() {
   // IB ticker → App ticker mapping (IB uses different symbols for some)
   const IB_TICKER_MAP = {
     "VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA",
-    "9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HGK:9616",
+    "9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616",
     "CMCSA":"CMCSA","ITRK":"ITRK","ENG":"ENG",
   };
   const ibPositionMap = useMemo(() => {
@@ -1970,7 +1971,7 @@ function buildPositionsFromCB() {
     // API data (passed through context so components don't import from data.js)
     CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, DIV_BY_MONTH, GASTOS_MONTH,
     FIRE_PROJ, FIRE_PARAMS, ANNUAL_PL, FI_TRACK, HIST_INIT, GASTO_CATS,
-    GASTOS_CAT, CASH_DATA, MARGIN_INTEREST_DATA, LIVE_DPS, FORWARD_DIV,
+    GASTOS_CAT, CASH_DATA, MARGIN_INTEREST_DATA, LIVE_DPS, FORWARD_DIV, CACHED_PNL,
     // IB Integration
     ibData, ibDiscrepancies, loadIBData, ibSyncMsg,
     alerts, alertsUnread, showAlertPanel, setShowAlertPanel, divStreaks, theme, toggleTheme,

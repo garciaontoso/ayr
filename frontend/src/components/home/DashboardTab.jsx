@@ -217,7 +217,7 @@ return (
 
   {/* ── Conciliación: App vs IB ── */}
   {ibData?.loaded && (() => {
-    const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HGK:9616"};
+    const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616"};
     // Build IB merged map
     const ibMerged = {};
     (ibData.positions||[]).filter(p=>p.assetClass==="STK"&&p.shares>0).forEach(p => {
