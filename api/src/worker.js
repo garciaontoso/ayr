@@ -25,6 +25,218 @@ const toFMP = (t) => FMP_MAP[t] || t;
 const FMP_REVERSE = Object.fromEntries(Object.entries(FMP_MAP).map(([k, v]) => [v, k]));
 const fromFMP = (fmpSym) => FMP_REVERSE[fmpSym] || fmpSym;
 
+// Currency map for international tickers (FMP /quote doesn't return currency)
+const CURRENCY_MAP = {
+  "BME:VIS": "EUR", "BME:AMS": "EUR", "ENG": "EUR", "WKL": "EUR",
+  "SHUR": "EUR", "RAND": "EUR", "FDJU": "EUR", "HEN3": "EUR",
+  "HKG:9618": "HKD", "HKG:1052": "HKD", "HKG:2219": "HKD",
+  "HKG:9616": "HKD", "HKG:1910": "HKD",
+  "AZJ": "AUD", "GQG": "AUD",
+  "ITRK": "GBp", "LSEG": "GBp",  // London quotes in pence (GBp)
+  "NET.UN": "CAD",
+};
+
+// ─── FMP batch quote helper (FMP Ultimate /stable/batch-quote) ─
+// Returns map keyed by OUR ticker
+async function fmpQuote(tickers, env) {
+  if (!tickers?.length) return {};
+  const FMP_KEY = env.FMP_KEY;
+  if (!FMP_KEY) return {};
+  const result = {};
+  // Stable batch-quote accepts comma-separated symbols in ?symbols=
+  for (let i = 0; i < tickers.length; i += 50) {
+    const batch = tickers.slice(i, i + 50);
+    const fmpToOurs = {};
+    const fmpSyms = batch.map(t => {
+      const f = toFMP(t);
+      fmpToOurs[f] = t;
+      return f;
+    });
+    try {
+      const url = `https://financialmodelingprep.com/stable/batch-quote?symbols=${fmpSyms.map(encodeURIComponent).join(',')}&apikey=${FMP_KEY}`;
+      const r = await fetch(url);
+      if (!r.ok) continue;
+      const data = await r.json();
+      if (!Array.isArray(data)) continue;
+      for (const q of data) {
+        const ourTicker = fmpToOurs[q.symbol] || fromFMP(q.symbol) || q.symbol;
+        result[ourTicker] = q;
+      }
+    } catch (e) { /* batch failed, continue */ }
+  }
+  return result;
+}
+
+// FMP-derived risk metrics (replaces GuruFocus beta/volatility/sharpe/sortino/maxDrawdown).
+// Calculates from 1y daily closes vs SPY benchmark. Returns null if no data.
+// Uses /stable/historical-price-eod/light for the same low-bandwidth payload as fmpSpark.
+async function fmpRiskMetrics(ticker, env, spyCloses = null) {
+  const FMP_KEY = env.FMP_KEY;
+  if (!FMP_KEY) return null;
+  const sym = toFMP(ticker);
+  const fromDate = new Date(Date.now() - 380 * 86400000).toISOString().slice(0, 10);
+  try {
+    const r = await fetch(
+      `https://financialmodelingprep.com/stable/historical-price-eod/light?symbol=${encodeURIComponent(sym)}&from=${fromDate}&apikey=${FMP_KEY}`
+    );
+    if (!r.ok) return null;
+    const data = await r.json();
+    const arr = Array.isArray(data) ? data : (data?.historical || []);
+    if (arr.length < 60) return null;
+    // Sort chronological
+    const sorted = [...arr].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    const closes = sorted.map(h => h.close ?? h.price).filter(v => v != null && !isNaN(v));
+    if (closes.length < 60) return null;
+
+    // Daily returns
+    const returns = [];
+    for (let i = 1; i < closes.length; i++) {
+      returns.push((closes[i] - closes[i - 1]) / closes[i - 1]);
+    }
+
+    // Annualized volatility (std dev × √252)
+    const meanRet = returns.reduce((s, r) => s + r, 0) / returns.length;
+    const variance = returns.reduce((s, r) => s + (r - meanRet) ** 2, 0) / returns.length;
+    const stdDev = Math.sqrt(variance);
+    const volatility1y = stdDev * Math.sqrt(252);
+
+    // Annualized return (geometric)
+    const totalReturn = closes[closes.length - 1] / closes[0] - 1;
+    const annualReturn = (1 + totalReturn) ** (252 / returns.length) - 1;
+
+    // Sharpe ratio (assume risk-free 4.5%)
+    const RF = 0.045;
+    const sharpe = volatility1y > 0 ? (annualReturn - RF) / volatility1y : null;
+
+    // Sortino ratio (downside-only deviation)
+    const downsideReturns = returns.filter(r => r < 0);
+    const downsideStd = downsideReturns.length
+      ? Math.sqrt(downsideReturns.reduce((s, r) => s + r ** 2, 0) / downsideReturns.length) * Math.sqrt(252)
+      : 0;
+    const sortino = downsideStd > 0 ? (annualReturn - RF) / downsideStd : null;
+
+    // Max drawdown (rolling peak)
+    let peak = closes[0];
+    let maxDD = 0;
+    for (const c of closes) {
+      if (c > peak) peak = c;
+      const dd = (c - peak) / peak;
+      if (dd < maxDD) maxDD = dd;
+    }
+    const maxDrawdown1y = Math.abs(maxDD);
+
+    // Beta vs SPY (if benchmark closes provided)
+    let beta = null;
+    if (Array.isArray(spyCloses) && spyCloses.length >= returns.length + 1) {
+      // Align to last N returns
+      const benchSlice = spyCloses.slice(-(returns.length + 1));
+      const benchReturns = [];
+      for (let i = 1; i < benchSlice.length; i++) {
+        benchReturns.push((benchSlice[i] - benchSlice[i - 1]) / benchSlice[i - 1]);
+      }
+      if (benchReturns.length === returns.length) {
+        const meanB = benchReturns.reduce((s, r) => s + r, 0) / benchReturns.length;
+        let cov = 0, varB = 0;
+        for (let i = 0; i < returns.length; i++) {
+          cov += (returns[i] - meanRet) * (benchReturns[i] - meanB);
+          varB += (benchReturns[i] - meanB) ** 2;
+        }
+        beta = varB > 0 ? cov / varB : null;
+      }
+    }
+
+    return {
+      beta: beta != null ? Math.round(beta * 100) / 100 : null,
+      volatility1y: Math.round(volatility1y * 10000) / 100, // % annualized
+      sharpe: sharpe != null ? Math.round(sharpe * 100) / 100 : null,
+      sortino: sortino != null ? Math.round(sortino * 100) / 100 : null,
+      maxDrawdown1y: Math.round(maxDrawdown1y * 10000) / 100, // % positive
+      annualReturn: Math.round(annualReturn * 10000) / 100,
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+// Fetch SPY closes for beta calculation (1 call, reused across portfolio)
+async function fmpSpyCloses(env, days = 380) {
+  const FMP_KEY = env.FMP_KEY;
+  if (!FMP_KEY) return null;
+  const fromDate = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  try {
+    const r = await fetch(
+      `https://financialmodelingprep.com/stable/historical-price-eod/light?symbol=SPY&from=${fromDate}&apikey=${FMP_KEY}`
+    );
+    if (!r.ok) return null;
+    const data = await r.json();
+    const arr = Array.isArray(data) ? data : (data?.historical || []);
+    const sorted = [...arr].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    return sorted.map(h => h.close ?? h.price).filter(v => v != null && !isNaN(v));
+  } catch { return null; }
+}
+
+// Cache risk metrics for all portfolio positions in agent_memory.risk_metrics
+async function cacheRiskMetrics(env, opts = {}) {
+  const { results: positions } = await env.DB.prepare(
+    "SELECT ticker FROM positions WHERE shares > 0"
+  ).all();
+  if (!positions.length) return { cached: 0, total: 0 };
+  const offset = opts.offset || 0;
+  const limit = opts.limit || 0;
+  const sliced = limit > 0 ? positions.slice(offset, offset + limit) : positions;
+
+  // Fetch SPY benchmark once
+  const spyCloses = await fmpSpyCloses(env);
+
+  const map = (await getAgentMemory(env, "risk_metrics")) || {};
+  let cached = 0, failed = 0;
+  for (let i = 0; i < sliced.length; i += 4) {
+    const batch = sliced.slice(i, i + 4);
+    const results = await Promise.all(batch.map(p => fmpRiskMetrics(p.ticker, env, spyCloses)));
+    batch.forEach((p, idx) => {
+      if (results[idx]) {
+        map[p.ticker] = { ...results[idx], updated_at: new Date().toISOString().slice(0, 10) };
+        cached++;
+      } else {
+        failed++;
+      }
+    });
+    if (i + 4 < sliced.length) await new Promise(r => setTimeout(r, 700));
+  }
+  await setAgentMemory(env, "risk_metrics", map);
+  return { cached, failed, total: sliced.length, portfolio: positions.length };
+}
+
+// Reader for cached risk metrics
+async function getRiskMetrics(env, tickers) {
+  const all = (await getAgentMemory(env, "risk_metrics")) || {};
+  const result = {};
+  for (const t of tickers) if (all[t]) result[t] = all[t];
+  return result;
+}
+
+// Per-ticker historical spark (last N daily closes) — uses /stable/historical-price-eod
+async function fmpSpark(ticker, env, days = 5) {
+  const FMP_KEY = env.FMP_KEY;
+  if (!FMP_KEY) return [];
+  const sym = toFMP(ticker);
+  // Need a few extra calendar days to ensure we get N trading days
+  const fromDate = new Date(Date.now() - (days + 5) * 86400000).toISOString().slice(0, 10);
+  try {
+    const r = await fetch(
+      `https://financialmodelingprep.com/stable/historical-price-eod/light?symbol=${encodeURIComponent(sym)}&from=${fromDate}&apikey=${FMP_KEY}`
+    );
+    if (!r.ok) return [];
+    const data = await r.json();
+    // Stable returns array directly (most recent first or chronological depending on endpoint)
+    const arr = Array.isArray(data) ? data : (data?.historical || []);
+    if (!arr.length) return [];
+    // Sort by date ascending to ensure chronological
+    const sorted = [...arr].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    return sorted.slice(-days).map(h => h.close ?? h.price).filter(v => v != null);
+  } catch { return []; }
+}
+
 let _migrated = false;
 
 async function ensureMigrations(env) {
@@ -238,6 +450,13 @@ async function ensureMigrations(env) {
     )`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_signal_tracking_fecha ON signal_tracking(original_fecha)`).run();
 
+    // gurufocus_cache table (GF Value, Score, rankings, insider/guru data)
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS gurufocus_cache (
+      ticker TEXT PRIMARY KEY,
+      data TEXT NOT NULL DEFAULT '{}',
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+
     // push_subscriptions table (Web Push)
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS push_subscriptions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -365,8 +584,53 @@ async function fetchWithRetry(url, options = {}, { maxRetries = 3, baseDelay = 1
   }
 }
 
+let _yahooCrumb = null;
+let _yahooCookie = null;
+let _yahooCrumbTs = 0;
+
+async function getYahooCrumb() {
+  // Cache crumb for 30 minutes
+  if (_yahooCrumb && _yahooCookie && Date.now() - _yahooCrumbTs < 1800000) return { crumb: _yahooCrumb, cookie: _yahooCookie };
+
+  try {
+    // Step 1: Get consent cookie
+    const consentResp = await fetch("https://fc.yahoo.com", { redirect: "manual", headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" } });
+    const setCookie = consentResp.headers.get("set-cookie") || "";
+    const cookieMatch = setCookie.match(/A3=([^;]+)/);
+    if (!cookieMatch) return null;
+    const cookie = `A3=${cookieMatch[1]}`;
+
+    // Step 2: Get crumb
+    const crumbResp = await fetch("https://query2.finance.yahoo.com/v1/test/getcrumb", {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", "Cookie": cookie },
+    });
+    if (!crumbResp.ok) return null;
+    const crumb = await crumbResp.text();
+    if (!crumb || crumb.includes("error")) return null;
+
+    _yahooCrumb = crumb.trim();
+    _yahooCookie = cookie;
+    _yahooCrumbTs = Date.now();
+    return { crumb: _yahooCrumb, cookie: _yahooCookie };
+  } catch { return null; }
+}
+
 async function fetchYahoo(url, { maxRetries = 2 } = {}) {
-  return fetchWithRetry(url, { headers: { "User-Agent": "Mozilla/5.0" } }, { maxRetries, baseDelay: 1500 });
+  // Try without crumb first (v8 chart works without it)
+  const headers = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" };
+  const resp = await fetchWithRetry(url, { headers }, { maxRetries, baseDelay: 1500 });
+  if (resp.ok) return resp;
+
+  // If 401, try with crumb (needed for v7 options)
+  if (resp.status === 401) {
+    const auth = await getYahooCrumb();
+    if (auth) {
+      const separator = url.includes("?") ? "&" : "?";
+      const authUrl = `${url}${separator}crumb=${encodeURIComponent(auth.crumb)}`;
+      return fetchWithRetry(authUrl, { headers: { ...headers, "Cookie": auth.cookie } }, { maxRetries, baseDelay: 1500 });
+    }
+  }
+  return resp;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1594,24 +1858,8 @@ export default {
         return json({ status: "ok", patrimonio_rows: test?.n || 0 }, corsHeaders);
       }
 
-      // ─── LIVE PRICES VIA YAHOO FINANCE ────────────────────
 
-      // Mapping from our tickers to Yahoo Finance symbols
-      const YAHOO_MAP = {
-        // International tickers
-        "AZJ": "AZJ.AX", "GQG": "GQG.AX",               // Australia
-        "BME:AMS": "AMS.MC", "BME:VIS": "VIS.MC",        // Spain
-        "ENG": "ENG.MC", "SHUR": "SHUR.AS",              // Spain / Netherlands
-        "FDJU": "FDJ.PA", "WKL": "WKL.AS", "RAND": "RAND.AS", // France / Netherlands
-        "HEN3": "HEN3.DE",                                 // Germany
-        "HKG:9616": "9616.HK", "HKG:1052": "1052.HK",   // Hong Kong
-        "HKG:1910": "1910.HK", "HKG:2219": "2219.HK", "HKG:9618": "9618.HK",
-        "ITRK": "ITRK.L", "LSEG": "LSEG.L",               // London (GBX)
-        "NET.UN": "NET-UN.TO",                             // Canada
-        // US ADRs / special
-        "CNSWF": "CNSWF", "DIDIY": "DIDIY",
-        "IIPR-PRA": "IIPR-PA", "LANDP": "LAND-P",
-      };
+      // ─── LIVE PRICES VIA FMP ULTIMATE ──────────────────────
 
       // GET /api/prices — get cached prices or refresh
       if (path === "/api/prices" && request.method === "GET") {
@@ -1633,57 +1881,44 @@ export default {
           } catch(e) { console.error("price_cache read error:", e.message); }
         }
 
-        // Fetch fresh prices from Yahoo Finance
+        // Fetch fresh prices from FMP Ultimate (batch quote)
         const allTickers = url.searchParams.get("tickers")?.split(",") || [];
         if (allTickers.length === 0) {
           return json({ error: "Pass ?tickers=AAPL,SCHD,..." }, corsHeaders);
         }
 
-        const prices = {};
         const errors = [];
-        
-        // Process in batches of 10 (parallel within batch, sequential between batches)
-        for (let i = 0; i < allTickers.length; i += 10) {
-          const batch = allTickers.slice(i, i + 10);
-          const results = await Promise.allSettled(
-            batch.map(async (ticker) => {
-              const yahooSymbol = YAHOO_MAP[ticker] || ticker;
-              try {
-                const resp = await fetchYahoo(
-                  `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1d&range=5d`
-                );
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                const data = await resp.json();
-                const meta = data?.chart?.result?.[0]?.meta;
-                if (meta) {
-                  // Extract 5-day close prices for sparkline
-                  const closes = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close || [];
-                  const spark = closes.filter(v => v != null).slice(-5);
-                  return {
-                    ticker,
-                    price: meta.regularMarketPrice,
-                    prevClose: meta.previousClose || meta.chartPreviousClose,
-                    currency: meta.currency,
-                    exchange: meta.exchangeName,
-                    spark,
-                    change: meta.regularMarketPrice - (meta.previousClose || meta.chartPreviousClose || meta.regularMarketPrice),
-                    changePct: meta.previousClose ? ((meta.regularMarketPrice - meta.previousClose) / meta.previousClose * 100) : 0,
-                    dayHigh: meta.regularMarketDayHigh,
-                    dayLow: meta.regularMarketDayLow,
-                    volume: meta.regularMarketVolume,
-                    fiftyTwoWeekHigh: meta.fiftyTwoWeekHigh,
-                    fiftyTwoWeekLow: meta.fiftyTwoWeekLow,
-                    ts: Date.now(),
-                  };
-                }
-                throw new Error("No data");
-              } catch (e) {
-                errors.push({ ticker, yahooSymbol, error: e.message });
-                return null;
-              }
-            })
-          );
-          results.forEach(r => { if (r.status === "fulfilled" && r.value) prices[r.value.ticker] = r.value; });
+        const quoteMap = await fmpQuote(allTickers, env);
+        const prices = {};
+        for (const ticker of allTickers) {
+          const q = quoteMap[ticker];
+          if (!q || q.price == null) { errors.push({ ticker, error: "no quote" }); continue; }
+          prices[ticker] = {
+            ticker,
+            price: q.price,
+            prevClose: q.previousClose,
+            currency: CURRENCY_MAP[ticker] || "USD",
+            exchange: q.exchange,
+            spark: [], // sparklines fetched below in non-live mode
+            change: q.change ?? (q.price - (q.previousClose || q.price)),
+            changePct: q.changesPercentage ?? (q.previousClose ? (q.price - q.previousClose) / q.previousClose * 100 : 0),
+            dayHigh: q.dayHigh,
+            dayLow: q.dayLow,
+            volume: q.volume,
+            fiftyTwoWeekHigh: q.yearHigh,
+            fiftyTwoWeekLow: q.yearLow,
+            ts: Date.now(),
+          };
+        }
+
+        // Sparklines: only on full refresh, in parallel batches of 10
+        if (!liveMode) {
+          const have = Object.keys(prices);
+          for (let i = 0; i < have.length; i += 10) {
+            const batch = have.slice(i, i + 10);
+            const sparks = await Promise.all(batch.map(t => fmpSpark(t, env, 5)));
+            batch.forEach((t, idx) => { if (sparks[idx]?.length) prices[t].spark = sparks[idx]; });
+          }
         }
 
         // Cache in D1
@@ -1722,22 +1957,17 @@ export default {
 
         const result = { vix: null, fearGreed: null };
 
-        // 1) VIX from Yahoo Finance
+        // 1) VIX from FMP Ultimate
         try {
-          const resp = await fetchYahoo(
-            "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1d&range=5d"
-          );
-          if (resp.ok) {
-            const data = await resp.json();
-            const meta = data?.chart?.result?.[0]?.meta;
-            if (meta) {
-              const prevClose = meta.previousClose || meta.chartPreviousClose || meta.regularMarketPrice;
-              result.vix = {
-                price: Math.round(meta.regularMarketPrice * 100) / 100,
-                change: Math.round((meta.regularMarketPrice - prevClose) * 100) / 100,
-                changePct: prevClose ? Math.round((meta.regularMarketPrice - prevClose) / prevClose * 10000) / 100 : 0,
-              };
-            }
+          const vixMap = await fmpQuote(['^VIX'], env);
+          const q = vixMap['^VIX'];
+          if (q && q.price != null) {
+            const prevClose = q.previousClose || q.price;
+            result.vix = {
+              price: Math.round(q.price * 100) / 100,
+              change: Math.round((q.price - prevClose) * 100) / 100,
+              changePct: prevClose ? Math.round((q.price - prevClose) / prevClose * 10000) / 100 : 0,
+            };
           }
         } catch(e) { console.error("VIX fetch:", e.message); }
 
@@ -2125,9 +2355,9 @@ export default {
               if (!optConid) { results[sym] = { price, strike: bestStrike, error: "no option conid" }; continue; }
 
               // Option snapshot (subscribe + read)
-              await ib("GET", `/iserver/marketdata/snapshot?conids=${optConid}&fields=31,84,86,87,7633,7635`);
+              await ib("GET", `/iserver/marketdata/snapshot?conids=${optConid}&fields=31,84,86,87,7633,7634,7635,7636,7637`);
               await new Promise(r => setTimeout(r, 1000));
-              const optSnap = await ib("GET", `/iserver/marketdata/snapshot?conids=${optConid}&fields=31,84,86,87,7633,7635`);
+              const optSnap = await ib("GET", `/iserver/marketdata/snapshot?conids=${optConid}&fields=31,84,86,87,7633,7634,7635,7636,7637`);
               const od = optSnap?.[0] || {};
 
               const bid = parseFloat(od["84"]) || 0;
@@ -2150,7 +2380,9 @@ export default {
                 premiumPct: ((bid / price) * 100).toFixed(2),
                 annualizedPct: ((bid / price) * (365 / dte) * 100).toFixed(1),
                 delta: parseFloat(od["7635"]) || null,
-                gamma: null, theta: null, vega: null,
+                theta: parseFloat(od["7634"]) || null,
+                gamma: parseFloat(od["7636"]) || null,
+                vega: parseFloat(od["7637"]) || null,
                 month: bestMonth, source: "IB",
               };
 
@@ -4883,6 +5115,14 @@ export default {
         return json({ insights: parsed, count: parsed.length }, corsHeaders);
       }
 
+      // DELETE /api/agent-insights?id=X — delete a stale insight
+      if (path === "/api/agent-insights" && request.method === "DELETE") {
+        const id = url.searchParams.get("id");
+        if (!id) return json({ error: "Missing id" }, corsHeaders, 400);
+        await env.DB.prepare("DELETE FROM agent_insights WHERE id = ?").bind(id).run();
+        return json({ ok: true, deleted: id }, corsHeaders);
+      }
+
       // POST /api/agent-run — manual trigger (single agent sync, or all in background)
       if (path === "/api/agent-run" && request.method === "POST") {
         await ensureMigrations(env);
@@ -4894,6 +5134,82 @@ export default {
             regime: runRegimeAgent, earnings: runEarningsAgent, dividend: runDividendAgent,
             macro: runMacroAgent, risk: runRiskAgent, trade: runTradeAgent, postmortem: runPostmortemAgent,
             cache: async (env, fecha) => ({ agent: "cache", data: await cacheMarketIndicators(env) }),
+            'fmp-fin': async (env, fecha) => {
+              const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+              const limit = parseInt(url.searchParams.get('limit') || '0', 10);
+              return { agent: "fmp-fin", ...(await cacheFmpFinancials(env, { offset, limit })) };
+            },
+            'risk-metrics': async (env, fecha) => {
+              const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+              const limit = parseInt(url.searchParams.get('limit') || '0', 10);
+              return { agent: "risk-metrics", ...(await cacheRiskMetrics(env, { offset, limit })) };
+            },
+            gf: async (env, fecha) => ({ agent: "gf", ...(await cacheGuruFocusData(env)) }),
+            'gf-trends': async (env, fecha) => {
+              const token = env.GURUFOCUS_TOKEN;
+              if (!token) return { error: 'no GF token' };
+              const base = `https://api.gurufocus.com/public/user/${token}`;
+              const { results: positions } = await env.DB.prepare("SELECT ticker FROM positions WHERE shares > 0").all();
+              let trends = 0;
+              for (let i = 0; i < positions.length; i += 3) {
+                const batch = positions.slice(i, i + 3);
+                const results = await Promise.allSettled(batch.map(async (p) => {
+                  const sym = p.ticker.replace(/^(BME:|HKG:|LSE:)/, '');
+                  try {
+                    const resp = await fetch(`${base}/stock/${sym}/financials`);
+                    if (!resp.ok) return null;
+                    const data = await resp.json();
+                    const fin = data?.financials?.quarterly || {};
+                    const periods = fin['Fiscal Year'] || [];
+                    const income = fin.income_statement || {};
+                    const cf = fin.cashflow_statement || {};
+                    const bs = fin.balance_sheet || {};
+                    const n = Math.min(8, periods.length);
+                    if (n < 4) return null;
+                    const toNum = v => { try { return parseFloat(String(v).replace(/,/g,'')); } catch { return null; } };
+                    return { ticker: p.ticker, trend: {
+                      periods: periods.slice(-n).reverse(),
+                      revenue: (income.Revenue || []).slice(-n).reverse().map(toNum),
+                      fcf: (cf['Free Cash Flow'] || []).slice(-n).reverse().map(toNum),
+                      debt: (bs['Long-Term Debt'] || bs['Total Long-Term Debt'] || []).slice(-n).reverse().map(toNum),
+                      dividendsPaid: (cf['Dividends Paid'] || cf['Payment of Dividends and Other Cash Distributions'] || []).slice(-n).reverse().map(toNum),
+                    }};
+                  } catch { return null; }
+                }));
+                for (const r of results) {
+                  if (r.status === 'fulfilled' && r.value) {
+                    const existing = await env.DB.prepare("SELECT data FROM gurufocus_cache WHERE ticker = ?").bind(r.value.ticker).first();
+                    let merged = existing?.data ? JSON.parse(existing.data) : {};
+                    merged.trend = r.value.trend;
+                    await env.DB.prepare(`INSERT INTO gurufocus_cache (ticker, data, updated_at) VALUES (?, ?, datetime('now')) ON CONFLICT(ticker) DO UPDATE SET data = excluded.data, updated_at = datetime('now')`).bind(r.value.ticker, JSON.stringify(merged)).run();
+                    trends++;
+                  }
+                }
+                if (i + 3 < positions.length) await new Promise(r => setTimeout(r, 1500));
+              }
+              return { agent: 'gf-trends', trends, total: positions.length };
+            },
+            insider: runInsiderAgent,
+            value: runValueSignalsAgent,
+            options: runOptionsIncomeAgent,
+            summary: async (env, fecha) => {
+              const { results: all } = await env.DB.prepare(
+                "SELECT agent_name, ticker, severity, title, summary, score, details FROM agent_insights WHERE fecha = ? ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END, score DESC"
+              ).bind(fecha).all();
+              const trades = all.filter(i => i.agent_name === 'trade' && i.severity !== 'info');
+              const opts = all.filter(i => i.agent_name === 'options' && i.score > 3);
+              const ins = all.filter(i => i.agent_name === 'insider' && i.severity !== 'info');
+              const reg = all.find(i => i.agent_name === 'regime');
+              const crits = all.filter(i => i.severity === 'critical');
+              const rd = reg?.details ? JSON.parse(reg.details) : {};
+              const lines = [];
+              if (reg) lines.push(`Mercado: ${rd.regime || '?'} (${rd.actionGuidance || '?'})`);
+              if (trades.length) lines.push(`Operaciones: ${trades.slice(0,3).map(t=>t.title).join(', ')}`);
+              if (opts.length) lines.push(`Opciones: ${opts.slice(0,2).map(o=>o.title).join(', ')}`);
+              if (ins.length) lines.push(`Insiders: ${ins.length} alertas`);
+              await storeInsights(env, "summary", fecha, [{ ticker: '_SUMMARY_', severity: crits.length > 5 ? 'critical' : crits.length > 0 ? 'warning' : 'info', title: `Resumen: ${crits.length} criticos, ${all.filter(i=>i.severity==='warning').length} warnings`, summary: lines.join(' | ') || 'Sin alertas.', details: { totalInsights: all.length, criticals: crits.length, topActions: trades.slice(0,5).map(t=>t.title), topOptions: opts.slice(0,3).map(o=>o.title), insiderAlerts: ins.length, regime: reg?.title || 'N/A' }, score: crits.length > 5 ? 2 : crits.length > 0 ? 5 : 8 }]);
+              return { agent: "summary", criticals: crits.length, trades: trades.length, options: opts.length, insiders: ins.length };
+            },
           };
           const fn = agentMap[agentParam];
           if (!fn) return json({ error: `Unknown agent: ${agentParam}` }, corsHeaders, 400);
@@ -4914,6 +5230,307 @@ export default {
           }
         })());
         return json({ ok: true, message: "Agents started in background (~2 min). Refresh insights to see results." }, corsHeaders);
+      }
+
+      // GET /api/tastytrade-test — verify Tastytrade API connection
+      if (path === "/api/tastytrade-test" && request.method === "GET") {
+        try {
+          const ttResp = await fetch("https://api.tastyworks.com/sessions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "User-Agent": "AyR/1.0" },
+            body: JSON.stringify({ login: env.TASTYTRADE_USER || "", password: env.TASTYTRADE_PASS || "" }),
+          });
+          const raw = await ttResp.text();
+          let ttData;
+          try { ttData = JSON.parse(raw); } catch { return json({ error: "Tastytrade returned non-JSON", status: ttResp.status, body: raw.slice(0, 300) }, corsHeaders, 502); }
+
+          if (ttData?.data?.["session-token"]) {
+            const token = ttData.data["session-token"];
+            const accResp = await fetch("https://api.tastyworks.com/customers/me/accounts", {
+              headers: { "Authorization": token, "User-Agent": "AyR/1.0" },
+            });
+            const accRaw = await accResp.text();
+            let accData;
+            try { accData = JSON.parse(accRaw); } catch { accData = {}; }
+            const accounts = accData?.data?.items?.map(a => ({
+              number: a["account-number"], type: a["account-type-name"], nickname: a.nickname,
+            })) || [];
+            return json({ ok: true, accounts, sessionValid: true }, corsHeaders);
+          }
+          return json({ error: "Login failed", status: ttResp.status, response: ttData }, corsHeaders, 401);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // POST /api/download-transcripts — download earnings transcripts from FMP for all positions
+      if (path === "/api/download-transcripts" && request.method === "POST") {
+        const singleTicker = url.searchParams.get("ticker");
+        try {
+          await ensureMigrations(env);
+          // Create transcripts table if not exists
+          await env.DB.prepare(`CREATE TABLE IF NOT EXISTS earnings_transcripts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticker TEXT NOT NULL,
+            quarter TEXT NOT NULL,
+            year INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            date TEXT,
+            updated_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(ticker, quarter, year)
+          )`).run();
+
+          const tickers = singleTicker
+            ? [singleTicker.toUpperCase()]
+            : (await env.DB.prepare("SELECT ticker FROM positions WHERE shares > 0").all()).results.map(p => p.ticker.replace(/^(BME:|HKG:|LSE:)/, ''));
+
+          const FMP = env.FMP_KEY;
+          let downloaded = 0, failed = 0, skipped = 0;
+
+          // Optional pagination via ?offset=N&limit=N for large portfolios (Workers 30s CPU limit)
+          const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+          const limit = parseInt(url.searchParams.get('limit') || '0', 10);
+          const slicedTickers = limit > 0 ? tickers.slice(offset, offset + limit) : tickers;
+
+          // Quarters to try in parallel (covers companies on calendar or fiscal year offsets)
+          const QUARTERS_TO_TRY = [
+            [2025,4],[2025,3],[2025,2],[2025,1]
+          ];
+
+          // Process tickers in parallel batches of 4 (4 × 4 quarters = 16 parallel calls per batch)
+          // FMP Ultimate has generous rate limits but bursts can trigger throttling
+          for (let i = 0; i < slicedTickers.length; i += 4) {
+            const batch = slicedTickers.slice(i, i + 4);
+            const results = await Promise.allSettled(batch.map(async (sym) => {
+              try {
+                // Fetch all candidate quarters in parallel
+                const candidates = await Promise.all(QUARTERS_TO_TRY.map(async ([yr, q]) => {
+                  try {
+                    const r = await fetch(`https://financialmodelingprep.com/stable/earning-call-transcript?symbol=${encodeURIComponent(sym)}&year=${yr}&quarter=${q}&apikey=${FMP}`);
+                    if (!r.ok) return null;
+                    const d = await r.json();
+                    const records = Array.isArray(d) ? d : (d ? [d] : []);
+                    for (const rec of records) {
+                      const content = rec?.content || rec?.transcript;
+                      if (content && content.length > 100) {
+                        return { content, quarter: q, year: yr, date: rec.date || rec.publishedDate };
+                      }
+                    }
+                    return null;
+                  } catch { return null; }
+                }));
+                // Keep only the 2 most recent (QUARTERS_TO_TRY is already ordered newest-first)
+                const transcripts = candidates.filter(Boolean).slice(0, 2);
+                return { sym, transcripts };
+              } catch (e) { return { sym, error: e.message }; }
+            }));
+
+            for (const r of results) {
+              if (r.status !== 'fulfilled') { failed++; continue; }
+              const { sym, transcripts, error } = r.value;
+              if (error) { failed++; continue; }
+              if (!transcripts?.length) { skipped++; continue; }
+
+              for (const t of transcripts.slice(0, 4)) {
+                const quarter = `Q${t.quarter || '?'}`;
+                const year = t.year || 2024;
+                const content = t.content || '';
+                if (!content || content.length < 100) continue;
+                // Store transcript (truncate to 15000 chars to fit D1)
+                await env.DB.prepare(
+                  `INSERT INTO earnings_transcripts (ticker, quarter, year, content, date, updated_at)
+                   VALUES (?, ?, ?, ?, ?, datetime('now'))
+                   ON CONFLICT(ticker, quarter, year) DO UPDATE SET content=excluded.content, updated_at=datetime('now')`
+                ).bind(sym, quarter, year, content.slice(0, 15000), t.date || null).run();
+                downloaded++;
+              }
+            }
+            if (i + 4 < slicedTickers.length) await new Promise(r => setTimeout(r, 800));
+          }
+          return json({ ok: true, downloaded, failed, skipped, tickers: tickers.length }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // POST /api/enrich-sectors — fill missing sector data from GF + FMP
+      if (path === "/api/enrich-sectors" && request.method === "POST") {
+        try {
+          const result = await enrichPositionSectors(env);
+          return json({ ok: true, ...result }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/options-analysis?symbol=KO — deep options analysis for a specific ticker
+      // Returns: IV rank, best CC/CSP strikes, timing assessment, theta decay
+      if (path === "/api/options-analysis" && request.method === "GET") {
+        const symbol = (url.searchParams.get("symbol") || "").toUpperCase().trim();
+        if (!symbol) return json({ error: "Missing ?symbol=TICKER" }, corsHeaders, 400);
+
+        try {
+          // 1. Fetch options chain (30d and 45d expirations)
+          const baseUrl = `https://query2.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol)}`;
+          const resp1 = await fetchYahoo(baseUrl);
+          if (!resp1.ok) return json({ error: `Yahoo returned ${resp1.status} for ${symbol}` }, corsHeaders, 502);
+          const data1 = await resp1.json();
+          const result = data1?.optionChain?.result?.[0];
+          if (!result) return json({ error: `No options data for ${symbol}` }, corsHeaders, 404);
+
+          const quote = result.quote || {};
+          const price = quote.regularMarketPrice || 0;
+          const expirations = result.expirationDates || [];
+          const now = Math.floor(Date.now() / 1000);
+          const earningsTs = quote.earningsTimestamp || quote.earningsTimestampStart;
+          const earningsInDays = earningsTs ? Math.round((earningsTs - now) / 86400) : null;
+          const fiftyTwoHigh = quote.fiftyTwoWeekHigh || price;
+          const fiftyTwoLow = quote.fiftyTwoWeekLow || price;
+
+          // 2. Get 2 expirations: ~30d and ~45d
+          const targets = [30, 45];
+          const chains = [];
+          for (const targetDTE of targets) {
+            const targetTs = now + targetDTE * 86400;
+            let bestExp = expirations[0];
+            for (const exp of expirations) {
+              if (Math.abs(exp - targetTs) < Math.abs(bestExp - targetTs)) bestExp = exp;
+            }
+            const dte = Math.round((bestExp - now) / 86400);
+            let options = result.options?.[0] || {};
+            if (bestExp !== expirations[0]) {
+              const r2 = await fetchYahoo(`${baseUrl}?date=${bestExp}`);
+              if (r2.ok) {
+                const d2 = await r2.json();
+                options = d2?.optionChain?.result?.[0]?.options?.[0] || options;
+              }
+            }
+            chains.push({ dte, expDate: new Date(bestExp * 1000).toISOString().split("T")[0], calls: options.calls || [], puts: options.puts || [] });
+          }
+
+          // 3. Calculate IV Rank (current ATM IV vs historical vol)
+          const gfData = await getGfData(env, [symbol]);
+          const gf = gfData[symbol] || {};
+          const historicalVol = parseFloat(gf.volatility1y) || 25;
+
+          // Get ATM IV from closest-to-money options
+          const chain30 = chains[0];
+          const atmCalls = chain30.calls.filter(c => Math.abs(c.strike - price) < price * 0.03);
+          const atmPuts = chain30.puts.filter(p => Math.abs(p.strike - price) < price * 0.03);
+          const allAtmIV = [...atmCalls, ...atmPuts].map(o => o.impliedVolatility).filter(v => v > 0);
+          // Yahoo IV is decimal (0.25 = 25%), convert to percentage
+          const currentIV = allAtmIV.length ? Math.round(allAtmIV.reduce((s, v) => s + v, 0) / allAtmIV.length * 10000) / 100 : null;
+          // IV Rank: how current IV compares to historical vol. >100 = IV elevated, <100 = IV low
+          const ivRatio = currentIV && historicalVol ? currentIV / historicalVol : null;
+          const ivRank = ivRatio ? Math.round(Math.min(100, Math.max(0, (ivRatio - 0.5) * 100))) : null;
+          const ivSignal = ivRank > 60 ? 'ALTA — momento optimo para vender' : ivRank > 30 ? 'MEDIA — aceptable para vender' : 'BAJA — esperar mejor momento';
+
+          // 4. Position data
+          const posRow = await env.DB.prepare("SELECT * FROM positions WHERE ticker = ?").bind(symbol).first();
+          const shares = posRow?.shares || 0;
+          const avgCost = posRow?.avg_price || 0;
+          const divYield = posRow?.div_yield || 0;
+
+          // 5. Analyze best CC and CSP for each expiration
+          const strategies = [];
+
+          for (const chain of chains) {
+            const calls = chain.calls.filter(c => c.bid > 0 && !c.inTheMoney);
+            const puts = chain.puts.filter(p => p.bid > 0 && !p.inTheMoney);
+
+            // Best Covered Calls at different OTM levels
+            for (const otmTarget of [0.03, 0.05, 0.08, 0.10]) {
+              const targetStrike = price * (1 + otmTarget);
+              const bestCC = calls.reduce((best, c) => {
+                if (!best || Math.abs(c.strike - targetStrike) < Math.abs(best.strike - targetStrike)) return c;
+                return best;
+              }, null);
+              if (bestCC && bestCC.bid >= 0.05) {
+                const premium = bestCC.bid;
+                const premPct = (premium / price * 100);
+                const annualized = premPct * (365 / chain.dte);
+                const otmPct = ((bestCC.strike - price) / price * 100);
+                const probOTM = 100 - (bestCC.impliedVolatility ? Math.round(50 + otmPct / (bestCC.impliedVolatility * Math.sqrt(chain.dte / 365)) * 15) : 70);
+                const theta = premium / chain.dte;
+                strategies.push({
+                  type: 'COVERED_CALL', expDate: chain.expDate, dte: chain.dte,
+                  strike: bestCC.strike, otmPct: Math.round(otmPct * 10) / 10,
+                  bid: bestCC.bid, ask: bestCC.ask || 0,
+                  premium: Math.round(premium * 100) / 100,
+                  premiumPct: Math.round(premPct * 100) / 100,
+                  annualized: Math.round(annualized),
+                  iv: bestCC.impliedVolatility ? Math.round(bestCC.impliedVolatility * 10000) / 100 : null,
+                  openInterest: bestCC.openInterest || 0,
+                  volume: bestCC.volume || 0,
+                  thetaDaily: Math.round(theta * 100) / 100,
+                  probOTM: Math.min(95, Math.max(40, probOTM)),
+                  contractsAvailable: shares >= 100 ? Math.floor(shares / 100) : 0,
+                  totalPremium: shares >= 100 ? Math.round(bestCC.bid * Math.floor(shares / 100) * 100) : 0,
+                });
+              }
+            }
+
+            // Best Cash Secured Puts at different OTM levels
+            for (const otmTarget of [0.05, 0.08, 0.10, 0.15]) {
+              const targetStrike = price * (1 - otmTarget);
+              const bestCSP = puts.reduce((best, p) => {
+                if (!best || Math.abs(p.strike - targetStrike) < Math.abs(best.strike - targetStrike)) return p;
+                return best;
+              }, null);
+              if (bestCSP && bestCSP.bid >= 0.05) {
+                const premium = bestCSP.bid;
+                const premPct = (premium / bestCSP.strike * 100);
+                const annualized = premPct * (365 / chain.dte);
+                const otmPct = ((price - bestCSP.strike) / price * 100);
+                const yocIfAssigned = posRow?.div_ttm ? (posRow.div_ttm / bestCSP.strike * 100) : (divYield * 100 * price / bestCSP.strike);
+                strategies.push({
+                  type: 'CASH_SECURED_PUT', expDate: chain.expDate, dte: chain.dte,
+                  strike: bestCSP.strike, otmPct: Math.round(otmPct * 10) / 10,
+                  bid: bestCSP.bid, ask: bestCSP.ask || 0,
+                  premium: Math.round(premium * 100) / 100,
+                  premiumPct: Math.round(premPct * 100) / 100,
+                  annualized: Math.round(annualized),
+                  iv: bestCSP.impliedVolatility ? Math.round(bestCSP.impliedVolatility * 10000) / 100 : null,
+                  openInterest: bestCSP.openInterest || 0,
+                  volume: bestCSP.volume || 0,
+                  cashRequired: Math.round(bestCSP.strike * 100),
+                  yocIfAssigned: Math.round(yocIfAssigned * 100) / 100,
+                  belowAvgCost: avgCost ? bestCSP.strike < avgCost : null,
+                });
+              }
+            }
+          }
+
+          // 6. Timing assessment
+          let timing = 'NEUTRAL';
+          let timingReason = [];
+          if (ivRank > 60) { timing = 'FAVORABLE'; timingReason.push(`IV rank ${ivRank}% — volatilidad elevada, primas ricas`); }
+          if (ivRank <= 30) { timing = 'DESFAVORABLE'; timingReason.push(`IV rank ${ivRank}% — volatilidad baja, primas pobres`); }
+          if (earningsInDays && earningsInDays < 30) { timing = 'CUIDADO'; timingReason.push(`Earnings en ${earningsInDays} dias — riesgo IV crush`); }
+          if (earningsInDays && earningsInDays > 30 && earningsInDays < 60) { timingReason.push(`Earnings en ${earningsInDays}d — vender antes del run-up de IV`); }
+          if (price < fiftyTwoLow * 1.1) { timingReason.push('Cerca de minimos 52s — bueno para CSP'); }
+          if (price > fiftyTwoHigh * 0.9) { timingReason.push('Cerca de maximos 52s — bueno para CC'); }
+
+          return json({
+            symbol, price, shares, avgCost,
+            divYield: Math.round(divYield * 10000) / 100,
+            fiftyTwoRange: `$${fiftyTwoLow.toFixed(2)} - $${fiftyTwoHigh.toFixed(2)}`,
+            currentIV: currentIV ? Math.round(currentIV * 10) / 10 : null,
+            historicalVol: Math.round(historicalVol * 10) / 10,
+            ivRank,
+            ivSignal,
+            earningsInDays,
+            timing, timingReason,
+            gfScore: gf.gfScore, gfValuation: gf.gfValuation,
+            strategies: strategies.sort((a, b) => (b.annualized || 0) - (a.annualized || 0)),
+            recommendation: timing === 'FAVORABLE' ? 'Buen momento para vender opciones — IV elevada' :
+              timing === 'CUIDADO' ? 'Esperar — earnings cercanos pueden causar movimiento brusco' :
+              timing === 'DESFAVORABLE' ? 'Esperar — IV baja, primas no compensan el riesgo' :
+              'Aceptable — primas moderadas',
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
       }
 
       // POST /api/ib-auto-sync — cloud-based trade/NLV sync (replaces Mac cron dependency)
@@ -5394,7 +6011,89 @@ async function storeInsights(env, agentName, fecha, insights) {
   return batch.length;
 }
 
-// ─── Helper: Cache Market Indicators ───────────────────────────
+// ─── Helper: Enrich Position Sectors ────────────────────────────
+async function enrichPositionSectors(env) {
+  const { results: positions } = await env.DB.prepare(
+    "SELECT ticker, sector FROM positions WHERE shares > 0"
+  ).all();
+
+  // Manual sector mappings — ONLY for ETFs/preferred that APIs don't cover.
+  // International stocks (BME:/HKG:/etc.) are now resolved via FMP Ultimate /v3/profile.
+  // Previous hardcoded HKG entries were WRONG (HKG:1052=Industrials not Healthcare,
+  // HKG:2219=Healthcare not Tech, HKG:1910=Consumer Cyclical not Tech) — removed.
+  const MANUAL_SECTORS = {
+    'NET.UN': 'Real Estate', 'IIPR-PRA': 'Real Estate',
+    'BIZD': 'Financial Services', 'DIVO': 'Financial Services',
+    'SPHD': 'Financial Services', 'WEEL': 'Financial Services',
+  };
+
+  const missing = positions.filter(p => !p.sector || p.sector === 'Unknown' || p.sector === '');
+  if (!missing.length) return { updated: 0, total: positions.length, message: "All sectors filled" };
+
+  let updated = 0;
+
+  // Apply manual mappings first
+  for (const pos of missing) {
+    if (MANUAL_SECTORS[pos.ticker]) {
+      await env.DB.prepare("UPDATE positions SET sector = ? WHERE ticker = ?").bind(MANUAL_SECTORS[pos.ticker], pos.ticker).run();
+      updated++;
+    }
+  }
+  const tickers = missing.map(p => p.ticker);
+
+  // 1. Try GuruFocus cache first
+  const gfMap = await getGfData(env, tickers);
+
+  // 2. Try FMP fundamentals profile
+  const placeholders = tickers.map(() => "?").join(",");
+  const { results: fmpRows } = await env.DB.prepare(
+    `SELECT symbol, profile FROM fundamentals WHERE symbol IN (${placeholders})`
+  ).bind(...tickers).all();
+  const fmpMap = {};
+  for (const f of fmpRows) {
+    if (f.profile) {
+      try {
+        const p = JSON.parse(f.profile);
+        const profile = Array.isArray(p) ? p[0] : p;
+        if (profile?.sector) fmpMap[f.symbol] = profile.sector;
+      } catch {}
+    }
+  }
+
+  // 3. On-demand FMP /v3/profile fetch for tickers still missing sector
+  //    (covers international tickers not yet in fundamentals table)
+  const FMP_KEY = env.FMP_KEY;
+  const fmpProfileMap = {};
+  if (FMP_KEY) {
+    const stillMissing = missing.filter(p => !gfMap[p.ticker]?.sector && !fmpMap[p.ticker]);
+    for (let i = 0; i < stillMissing.length; i += 10) {
+      const batch = stillMissing.slice(i, i + 10);
+      await Promise.all(batch.map(async (pos) => {
+        try {
+          const sym = toFMP(pos.ticker);
+          const r = await fetch(`https://financialmodelingprep.com/stable/profile?symbol=${encodeURIComponent(sym)}&apikey=${FMP_KEY}`);
+          if (!r.ok) return;
+          const d = await r.json();
+          const profile = Array.isArray(d) ? d[0] : d;
+          if (profile?.sector) fmpProfileMap[pos.ticker] = profile.sector;
+        } catch {}
+      }));
+    }
+  }
+
+  // 4. Update positions with sector data
+  for (const pos of missing) {
+    const sector = gfMap[pos.ticker]?.sector || fmpMap[pos.ticker] || fmpProfileMap[pos.ticker] || null;
+    if (sector) {
+      await env.DB.prepare("UPDATE positions SET sector = ? WHERE ticker = ?").bind(sector, pos.ticker).run();
+      updated++;
+    }
+  }
+
+  return { updated, missing: missing.length, total: positions.length };
+}
+
+// ─── Helper: Cache Market Indicators (FMP Ultimate) ────────────
 async function cacheMarketIndicators(env) {
   const MARKET_TICKERS = [
     'SPY','QQQ','IWM','DIA',                          // indices
@@ -5406,35 +6105,28 @@ async function cacheMarketIndicators(env) {
     '^VIX',                                            // volatility
   ];
 
+  // Single batch quote call (FMP supports up to 50 symbols in one URL)
+  const quotes = await fmpQuote(MARKET_TICKERS, env);
   const results = {};
-  // Fetch in batches of 8 via Yahoo
-  for (let i = 0; i < MARKET_TICKERS.length; i += 8) {
-    const batch = MARKET_TICKERS.slice(i, i + 8);
-    const batchResults = await Promise.allSettled(
-      batch.map(async (ticker) => {
-        const resp = await fetchYahoo(
-          `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=5d`
-        );
-        if (!resp.ok) return null;
-        const data = await resp.json();
-        const meta = data?.chart?.result?.[0]?.meta;
-        const closes = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(v => v != null) || [];
-        if (!meta) return null;
-        const price = meta.regularMarketPrice;
-        const prevClose = meta.previousClose || meta.chartPreviousClose || price;
-        const firstClose = closes.length > 1 ? closes[0] : prevClose;
-        return {
-          ticker, price,
-          changePct: prevClose ? ((price - prevClose) / prevClose * 100) : 0,
-          change5dPct: firstClose ? ((price - firstClose) / firstClose * 100) : 0,
-          spark5d: closes.slice(-5),
-        };
-      })
-    );
-    for (const r of batchResults) {
-      if (r.status === "fulfilled" && r.value) results[r.value.ticker] = r.value;
-    }
-    if (i + 8 < MARKET_TICKERS.length) await new Promise(r => setTimeout(r, 1500));
+
+  // Sparklines in parallel batches of 10
+  for (let i = 0; i < MARKET_TICKERS.length; i += 10) {
+    const batch = MARKET_TICKERS.slice(i, i + 10);
+    const sparks = await Promise.all(batch.map(t => fmpSpark(t, env, 5)));
+    batch.forEach((ticker, idx) => {
+      const q = quotes[ticker];
+      if (!q || q.price == null) return;
+      const closes = sparks[idx] || [];
+      const price = q.price;
+      const prevClose = q.previousClose || price;
+      const firstClose = closes.length > 1 ? closes[0] : prevClose;
+      results[ticker] = {
+        ticker, price,
+        changePct: prevClose ? ((price - prevClose) / prevClose * 100) : 0,
+        change5dPct: firstClose ? ((price - firstClose) / firstClose * 100) : 0,
+        spark5d: closes.slice(-5),
+      };
+    });
   }
 
   // Store in agent_memory
@@ -5463,6 +6155,258 @@ async function setAgentMemory(env, id, data) {
     `INSERT INTO agent_memory (id, data, updated_at) VALUES (?, ?, datetime('now'))
      ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = datetime('now')`
   ).bind(id, JSON.stringify(data)).run();
+}
+
+// ─── Helper: GuruFocus API ──────────────────────────────────────
+async function fetchGuruFocusSummary(env, symbol) {
+  const token = env.GURUFOCUS_TOKEN;
+  if (!token) return null;
+  // GF uses plain symbols — strip exchange prefixes
+  const gfSymbol = symbol.replace(/^(BME:|HKG:|LSE:)/, '');
+  try {
+    const resp = await fetch(`https://api.gurufocus.com/public/user/${token}/stock/${gfSymbol}/summary`);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    // GF summary is nested: summary.general, summary.chart, summary.company_data, summary.guru, summary.insider
+    const s = data?.summary || data;
+    const g = s?.general || {};
+    const ch = s?.chart || {};
+    const cd = s?.company_data || {};
+    const guru = s?.guru || {};
+    const ins = s?.insider || {};
+    return {
+      gfValue: ch['GF Value'] || ch.gf_value,
+      gfScore: g.gf_score,
+      priceToGfValue: (cd.price && ch['GF Value']) ? cd.price / ch['GF Value'] : null,
+      gfValuation: g.gf_valuation,
+      financialStrength: g.rank_financial_strength,
+      profitabilityRank: g.rank_profitability,
+      growthRank: g.rank_growth,
+      momentumRank: g.rank_momentum,
+      valueRank: g.rank_gf_value,
+      peterLynchFV: ch['Peter Lynch Fair Value'] || ch.peter_lynch_value,
+      epv: ch['Earnings Power Value'],
+      shareholderYield: cd.shareholder_yield,
+      buybackYield: cd.buyback_yield,
+      dividendYield: cd.yield,
+      dividendStreakSince: cd.dividend_increase_streak_since,
+      rsi14: cd.rsi_14d,
+      beta: cd.beta,
+      volatility1y: cd.volatility_1y,
+      sharpe: cd.sharpe_ratio,
+      sortino: cd.sortino_ratio,
+      maxDrawdown1y: cd.max_drawdown_1y,
+      guruBuys13f: guru['13f_buys'] || guru.buys_pct,
+      guruSells13f: guru['13f_sells'] || guru.sells_pct,
+      institutionalOwnership: guru.institutional_ownership,
+      insiderBuys3m: ins.insider_buys_3m || ins.buys_3m,
+      insiderSells3m: ins.insider_sells_3m || ins.sells_3m,
+      company: cd.company,
+      sector: g.sector,
+      price: cd.price || g.price,
+    };
+  } catch (e) {
+    console.error(`GF fetch error for ${symbol}:`, e.message);
+    return null;
+  }
+}
+
+async function cacheGuruFocusData(env) {
+  const { results: positions } = await env.DB.prepare(
+    "SELECT ticker FROM positions WHERE shares > 0"
+  ).all();
+  if (!positions.length) return { cached: 0 };
+
+  let cached = 0, failed = 0;
+  // Fetch in batches of 5 with 1s delay to respect rate limits
+  for (let i = 0; i < positions.length; i += 5) {
+    const batch = positions.slice(i, i + 5);
+    const results = await Promise.allSettled(
+      batch.map(p => fetchGuruFocusSummary(env, p.ticker))
+    );
+    for (let j = 0; j < batch.length; j++) {
+      const ticker = batch[j].ticker;
+      const result = results[j];
+      if (result.status === "fulfilled" && result.value) {
+        await env.DB.prepare(
+          `INSERT INTO gurufocus_cache (ticker, data, updated_at) VALUES (?, ?, datetime('now'))
+           ON CONFLICT(ticker) DO UPDATE SET data = excluded.data, updated_at = datetime('now')`
+        ).bind(ticker, JSON.stringify(result.value)).run();
+        cached++;
+      } else {
+        failed++;
+      }
+    }
+    if (i + 5 < positions.length) await new Promise(r => setTimeout(r, 1200));
+  }
+  // Trends cached separately via POST /api/agent-run?agent=gf-trends (too slow for single request)
+  let trends = 0;
+  const base = `https://api.gurufocus.com/public/user/${env.GURUFOCUS_TOKEN}`;
+  for (let i = 0; i < positions.length; i += 3) {
+    const batch = positions.slice(i, i + 3);
+    const trendResults = await Promise.allSettled(
+      batch.map(async (p) => {
+        const sym = p.ticker.replace(/^(BME:|HKG:|LSE:)/, '');
+        try {
+          const resp = await fetch(`${base}/stock/${sym}/financials`);
+          if (!resp.ok) return null;
+          const data = await resp.json();
+          const fin = data?.financials || {};
+          const q = fin.quarterly || {};
+          const periods = q['Fiscal Year'] || [];
+          const income = q.income_statement || {};
+          const cf = q.cashflow_statement || {};
+          const bs = q.balance_sheet || {};
+          const n = Math.min(8, periods.length);
+          if (n < 4) return null;
+          const rev = (income.Revenue || []).slice(-n).reverse();
+          const fcf = (cf['Free Cash Flow'] || []).slice(-n).reverse();
+          const debt = (bs['Long-Term Debt'] || bs['Total Long-Term Debt'] || []).slice(-n).reverse();
+          const divPaid = (cf['Dividends Paid'] || cf['Payment of Dividends and Other Cash Distributions'] || []).slice(-n).reverse();
+          const toNum = v => { try { return parseFloat(String(v).replace(/,/g,'')); } catch { return null; } };
+          return {
+            ticker: p.ticker,
+            trend: {
+              periods: periods.slice(-n).reverse(),
+              revenue: rev.map(toNum), fcf: fcf.map(toNum),
+              debt: debt.map(toNum), dividendsPaid: divPaid.map(toNum),
+            }
+          };
+        } catch { return null; }
+      })
+    );
+    for (const r of trendResults) {
+      if (r.status === 'fulfilled' && r.value) {
+        // Store trend data in gurufocus_cache alongside existing data
+        const existing = await env.DB.prepare("SELECT data FROM gurufocus_cache WHERE ticker = ?").bind(r.value.ticker).first();
+        let merged = existing?.data ? JSON.parse(existing.data) : {};
+        merged.trend = r.value.trend;
+        await env.DB.prepare(
+          `INSERT INTO gurufocus_cache (ticker, data, updated_at) VALUES (?, ?, datetime('now'))
+           ON CONFLICT(ticker) DO UPDATE SET data = excluded.data, updated_at = datetime('now')`
+        ).bind(r.value.ticker, JSON.stringify(merged)).run();
+        trends++;
+      }
+    }
+    if (i + 3 < positions.length) await new Promise(r => setTimeout(r, 1500));
+  }
+
+  console.log(`[GF] Cached ${cached} summaries + ${trends} trends / ${positions.length} tickers`);
+  return { cached, trends, failed, total: positions.length };
+}
+
+async function getGfData(env, tickers) {
+  if (!tickers.length) return {};
+  const placeholders = tickers.map(() => "?").join(",");
+  const { results } = await env.DB.prepare(
+    `SELECT ticker, data FROM gurufocus_cache WHERE ticker IN (${placeholders})`
+  ).bind(...tickers).all();
+  const map = {};
+  for (const r of results) map[r.ticker] = JSON.parse(r.data);
+  return map;
+}
+
+// ─── FMP Ultimate financials (replaces GuruFocus trend data) ───
+// Returns same shape as gf.trend so consumers can keep using `obj.trend.revenue` etc.
+async function fmpFinancials(ticker, env) {
+  const key = env.FMP_KEY;
+  if (!key) return null;
+  const sym = toFMP(ticker);
+  const base = "https://financialmodelingprep.com/stable";
+  // FMP stable uses query string, returns most-recent first
+  const urls = [
+    `${base}/income-statement?symbol=${encodeURIComponent(sym)}&period=quarter&limit=8&apikey=${key}`,
+    `${base}/cash-flow-statement?symbol=${encodeURIComponent(sym)}&period=quarter&limit=8&apikey=${key}`,
+    `${base}/balance-sheet-statement?symbol=${encodeURIComponent(sym)}&period=quarter&limit=8&apikey=${key}`,
+  ];
+  try {
+    const [incRes, cfRes, bsRes] = await Promise.all(
+      urls.map(u => fetch(u).then(r => r.ok ? r.json() : null).catch(() => null))
+    );
+    if (!Array.isArray(incRes) || !Array.isArray(cfRes)) return null;
+    if (incRes.length < 2 || cfRes.length < 2) return null;
+    const n = Math.min(8, incRes.length, cfRes.length);
+    const inc = incRes.slice(0, n);
+    const cf = cfRes.slice(0, n);
+    const bs = Array.isArray(bsRes) ? bsRes.slice(0, n) : [];
+    const num = (v) => (v == null || v === "" || isNaN(Number(v))) ? null : Number(v);
+    const periods = inc.map(r => r.date || r.period || null);
+    const revenue = inc.map(r => num(r.revenue));
+    const fcf = cf.map(r => num(r.freeCashFlow));
+    // FMP returns dividendsPaid as negative → flip sign
+    const dividendsPaid = cf.map(r => {
+      const v = num(r.dividendsPaid);
+      return v == null ? null : Math.abs(v);
+    });
+    const debt = bs.map(r => {
+      const ltd = num(r.longTermDebt);
+      return ltd != null ? ltd : num(r.totalDebt);
+    });
+    return { periods, revenue, fcf, debt, dividendsPaid };
+  } catch (e) {
+    console.error(`[FMP financials] ${ticker}:`, e.message);
+    return null;
+  }
+}
+
+// Batch cache all portfolio quarterly financials (replaces cacheGuruFocusData trend portion)
+// Supports ?offset=N&limit=N pagination via opts to fit within Workers 30s CPU budget.
+async function cacheFmpFinancials(env, opts = {}) {
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS fmp_financials_cache (
+       ticker TEXT PRIMARY KEY,
+       data TEXT NOT NULL,
+       updated_at TEXT NOT NULL
+     )`
+  ).run();
+  const { results: positions } = await env.DB.prepare(
+    "SELECT ticker FROM positions WHERE shares > 0"
+  ).all();
+  if (!positions.length) return { cached: 0, failed: 0, total: 0 };
+  const offset = opts.offset || 0;
+  const limit = opts.limit || 0;
+  const sliced = limit > 0 ? positions.slice(offset, offset + limit) : positions;
+
+  let cached = 0, failed = 0;
+  // Batches of 3 in parallel + 700ms delay (each ticker = 3 FMP calls, so ~9 in flight)
+  for (let i = 0; i < sliced.length; i += 3) {
+    const batch = sliced.slice(i, i + 3);
+    const results = await Promise.allSettled(
+      batch.map(p => fmpFinancials(p.ticker, env))
+    );
+    for (let j = 0; j < batch.length; j++) {
+      const ticker = batch[j].ticker;
+      const r = results[j];
+      if (r.status === "fulfilled" && r.value) {
+        const payload = { trend: r.value };
+        await env.DB.prepare(
+          `INSERT INTO fmp_financials_cache (ticker, data, updated_at)
+           VALUES (?, ?, datetime('now'))
+           ON CONFLICT(ticker) DO UPDATE SET data = excluded.data, updated_at = datetime('now')`
+        ).bind(ticker, JSON.stringify(payload)).run();
+        cached++;
+      } else {
+        failed++;
+      }
+    }
+    if (i + 3 < sliced.length) await new Promise(r => setTimeout(r, 700));
+  }
+  console.log(`[FMP-FIN] Cached ${cached}/${sliced.length} (failed ${failed})`);
+  return { cached, failed, total: sliced.length, portfolio: positions.length };
+}
+
+// Reader equivalent to getGfData — returns map of ticker → { trend: {...} }
+async function getFmpFinancials(env, tickers) {
+  if (!tickers.length) return {};
+  const placeholders = tickers.map(() => "?").join(",");
+  const { results } = await env.DB.prepare(
+    `SELECT ticker, data FROM fmp_financials_cache WHERE ticker IN (${placeholders})`
+  ).bind(...tickers).all();
+  const map = {};
+  for (const r of results) {
+    try { map[r.ticker] = JSON.parse(r.data); } catch {}
+  }
+  return map;
 }
 
 // ─── Agent 0: Market Regime (runs FIRST) ───────────────────────
@@ -5507,7 +6451,9 @@ Score 1=crisis, 10=strong bull.`;
     fecha,
   };
 
-  const insight = await callAgentClaude(env, system, userContent);
+  const rawInsight = await callAgentClaude(env, system, userContent);
+  let insight = Array.isArray(rawInsight) ? rawInsight[0] : rawInsight;
+  if (!insight || typeof insight !== 'object') insight = { severity: "warning", title: "Regime analysis", summary: String(rawInsight).slice(0, 500), details: {}, score: 5 };
   insight.ticker = "_REGIME_";
 
   // Save regime to agent_memory for other agents
@@ -5549,9 +6495,52 @@ async function runEarningsAgent(env, fecha) {
     };
   }
 
-  const posData = positions.filter(p => fundMap[p.ticker]?.earnings).map(p => {
+  // Load GuruFocus ranks (kept until Phase 4b replaces with FMP-derived equivalents)
+  const gfMap = await getGfData(env, tickers);
+
+  // Load most recent transcript per ticker. Tickers stored without exchange prefix
+  // (BME:/HKG:/LSE: stripped at download time, see /api/download-transcripts).
+  const transcriptMap = {};
+  try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS earnings_transcripts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      quarter TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      date TEXT,
+      updated_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(ticker, quarter, year)
+    )`).run();
+    const stripTickers = tickers.map(t => t.replace(/^(BME:|HKG:|LSE:)/, ''));
+    const tPlaceholders = stripTickers.map(() => "?").join(",");
+    const { results: trRows } = await env.DB.prepare(
+      `SELECT ticker, quarter, year, content, date FROM earnings_transcripts
+       WHERE ticker IN (${tPlaceholders})
+       ORDER BY year DESC, quarter DESC, date DESC`
+    ).bind(...stripTickers).all();
+    for (const row of trRows) {
+      // Keep only the most recent per ticker
+      if (!transcriptMap[row.ticker]) {
+        transcriptMap[row.ticker] = {
+          quarter: row.quarter,
+          year: row.year,
+          date: row.date,
+          // First ~3000 chars = management prepared remarks (highest signal)
+          excerpt: typeof row.content === "string" ? row.content.slice(0, 3000) : "",
+        };
+      }
+    }
+  } catch (e) {
+    console.error("[Earnings] transcript load failed:", e.message);
+  }
+
+  const allPosData = positions.filter(p => fundMap[p.ticker]?.earnings).map(p => {
     const f = fundMap[p.ticker];
+    const gf = gfMap[p.ticker] || {};
     const e = f.earnings;
+    const stripKey = p.ticker.replace(/^(BME:|HKG:|LSE:)/, '');
+    const tr = transcriptMap[stripKey];
     return {
       ticker: p.ticker, name: p.name, sector: p.sector,
       earnings: Array.isArray(e) ? e.slice(0, 2) : e,
@@ -5559,29 +6548,68 @@ async function runEarningsAgent(env, fecha) {
       revSegments: f.revSegments?.slice?.(0, 1),
       geoSegments: f.geoSegments?.slice?.(0, 1),
       analystGrades: Array.isArray(f.grades) ? f.grades.slice(0, 3) : null,
+      gfGrowthRank: gf.growthRank, gfMomentumRank: gf.momentumRank,
+      gfProfitabilityRank: gf.profitabilityRank,
+      // Most recent earnings call transcript (management commentary)
+      transcript: tr ? { period: `${tr.quarter} ${tr.year}`, date: tr.date, excerpt: tr.excerpt } : null,
     };
-  }).slice(0, 40);
+  });
 
-  if (!posData.length) {
+  if (!allPosData.length) {
     await storeInsights(env, "earnings", fecha, [{ ticker: "_GLOBAL_", severity: "info", title: "Sin datos de earnings", summary: "No hay datos de earnings disponibles.", details: {}, score: 5 }]);
     return { agent: "earnings", insights: 0 };
   }
 
-  const system = `You are an earnings analyst monitoring a $1.3M dividend income portfolio (China fiscal resident, 10% WHT US-China treaty).
-Analyze latest earnings. Flag: revenue miss >3%, EPS miss >5%, guidance changes, margin compression, analyst downgrades.
-Use revenue segments and geographic data when available to identify structural shifts.
+  const system = `You are a senior earnings analyst for a LONG-TERM dividend income portfolio ($1.35M, buy-and-hold).
+The owner holds positions for years/decades. Temporary earnings dips are NORMAL in business cycles.
+NEVER recommend selling quality on temporary dips — this is a buy-and-hold dividend portfolio.
 
-SEVERITY CALIBRATION:
-- critical = earnings miss >10% or dividend at risk due to earnings
-- warning = miss 3-10% or margin compression >200bps
-- info = beat or minor miss <3%
+YOU NOW HAVE EARNINGS CALL TRANSCRIPTS. Use them as the PRIMARY source for tone and context:
+- The numerical surprise (EPS/revenue beat or miss) tells you WHAT happened.
+- The transcript tells you WHY it happened and what management plans to do.
+- Combine both: a -8% EPS miss with management explaining a one-time legal charge AND reaffirming guidance is INFO, not WARNING.
+- A +2% EPS beat with management warning about deteriorating demand for next quarter is WARNING despite the beat.
+- When citing the transcript, quote a SHORT phrase (under 15 words) from management in transcript_insight.
+- If no transcript provided for a ticker, set transcript_insight to "No transcript" and rely on numerical data only.
 
-Respond ONLY JSON array: [{"ticker":"XX","severity":"info|warning|critical","title":"short title","summary":"2-3 sentences","details":{"epsSurprise":null,"revenueSurprise":null,"marginTrend":"","analystAction":"","keyRisks":[]},"score":1-10}]
-Max 15 entries. Prioritize critical/warning first.`;
+CONTEXT IS EVERYTHING:
+- One-time write-downs, impairments, restructuring charges are NOT operational problems. Explain what happened.
+- A company investing in growth (higher capex, R&D) may show lower earnings temporarily — that's POSITIVE.
+- Seasonal businesses (HRB = tax season, retail = Q4) have naturally weak quarters. Don't flag off-season results.
+- Compare to the TREND, not just one quarter.
+- If EPS beats estimates AND management tone is constructive, it CANNOT be critical. Period.
 
-  const insights = await callAgentClaude(env, system, { positions: posData });
-  const stored = await storeInsights(env, "earnings", fecha, Array.isArray(insights) ? insights : [insights]);
-  return { agent: "earnings", insights: stored };
+DISTINGUISH TEMPORARY VS STRUCTURAL:
+- Temporary: one-time charges, FX headwinds, weather, supply chain hiccups, restructuring with clear plan, deferred revenue timing, M&A integration costs. → info (or warning if large but explained).
+- Structural: secular demand decline, market share loss to disruptors, margin compression with no plan, repeated guidance cuts, management evasiveness on the call. → warning or critical.
+
+SEVERITY (conservative — long-term portfolio):
+- critical = structural business decline: revenue falling 3+ consecutive quarters AND margins compressing AND no credible turnaround in transcript. Max 2 criticals across the portfolio.
+- warning = operational miss that could affect dividends OR management tone clearly negative on forward demand
+- info = normal quarter, beat, minor miss, explained one-time, or constructive management commentary
+
+Respond ONLY JSON array:
+[{"ticker":"XX","severity":"info|warning|critical","title":"short title","summary":"2-3 sentences combining numerical result with management's explanation","details":{"epsSurprise":-5.3,"revenueSurprise":2.1,"marginTrend":"stable|improving|deteriorating","context":"one-time|cyclical|structural|growth-investment","transcript_insight":"1-2 sentences citing what management said (short quote in quotes if possible)","keyRisks":[]},"score":1-10}]
+Include entries for tickers with notable findings (beat/miss, guidance change, or important transcript signal). Skip uneventful quarters. Score: 1=structural decline, 5=normal mixed, 10=strong beat with bullish guidance.`;
+
+  // Process in batches of 12 (transcripts add ~3KB per ticker, smaller than dividend's 15)
+  const BATCH_SIZE = 12;
+  const allInsights = [];
+
+  for (let i = 0; i < allPosData.length; i += BATCH_SIZE) {
+    const batch = allPosData.slice(i, i + BATCH_SIZE);
+    try {
+      const batchResult = await callAgentClaude(env, system, { positions: batch }, { model: "claude-opus-4-20250514" });
+      const batchInsights = Array.isArray(batchResult) ? batchResult : [batchResult];
+      allInsights.push(...batchInsights);
+    } catch (e) {
+      console.error(`[Earnings] Batch ${i / BATCH_SIZE + 1} failed:`, e.message);
+    }
+    if (i + BATCH_SIZE < allPosData.length) await new Promise(r => setTimeout(r, 5000));
+  }
+
+  const stored = await storeInsights(env, "earnings", fecha, allInsights);
+  return { agent: "earnings", insights: stored, total: allPosData.length };
 }
 
 // ─── Agent 2: Dividend Safety ──────────────────────────────────
@@ -5600,7 +6628,7 @@ async function runDividendAgent(env, fecha) {
   // Real dividend payments from dividendos table (last 2 years)
   const twoYearsAgo = new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10);
   const { results: realDivs } = await env.DB.prepare(
-    `SELECT ticker, fecha, bruto, neto, wht_pct FROM dividendos WHERE fecha >= ? ORDER BY fecha DESC`
+    `SELECT ticker, fecha, bruto, neto FROM dividendos WHERE fecha >= ? ORDER BY fecha DESC`
   ).bind(twoYearsAgo).all();
 
   const realDivMap = {};
@@ -5620,39 +6648,100 @@ async function runDividendAgent(env, fecha) {
     };
   }
 
-  const posData = positions.map(p => {
+  // Load GuruFocus data (for scalar fields: financialStrength, shareholderYield, etc.)
+  // and FMP financials (for trends — replaces gf.trend)
+  const [gfMap, fmpFinMap] = await Promise.all([
+    getGfData(env, tickers),
+    getFmpFinancials(env, tickers),
+  ]);
+
+  // Classify tickers for context
+  const REITS = new Set(['AMT','ARE','CLPR','CUBE','ESS','HR','IIPR','KRG','MDV','NNN','O','STAG','SUI','VICI','WPC','XLRE','NET.UN']);
+  const BDCS = new Set(['MAIN','OBDC','MSDL']);
+  const ETFS = new Set(['SCHD','DIVO','BIZD','SPHD','FDJU','WEEL']);
+  const PREFS = new Set(['IIPR-PRA','LANDP']);
+
+  const allPosData = positions.map(p => {
     const f = fundMap[p.ticker] || {};
+    const gf = gfMap[p.ticker] || {};
+    // Prefer FMP trends (richer, fresher), fall back to GF if FMP cache empty
+    const trend = fmpFinMap[p.ticker]?.trend || gf.trend || {};
     const latestRatios = Array.isArray(f.ratios) ? f.ratios[0] : f.ratios;
     const latestCF = Array.isArray(f.cashflow) ? f.cashflow[0] : f.cashflow;
     const ownerE = Array.isArray(f.ownerEarnings) ? f.ownerEarnings[0] : f.ownerEarnings;
+    const category = REITS.has(p.ticker) ? 'REIT' : BDCS.has(p.ticker) ? 'BDC' : ETFS.has(p.ticker) ? 'ETF' : PREFS.has(p.ticker) ? 'PREFERRED' : 'COMPANY';
     return {
       ticker: p.ticker, name: p.name, sector: p.sector,
+      category, // REIT, BDC, ETF, PREFERRED, or COMPANY
       divTTM: p.div_ttm, yield: p.div_yield, yoc: p.yoc,
       payoutRatio: latestRatios?.payoutRatio || latestRatios?.dividendPayoutRatio,
       fcfPerShare: latestCF?.freeCashFlowPerShare,
       ownerEarningsPerShare: ownerE?.ownerEarningsPerShare,
       debtToEquity: latestRatios?.debtEquityRatio,
       interestCoverage: latestRatios?.interestCoverage,
-      dividendHistory: Array.isArray(f.dividends) ? f.dividends.slice(0, 8) : null,
-      realPayments: (realDivMap[p.ticker] || []).slice(0, 6),
+      dividendHistory: Array.isArray(f.dividends) ? f.dividends.slice(0, 4) : null,
+      realPayments: (realDivMap[p.ticker] || []).slice(0, 3),
+      gfFinancialStrength: gf.financialStrength,
+      gfShareholderYield: gf.shareholderYield,
+      gfBuybackYield: gf.buybackYield,
+      gfDividendStreakSince: gf.dividendStreakSince,
+      // Quarterly trends (8 quarters) for context analysis (FMP Ultimate, GF fallback)
+      trendRevenue: trend.revenue?.slice(0, 6),
+      trendFCF: trend.fcf?.slice(0, 6),
+      trendDebt: trend.debt?.slice(0, 4),
+      trendDivPaid: trend.dividendsPaid?.slice(0, 4),
     };
-  }).slice(0, 35);
+  });
 
-  const system = `You are a dividend safety analyst for a $1.3M dividend income portfolio (China fiscal resident).
-Rate each position's dividend sustainability using BOTH fundamentals AND real payment history.
-Use owner earnings (FCF adjusted for maintenance capex) over reported FCF when available — it's more accurate.
+  const system = `You are a senior dividend analyst for a LONG-TERM income portfolio ($1.35M, China fiscal resident, 10% WHT).
+This portfolio is buy-and-hold focused on growing dividend income over decades. The owner does NOT want to sell on temporary dips.
 
-SEVERITY CALIBRATION:
-- critical = payout ratio >100% FCF AND declining revenue, or confirmed dividend cut in history
-- warning = payout ratio >80%, or FCF coverage <1.2x, or debt/equity deteriorating
-- info = safe dividend with good coverage
+CRITICAL CONTEXT — DO NOT give false alarms:
+- A dividend CUT to pay down debt is often BULLISH (management prioritizing balance sheet health). Mark as "warning" not "critical".
+- A high payout ratio in a REIT is NORMAL (REITs distribute 90%+ by law). Use FFO/AFFO payout instead.
+- BDCs (MAIN, OBDC, etc.) have high payouts by design — evaluate NAV coverage, not earnings payout.
+- ETFs/CEFs (SCHD, DIVO, BIZD, SPHD, etc.) don't have traditional payout ratios — evaluate distribution history.
+- Preferred shares (IIPR-PRA, LANDP) have FIXED dividends — only flag if company is in financial distress.
+- A company trading below fair value with a high yield is an OPPORTUNITY, not a crisis.
+- Temporary earnings dips (restructuring, one-time charges) don't threaten long-term dividends if FCF is healthy.
 
-Respond ONLY JSON array: [{"ticker":"XX","severity":"info|warning|critical","title":"short title","summary":"2-3 sentences","details":{"payoutRatio":null,"fcfCoverage":null,"ownerEarningsCoverage":null,"streakYears":null,"cutRisk":"low|medium|high","debtConcern":false},"score":1-10}]
-Score 1=imminent cut, 10=fortress. Max 20 entries, critical/warning first.`;
+TREND ANALYSIS (use trendRevenue, trendFCF, trendDebt, trendDivPaid — most recent quarter first):
+- If debt is DECREASING over 4+ quarters AND dividend was cut → STRATEGIC restructuring, likely positive. Score 6+.
+- If FCF is INCREASING while revenue is flat → margin improvement, dividend is safer. Score 7+.
+- If debt is INCREASING AND FCF is DECREASING → genuine stress. Score 3-4.
+- If dividendsPaid dropped but FCF is strong → voluntary cut to invest or pay debt. Explain WHY.
+- Always analyze the DIRECTION of the trend, not just the latest number.
 
-  const insights = await callAgentClaude(env, system, { positions: posData });
-  const stored = await storeInsights(env, "dividend", fecha, Array.isArray(insights) ? insights : [insights]);
-  return { agent: "dividend", insights: stored };
+SEVERITY (be conservative — only "critical" for REAL danger):
+- critical = company is genuinely at risk of bankruptcy or permanent dividend elimination. Max 2-3 across entire portfolio.
+- warning = dividend freeze likely, or payout unsustainable WITHOUT a clear strategic reason
+- info = safe, growing, or strategically sound even if ratios look stressed
+
+For EACH ticker: one-line verdict with context. Explain WHY, not just numbers.
+
+Respond ONLY JSON array:
+[{"ticker":"XX","severity":"info|warning|critical","title":"2-4 word verdict","summary":"1-2 sentences explaining the CONTEXT behind the numbers","details":{"payoutRatio":null,"fcfCoverage":null,"gfFinancialStrength":null,"cutRisk":"low|medium|high","context":"strategic|stressed|stable|growing"},"score":1-10}]
+Include ALL tickers. Score: 1=bankruptcy risk, 5=needs monitoring, 8=solid, 10=fortress.`;
+
+  // Process in batches of 15 to stay under token limits
+  const BATCH_SIZE = 15;
+  const allInsights = [];
+
+  for (let i = 0; i < allPosData.length; i += BATCH_SIZE) {
+    const batch = allPosData.slice(i, i + BATCH_SIZE);
+    try {
+      const batchResult = await callAgentClaude(env, system, { positions: batch }, { model: "claude-opus-4-20250514" });
+      const batchInsights = Array.isArray(batchResult) ? batchResult : [batchResult];
+      allInsights.push(...batchInsights);
+    } catch (e) {
+      console.error(`[Dividend] Batch ${i / BATCH_SIZE + 1} failed:`, e.message);
+    }
+    // Small delay between batches
+    if (i + BATCH_SIZE < allPosData.length) await new Promise(r => setTimeout(r, 5000));
+  }
+
+  const stored = await storeInsights(env, "dividend", fecha, allInsights);
+  return { agent: "dividend", insights: stored, total: allPosData.length };
 }
 
 // ─── Agent 3: Macro Sentinel (Sonnet — complex narrative synthesis) ───
@@ -5722,8 +6811,10 @@ Respond ONLY JSON:
     fecha: todayStr,
   };
 
-  // Use Sonnet for complex narrative synthesis
-  const insight = await callAgentClaude(env, system, userContent, { model: "claude-sonnet-4-20250514" });
+  // Use Opus for complex narrative synthesis
+  const rawInsight = await callAgentClaude(env, system, userContent, { model: "claude-opus-4-20250514" });
+  let insight = Array.isArray(rawInsight) ? rawInsight[0] : rawInsight;
+  if (!insight || typeof insight !== 'object') insight = { severity: "info", title: "Macro analysis", summary: String(rawInsight).slice(0, 500), details: {}, score: 5 };
   insight.ticker = "_MACRO_";
   const stored = await storeInsights(env, "macro", fecha, [insight]);
   return { agent: "macro", insights: stored };
@@ -5775,17 +6866,54 @@ async function runRiskAgent(env, fecha) {
   // Current regime context
   const regime = await getAgentMemory(env, "regime_current");
 
+  // FMP-derived risk metrics per position (with GF fallback for tickers not yet cached)
+  const tickers = positions.map(p => p.ticker);
+  const [riskMap, gfMap] = await Promise.all([
+    getRiskMetrics(env, tickers),
+    getGfData(env, tickers),
+  ]);
+  // Merge: prefer FMP-calculated, fall back to GF
+  const metricsFor = (ticker) => {
+    const fm = riskMap[ticker];
+    if (fm) return { source: 'FMP', ...fm };
+    const gf = gfMap[ticker] || {};
+    if (gf.beta != null) return { source: 'GF', beta: gf.beta, volatility1y: gf.volatility1y, sharpe: gf.sharpe, sortino: gf.sortino, maxDrawdown1y: gf.maxDrawdown1y };
+    return null;
+  };
+  const positionRiskMetrics = sorted.slice(0, 15).map(p => {
+    const m = metricsFor(p.ticker);
+    if (!m) return null;
+    return { ticker: p.ticker, ...m };
+  }).filter(Boolean);
+
+  // Portfolio weighted beta (FMP-first)
+  const weightedBeta = positions.reduce((s, p) => {
+    const m = metricsFor(p.ticker);
+    if (!m?.beta) return s;
+    return s + m.beta * ((p.market_value || 0) / (totalValue || 1));
+  }, 0);
+
   const system = `You are a portfolio risk analyst for a $1.35M dividend income portfolio with ${positions.length} positions.
-Evaluate: concentration risk, sector diversification, drawdown exposure, leverage cost, and regime alignment.
+Evaluate the PORTFOLIO AS A WHOLE (concentration, diversification, drawdown, leverage, regime alignment).
+Use the per-position risk metrics in positionRiskMetrics as INPUTS for your analysis, not as separate outputs.
+
+PHILOSOPHY (CRITICAL):
+- This is a LONG-TERM buy-and-hold dividend portfolio. NEVER recommend selling quality positions during temporary drawdowns.
+- A position down 30% is an opportunity to add, not exit, IF the dividend is intact and the business fundamentals are sound.
+- High volatility on individual quality dividend stocks is normal during corrections — focus on PORTFOLIO-level concentration and sector diversification.
+- The owner does NOT trade. Don't recommend "REDUCE", "EXIT", or "SELL" unless there is real bankruptcy risk.
 
 SEVERITY CALIBRATION:
-- critical = single position >15% AND falling >20%, or max drawdown >15%, or margin cost > dividend income
-- warning = top 5 > 40%, or max drawdown >8%, or sector >50% single sector
-- info = well-diversified, manageable drawdown
+- critical = single position >15% AND business in bankruptcy risk, OR portfolio max drawdown >15%, OR margin cost > dividend income, OR portfolio beta >1.3
+- warning = top 5 > 40%, OR portfolio drawdown >8%, OR single sector >50%, OR weighted beta >1.0
+- info = well-diversified, manageable drawdown, beta <0.8
 
-Respond ONLY JSON: {"severity":"info|warning|critical","title":"short","summary":"3-4 sentences",
-"details":{"concentrationScore":1-10,"topRisks":[],"sectorConcentration":"","diversificationScore":1-10,
-"leverageCostVsIncome":"","regimeAlignment":"","recommendations":[]},"score":1-10}`;
+CRITICAL OUTPUT FORMAT — YOU MUST FOLLOW EXACTLY:
+Respond with EXACTLY ONE JSON OBJECT (no array, no wrapper). Begin your response with { and end with }.
+Schema (all fields required):
+{"severity":"info","title":"Diversified portfolio under sector pressure","summary":"Three-four sentences explaining portfolio-level risk posture, concentration, drawdown context, and how it aligns with current regime. Long-term focus.","details":{"concentrationScore":7,"diversificationScore":6,"portfolioBeta":0.85,"sectorConcentration":"Top sector 28% (Consumer Staples)","leverageCostVsIncome":"Margin cost \\$2k/mo vs \\$8k dividends — 25%","regimeAlignment":"Defensive tilt fits transition-down regime","topRisks":["China concentration ~20%","Rate-sensitive REITs ~25%","Drawdown 8%"],"recommendations":["Hold quality positions","Avoid adding leverage","Wait for sector rotation"]},"score":6}
+
+Do NOT return an array. Do NOT return per-position rows. Return ONE object describing the portfolio. The example above shows the exact shape expected.`;
 
   const userContent = {
     totalNLV: totalValue,
@@ -5799,9 +6927,16 @@ Respond ONLY JSON: {"severity":"info|warning|critical","title":"short","summary"
     categories: positions.reduce((acc, p) => { acc[p.category || "OTHER"] = (acc[p.category || "OTHER"] || 0) + 1; return acc; }, {}),
     marginInterest: marginRows,
     currentRegime: regime,
+    weightedBeta: Math.round(weightedBeta * 100) / 100,
+    positionRiskMetrics,
   };
 
-  const insight = await callAgentClaude(env, system, userContent);
+  const rawInsight = await callAgentClaude(env, system, userContent, { model: "claude-opus-4-20250514" });
+  let insight = Array.isArray(rawInsight) ? rawInsight[0] : rawInsight;
+  // Validate it's a portfolio insight (has severity/title), otherwise wrap or fallback
+  if (!insight || typeof insight !== 'object' || !insight.severity || !insight.title) {
+    insight = { severity: "warning", title: "Risk analysis fallback", summary: typeof rawInsight === 'string' ? rawInsight.slice(0, 500) : JSON.stringify(rawInsight).slice(0, 500), details: {}, score: 5 };
+  }
   insight.ticker = "_PORTFOLIO_";
   const stored = await storeInsights(env, "risk", fecha, [insight]);
   return { agent: "risk", insights: stored };
@@ -5844,28 +6979,46 @@ async function runTradeAgent(env, fecha) {
 
   const regime = await getAgentMemory(env, "regime_current");
 
-  const posData = positions.map(p => ({
-    ticker: p.ticker, name: p.name, shares: p.shares,
-    price: p.last_price, avgCost: p.avg_price, pnlPct: p.pnl_pct,
-    yield: p.div_yield, value: p.market_value,
-    aiScore: aiAnalyses.find(a => a.ticker === p.ticker)?.score,
-    aiAction: aiAnalyses.find(a => a.ticker === p.ticker)?.action,
-    fairValue: dcfMap[p.ticker]?.dcf?.[0]?.dcf || dcfMap[p.ticker]?.dcf?.dcf,
-    priceTarget: dcfMap[p.ticker]?.priceTarget?.[0]?.targetConsensus || dcfMap[p.ticker]?.priceTarget?.targetConsensus,
-    analystConsensus: dcfMap[p.ticker]?.grades?.slice?.(0, 2),
-  })).slice(0, 30);
+  // GuruFocus: valuation + insider/guru activity
+  const gfMap = await getGfData(env, tickers);
+
+  const posData = positions.map(p => {
+    const gf = gfMap[p.ticker] || {};
+    return {
+      ticker: p.ticker, name: p.name, shares: p.shares,
+      price: p.last_price, avgCost: p.avg_price, pnlPct: p.pnl_pct,
+      yield: p.div_yield, value: p.market_value,
+      aiScore: aiAnalyses.find(a => a.ticker === p.ticker)?.score,
+      aiAction: aiAnalyses.find(a => a.ticker === p.ticker)?.action,
+      fairValue: dcfMap[p.ticker]?.dcf?.[0]?.dcf || dcfMap[p.ticker]?.dcf?.dcf,
+      priceTarget: dcfMap[p.ticker]?.priceTarget?.[0]?.targetConsensus || dcfMap[p.ticker]?.priceTarget?.targetConsensus,
+      analystConsensus: dcfMap[p.ticker]?.grades?.slice?.(0, 2),
+      // GuruFocus exclusive — valuation & smart money
+      gfValue: gf.gfValue, gfScore: gf.gfScore,
+      gfValuation: gf.gfValuation, priceToGfValue: gf.priceToGfValue,
+      peterLynchFV: gf.peterLynchFV,
+      guruBuys13f: gf.guruBuys13f, guruSells13f: gf.guruSells13f,
+      insiderBuys3m: gf.insiderBuys3m, insiderSells3m: gf.insiderSells3m,
+      rsi14: gf.rsi14,
+    };
+  }).slice(0, 30);
 
   // ── Step 1: Bull Case (Haiku) ──
   const bullSystem = `You are a BULL analyst. Argue IN FAVOR of each position based on agent insights.
-For each ticker flagged in today's insights, give 2-3 concrete bullish reasons with data.
-Also identify the top 5 positions worth ADDING to based on valuation and dividends.
+For each ticker, give 2-3 concrete bullish reasons using data including GuruFocus metrics.
+Use gfValue vs price for valuation, guruBuys13f for smart money signal, insiderBuys3m for conviction.
+Identify top 5 positions worth ADDING to based on undervaluation (priceToGfValue <0.8) and dividends.
 Respond ONLY JSON array: [{"ticker":"XX","bullCase":"...","upside":"...","addOpportunity":true/false}]
 Max 15 tickers.`;
 
-  const bullResult = await callAgentClaude(env, bullSystem, {
-    todayInsights: todayInsights.filter(i => i.ticker && i.ticker !== '_GLOBAL_' && !i.ticker.startsWith('_')),
-    positions: posData, regime,
-  });
+  let bullResult = [];
+  try {
+    bullResult = await callAgentClaude(env, bullSystem, {
+      todayInsights: todayInsights.filter(i => i.ticker && i.ticker !== '_GLOBAL_' && !i.ticker.startsWith('_')),
+      positions: posData, regime,
+    });
+    if (!Array.isArray(bullResult)) bullResult = [bullResult];
+  } catch (e) { console.error("[Trade] Bull step failed:", e.message); }
 
   // ── Step 2: Bear Case (Haiku) — receives bull output ──
   const bearSystem = `You are a BEAR analyst. Here are bullish arguments for portfolio positions.
@@ -5874,25 +7027,34 @@ For each position, identify the biggest risk and downside scenario.
 Respond ONLY JSON array: [{"ticker":"XX","bearCase":"...","downside":"...","keyRisk":"..."}]
 Max 15 tickers.`;
 
-  const bearResult = await callAgentClaude(env, bearSystem, {
-    bullArguments: bullResult,
-    todayInsights: todayInsights.filter(i => i.severity !== 'info'),
-    regime,
-  });
+  let bearResult = [];
+  try {
+    bearResult = await callAgentClaude(env, bearSystem, {
+      bullArguments: bullResult,
+      todayInsights: todayInsights.filter(i => i.severity !== 'info'),
+      regime,
+    });
+    if (!Array.isArray(bearResult)) bearResult = [bearResult];
+  } catch (e) { console.error("[Trade] Bear step failed:", e.message); }
 
   // ── Step 3: Synthesis (Sonnet) — receives bull + bear + all insights ──
-  const synthSystem = `You are a trade advisor synthesizing bull and bear arguments for a $1.35M dividend income portfolio.
-The conviction must reflect the STRENGTH of the debate:
-- If bull and bear are balanced → conviction LOW
-- If one clearly dominates → conviction HIGH
-The owner favors income growth — avoid selling safe dividend growers unless seriously impaired.
+  const synthSystem = `You are a senior portfolio advisor for a LONG-TERM dividend income portfolio ($1.35M, buy-and-hold).
+The owner's goal is GROWING INCOME over decades, not trading for capital gains.
 
-Current market regime: ${regime?.regime || 'unknown'} (guidance: ${regime?.actionGuidance || 'unknown'})
+FUNDAMENTAL PHILOSOPHY:
+- Selling a quality dividend grower during a temporary dip is the WORST mistake. If fundamentals are intact, HOLD or ADD.
+- SELL only if: the business model is permanently broken, or dividend is eliminated with no path to recovery.
+- TRIM only if: position is dangerously overweight (>10% of portfolio) AND fundamentally impaired.
+- ADD if: quality company trading below fair value with intact dividend.
+- Companies restructuring (cutting costs, paying debt, refocusing) are often BUYS not SELLS.
+- The conviction reflects debate strength: balanced → LOW, one side dominates → HIGH.
 
-SEVERITY CALIBRATION:
-- critical = immediate action needed (position >10% AND impaired, or dividend cut imminent)
-- warning = review this week (valuation stretched or deteriorating fundamentals)
-- info = monitoring (no action needed now)
+Current market: ${regime?.regime || 'unknown'} (${regime?.actionGuidance || 'unknown'})
+
+SEVERITY (very conservative — don't recommend selling quality companies):
+- critical = SELL only if business is in genuine structural decline. Max 1-2 sells.
+- warning = worth reviewing, but default is HOLD unless you have strong evidence.
+- info = no action needed, position is fine.
 
 Respond ONLY JSON array: [{"ticker":"XX","severity":"info|warning|critical","title":"ACTION: Ticker",
 "summary":"2-3 sentence rationale incorporating both bull and bear views",
@@ -5906,7 +7068,7 @@ Max 10 most actionable recommendations. Score = conviction (1=low, 10=very high)
     bearArguments: bearResult,
     todayInsights,
     positions: posData.slice(0, 20),
-  }, { model: "claude-sonnet-4-20250514" });
+  }, { model: "claude-opus-4-20250514" });
 
   // Store signals for future postmortem tracking
   const signals = Array.isArray(synthResult) ? synthResult : [synthResult];
@@ -6160,13 +7322,606 @@ async function checkDividendChanges(env) {
   return { checked: posList.length, alerts: alertCount, details: alertsGenerated };
 }
 
+// ─── Agent 7: Insider Radar (FMP Ultimate — no LLM) ────────────
+async function runInsiderAgent(env, fecha) {
+  const key = env.FMP_KEY;
+  if (!key) return { agent: "insider", skipped: true, reason: "no FMP key" };
+
+  const { results: positions } = await env.DB.prepare(
+    "SELECT ticker, name, shares, market_value, last_price FROM positions WHERE shares > 0"
+  ).all();
+  if (!positions.length) return { agent: "insider", skipped: true };
+
+  const insights = [];
+  const priceMap = {};
+  for (const p of positions) priceMap[p.ticker] = p.last_price;
+
+  // Load previous insider data from agent_memory for price impact comparison
+  const prevInsiderData = await getAgentMemory(env, "insider_trades") || {};
+
+  const insiderAlerts = [];
+  const newTradeMemory = {};
+
+  const cutoff90 = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+  const cutoff1y = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+  const MAX_PAGES = 4; // ~400 rows max per ticker — enough for 1y on most names
+
+  // 1. Fetch insider trades for portfolio tickers (FMP /v4/insider-trading)
+  for (let i = 0; i < positions.length; i += 4) {
+    const batch = positions.slice(i, i + 4);
+    const results = await Promise.allSettled(
+      batch.map(async (p) => {
+        const sym = toFMP(p.ticker);
+        try {
+          // Paginate until we cross the 1-year cutoff or hit MAX_PAGES
+          const allTrades = [];
+          for (let page = 0; page < MAX_PAGES; page++) {
+            // FMP stable insider trades endpoint
+            const url = `https://financialmodelingprep.com/stable/insider-trading/search?symbol=${encodeURIComponent(sym)}&page=${page}&apikey=${key}`;
+            const resp = await fetch(url);
+            if (!resp.ok) break;
+            const data = await resp.json();
+            if (!Array.isArray(data) || !data.length) break;
+            // Map FMP shape → internal shape (only open-market P/S)
+            for (const t of data) {
+              const txType = String(t.transactionType || '').trim().toUpperCase();
+              const code = txType.charAt(0);
+              if (code !== 'P' && code !== 'S') continue;
+              const shares = Number(t.securitiesTransacted) || 0;
+              const price = Number(t.price) || 0;
+              const costK = price && shares ? Math.round((price * shares) / 1000) : null;
+              allTrades.push({
+                date: (t.transactionDate || '').slice(0, 10),
+                insider: t.reportingName || 'Unknown',
+                position: t.typeOfOwner || '',
+                type: code,
+                trans_share: shares,
+                price: price ? String(price) : '0',
+                cost: costK,
+              });
+            }
+            // Stop paginating once we've crossed 1y
+            const oldest = data[data.length - 1];
+            const oldestDate = (oldest?.transactionDate || '').slice(0, 10);
+            if (oldestDate && oldestDate < cutoff1y) break;
+          }
+
+          if (!allTrades.length) return null;
+
+          // Filter to last 90 days
+          const recent = allTrades.filter(t => (t.date || '') >= cutoff90);
+          if (!recent.length) return null;
+
+          const buys = recent.filter(t => (t.type || '').toUpperCase() === 'P');
+          const sells = recent.filter(t => (t.type || '').toUpperCase() === 'S');
+          if (!buys.length && !sells.length) return null;
+
+          // Recurring seller detection (4+ sells in 1y by same person → likely 10b5-1 plan)
+          const yearTrades = allTrades.filter(t => (t.date || '') >= cutoff1y);
+          const sellerCounts = {};
+          for (const t of yearTrades.filter(t => (t.type || '').toUpperCase() === 'S')) {
+            const name = t.insider || 'Unknown';
+            sellerCounts[name] = (sellerCounts[name] || 0) + 1;
+          }
+          const recurringSellerNames = Object.entries(sellerCounts).filter(([, c]) => c >= 4).map(([n]) => n);
+
+          const enrichedTrades = recent.slice(0, 10).map(t => {
+            const isBuy = (t.type || '').toUpperCase() === 'P';
+            const tradePrice = parseFloat(String(t.price || '0').replace(/,/g, ''));
+            const currentPrice = p.last_price || 0;
+            const priceChangePct = tradePrice > 0 ? ((currentPrice - tradePrice) / tradePrice * 100) : null;
+            const isRecurring = recurringSellerNames.includes(t.insider);
+            return {
+              date: t.date,
+              insider: t.insider,
+              position: t.position,
+              type: isBuy ? 'COMPRA' : 'VENTA',
+              shares: t.trans_share,
+              price: t.price,
+              currentPrice: currentPrice ? currentPrice.toFixed(2) : null,
+              priceImpactPct: priceChangePct != null ? Math.round(priceChangePct * 10) / 10 : null,
+              recurring: isRecurring,
+              cost: t.cost ? `$${t.cost}k` : null,
+            };
+          });
+
+          newTradeMemory[p.ticker] = enrichedTrades.slice(0, 5).map(t => ({
+            date: t.date, type: t.type, price: t.price, insider: t.insider,
+          }));
+
+          return {
+            ticker: p.ticker, name: p.name, currentPrice: p.last_price,
+            buys: buys.length, sells: sells.length,
+            recurringSellerNames, enrichedTrades,
+          };
+        } catch { return null; }
+      })
+    );
+    for (const r of results) {
+      if (r.status === "fulfilled" && r.value) insiderAlerts.push(r.value);
+    }
+    if (i + 4 < positions.length) await new Promise(r => setTimeout(r, 800));
+  }
+
+  // 2. Generate insights with price impact and pattern analysis
+  for (const alert of insiderAlerts) {
+    const netBuys = alert.buys - alert.sells;
+    const hasRecurringSellers = alert.recurringSellerNames.length > 0;
+    const nonRecurringSells = alert.sells - alert.enrichedTrades.filter(t => t.type === 'VENTA' && t.recurring).length;
+
+    // Smart severity: ignore recurring sellers (planned sales/10b5-1)
+    let severity = 'info';
+    let pattern = 'normal';
+
+    if (netBuys >= 2) {
+      severity = 'info'; // Insiders buying = bullish but not urgent
+      pattern = 'cluster-buy';
+    } else if (nonRecurringSells >= 3) {
+      severity = 'critical'; // Multiple non-recurring sellers = real red flag
+      pattern = 'cluster-sell';
+    } else if (nonRecurringSells >= 1 && !hasRecurringSellers) {
+      severity = 'warning';
+      pattern = 'unusual-sell';
+    } else if (hasRecurringSellers && nonRecurringSells === 0) {
+      severity = 'info'; // All sales are recurring/planned
+      pattern = 'planned-sales';
+    } else if (alert.sells > alert.buys) {
+      severity = 'warning';
+      pattern = 'net-selling';
+    }
+
+    // Compute average price impact across trades
+    const impacts = alert.enrichedTrades.filter(t => t.priceImpactPct != null);
+    const avgImpact = impacts.length ? Math.round(impacts.reduce((s, t) => s + t.priceImpactPct, 0) / impacts.length * 10) / 10 : null;
+
+    // Build title
+    const patternLabels = {
+      'cluster-buy': `Compra colectiva en ${alert.ticker}`,
+      'cluster-sell': `ALERTA: Ventas inusuales en ${alert.ticker}`,
+      'unusual-sell': `Venta inusual en ${alert.ticker}`,
+      'planned-sales': `Ventas planificadas en ${alert.ticker}`,
+      'net-selling': `Insiders vendiendo ${alert.ticker}`,
+      'normal': `Actividad insider en ${alert.ticker}`,
+    };
+    const title = patternLabels[pattern] || `Insider ${alert.ticker}`;
+
+    // Summary with context
+    const recurringNote = hasRecurringSellers ? ` (${alert.recurringSellerNames.length} vendedor${alert.recurringSellerNames.length > 1 ? 'es' : ''} recurrente${alert.recurringSellerNames.length > 1 ? 's' : ''} — probable plan 10b5-1 fiscal)` : '';
+    const impactNote = avgImpact != null ? ` Precio actual vs media de trades: ${avgImpact > 0 ? '+' : ''}${avgImpact}%.` : '';
+
+    insights.push({
+      ticker: alert.ticker,
+      severity,
+      title,
+      summary: `${alert.buys} compras, ${alert.sells} ventas (90d). ${alert.name}${recurringNote}.${impactNote}`,
+      details: {
+        compras: alert.buys,
+        ventas: alert.sells,
+        netBuys,
+        signal: pattern,
+        precioActual: alert.currentPrice,
+        impactoPrecioMedio: avgImpact,
+        vendedoresRecurrentes: alert.recurringSellerNames,
+        trades: alert.enrichedTrades,
+      },
+      score: pattern === 'cluster-buy' ? 8 : pattern === 'cluster-sell' ? 2 : pattern === 'planned-sales' ? 6 : pattern === 'unusual-sell' ? 3 : 5,
+    });
+  }
+
+  // Note: Guru 13F new picks block removed (no FMP equivalent for guru tracking).
+  // Could be re-added later via WhaleWisdom or similar.
+
+  // Save trade memory for future price impact tracking
+  await setAgentMemory(env, "insider_trades", newTradeMemory);
+
+  if (!insights.length) {
+    insights.push({
+      ticker: '_INSIDER_',
+      severity: 'info',
+      title: 'Sin actividad insider relevante',
+      summary: 'No se detectaron compras o ventas significativas de insiders ni gurus en tus posiciones en los ultimos 90 dias.',
+      details: { positionsChecked: positions.length, signal: 'none' },
+      score: 5,
+    });
+  }
+
+  const stored = await storeInsights(env, "insider", fecha, insights);
+  return { agent: "insider", insights: stored, insiderAlerts: insiderAlerts.length };
+}
+
+// ─── Agent 8: Value Signals (GuruFocus cached data — no LLM) ───
+// Scans portfolio + watchlist for undervalued stocks with institutional buying
+async function runValueSignalsAgent(env, fecha) {
+  const token = env.GURUFOCUS_TOKEN;
+  if (!token) return { agent: "value", skipped: true, reason: "no GF token" };
+
+  const base = `https://api.gurufocus.com/public/user/${token}`;
+
+  // 1. Portfolio positions + GF cache (already have this data)
+  const { results: positions } = await env.DB.prepare(
+    "SELECT ticker, name, shares, market_value, last_price, div_yield FROM positions WHERE shares > 0"
+  ).all();
+  const ownedSet = new Set(positions.map(p => p.ticker));
+  const ownedTickers = positions.map(p => p.ticker);
+  const gfMap = await getGfData(env, ownedTickers);
+
+  // 2. Scan 120+ top dividend stocks NOT in portfolio
+  // Dividend Aristocrats + Champions + high-quality dividend payers
+  const WATCHLIST = [
+    // Dividend Aristocrats (25+ years of increases)
+    'JNJ','ABBV','PEP','MCD','TXN','LMT','ITW','CL','SYY','APD','ECL','SHW',
+    'CTAS','WM','AFL','AOS','BDX','BEN','CAH','CB','CINF','CLX','DOV',
+    'EMR','ESS','EXPD','GD','GPC','GWW','HRL','SJM','LEG','LIN','LOW',
+    'MKC','NDSN','NUE','PNR','PPG','ROP','SPGI','SWK','TGT','WBA','WST','XOM',
+    // High-yield quality dividend payers
+    'VZ','T','IBM','CVX','EOG','PSX','MPC','EPD','ET','MPLX','OKE',
+    'MO','PM','BTI','UGI','ENB',
+    // Dividend growth tech/growth
+    'AVGO','HD','MSFT','AAPL','BLK','SBUX','QCOM','CSCO',
+    // REITs quality
+    'DLR','PSA','SPG','VICI','NNN','STAG','WPC',
+    // Utilities
+    'NEE','DUK','SO','XEL','AEP','ED','WEC','D','AES','PPL',
+    // Healthcare dividend
+    'PFE','BMY','AMGN','GILD','MRK','UNH',
+    // Industrials
+    'UNP','CAT','DE','HON','MMM','RTX','BA','LHX','GE',
+    // Financial dividend
+    'TROW','PRU','MET','AIG','ALL','TFC','USB','WFC',
+  ].filter(t => !ownedSet.has(t));
+
+  // Fetch GF summary for watchlist tickers (batches of 8)
+  const watchlistData = {};
+  for (let i = 0; i < WATCHLIST.length; i += 8) {
+    const batch = WATCHLIST.slice(i, i + 8);
+    const results = await Promise.allSettled(
+      batch.map(async (sym) => {
+        try {
+          const resp = await fetch(`${base}/stock/${sym}/summary`);
+          if (!resp.ok) return null;
+          const data = await resp.json();
+          const s = data?.summary || data;
+          const g = s?.general || {};
+          const ch = s?.chart || {};
+          const cd = s?.company_data || {};
+          return {
+            symbol: sym, company: cd.company || g.company,
+            price: cd.price || g.price, gf_value: ch['GF Value'],
+            gf_score: g.gf_score, gf_valuation: g.gf_valuation,
+            financial_strength_rank: g.rank_financial_strength,
+            profitability_rank: g.rank_profitability,
+            dividend_yield: cd.yield, shareholder_yield: cd.shareholder_yield,
+            '13f_buys': s?.guru?.['13f_buys'], sector: g.sector,
+          };
+        } catch { return null; }
+      })
+    );
+    for (const r of results) {
+      if (r.status === "fulfilled" && r.value) watchlistData[r.value.symbol] = r.value;
+    }
+    if (i + 8 < WATCHLIST.length) await new Promise(r => setTimeout(r, 1200));
+  }
+
+  const insights = [];
+
+  // 3. Scan PORTFOLIO for add opportunities (already owned, undervalued)
+  for (const p of positions) {
+    const gf = gfMap[p.ticker];
+    if (!gf || !gf.gfValue) continue;
+    const price = p.last_price || 0;
+    const gfValue = parseFloat(gf.gfValue) || 0;
+    if (!gfValue || !price) continue;
+    const priceToGfValue = price / gfValue;
+    const discount = Math.round((1 - priceToGfValue) * 100);
+    const gfScore = parseFloat(gf.gfScore) || 0;
+    const finStrength = parseFloat(gf.financialStrength) || 0;
+    const guruBuys = parseFloat(gf.guruBuys13f) || 0;
+    const insiderBuys = parseFloat(gf.insiderBuys3m) || 0;
+
+    // Only flag if meaningfully undervalued
+    if (discount < 10) continue;
+    // Must have decent quality
+    if (gfScore < 50 || finStrength < 4) continue;
+
+    const divYieldPct = (p.div_yield || 0) * 100;
+    const volatility = parseFloat(gf.volatility1y) || 20;
+
+    // Put selling calculation: sell put at ~10% below current price
+    const putStrike = Math.round(price * 0.90 * 100) / 100;
+    const putDiscountVsGF = gfValue > 0 ? Math.round((1 - putStrike / gfValue) * 100) : 0;
+    // Estimated annual premium ~0.3-0.5x volatility for ATM, ~0.15-0.25x for 10% OTM
+    const estPremiumPct = Math.round(volatility * 0.2 * 10) / 10; // ~20% of vol as annual premium
+    const estPremiumMonthly = Math.round(putStrike * estPremiumPct / 100 / 12 * 100) / 100;
+
+    // Income strategy context
+    const totalYield = divYieldPct + estPremiumPct;
+    const yocOnPut = (p.div_ttm && putStrike > 0) ? (p.div_ttm / putStrike * 100).toFixed(1) : null;
+    const putNote = price > 20 ? `Vender Put $${putStrike} (${putDiscountVsGF}% bajo GF Value) → prima ~${estPremiumPct}% anual.${yocOnPut ? ` Si asignado, YOC ${yocOnPut}%.` : ''}` : '';
+
+    const severity = discount >= 30 ? 'critical' : discount >= 20 ? 'warning' : 'info';
+    insights.push({
+      ticker: p.ticker,
+      severity,
+      title: `ADD: ${p.name || p.ticker} -${discount}% vs GF Value`,
+      summary: `${p.ticker} a $${price.toFixed(2)} vs GF Value $${gfValue.toFixed(2)} (${discount}% desc). GF Score ${gfScore}, Strength ${finStrength}/10, Div ${divYieldPct.toFixed(1)}%.${guruBuys > 30 ? ` Gurus: ${guruBuys.toFixed(0)}% comprando.` : ''} ${putNote}`,
+      details: {
+        descuento: `${discount}%`, gfScore, gfValue: `$${gfValue.toFixed(2)}`, precio: `$${price.toFixed(2)}`,
+        financialStrength: finStrength,
+        dividendYield: `${divYieldPct.toFixed(2)}%`,
+        dividendYieldNum: divYieldPct,
+        putStrike: price > 20 ? `$${putStrike}` : 'N/A (precio bajo)',
+        putPrimaAnual: price > 20 ? `~${estPremiumPct}%` : 'N/A',
+        putPrimaMensual: price > 20 ? `~$${estPremiumMonthly}/acc` : 'N/A',
+        yieldTotalConPut: price > 20 ? `~${totalYield.toFixed(1)}% (div + put)` : `${divYieldPct.toFixed(1)}%`,
+        gfValuation: gf.gfValuation || 'N/A',
+        fuente: 'Portfolio scan', enPortfolio: 'SI',
+      },
+      score: Math.min(10, Math.round(discount / 5) + (gfScore >= 80 ? 2 : 0)),
+    });
+  }
+
+  // 4. Scan WATCHLIST for new buy opportunities
+  for (const [sym, s] of Object.entries(watchlistData)) {
+    const price = parseFloat(s.price || s.current_price || 0);
+    const gfValue = parseFloat(s.gf_value || 0);
+    if (!gfValue || !price) continue;
+    const priceToGfValue = price / gfValue;
+    const discount = Math.round((1 - priceToGfValue) * 100);
+    const gfScore = parseFloat(s.gf_score || 0);
+    const finStrength = parseFloat(s.financial_strength_rank || 0);
+    const profitRank = parseFloat(s.profitability_rank || 0);
+    const divYield = parseFloat(s.dividend_yield || 0);
+    const guruBuys = parseFloat(s['13f_buys'] || 0);
+    const shareholderYield = parseFloat(s.shareholder_yield || 0);
+
+    // Strict filters: undervalued + quality + pays dividend
+    if (discount < 15) continue;
+    if (gfScore < 60) continue;
+    if (finStrength < 5) continue;
+    if (divYield < 1) continue;
+
+    // Put selling calculation
+    const putStrike = Math.round(price * 0.90 * 100) / 100;
+    const putDiscountVsGF = gfValue > 0 ? Math.round((1 - putStrike / gfValue) * 100) : 0;
+    const estVol = 25; // assume average vol for unknown stocks
+    const estPremiumPct = Math.round(estVol * 0.2 * 10) / 10;
+    const totalYield = divYield + estPremiumPct;
+    const putNote = price > 20 ? `Put $${putStrike} → prima ~${estPremiumPct}% anual. Total yield potencial ~${totalYield.toFixed(1)}%.` : '';
+
+    const severity = discount >= 35 ? 'critical' : discount >= 25 ? 'warning' : 'info';
+    insights.push({
+      ticker: sym,
+      severity,
+      title: `NEW: ${s.company || sym} -${discount}% | Div ${divYield.toFixed(1)}%`,
+      summary: `${s.company || sym} a $${price.toFixed(2)} vs GF Value $${gfValue.toFixed(2)} (${discount}% desc). GF Score ${gfScore}, Strength ${finStrength}/10, Div ${divYield.toFixed(1)}%.${guruBuys > 30 ? ` Gurus: ${guruBuys.toFixed(0)}% comprando.` : ''} ${putNote}`,
+      details: {
+        descuento: `${discount}%`, gfScore, gfValue: `$${gfValue.toFixed(2)}`, precio: `$${price.toFixed(2)}`,
+        financialStrength: finStrength, profitabilityRank: profitRank,
+        dividendYield: `${divYield.toFixed(2)}%`,
+        dividendYieldNum: divYield,
+        shareholderYield: `${shareholderYield.toFixed(2)}%`,
+        putStrike: price > 20 ? `$${putStrike}` : 'N/A',
+        putPrimaAnual: price > 20 ? `~${estPremiumPct}%` : 'N/A',
+        yieldTotalConPut: price > 20 ? `~${totalYield.toFixed(1)}% (div + put)` : `${divYield.toFixed(1)}%`,
+        gfValuation: s.gf_valuation || 'N/A', sector: s.sector,
+        fuente: 'Watchlist scan', enPortfolio: 'NO',
+      },
+      score: Math.min(10, Math.round(discount / 5) + (gfScore >= 80 ? 2 : 0) + (divYield >= 3 ? 1 : 0)),
+    });
+  }
+
+  // Sort: external opportunities first (discoveries), then portfolio adds
+  const external = insights.filter(i => i.details.enPortfolio === 'NO').sort((a, b) => (b.score || 0) - (a.score || 0));
+  const internal = insights.filter(i => i.details.enPortfolio === 'SI').sort((a, b) => (b.score || 0) - (a.score || 0));
+  const sortedInsights = [...external.slice(0, 10), ...internal.slice(0, 10)];
+
+  if (!sortedInsights.length) {
+    sortedInsights.push({
+      ticker: '_VALUE_',
+      severity: 'info',
+      title: 'Sin oportunidades excepcionales hoy',
+      summary: `Escaneadas ${positions.length} posiciones del portfolio y ${Object.keys(watchlistData).length} acciones del watchlist. Ninguna pasa todos los filtros.`,
+      details: { portfolioEscaneado: positions.length, watchlistEscaneado: Object.keys(watchlistData).length, exteriorEncontradas: external.length, portfolioEncontradas: internal.length },
+      score: 5,
+    });
+  }
+
+  const stored = await storeInsights(env, "value", fecha, sortedInsights);
+  return { agent: "value", insights: sortedInsights.length, external: external.length, internal: internal.length, portfolioScanned: positions.length, watchlistScanned: Object.keys(watchlistData).length };
+}
+
+// ─── Agent 9: Options Income (IB Greeks + Yahoo fallback — no LLM) ──
+// Scans ENTIRE portfolio for CC, CSP opportunities with real Greeks
+async function runOptionsIncomeAgent(env, fecha) {
+  const { results: positions } = await env.DB.prepare(
+    "SELECT ticker, name, shares, market_value, last_price, avg_price, div_yield, div_ttm, sector FROM positions WHERE shares > 0 AND last_price > 5"
+  ).all();
+  if (!positions.length) return { agent: "options", skipped: true };
+
+  const mkt = await getMarketIndicators(env);
+  const vix = mkt['^VIX']?.price || 20;
+  const regime = await getAgentMemory(env, "regime_current");
+  const gfMapOpts = await getGfData(env, positions.map(p => p.ticker));
+  const insights = [];
+
+  // Yahoo for speed (FMP Ultimate doesn't expose options chain endpoint publicly)
+  const ib = null; // IB available via /api/ib-options?symbols=X for Greeks on demand
+
+  // Sort by market value — scan ALL positions
+  const sorted = [...positions].sort((a, b) => (b.market_value || 0) - (a.market_value || 0));
+  let scanned = 0, noOptions = 0, withOpportunity = 0;
+
+  const monthNames = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+  const now = new Date();
+  const targetDate = new Date(now.getTime() + 35 * 86400000);
+  const targetMonth = monthNames[targetDate.getMonth()] + String(targetDate.getFullYear()).slice(2);
+
+  // Process ALL positions in parallel batches of 5
+  // Tickers that definitely don't have US options
+  const NO_OPTIONS = new Set(['BME:VIS','BME:AMS','HKG:9618','HKG:1052','HKG:1910','HKG:2219','HKG:9616',
+    'AZJ','WKL','SHUR','HEN3','LSEG','ITRK','GQG','NET.UN','CNSWF',
+    'BIZD','DIVO','SPHD','FDJU','WEEL','MSDL','IIPR-PRA','LANDP']);
+
+  async function scanPosition(pos) {
+    const sym = pos.ticker.replace(/^(BME:|HKG:|LSE:)/, '');
+    const price = pos.last_price || 0;
+
+    // Skip non-optionable tickers
+    if (NO_OPTIONS.has(pos.ticker)) return { pos, ccData: null, cspData: null, skip: 'Internacional/ETF sin opciones US' };
+    if (!price || price < 5) return { pos, ccData: null, cspData: null, skip: `Precio $${price.toFixed(2)} — muy bajo para opciones` };
+    if (pos.shares < 100 && pos.market_value < 5000) return { pos, ccData: null, cspData: null, skip: `${pos.shares} acc (<100) — posicion pequena` };
+
+    let ccData = null, cspData = null;
+    try {
+      const resp = await fetchYahoo(`https://query2.finance.yahoo.com/v7/finance/options/${encodeURIComponent(sym)}`);
+      if (!resp.ok) return { pos, ccData: null, cspData: null, skip: resp.status === 401 ? 'Mercado cerrado o sin opciones' : `Sin datos (${resp.status})` };
+      const data = await resp.json();
+      const result = data?.optionChain?.result?.[0];
+      if (!result) return { pos, ccData: null, cspData: null, skip: 'Sin cadena de opciones' };
+
+      const exps = result.expirationDates || [];
+      if (!exps.length) return { pos, ccData: null, cspData: null, skip: 'Sin vencimientos disponibles' };
+      const nowTs = Math.floor(Date.now() / 1000);
+      const targetTs = nowTs + 35 * 86400;
+      let bestExp = exps[0];
+      for (const exp of exps) { if (Math.abs(exp - targetTs) < Math.abs(bestExp - targetTs)) bestExp = exp; }
+      const dte = Math.max(1, Math.round((bestExp - nowTs) / 86400));
+      let options = result.options?.[0] || {};
+      if (bestExp !== exps[0]) {
+        const r2 = await fetchYahoo(`https://query2.finance.yahoo.com/v7/finance/options/${encodeURIComponent(sym)}?date=${bestExp}`);
+        if (r2.ok) { const d2 = await r2.json(); options = d2?.optionChain?.result?.[0]?.options?.[0] || options; }
+      }
+      const calls = (options.calls || []).filter(c => c.bid > 0 && c.strike > price * 1.03 && c.strike < price * 1.15);
+      const puts = (options.puts || []).filter(p => p.bid > 0 && p.strike < price * 0.97 && p.strike > price * 0.80);
+      const earningsTs = result.quote?.earningsTimestamp;
+      const earningsInDays = earningsTs ? Math.round((earningsTs - nowTs) / 86400) : null;
+
+      if (calls.length && pos.shares >= 100) {
+        const best = calls.reduce((b, c) => Math.abs(c.strike - price * 1.05) < Math.abs(b.strike - price * 1.05) ? c : b, calls[0]);
+        ccData = { strike: best.strike, bid: best.bid, iv: best.impliedVolatility || 0, delta: null, theta: null, dte, earningsInDays, source: 'Yahoo' };
+      }
+      if (puts.length) {
+        const best = puts.reduce((b, p) => Math.abs(p.strike - price * 0.92) < Math.abs(b.strike - price * 0.92) ? p : b, puts[0]);
+        cspData = { strike: best.strike, bid: best.bid, iv: best.impliedVolatility || 0, delta: null, theta: null, dte, earningsInDays, source: 'Yahoo' };
+      }
+      return { pos, ccData, cspData };
+    } catch (e) { return { pos, ccData: null, cspData: null, skip: 'Sin datos — reintentar con mercado abierto' }; }
+  }
+
+  // Batch scan 5 at a time
+  for (let i = 0; i < sorted.length; i += 5) {
+    const batch = sorted.slice(i, i + 5);
+    const results = await Promise.allSettled(batch.map(scanPosition));
+    for (const r of results) {
+      const { pos, ccData, cspData, skip } = r.status === 'fulfilled' ? r.value : { pos: batch[0], ccData: null, cspData: null, skip: 'Promise failed' };
+      const price = pos.last_price || 0;
+      const gf = gfMapOpts[pos.ticker] || {};
+      const histVol = parseFloat(gf.volatility1y) || 25;
+      const divYieldPct = (pos.div_yield || 0) * 100;
+
+      scanned++;
+
+      if (skip) {
+        insights.push({ ticker: pos.ticker, severity: 'info', title: `${pos.ticker}: ${skip}`,
+          summary: `${pos.name || pos.ticker} ($${price.toFixed(2)}, ${pos.shares} acc, $${Math.round(pos.market_value || 0).toLocaleString()})`,
+          details: { precio: `$${price.toFixed(2)}`, acciones: pos.shares, valor: `$${Math.round(pos.market_value || 0)}`, motivo: skip, cc: 'N/A', csp: 'N/A' }, score: 0 });
+        noOptions++;
+        continue;
+      }
+
+      if (!ccData && !cspData) {
+        insights.push({ ticker: pos.ticker, severity: 'info', title: `${pos.ticker}: sin primas atractivas`,
+          summary: `${pos.name || pos.ticker} ($${price.toFixed(2)}, ${pos.shares} acc, $${Math.round(pos.market_value || 0).toLocaleString()}). Opciones sin bid o primas muy bajas.`,
+          details: { precio: `$${price.toFixed(2)}`, acciones: pos.shares, valor: `$${Math.round(pos.market_value || 0)}`, motivo: 'Primas insuficientes', cc: 'N/A', csp: 'N/A' }, score: 0 });
+        noOptions++;
+        continue;
+      }
+
+      withOpportunity++;
+
+      const dte = ccData?.dte || cspData?.dte || 35;
+      const earningsInDays = ccData?.earningsInDays || cspData?.earningsInDays;
+      const earningsNote = earningsInDays && earningsInDays < dte + 5 ? ' EARNINGS CERCA.' : '';
+
+    if (ccData && pos.shares >= 100) {
+      const contracts = Math.floor(pos.shares / 100);
+      const premium = ccData.bid * 100 * contracts;
+      const premPct = (ccData.bid / price * 100);
+      const ann = premPct * (365 / dte);
+      const otmPct = ((ccData.strike - price) / price * 100);
+      const totalYield = ann + divYieldPct;
+      const ivPct = (ccData.iv > 1 ? ccData.iv : ccData.iv * 100);
+      const ivRank = histVol > 0 ? Math.round(Math.min(100, Math.max(0, (ivPct / histVol - 0.5) * 100))) : null;
+
+      let sev = 'info';
+      if (ann >= 12 && (ivRank == null || ivRank > 30)) sev = 'warning';
+      if (ann >= 20) sev = 'critical';
+
+      insights.push({ ticker: pos.ticker, severity: sev,
+        title: `CC: ${pos.ticker} $${ccData.strike} | ${ann.toFixed(0)}%/a | ${totalYield.toFixed(0)}% total`,
+        summary: `Vender ${contracts} Call $${ccData.strike} (${otmPct.toFixed(1)}% OTM, ~${dte}d) por $${premium.toFixed(0)}. ${ann.toFixed(0)}% anualizado + div ${divYieldPct.toFixed(1)}% = ${totalYield.toFixed(0)}% total.${ccData.delta ? ` Delta: ${ccData.delta.toFixed(2)}.` : ''}${ccData.theta ? ` Theta: $${ccData.theta.toFixed(2)}/dia.` : ''} IV: ${ivPct.toFixed(0)}%.${ivRank != null ? ` IV rank: ${ivRank}%.` : ''} [${ccData.source}]`,
+        details: {
+          estrategia: 'Covered Call', strike: `$${ccData.strike}`, otmPct: `${otmPct.toFixed(1)}%`,
+          prima: `$${premium.toFixed(0)} (${contracts}x)`, anualizada: `${ann.toFixed(0)}%`,
+          delta: ccData.delta ? ccData.delta.toFixed(3) : 'N/A', theta: ccData.theta ? `$${ccData.theta.toFixed(2)}/dia` : 'N/A',
+          iv: `${ivPct.toFixed(0)}%`, ivRank: ivRank != null ? `${ivRank}%` : 'N/A',
+          dividendo: `${divYieldPct.toFixed(1)}%`, yieldTotal: `${totalYield.toFixed(0)}%`,
+          acciones: pos.shares, fuente: ccData.source,
+        },
+        score: Math.min(10, Math.round(ann / 4) + (ivRank > 50 ? 2 : 0)),
+      });
+    }
+
+    if (cspData) {
+      const putPremPct = (cspData.bid / cspData.strike * 100);
+      const ann = putPremPct * (365 / dte);
+      const otmPct = ((price - cspData.strike) / price * 100);
+      const yocAssigned = pos.div_ttm ? (pos.div_ttm / cspData.strike * 100) : 0;
+      const isGood = pos.avg_price ? cspData.strike < pos.avg_price : true;
+
+      let sev = 'info';
+      if (ann >= 10 && isGood) sev = 'warning';
+      if (ann >= 18 && isGood) sev = 'critical';
+
+      insights.push({ ticker: pos.ticker, severity: sev,
+        title: `CSP: ${pos.ticker} $${cspData.strike} | ${ann.toFixed(0)}%/a`,
+        summary: `Vender Put $${cspData.strike} (${otmPct.toFixed(1)}% OTM, ~${dte}d) por $${cspData.bid.toFixed(2)}/acc. ${ann.toFixed(0)}% anualizado.${pos.avg_price ? ` Tu avg: $${pos.avg_price.toFixed(2)}${isGood ? ' (compras mas barato)' : ''}.` : ''}${yocAssigned > 0 ? ` YOC asignado: ${yocAssigned.toFixed(1)}%.` : ''}${cspData.delta ? ` Delta: ${cspData.delta.toFixed(2)}.` : ''} [${cspData.source}]`,
+        details: {
+          estrategia: 'Cash Secured Put', strike: `$${cspData.strike}`, otmPct: `${otmPct.toFixed(1)}%`,
+          prima: `$${(cspData.bid * 100).toFixed(0)}/contrato`, anualizada: `${ann.toFixed(0)}%`,
+          delta: cspData.delta ? cspData.delta.toFixed(3) : 'N/A',
+          cashNecesario: `$${(cspData.strike * 100).toFixed(0)}`,
+          avgCost: pos.avg_price ? `$${pos.avg_price.toFixed(2)}` : 'N/A',
+          yocSiAsignado: yocAssigned > 0 ? `${yocAssigned.toFixed(1)}%` : 'N/A',
+          fuente: cspData.source,
+        },
+        score: Math.min(10, Math.round(ann / 4) + (isGood ? 1 : 0)),
+      });
+    }
+
+    } // end for results in batch
+    // Rate limit between batches
+    if (i + 5 < sorted.length) await new Promise(r => setTimeout(r, 1000));
+  } // end batch loop
+
+  // Sort by score
+  // Sort: opportunities first (by score), then rest by market value (portfolio order)
+  const opps = insights.filter(i => i.score > 0).sort((a, b) => (b.score || 0) - (a.score || 0));
+  const rest = insights.filter(i => i.score === 0);
+  insights.length = 0;
+  insights.push(...opps, ...rest);
+
+  const stored = await storeInsights(env, "options", fecha, insights.slice(0, 85));
+  return { agent: "options", insights: Math.min(insights.length, 85), scanned, withOpportunity, noOptions, source: ib ? 'IB+Yahoo' : 'Yahoo' };
+}
+
 // ─── Agent Orchestrator ────────────────────────────────────────
 async function runAllAgents(env) {
   const fecha = new Date().toISOString().slice(0, 10);
   console.log(`[Agents] Starting all agents for ${fecha}`);
   const results = {};
 
-  // Step 0: Cache market indicators (no LLM, just Yahoo Finance)
+  // Step 0a: Cache market indicators (no LLM, just Yahoo Finance)
   try {
     const mktData = await cacheMarketIndicators(env);
     results.marketCache = { tickers: Object.keys(mktData).length };
@@ -6176,15 +7931,76 @@ async function runAllAgents(env) {
     console.error(`[Agents] Market cache failed:`, e.message);
   }
 
+  // Step 0b: Cache GuruFocus scalars (still needed for financialStrength, gfValue, gfScore, etc.)
+  // Trends portion is now superseded by FMP financials in step 0d, but the scalar fields
+  // (GF Value, RSI, dividend streak, financial strength) have no FMP equivalent yet.
+  try {
+    const gfResult = await cacheGuruFocusData(env);
+    results.gfCache = gfResult;
+    console.log(`[Agents] GuruFocus cached: ${gfResult.cached} tickers`);
+  } catch (e) {
+    results.gfCache = { error: e.message };
+    console.error(`[Agents] GuruFocus cache failed:`, e.message);
+  }
+
+  // Step 0c: Enrich missing sectors from GF + FMP profile fallback
+  try {
+    const sectorResult = await enrichPositionSectors(env);
+    if (sectorResult.updated > 0) console.log(`[Agents] Sectors enriched: ${sectorResult.updated} updated`);
+  } catch (e) {
+    console.error(`[Agents] Sector enrichment failed:`, e.message);
+  }
+
+  // Step 0d: Cache FMP quarterly financials (replaces gf.trend for Dividend agent).
+  // Chunked into 5 calls of 20 tickers each to fit within Workers 30s CPU budget per call.
+  try {
+    let totalCached = 0, totalFailed = 0;
+    for (let off = 0; off < 100; off += 20) {
+      const r = await cacheFmpFinancials(env, { offset: off, limit: 20 });
+      totalCached += r.cached;
+      totalFailed += r.failed;
+      if (r.total < 20) break; // last chunk
+    }
+    results.fmpFinCache = { cached: totalCached, failed: totalFailed };
+    console.log(`[Agents] FMP financials cached: ${totalCached} tickers`);
+  } catch (e) {
+    results.fmpFinCache = { error: e.message };
+    console.error(`[Agents] FMP financials cache failed:`, e.message);
+  }
+
+  // Step 0e: Cache FMP-derived risk metrics (beta, vol, sharpe, sortino, maxDD).
+  // Used by Risk Agent. Same chunking strategy.
+  try {
+    let totalCached = 0, totalFailed = 0;
+    for (let off = 0; off < 100; off += 20) {
+      const r = await cacheRiskMetrics(env, { offset: off, limit: 20 });
+      totalCached += r.cached;
+      totalFailed += r.failed;
+      if (r.total < 20) break;
+    }
+    results.riskMetricsCache = { cached: totalCached, failed: totalFailed };
+    console.log(`[Agents] Risk metrics cached: ${totalCached} tickers`);
+  } catch (e) {
+    results.riskMetricsCache = { error: e.message };
+    console.error(`[Agents] Risk metrics cache failed:`, e.message);
+  }
+
+  // Step 0f: Refresh earnings transcripts (for Earnings Opus agent).
+  // Skipped here — runs on-demand via POST /api/download-transcripts to avoid 30s timeouts.
+  // The Earnings agent reads whatever is cached. Manual refresh weekly is sufficient.
+
   // Pipeline order: Regime first → analysis agents → Trade Advisor last → Postmortem
   const agents = [
-    ['regime', runRegimeAgent],       // Step 1: sets regime context for all others
-    ['earnings', runEarningsAgent],   // Step 2: Haiku
-    ['dividend', runDividendAgent],   // Step 3: Haiku
-    ['risk', runRiskAgent],           // Step 4: Haiku (reads regime)
-    ['macro', runMacroAgent],         // Step 5: Sonnet (reads regime + market data)
-    ['trade', runTradeAgent],         // Step 6: Haiku bull + Haiku bear + Sonnet synth
+    ['regime', runRegimeAgent],       // Step 1: Haiku — sets regime context for all others
+    ['earnings', runEarningsAgent],   // Step 2: Opus + earnings_transcripts (12-batch)
+    ['dividend', runDividendAgent],   // Step 3: Opus + FMP quarterly financials trends
+    ['risk', runRiskAgent],           // Step 4: Opus + FMP-derived risk metrics (reads regime)
+    ['macro', runMacroAgent],         // Step 5: Opus (reads regime + market data + economic calendar)
+    ['trade', runTradeAgent],         // Step 6: Haiku bull + Haiku bear + Opus synth
     ['postmortem', runPostmortemAgent], // Step 7: No LLM (pure calculation)
+    ['insider', runInsiderAgent],       // Step 8: FMP /stable/insider-trading/search (no LLM)
+    ['value', runValueSignalsAgent],   // Step 9: GuruFocus value signals (no LLM, scalars only)
+    ['options', runOptionsIncomeAgent], // Step 10: Yahoo options chain (no LLM, FMP no expone options)
   ];
 
   for (let i = 0; i < agents.length; i++) {
@@ -6198,6 +8014,86 @@ async function runAllAgents(env) {
       results[name] = { error: e.message };
       console.error(`[Agents] ${name} failed:`, e.message);
     }
+  }
+
+  // Build executive summary + push notification
+  try {
+    const { results: allToday } = await env.DB.prepare(
+      "SELECT agent_name, ticker, severity, title, summary, score, details FROM agent_insights WHERE fecha = ? ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END, score DESC"
+    ).bind(fecha).all();
+
+    // Executive summary: top actions to take
+    const trades = allToday.filter(i => i.agent_name === 'trade' && i.severity !== 'info');
+    const options = allToday.filter(i => i.agent_name === 'options' && i.score > 3);
+    const insiderAlerts = allToday.filter(i => i.agent_name === 'insider' && i.severity !== 'info');
+    const regime = allToday.find(i => i.agent_name === 'regime');
+    const criticals = allToday.filter(i => i.severity === 'critical');
+
+    // Store executive summary
+    const execLines = [];
+    if (regime) {
+      const rd = regime.details ? JSON.parse(regime.details) : {};
+      execLines.push(`Mercado: ${rd.regime || '?'} (${rd.actionGuidance || '?'})`);
+    }
+    if (trades.length) execLines.push(`Operaciones: ${trades.map(t => `${t.title}`).slice(0, 3).join(', ')}`);
+    if (options.length) execLines.push(`Opciones: ${options.map(o => o.title).slice(0, 2).join(', ')}`);
+    if (insiderAlerts.length) execLines.push(`Insiders: ${insiderAlerts.length} alertas (${insiderAlerts.filter(i=>i.severity==='critical').length} criticas)`);
+
+    await storeInsights(env, "summary", fecha, [{
+      ticker: '_SUMMARY_',
+      severity: criticals.length > 5 ? 'critical' : criticals.length > 0 ? 'warning' : 'info',
+      title: `Resumen: ${criticals.length} criticos, ${allToday.filter(i=>i.severity==='warning').length} warnings`,
+      summary: execLines.join(' | ') || 'Sin alertas relevantes hoy.',
+      details: {
+        totalInsights: allToday.length,
+        criticals: criticals.length,
+        warnings: allToday.filter(i => i.severity === 'warning').length,
+        topActions: trades.slice(0, 5).map(t => t.title),
+        topOptions: options.slice(0, 3).map(o => o.title),
+        insiderAlerts: insiderAlerts.length,
+        regime: regime?.title || 'N/A',
+      },
+      score: criticals.length > 5 ? 2 : criticals.length > 0 ? 5 : 8,
+    }]);
+
+    // Push notification with actionable summary
+    if (criticals.length > 0) {
+      const { results: subs } = await env.DB.prepare("SELECT * FROM push_subscriptions LIMIT 100").all();
+      if (subs.length > 0) {
+        // Priority: trade actions > insider alerts > options > rest
+        const actionItems = [
+          ...trades.filter(t => t.severity === 'critical').slice(0, 2).map(t => t.title),
+          ...insiderAlerts.filter(i => i.severity === 'critical').slice(0, 1).map(i => `Insider: ${i.title}`),
+          ...options.filter(o => o.severity === 'critical').slice(0, 1).map(o => o.title),
+        ].slice(0, 3);
+
+        const regimeText = regime ? `${JSON.parse(regime.details || '{}').regime || '?'}` : '';
+        const body = actionItems.length
+          ? actionItems.join('\n') + (criticals.length > 3 ? `\n+${criticals.length - actionItems.length} mas` : '')
+          : criticals.slice(0, 3).map(c => `${c.ticker && !c.ticker.startsWith('_') ? `[${c.ticker}] ` : ''}${c.title}`).join('\n');
+
+        const payload = JSON.stringify({
+          title: `A&R: ${criticals.length} alertas${regimeText ? ` | ${regimeText}` : ''}`,
+          body,
+          url: "/?tab=agentes",
+          tag: "ayr-agents-daily",
+        });
+
+        let sent = 0;
+        for (const sub of subs) {
+          try {
+            const res = await sendWebPush(env, sub, payload);
+            if (res.ok) sent++;
+            else if (res.status === 410 || res.status === 404) {
+              await env.DB.prepare("DELETE FROM push_subscriptions WHERE id = ?").bind(sub.id).run();
+            }
+          } catch (_) {}
+        }
+        console.log(`[Agents] Push: ${sent} sent, ${criticals.length} critical, ${trades.length} trades, ${options.length} options`);
+      }
+    }
+  } catch (e) {
+    console.error("[Agents] Summary/push failed:", e.message);
   }
 
   console.log(`[Agents] All completed`);
