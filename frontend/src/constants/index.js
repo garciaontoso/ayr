@@ -26,6 +26,8 @@ export const DEFAULT_FX = {USD:1, EUR:0.876, GBP:0.756, CAD:1.44, AUD:1.59, HKD:
 
 export const TABS = [
   {id:"dash",lbl:"Resumen",ico:"◈"},
+  {id:"transcript",lbl:"Transcript",ico:"📞"},
+  {id:"business",lbl:"Cómo gana $",ico:"👶"},
   {id:"chart",lbl:"Chart",ico:"📈"},
   {id:"claude",lbl:"Claude",ico:"🧠"},
   {id:"qualityAll",lbl:"Calidad",ico:"◆"},

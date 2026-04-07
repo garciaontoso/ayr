@@ -642,6 +642,20 @@ async function ensureMigrations(env) {
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_news_severity ON news_items(severity)`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_news_relevance ON news_items(relevance_score DESC)`).run();
 
+    // ─── Company Narratives (transcript summary + business model) ───
+    // One row per (ticker, narrative_type). UPSERT on regenerate.
+    // narrative_type: 'transcript_summary' (Opus, manual refresh) | 'business_model' (Haiku, 30d TTL)
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS company_narratives (
+      ticker TEXT NOT NULL,
+      narrative_type TEXT NOT NULL,
+      content_md TEXT NOT NULL,
+      source_data TEXT DEFAULT '',
+      tokens_used INTEGER DEFAULT 0,
+      generated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY(ticker, narrative_type)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_narratives_generated ON company_narratives(generated_at DESC)`).run();
+
     // ─── Performance indexes ───────────────────────────
     const indexes = [
       "CREATE INDEX IF NOT EXISTS idx_gastos_fecha ON gastos(fecha)",
@@ -5835,6 +5849,298 @@ OUTPUT: JSON array EXACTO con un objeto por item del input, en el mismo orden. S
         }, corsHeaders);
       }
 
+      // ═══════════════════════════════════════════════════════════
+      // ─── COMPANY NARRATIVES (transcript summary + business model) ───
+      // ═══════════════════════════════════════════════════════════
+      //
+      // GET  /api/company/:ticker/transcript-summary          read cache
+      // POST /api/company/:ticker/transcript-summary/generate force regenerate with Opus
+      // GET  /api/company/:ticker/business-model              read cache (30d TTL → stale flag)
+      // POST /api/company/:ticker/business-model/generate     force regenerate with Haiku
+
+      // GET /api/earnings-transcripts?ticker=X — list raw transcripts for a ticker
+      if (path === "/api/earnings-transcripts" && request.method === "GET") {
+        const ticker = url.searchParams.get("ticker");
+        if (!ticker) return json({ error: "ticker required" }, corsHeaders, 400);
+        const bareTicker = ticker.replace(/^(BME:|HKG:|LSE:)/, "").toUpperCase();
+        try {
+          const { results } = await env.DB.prepare(
+            `SELECT ticker, quarter, year, content, date
+             FROM earnings_transcripts
+             WHERE UPPER(ticker) = ?
+             ORDER BY year DESC, quarter DESC, date DESC
+             LIMIT 8`
+          ).bind(bareTicker).all();
+          return json({
+            ticker: bareTicker,
+            count: (results || []).length,
+            transcripts: results || [],
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      if (path.startsWith("/api/company/")) {
+        // Raw Claude call — returns plain markdown, not JSON. Local variant
+        // because callAgentClaude wraps everything in JSON.parse.
+        const callClaudeRaw = async (systemPrompt, userContent, opts = {}) => {
+          const model = opts.model || "claude-haiku-4-5-20251001";
+          const maxTokens = opts.maxTokens || 1500;
+          const body = JSON.stringify({
+            model,
+            max_tokens: maxTokens,
+            system: systemPrompt,
+            messages: [{ role: "user", content: typeof userContent === "string" ? userContent : JSON.stringify(userContent) }],
+          });
+          const RETRYABLE = new Set([429, 500, 502, 503, 504, 529]);
+          const BACKOFF_MS = [5000, 15000, 30000];
+          let resp = null;
+          let lastErr = null;
+          for (let attempt = 0; attempt <= BACKOFF_MS.length; attempt++) {
+            try {
+              resp = await fetch("https://api.anthropic.com/v1/messages", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-api-key": env.ANTHROPIC_API_KEY || "",
+                  "anthropic-version": "2023-06-01",
+                },
+                body,
+              });
+              if (resp.ok) break;
+              if (!RETRYABLE.has(resp.status) || attempt === BACKOFF_MS.length) {
+                const errText = await resp.text();
+                throw new Error(`Claude API error ${resp.status}: ${errText}`);
+              }
+              await new Promise(r => setTimeout(r, BACKOFF_MS[attempt]));
+            } catch (e) {
+              lastErr = e;
+              if (attempt === BACKOFF_MS.length) throw e;
+              await new Promise(r => setTimeout(r, BACKOFF_MS[attempt]));
+            }
+          }
+          if (!resp || !resp.ok) throw lastErr || new Error("Claude API: all retries exhausted");
+          const result = await resp.json();
+          const text = result.content?.[0]?.text || "";
+          const usage = result.usage || {};
+          const tokensUsed = (usage.input_tokens || 0) + (usage.output_tokens || 0);
+          return { text: text.trim(), tokensUsed };
+        };
+
+        const parseCompanyTicker = (pathStr, tail) => {
+          const rest = pathStr.slice("/api/company/".length);
+          if (!rest.endsWith(tail)) return null;
+          const rawTicker = rest.slice(0, rest.length - tail.length);
+          return decodeURIComponent(rawTicker).toUpperCase();
+        };
+
+        // ── GET /api/company/:ticker/transcript-summary ──
+        if (path.endsWith("/transcript-summary") && request.method === "GET") {
+          const ticker = parseCompanyTicker(path, "/transcript-summary");
+          if (!ticker) return json({ error: "bad ticker" }, corsHeaders, 400);
+          try {
+            const row = await env.DB.prepare(
+              `SELECT content_md, source_data, generated_at, tokens_used
+               FROM company_narratives
+               WHERE ticker = ? AND narrative_type = 'transcript_summary'`
+            ).bind(ticker).first();
+            if (!row) return json({ cached: false, content: null, ticker }, corsHeaders);
+            return json({
+              cached: true, ticker,
+              content: row.content_md,
+              source_data: row.source_data || "",
+              generated_at: row.generated_at,
+              tokens_used: row.tokens_used || 0,
+            }, corsHeaders);
+          } catch (e) {
+            return json({ error: e.message }, corsHeaders, 500);
+          }
+        }
+
+        // ── POST /api/company/:ticker/transcript-summary/generate ──
+        if (path.endsWith("/transcript-summary/generate") && request.method === "POST") {
+          const ticker = parseCompanyTicker(path, "/transcript-summary/generate");
+          if (!ticker) return json({ error: "bad ticker" }, corsHeaders, 400);
+          if (!env.ANTHROPIC_API_KEY) return json({ error: "no ANTHROPIC_API_KEY" }, corsHeaders, 500);
+          try {
+            const bareTicker = ticker.replace(/^(BME:|HKG:|LSE:)/, "");
+            const { results: trRows } = await env.DB.prepare(
+              `SELECT ticker, quarter, year, content, date
+               FROM earnings_transcripts
+               WHERE ticker = ?
+               ORDER BY year DESC, quarter DESC, date DESC
+               LIMIT 4`
+            ).bind(bareTicker).all();
+            if (!trRows || trRows.length === 0) {
+              return json({
+                error: "Sin transcripts descargados para este ticker. Pulsa '📥 Descargar transcripts frescos' primero.",
+                ticker, bareTicker,
+              }, corsHeaders, 404);
+            }
+            const transcripts = trRows.slice(0, 4).map(r => ({
+              quarter: r.quarter,
+              year: r.year,
+              date: r.date,
+              excerpt: typeof r.content === "string" ? r.content.slice(0, 4000) : "",
+            }));
+            const sourceLabels = transcripts.map(t => `${t.quarter} ${t.year}`).join(", ");
+
+            const systemPrompt = `Eres un analista financiero senior. Vas a resumir earnings call transcripts de una empresa para un inversor retail long-term buy-and-hold.
+
+Tu resumen debe tener EXACTAMENTE este formato markdown:
+
+## Qué pasó este trimestre
+- [bullet 1 con número específico cuando sea posible]
+- [bullet 2]
+- [bullet 3]
+
+## Management forward-looking
+- [lo que dijeron sobre guidance]
+- [lo que dijeron sobre próximos trimestres]
+
+## Red flags del Q&A
+- [preguntas de analistas donde management no respondió bien]
+- [temas que management esquivó]
+- O "Ninguna" si no hay
+
+## Cambios vs trimestre anterior
+- [qué ha mejorado]
+- [qué ha empeorado]
+
+## Conclusión en 1 frase
+[1 frase clara: bull / bear / neutral + por qué]
+
+Input: JSON con transcripts de los últimos 2-4 quarters.
+Output: ONLY the markdown above, nothing else.`;
+
+            const { text: markdown, tokensUsed } = await callClaudeRaw(
+              systemPrompt,
+              { ticker, transcripts_count: transcripts.length, transcripts },
+              { model: "claude-opus-4-20250514", maxTokens: 1500 }
+            );
+            if (!markdown || markdown.length < 50) {
+              return json({ error: "Opus returned empty response", raw: markdown }, corsHeaders, 500);
+            }
+            await env.DB.prepare(
+              `INSERT INTO company_narratives (ticker, narrative_type, content_md, source_data, tokens_used, generated_at)
+               VALUES (?, 'transcript_summary', ?, ?, ?, datetime('now'))
+               ON CONFLICT(ticker, narrative_type) DO UPDATE SET
+                 content_md = excluded.content_md,
+                 source_data = excluded.source_data,
+                 tokens_used = excluded.tokens_used,
+                 generated_at = excluded.generated_at`
+            ).bind(ticker, markdown, sourceLabels, tokensUsed).run();
+            return json({
+              cached: false, generated: true, ticker,
+              content: markdown,
+              source_data: sourceLabels,
+              tokens_used: tokensUsed,
+              generated_at: new Date().toISOString(),
+            }, corsHeaders);
+          } catch (e) {
+            console.error("[transcript-summary/generate]:", e.message);
+            return json({ error: e.message, ticker }, corsHeaders, 500);
+          }
+        }
+
+        // ── GET /api/company/:ticker/business-model ──
+        if (path.endsWith("/business-model") && request.method === "GET") {
+          const ticker = parseCompanyTicker(path, "/business-model");
+          if (!ticker) return json({ error: "bad ticker" }, corsHeaders, 400);
+          try {
+            const row = await env.DB.prepare(
+              `SELECT content_md, source_data, generated_at, tokens_used,
+                      CAST((julianday('now') - julianday(generated_at)) AS INTEGER) AS age_days
+               FROM company_narratives
+               WHERE ticker = ? AND narrative_type = 'business_model'`
+            ).bind(ticker).first();
+            if (!row) return json({ cached: false, content: null, ticker }, corsHeaders);
+            const ageDays = Number(row.age_days || 0);
+            return json({
+              cached: true,
+              stale: ageDays > 30,
+              age_days: ageDays,
+              ticker,
+              content: row.content_md,
+              source_data: row.source_data || "",
+              generated_at: row.generated_at,
+              tokens_used: row.tokens_used || 0,
+            }, corsHeaders);
+          } catch (e) {
+            return json({ error: e.message }, corsHeaders, 500);
+          }
+        }
+
+        // ── POST /api/company/:ticker/business-model/generate ──
+        if (path.endsWith("/business-model/generate") && request.method === "POST") {
+          const ticker = parseCompanyTicker(path, "/business-model/generate");
+          if (!ticker) return json({ error: "bad ticker" }, corsHeaders, 400);
+          if (!env.ANTHROPIC_API_KEY) return json({ error: "no ANTHROPIC_API_KEY" }, corsHeaders, 500);
+          try {
+            const pos = await env.DB.prepare(
+              `SELECT ticker, name, sector FROM positions WHERE ticker = ? LIMIT 1`
+            ).bind(ticker).first();
+            const name = pos?.name || ticker;
+            const sector = pos?.sector || "Unknown";
+
+            const systemPrompt = `Explica el modelo de negocio de esta empresa como si se lo estuvieras contando a un niño de 8 años que sabe poco del mundo. Estilo Warren Buffett: simple, claro, con analogías del mundo real.
+
+Formato markdown:
+
+## ¿Qué hace esta empresa?
+[1-2 frases. Usa analogías simples. Nada de jerga. Ej: "Imagina que Apple es como una tienda de juguetes mágicos..."]
+
+## ¿Cómo gana dinero?
+[2-3 frases. Explica la fuente principal de ingresos de forma simple.]
+
+## Los 2-3 productos que generan casi todo el dinero
+1. [producto 1 + % aproximado si lo sabes]
+2. [producto 2]
+3. [producto 3]
+
+## ¿Qué pasaría si no existiera?
+[1 frase: qué alternativas tendrían los clientes, qué perderían]
+
+## ¿Por qué es difícil competir con ellos?
+[1-2 frases sobre su moat / ventaja competitiva de forma simple]
+
+Input: { ticker, name, sector }
+Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
+
+            const { text: markdown, tokensUsed } = await callClaudeRaw(
+              systemPrompt,
+              { ticker, name, sector },
+              { model: "claude-haiku-4-5-20251001", maxTokens: 1200 }
+            );
+            if (!markdown || markdown.length < 50) {
+              return json({ error: "Haiku returned empty response", raw: markdown }, corsHeaders, 500);
+            }
+            const sourceData = `${name} · ${sector}`;
+            await env.DB.prepare(
+              `INSERT INTO company_narratives (ticker, narrative_type, content_md, source_data, tokens_used, generated_at)
+               VALUES (?, 'business_model', ?, ?, ?, datetime('now'))
+               ON CONFLICT(ticker, narrative_type) DO UPDATE SET
+                 content_md = excluded.content_md,
+                 source_data = excluded.source_data,
+                 tokens_used = excluded.tokens_used,
+                 generated_at = excluded.generated_at`
+            ).bind(ticker, markdown, sourceData, tokensUsed).run();
+            return json({
+              cached: false, generated: true, stale: false, age_days: 0,
+              ticker,
+              content: markdown,
+              source_data: sourceData,
+              tokens_used: tokensUsed,
+              generated_at: new Date().toISOString(),
+            }, corsHeaders);
+          } catch (e) {
+            console.error("[business-model/generate]:", e.message);
+            return json({ error: e.message, ticker }, corsHeaders, 500);
+          }
+        }
+      }
+
       // ── Proceso module: Investment Theses (CRUD + versioning) ──
       //
       // GET /api/theses — list all current theses
@@ -9321,6 +9627,40 @@ async function runDividendAgent(env, fecha) {
     `SELECT symbol, ratios, cashflow, dividends, key_metrics, owner_earnings FROM fundamentals WHERE symbol IN (${placeholders})`
   ).bind(...tickers).all();
 
+  // Pull Q+S inputs_json for AUTHORITATIVE TTM figures (fcfTTM, divTTM,
+  // fcfCoverage, payoutRatioWorst, debtEbitda, currentRatio, streakYears).
+  // The dividend agent previously read latestCF.freeCashFlowPerShare which is
+  // a SINGLE-PERIOD per-share value — for FLO this caused "FCF $89M" when the
+  // real TTM was ~$329M. Q+S already computes correct values per-ticker.
+  let qsInputsByTicker = {};
+  try {
+    const { results: qsRows } = await env.DB.prepare(
+      `SELECT qss.ticker, qss.inputs_json, qss.quality_score, qss.safety_score
+         FROM quality_safety_scores qss
+         INNER JOIN (
+           SELECT ticker, MAX(snapshot_date) AS max_date
+           FROM quality_safety_scores
+           WHERE ticker IN (${placeholders})
+           GROUP BY ticker
+         ) latest
+           ON qss.ticker = latest.ticker
+          AND qss.snapshot_date = latest.max_date`
+    ).bind(...tickers).all();
+    for (const r of (qsRows || [])) {
+      try {
+        const parsed = JSON.parse(r.inputs_json || "{}");
+        qsInputsByTicker[r.ticker] = {
+          safety: parsed.safety || {},
+          quality: parsed.quality || {},
+          qualityScore: r.quality_score,
+          safetyScore: r.safety_score,
+        };
+      } catch {}
+    }
+  } catch (e) {
+    console.error("[Dividend] Q+S inputs load failed:", e.message);
+  }
+
   // Real dividend payments from dividendos table (last 2 years)
   const twoYearsAgo = new Date(Date.now() - 730 * 86400000).toISOString().slice(0, 10);
   const { results: realDivs } = await env.DB.prepare(
@@ -9366,15 +9706,40 @@ async function runDividendAgent(env, fecha) {
     const latestCF = Array.isArray(f.cashflow) ? f.cashflow[0] : f.cashflow;
     const ownerE = Array.isArray(f.ownerEarnings) ? f.ownerEarnings[0] : f.ownerEarnings;
     const category = REITS.has(p.ticker) ? 'REIT' : BDCS.has(p.ticker) ? 'BDC' : ETFS.has(p.ticker) ? 'ETF' : PREFS.has(p.ticker) ? 'PREFERRED' : 'COMPANY';
+
+    // AUTHORITATIVE TTM figures from Q+S inputs_json (computed by _qs_safety
+    // using _qs_sum over last 4 quarters). Falls back to legacy per-share
+    // fields only if Q+S has no snapshot for this ticker.
+    const qs = qsInputsByTicker[p.ticker] || {};
+    const qsSafety = qs.safety || {};
+
     return {
       ticker: p.ticker, name: p.name, sector: p.sector,
       category, // REIT, BDC, ETF, PREFERRED, or COMPANY
       divTTM: p.div_ttm, yield: p.div_yield, yoc: p.yoc,
+
+      // ── TTM cash-flow figures (authoritative — from Q+S) ──
+      dividendsPaidTTM: qsSafety.divTTM ?? null,
+      fcfTTM:           qsSafety.fcfTTM ?? null,
+      netIncomeTTM:     qsSafety.niTTM ?? null,
+      fcfCoverageTTM:   qsSafety.fcfCoverage ?? null,
+      payoutRatioEarnings: qsSafety.payoutRatio ?? null,
+      payoutRatioFCF:      qsSafety.fcfPayoutRatio ?? null,
+      payoutRatioWorst:    qsSafety.payoutRatioWorst ?? null,
+      fcfAfterMaintCoverage: qsSafety.fcfAfterMaintCov ?? null,
+      debtToEbitda:      qsSafety.debtEbitda ?? null,
+      currentRatio:      qsSafety.currentRatio ?? null,
+      dividendStreakYears: qsSafety.streakYears ?? null,
+      qualityScore: qs.qualityScore ?? null,
+      safetyScore:  qs.safetyScore ?? null,
+
+      // ── Legacy fields (fallback only — kept for sectors w/o Q+S snapshot) ──
       payoutRatio: latestRatios?.payoutRatio || latestRatios?.dividendPayoutRatio,
       fcfPerShare: latestCF?.freeCashFlowPerShare,
       ownerEarningsPerShare: ownerE?.ownerEarningsPerShare,
       debtToEquity: latestRatios?.debtEquityRatio,
       interestCoverage: latestRatios?.interestCoverage,
+
       dividendHistory: Array.isArray(f.dividends) ? f.dividends.slice(0, 4) : null,
       realPayments: (realDivMap[p.ticker] || []).slice(0, 3),
       gfFinancialStrength: gf.financialStrength,
@@ -9400,6 +9765,15 @@ CRITICAL CONTEXT — DO NOT give false alarms:
 - Preferred shares (IIPR-PRA, LANDP) have FIXED dividends — only flag if company is in financial distress.
 - A company trading below fair value with a high yield is an OPPORTUNITY, not a crisis.
 - Temporary earnings dips (restructuring, one-time charges) don't threaten long-term dividends if FCF is healthy.
+
+COVERAGE ANALYSIS — USE THE TTM FIELDS, NOT THE LEGACY PER-SHARE FIELDS:
+- fcfTTM, dividendsPaidTTM, fcfCoverageTTM are DOLLAR totals over the trailing 4 quarters. These are authoritative.
+- payoutRatioWorst = max(payoutRatioEarnings, payoutRatioFCF) — use this for cut-risk decisions.
+- fcfPerShare / payoutRatio (legacy) are single-period and may be ~4x understated. IGNORE them when fcfTTM is present.
+- Cite numbers as "FCF TTM $XXM covering dividends $YYM = Z.Zx" using the TTM fields.
+- If fcfCoverageTTM >= 1.5 and payoutRatioWorst <= 0.75 → cutRisk: low (do NOT mark high regardless of trend wobble).
+- If fcfCoverageTTM < 1.0 OR payoutRatioWorst > 1.0 → genuine stress, cutRisk: high.
+- safetyScore (0-100) and qualityScore (0-100) are pre-computed by the Q+S engine — use them as a sanity check on your verdict.
 
 TREND ANALYSIS (use trendRevenue, trendFCF, trendDebt, trendDivPaid — most recent quarter first):
 - If debt is DECREASING over 4+ quarters AND dividend was cut → STRATEGIC restructuring, likely positive. Score 6+.
