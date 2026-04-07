@@ -20,10 +20,8 @@ import ResearchTab from '../home/ResearchTab';
 import AgentesTab from '../home/AgentesTab';
 import CoveredCallsTab from '../home/CoveredCallsTab';
 import IncomeLabTab from '../home/IncomeLabTab';
-// ProcesoTab removed from Home tabs 2026-04-08 — theses now live per-company
-// inside the analysis view (TesisTab). Import kept commented in case we
-// want to resurrect a global theses dashboard later.
-// import ProcesoTab from '../home/ProcesoTab';
+// ProcesoTab deleted 2026-04-08: theses now live per-company inside the
+// analysis view (TesisTab). File removed entirely after audit B.
 import LibraryTab from '../home/LibraryTab';
 import CurrencyTab from '../home/CurrencyTab';
 import MacroTab from '../home/MacroTab';

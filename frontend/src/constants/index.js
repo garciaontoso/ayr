@@ -42,38 +42,40 @@ export const TABS = [
   {id:"options",lbl:"Opciones",ico:"🔗"},
 ];
 
-export const TABS_OLD = [
-  {id:"quality"},{id:"big5"},{id:"tencap"},{id:"payback"},
-  {id:"valuation"},{id:"mos"},{id:"fastgraphs"},{id:"weiss"},
-  {id:"checklist"},{id:"growth"},{id:"dividends"},
-];
+// TABS_OLD removed 2026-04-08 — these were 11 zombie sub-tabs that lived
+// only in App.jsx routing but never appeared in TABS. They were merged
+// into the 4 mega-tabs `qualityAll`, `divAll`, `valAll`, `verdict` long
+// ago. The individual routes still resolve via App.jsx content dict but
+// nothing renders them. Audit B identified this as critical dead code.
 
 export const API_URL = "https://aar-api.garciaontoso.workers.dev";
 
+// HOME_TABS — icon dedup applied 2026-04-08:
+//   Dashboard 📊 (kept) · Trades was 📊 → 📈
+//   Gastos 💸 (kept) · Mi Nomina was 💸 → 🧾
+//   Earnings was 📊 → 📅 (calendar metaphor matches its content)
+// Order is what users actually see — drag-and-drop persists per-user
+// preference via /api/preferences (cloud sync).
 export const HOME_TABS = [
   {id:"portfolio",lbl:"Portfolio",ico:"💼"},
   {id:"agentes",lbl:"Agentes",ico:"🤖"},
-  // "proceso" removed 2026-04-08: theses now live as a per-company tab
-  // inside the analysis view (📝 Tesis tab). Component kept in codebase
-  // at components/home/ProcesoTab.jsx in case a global theses dashboard
-  // is needed again in the future.
   {id:"dashboard",lbl:"Dashboard",ico:"📊"},
   {id:"income",lbl:"Income",ico:"🥦"},
   {id:"dividendos",lbl:"Dividendos",ico:"💰"},
   {id:"macro",lbl:"Macro",ico:"🌍"},
   {id:"currency",lbl:"Currency",ico:"💱"},
   {id:"fire",lbl:"FIRE",ico:"🔥"},
-  {id:"trades",lbl:"Trades",ico:"📊"},
+  {id:"trades",lbl:"Trades",ico:"📈"},
   {id:"gastos",lbl:"Gastos",ico:"💸"},
   {id:"presupuesto",lbl:"Presupuesto",ico:"📋"},
   {id:"patrimonio",lbl:"Patrimonio",ico:"🏛"},
-  {id:"nomina",lbl:"Mi Nomina",ico:"💸"},
+  {id:"nomina",lbl:"Mi Nomina",ico:"🧾"},
   {id:"screener",lbl:"Screener",ico:"🔬"},
   {id:"advisor",lbl:"Advisor",ico:"🧭"},
   {id:"watchlist",lbl:"Watchlist",ico:"👁"},
   {id:"historial",lbl:"Historial",ico:"📦"},
   {id:"research",lbl:"Research",ico:"🔍"},
   {id:"library",lbl:"Library",ico:"📚"},
-  {id:"earnings",lbl:"Earnings",ico:"📊"},
+  {id:"earnings",lbl:"Earnings",ico:"📅"},
   {id:"news",lbl:"News",ico:"📰"},
 ];

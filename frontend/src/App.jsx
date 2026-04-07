@@ -1764,23 +1764,15 @@ function buildPositionsFromCB() {
     chart:() => <ChartTab />,
     claude:() => <ClaudeTab />,
     data:() => <DataTab />,
+    // Mega-tabs that consolidate the old single-purpose sub-tabs.
+    // The 11 individual entries (quality/dividends/valuation/big5/tencap/
+    // payback/mos/fastgraphs/weiss/checklist/growth/score) were removed
+    // 2026-04-08 — they only existed in TABS_OLD which is now also gone.
     qualityAll:() => <div><div style={_sec}>Calidad del Negocio</div><QualityTab /><div style={_sec}>Crecimiento (CAGR)</div><GrowthTab /><div style={_sec}>Big Five — Rule #1</div><Big5Tab /></div>,
-    quality:() => <QualityTab />,
     debt:() => <DebtTab />,
     divAll:() => <div><div style={_sec}>Seguridad del Dividendo</div><DividendsTab /><div style={_sec}>Yield Bands — Weiss</div><WeissTab /></div>,
-    dividends:() => <DividendsTab />,
     valAll:() => <div><div style={_sec}>Múltiplos Actuales</div><ValuationTab /><DCFTab /><div style={_sec}>Margen de Seguridad (6 Métodos)</div><MOSTab /><div style={_sec}>FastGraphs — Proyección</div><FastGraphsTab /><div style={_sec}>10 Cap Rate</div><TenCapTab /><div style={_sec}>Payback Time</div><PaybackTab /></div>,
-    valuation:() => <><ValuationTab /><DCFTab /></>,
     verdict:() => <div><div style={_sec}>Checklist de Inversión</div><ChecklistTab /><div style={_sec}>Veredicto Final</div><ScoreTab /></div>,
-    big5:() => <Big5Tab />,
-    tencap:() => <TenCapTab />,
-    payback:() => <PaybackTab />,
-    mos:() => <MOSTab />,
-    fastgraphs:() => <FastGraphsTab />,
-    weiss:() => <WeissTab />,
-    checklist:() => <ChecklistTab />,
-    growth:() => <GrowthTab />,
-    score:() => <ScoreTab />,
     report:() => <ReportTab />,
     dst:() => <DSTTab />,
     options:() => <OptionsChainTab />,
