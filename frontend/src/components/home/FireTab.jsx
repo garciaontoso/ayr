@@ -232,7 +232,7 @@ function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA
                 <input {...inp(s[field], v => updateField(activeScenario, field, v), step)} />
               </div>
             ))}
-            <div style={{ marginTop: 8, padding: '8px', background: 'rgba(214,158,46,.06)', borderRadius: 6 }}>
+            <div style={{ marginTop: 8, padding: '8px', background: 'rgba(200,164,78,.06)', borderRadius: 6 }}>
               <div style={{ fontSize: 9, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>Retorno real neto</div>
               <div style={{ fontSize: 16, fontWeight: 700, color: r.netReturnRetired * 100 > 2 ? 'var(--green)' : r.netReturnRetired * 100 > 0 ? 'var(--gold)' : 'var(--red)', fontFamily: 'var(--fm)' }}>
                 {(r.netReturnRetired * 100).toFixed(1)}%
@@ -240,7 +240,7 @@ function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA
             </div>
           </div>
           {/* Results */}
-          <div style={{ padding: 12, background: 'rgba(214,158,46,.04)', borderRadius: 10, border: '1px solid rgba(214,158,46,.15)' }}>
+          <div style={{ padding: 12, background: 'rgba(200,164,78,.04)', borderRadius: 10, border: '1px solid rgba(200,164,78,.15)' }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--gold)', marginBottom: 8, fontFamily: 'var(--fm)' }}>📋 RESULTADOS</div>
             {[
               ['Año jubilación', r.retirementYear, 'var(--text-primary)'],
@@ -460,7 +460,7 @@ function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA
                         padding: '5px 8px', textAlign: 'center', fontWeight: isActive ? 800 : 600,
                         fontFamily: 'var(--fm)', borderBottom: '1px solid var(--subtle-bg)',
                         color: yrs >= s.yearsIn ? 'var(--green)' : yrs >= s.yearsIn * 0.7 ? 'var(--gold)' : 'var(--red)',
-                        background: isActive ? 'rgba(214,158,46,.1)' : 'transparent',
+                        background: isActive ? 'rgba(200,164,78,.1)' : 'transparent',
                       }}>
                         {yrs >= 99 ? '∞' : yrs}
                       </td>
@@ -631,7 +631,7 @@ return (
   {/* ── SECTION 1: Hero — Cobertura central + KPIs ── */}
   <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:10}}>
     {/* Big coverage % */}
-    <div style={{padding:"20px 30px",background:activeDivCoversPct>=100?"rgba(48,209,88,.06)":activeDivCoversPct>=50?"rgba(214,158,46,.06)":"rgba(255,69,58,.06)",border:`2px solid ${activeDivCoversPct>=100?"rgba(48,209,88,.3)":activeDivCoversPct>=50?"rgba(214,158,46,.3)":"rgba(255,69,58,.3)"}`,borderRadius:16,textAlign:"center",display:"flex",flexDirection:"column",justifyContent:"center",minWidth:160}}>
+    <div style={{padding:"20px 30px",background:activeDivCoversPct>=100?"rgba(48,209,88,.06)":activeDivCoversPct>=50?"rgba(200,164,78,.06)":"rgba(255,69,58,.06)",border:`2px solid ${activeDivCoversPct>=100?"rgba(48,209,88,.3)":activeDivCoversPct>=50?"rgba(200,164,78,.3)":"rgba(255,69,58,.3)"}`,borderRadius:16,textAlign:"center",display:"flex",flexDirection:"column",justifyContent:"center",minWidth:160}}>
       <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,fontWeight:600,marginBottom:4}}>COBERTURA NETA</div>
       <div style={{fontSize:52,fontWeight:900,color:activeDivCoversPct>=100?"var(--green)":activeDivCoversPct>=50?"var(--gold)":"var(--red)",fontFamily:"var(--fm)",lineHeight:1}}>{_sf(activeDivCoversPct,0)}%</div>
       <div style={{fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:6}}>div neto / gastos</div>
@@ -661,7 +661,7 @@ return (
   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:8}}>
     {[
       {l:"VIDA ACTUAL",sub:"China + España",m:gastosAvg,pct:divCoversPct,bg:"rgba(255,159,10,.04)",bc:"rgba(255,159,10,.15)"},
-      {l:"BASE REAL",sub:"ESP + CN obligatorio",m:baseRealM,pct:baseRealCoversPct,bg:"rgba(214,158,46,.06)",bc:"rgba(214,158,46,.2)"},
+      {l:"BASE REAL",sub:"ESP + CN obligatorio",m:baseRealM,pct:baseRealCoversPct,bg:"rgba(200,164,78,.06)",bc:"rgba(200,164,78,.2)"},
       {l:"ESPAÑA REALISTA",sub:"EUR + vida diaria CN",m:espRealistaM,pct:espCoversPct,bg:"rgba(48,209,88,.04)",bc:"rgba(48,209,88,.15)"},
       {l:"FIJOS ESPAÑA",sub:"solo EUR",m:espBaseM,pct:espBasePct,bg:"rgba(100,210,255,.04)",bc:"rgba(100,210,255,.12)"},
     ].map((s,i)=>{
@@ -848,7 +848,7 @@ return (
         {l:"Lean (70%)",g:gastosAnnual*0.7},{l:"Ultra (50%)",g:gastosAnnual*0.5},{l:"Fat (+30%)",g:gastosAnnual*1.3},
       ].map((s,i)=>{
         const fn=s.g/0.035; const pp=fn>0?(patUSD/fn*100):0; const dp=s.g>0?(divNet12mUSD/s.g*100):0; const gap=(divNet12mUSD-s.g)/12;
-        return <tr key={i} style={{background:s.hl?"rgba(214,158,46,.06)":i%2?"var(--row-alt)":"transparent"}}>
+        return <tr key={i} style={{background:s.hl?"rgba(200,164,78,.06)":i%2?"var(--row-alt)":"transparent"}}>
           <td style={{padding:"5px 8px",fontWeight:s.hl?700:500,fontFamily:"var(--fm)",color:s.hl?"var(--gold)":"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>{s.l}</td>
           <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>${fK(s.g)}</td>
           <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)"}}>${fK(fn)}</td>

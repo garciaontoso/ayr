@@ -13,7 +13,7 @@ function DSTTab() {
   const d = reportData; if(d.error) return <div style={{padding:40,color:"var(--red)"}}>{d.error}</div>;
   const y = d.years||[], lat = y[y.length-1]||{};
   const sym = d.currency==="EUR"?"€":d.currency==="GBP"?"£":"$";
-  const sc = v => v>=4?"#34d399":v>=3?"#d69e2e":v>=2?"#f59e0b":"#f87171";
+  const sc = v => v>=4?"#34d399":v>=3?"#c8a44e":v>=2?"#f59e0b":"#f87171";
   const fM = v => v==null?"—":Math.abs(v)>=1000?`${_sf(v/1000,1)}B`:`${v}M`;
   const hd = {fontSize:15,fontWeight:700,color:"#c9972e",fontFamily:"var(--fd)",marginBottom:12,marginTop:24,paddingBottom:6,borderBottom:"2px solid #c9972e"};
   const thS = {padding:"5px 7px",textAlign:"right",color:"#fffbf0",fontSize:8,fontWeight:700,fontFamily:"var(--fm)",background:"#8B4513",whiteSpace:"nowrap",borderBottom:"none"};

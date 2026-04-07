@@ -5,7 +5,7 @@ import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
 
 // ─── Categories matching user's budget spreadsheet ───
 const DEFAULT_CATEGORIAS = [
-  { id: 'CASA', ico: '🏠', color: '#d69e2e' },
+  { id: 'CASA', ico: '🏠', color: '#c8a44e' },
   { id: 'UTILITYS', ico: '💡', color: '#64d2ff' },
   { id: 'BARCO', ico: '⛵', color: '#4ecdc4' },
   { id: 'COCHES', ico: '🚗', color: '#ff6b6b' },
@@ -87,7 +87,7 @@ for (const [presu, codes] of Object.entries(PRESU_TO_GASTO_CATS)) {
 }
 
 // ─── Warning/info section styles ───
-const warningCard = { ...card, background: 'rgba(214,158,46,0.06)', borderColor: 'rgba(214,158,46,0.3)' };
+const warningCard = { ...card, background: 'rgba(200,164,78,0.06)', borderColor: 'rgba(200,164,78,0.3)' };
 const dangerCard = { ...card, background: 'rgba(255,107,107,0.06)', borderColor: 'rgba(255,107,107,0.3)' };
 const infoCard = { ...card, background: 'rgba(100,210,255,0.06)', borderColor: 'rgba(100,210,255,0.3)' };
 
@@ -515,7 +515,7 @@ export default function PresupuestoTab() {
                   <div key={m} onClick={() => setCalMonth(isSelected ? null : m)}
                     style={{ padding: '6px 2px', borderRadius: 8, cursor: 'pointer', textAlign: 'center',
                       border: isCurrent ? '1.5px solid var(--gold)' : isSelected ? '1.5px solid var(--text-tertiary)' : '1px solid transparent',
-                      background: isSelected ? 'rgba(214,158,46,.08)' : isCurrent ? 'rgba(214,158,46,.04)' : 'transparent',
+                      background: isSelected ? 'rgba(200,164,78,.08)' : isCurrent ? 'rgba(200,164,78,.04)' : 'transparent',
                       transition: 'all .15s' }}>
                     <div style={{ fontSize: 8, fontWeight: 600, color: isCurrent ? 'var(--gold)' : 'var(--text-tertiary)', fontFamily: 'var(--fm)', letterSpacing: 0.3 }}>
                       {MONTH_NAMES[i]}
@@ -547,7 +547,7 @@ export default function PresupuestoTab() {
               const monthlyTotal = monthly.reduce((s, it) => s + it.importe, 0);
               const periodicTotal = periodic.reduce((s, it) => s + it.importe, 0);
               return (
-                <div style={{ marginTop: 12, padding: '12px 14px', background: 'rgba(214,158,46,.04)', borderRadius: 10, border: '1px solid rgba(214,158,46,.12)' }}>
+                <div style={{ marginTop: 12, padding: '12px 14px', background: 'rgba(200,164,78,.04)', borderRadius: 10, border: '1px solid rgba(200,164,78,.12)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--gold)', fontFamily: 'var(--fb)' }}>
                       {MONTH_NAMES[calMonth-1]} — {fmt(md.total)}
@@ -626,7 +626,7 @@ export default function PresupuestoTab() {
 
       {/* ═══ Alerts ═══ */}
       {alerts.length > 0 && (
-        <div style={{ ...card, background: 'rgba(214,158,46,0.06)', borderColor: 'rgba(214,158,46,0.3)' }}>
+        <div style={{ ...card, background: 'rgba(200,164,78,0.06)', borderColor: 'rgba(200,164,78,0.3)' }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--gold)', marginBottom: 6 }}>⚠️ Cambios detectados</div>
           {alerts.map((a, i) => (
             <div key={i} style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 3, display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -649,7 +649,7 @@ export default function PresupuestoTab() {
         const visibleIncreases = expenseIncreases.filter(inc => !dismissedIncreases.includes(inc.itemId));
         return visibleIncreases.length > 0 && (
         <div style={warningCard}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#d69e2e', marginBottom: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#c8a44e', marginBottom: 8 }}>
             ⚠️ Subidas detectadas
           </div>
           <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 8 }}>
@@ -673,7 +673,7 @@ export default function PresupuestoTab() {
               <span style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>{inc.date}</span>
               <button
                 onClick={() => { const item = items.find(i=>i.id===inc.itemId); const freq = item ? getFreqDivisor(item) : 1; updateBudgetAmount(inc.itemId, Math.round(inc.actualAmount * freq)); }}
-                style={{ ...btn(false), padding: '3px 8px', fontSize: 9, color: '#d69e2e', borderColor: 'rgba(214,158,46,0.4)', marginLeft: 'auto' }}>
+                style={{ ...btn(false), padding: '3px 8px', fontSize: 9, color: '#c8a44e', borderColor: 'rgba(200,164,78,0.4)', marginLeft: 'auto' }}>
                 Actualizar presupuesto
               </button>
             </div>
@@ -753,7 +753,7 @@ export default function PresupuestoTab() {
       {/* ═══ Summary Cards ═══ */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 6, marginBottom: 8 }}>
         {/* Total card */}
-        <div style={{ ...card, padding: 12, textAlign: 'center', borderColor: 'rgba(214,158,46,0.3)' }}>
+        <div style={{ ...card, padding: 12, textAlign: 'center', borderColor: 'rgba(200,164,78,0.3)' }}>
           <div style={{ fontSize: 9, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 1 }}>Total Mensual</div>
           <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--gold)', fontFamily: 'var(--fm)' }}>{fmt(totals.totalMensual)}</div>
           <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{fmt(totals.totalAnual)}/año</div>
@@ -813,7 +813,7 @@ export default function PresupuestoTab() {
 
       {/* ═══ Form ═══ */}
       {showForm && (
-        <div style={{ ...card, borderColor: 'var(--gold)', background: 'rgba(214,158,46,0.04)' }}>
+        <div style={{ ...card, borderColor: 'var(--gold)', background: 'rgba(200,164,78,0.04)' }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--gold)', marginBottom: 10 }}>
             {editId ? '✏️ Editar partida' : '➕ Nueva partida'}
           </div>
@@ -952,9 +952,9 @@ export default function PresupuestoTab() {
                           </td>
                         </tr>
                       )}
-                      <tr key={item.id} style={{ borderBottom: '1px solid var(--border)', background: alert ? 'rgba(214,158,46,0.04)' : 'transparent' }}
+                      <tr key={item.id} style={{ borderBottom: '1px solid var(--border)', background: alert ? 'rgba(200,164,78,0.04)' : 'transparent' }}
                           onMouseEnter={e => e.currentTarget.style.background = 'var(--row-alt)'}
-                          onMouseLeave={e => e.currentTarget.style.background = alert ? 'rgba(214,158,46,0.04)' : 'transparent'}>
+                          onMouseLeave={e => e.currentTarget.style.background = alert ? 'rgba(200,164,78,0.04)' : 'transparent'}>
                         <td style={{ ...td, textAlign: 'center' }}>{cat.ico}</td>
                         <td style={{ ...td, fontWeight: 600, color: 'var(--text)' }}>
                           {item.nombre}
@@ -964,7 +964,7 @@ export default function PresupuestoTab() {
                         </td>
                         <td style={{ ...td, color: 'var(--text-tertiary)', textAlign: 'center' }}>{item.banco || '—'}</td>
                         <td style={{ ...td, textAlign: 'center' }}>
-                          <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: item.frecuencia === 'MENSUAL' ? 'rgba(100,210,255,0.1)' : item.frecuencia === 'ANUAL' ? 'rgba(214,158,46,0.1)' : 'var(--subtle-bg2)', color: item.frecuencia === 'MENSUAL' ? '#64d2ff' : item.frecuencia === 'ANUAL' ? 'var(--gold)' : 'var(--text-tertiary)' }}>
+                          <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: item.frecuencia === 'MENSUAL' ? 'rgba(100,210,255,0.1)' : item.frecuencia === 'ANUAL' ? 'rgba(200,164,78,0.1)' : 'var(--subtle-bg2)', color: item.frecuencia === 'MENSUAL' ? '#64d2ff' : item.frecuencia === 'ANUAL' ? 'var(--gold)' : 'var(--text-tertiary)' }}>
                             {item.frecuencia}
                           </span>
                         </td>
@@ -1006,7 +1006,7 @@ export default function PresupuestoTab() {
                         const colCount = displayCcy !== 'EUR' ? 10 : 9;
                         return (
                           <tr key={`exp-${item.id}`}>
-                            <td colSpan={colCount} style={{ padding: '8px 16px', background: 'rgba(214,158,46,.04)', borderBottom: '1px solid var(--border)' }}>
+                            <td colSpan={colCount} style={{ padding: '8px 16px', background: 'rgba(200,164,78,.04)', borderBottom: '1px solid var(--border)' }}>
                               <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                                 {/* Stats */}
                                 <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
@@ -1074,7 +1074,7 @@ export default function PresupuestoTab() {
                                     let aliases = [];
                                     try { aliases = JSON.parse(item.aliases || '[]'); } catch(e) {}
                                     return aliases.map((al, ai) => (
-                                      <span key={ai} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 6px', borderRadius: 4, background: 'rgba(214,158,46,.1)', fontSize: 9, fontFamily: 'var(--fm)', color: 'var(--gold)' }}>
+                                      <span key={ai} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 6px', borderRadius: 4, background: 'rgba(200,164,78,.1)', fontSize: 9, fontFamily: 'var(--fm)', color: 'var(--gold)' }}>
                                         {al}
                                         <button onClick={async () => {
                                           const next = aliases.filter((_, i) => i !== ai);
@@ -1115,7 +1115,7 @@ export default function PresupuestoTab() {
                 const filtMensual = filtered.reduce((s, it) => s + it.importe / getFreqDivisor(it), 0);
                 const filtAnual = filtMensual * 12;
                 return (
-                  <tr style={{ background: 'rgba(214,158,46,0.06)', fontWeight: 700 }}>
+                  <tr style={{ background: 'rgba(200,164,78,0.06)', fontWeight: 700 }}>
                     <td colSpan={5} style={{ ...td, textAlign: 'right', color: 'var(--gold)' }}>TOTAL</td>
                     <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', color: 'var(--gold)' }}>{fmtEur(filtMensual)}</td>
                     <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', color: 'var(--gold)' }}>{fmtEur(filtAnual)}</td>

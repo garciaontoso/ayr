@@ -64,7 +64,7 @@ export default function SettingsPanel() {
   </div>
 
   {/* Push Notifications */}
-  <div style={{marginBottom:14,padding:12,borderRadius:10,background:"rgba(214,158,46,.03)",border:"1px solid rgba(214,158,46,.1)"}}>
+  <div style={{marginBottom:14,padding:12,borderRadius:10,background:"rgba(200,164,78,.03)",border:"1px solid rgba(200,164,78,.1)"}}>
     <div style={{fontSize:10,color:"var(--gold)",fontWeight:700,fontFamily:"var(--fm)",marginBottom:6}}>NOTIFICACIONES PUSH</div>
     <div style={{fontSize:11,color:"var(--text-secondary)",marginBottom:8}}>
       {typeof Notification !== "undefined" && Notification.permission === "granted"
@@ -83,7 +83,7 @@ export default function SettingsPanel() {
           } else {
             setPushStatus("Permiso denegado.");
           }
-        }} style={{padding:"6px 12px",borderRadius:8,border:"1px solid rgba(214,158,46,.3)",background:"rgba(214,158,46,.08)",color:"var(--gold)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>
+        }} style={{padding:"6px 12px",borderRadius:8,border:"1px solid rgba(200,164,78,.3)",background:"rgba(200,164,78,.08)",color:"var(--gold)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>
           Activar notificaciones
         </button>
       )}
@@ -95,7 +95,7 @@ export default function SettingsPanel() {
           if (d.ok) setPushStatus(`Test enviado (${d.sent} dispositivos)`);
           else setPushStatus(d.error || "Error");
         } catch (e) { setPushStatus("Error: " + e.message); }
-      }} style={{padding:"6px 12px",borderRadius:8,border:"1px solid rgba(214,158,46,.3)",background:"rgba(214,158,46,.08)",color:"var(--gold)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>
+      }} style={{padding:"6px 12px",borderRadius:8,border:"1px solid rgba(200,164,78,.3)",background:"rgba(200,164,78,.08)",color:"var(--gold)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>
         Probar notificacion
       </button>
       {localStorage.getItem("push-subscribed") && (

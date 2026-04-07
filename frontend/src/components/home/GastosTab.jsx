@@ -354,7 +354,7 @@ export default function GastosTab() {
 
   {/* CSV import toast */}
   {csvToast && (
-    <div style={{padding:"8px 14px",background:"rgba(214,158,46,.12)",border:"1px solid var(--gold)",borderRadius:8,fontSize:11,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fm)",display:"flex",alignItems:"center",gap:8}}>
+    <div style={{padding:"8px 14px",background:"rgba(200,164,78,.12)",border:"1px solid var(--gold)",borderRadius:8,fontSize:11,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fm)",display:"flex",alignItems:"center",gap:8}}>
       <span>📥</span><span>{csvToast}</span>
       <button onClick={()=>setCsvToast(null)} style={{marginLeft:"auto",background:"none",border:"none",color:"var(--gold)",cursor:"pointer",fontSize:12,padding:0,lineHeight:1}}>✕</button>
     </div>

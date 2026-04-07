@@ -1892,7 +1892,7 @@ function buildPositionsFromCB() {
           <div style={{textAlign:"right",fontSize:11,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":valSym+(valShow>=1e3?_sf(valShow/1e3,1)+"K":_sf(valShow,0))}</div>
           {/* Div + yield badge */}
           <div className="ar-hide-mobile" style={{textAlign:"right",fontSize:10,fontWeight:600,color:dpsUSD>0?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",display:"flex",alignItems:"center",justifyContent:"flex-end",gap:2}}>
-            {!privacyMode && (() => { const yld = p.divYield || (p.dps && p.lastPrice ? p.dps / p.lastPrice : 0); return yld >= 0.05 ? <span style={{fontSize:6,fontWeight:700,padding:"0 3px",borderRadius:2,background:"rgba(214,158,46,.18)",color:"var(--gold)",lineHeight:"12px",flexShrink:0}} title={`Yield ${(yld*100).toFixed(1)}%`}>{(yld*100).toFixed(0)}%</span> : null; })()}
+            {!privacyMode && (() => { const yld = p.divYield || (p.dps && p.lastPrice ? p.dps / p.lastPrice : 0); return yld >= 0.05 ? <span style={{fontSize:6,fontWeight:700,padding:"0 3px",borderRadius:2,background:"rgba(200,164,78,.18)",color:"var(--gold)",lineHeight:"12px",flexShrink:0}} title={`Yield ${(yld*100).toFixed(1)}%`}>{(yld*100).toFixed(0)}%</span> : null; })()}
             <span>{privacyMode?"•••":(dpsUSD>0?"$"+_sf(dpsUSD,0):"—")}</span>
           </div>
         </>}
@@ -2063,7 +2063,7 @@ function buildPositionsFromCB() {
     <div style={{display:"flex",flexDirection:"column",minHeight:"100vh",background:"var(--bg)",fontFamily:"'DM Sans',sans-serif"}}>
       {/* Skeleton header */}
       <div style={{padding:"16px 36px",display:"flex",gap:10,alignItems:"center"}}>
-        <div style={{width:32,height:32,borderRadius:8,background:"linear-gradient(135deg,#d69e2e,#b8860b)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"#000"}}>A&R</div>
+        <div style={{width:32,height:32,borderRadius:8,background:"linear-gradient(135deg,#c8a44e,#b8860b)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"#000"}}>A&R</div>
         {[80,70,60,50,70,80,70].map((w,i)=><div key={i} style={{width:w,height:28,borderRadius:6,background:"var(--skeleton-bg)",animation:"pulse 1.5s infinite",animationDelay:`${i*0.1}s`}}/>)}
       </div>
       {/* Skeleton summary cards */}
@@ -2089,7 +2089,7 @@ function buildPositionsFromCB() {
       {/* Loading indicator */}
       <div style={{display:"flex",justifyContent:"center",marginTop:24}}>
         <div style={{width:160,height:3,background:"var(--progress-track)",borderRadius:3,overflow:"hidden"}}>
-          <div style={{width:"60%",height:"100%",background:"linear-gradient(90deg,#d69e2e,#b8860b)",borderRadius:3,animation:"pulse 1s infinite"}}/>
+          <div style={{width:"60%",height:"100%",background:"linear-gradient(90deg,#c8a44e,#b8860b)",borderRadius:3,animation:"pulse 1s infinite"}}/>
         </div>
       </div>
     </div>
@@ -2140,7 +2140,7 @@ function buildPositionsFromCB() {
                   <img src={`https://images.financialmodelingprep.com/symbol/${cfg.ticker.replace(':','.')}.png`} alt="" style={{width:28,height:28,objectFit:"contain"}}
                     onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}/>
                 ) : null}
-                <div style={{display:cfg.ticker?"none":"flex",width:28,height:28,borderRadius:7,background:"linear-gradient(135deg,#d69e2e,#b8860b)",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:800,color:"#000",fontFamily:"var(--fm)"}}>A&R</div>
+                <div style={{display:cfg.ticker?"none":"flex",width:28,height:28,borderRadius:7,background:"linear-gradient(135deg,#c8a44e,#b8860b)",alignItems:"center",justifyContent:"center",fontSize:8,fontWeight:800,color:"#000",fontFamily:"var(--fm)"}}>A&R</div>
               </div>
               <Inp label="Ticker" value={cfg.ticker} onChange={v=>upCfg("ticker",v)} type="text" w={68} placeholder="AAPL"/>
               <Inp label="Empresa" value={cfg.name} onChange={v=>upCfg("name",v)} type="text" w={140} placeholder="Apple Inc."/>

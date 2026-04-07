@@ -405,7 +405,7 @@ export default function MacroTab() {
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {selectedEvent._sectors.map((s) => (
-                    <span key={s} style={chip('rgba(214,158,46,0.15)', 'var(--gold)')}>
+                    <span key={s} style={chip('rgba(200,164,78,0.15)', 'var(--gold)')}>
                       {s}
                     </span>
                   ))}
@@ -439,7 +439,7 @@ export default function MacroTab() {
 
             {/* Action advice */}
             {selectedEvent.user_action_advice && (
-              <div style={{ marginBottom: 16, padding: 12, background: 'rgba(214,158,46,0.08)', border: '1px solid var(--gold)', borderRadius: 8 }}>
+              <div style={{ marginBottom: 16, padding: 12, background: 'rgba(200,164,78,0.08)', border: '1px solid var(--gold)', borderRadius: 8 }}>
                 <div style={{ fontSize: 11, color: 'var(--gold)', textTransform: 'uppercase', marginBottom: 6, fontWeight: 700 }}>
                   💡 Qué hacer
                 </div>

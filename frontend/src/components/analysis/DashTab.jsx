@@ -17,7 +17,7 @@ export default function DashTab() {
               <img src={`https://images.financialmodelingprep.com/symbol/${(cfg.ticker||"").replace(':','.')}.png`} alt=""
                 style={{width:60,height:60,objectFit:"contain",borderRadius:14}}
                 onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}/>
-              <div style={{display:"none",width:60,height:60,borderRadius:14,background:"linear-gradient(135deg,#d69e2e 0%,#b8860b 50%,#8B6914 100%)",alignItems:"center",justifyContent:"center"}}>
+              <div style={{display:"none",width:60,height:60,borderRadius:14,background:"linear-gradient(135deg,#c8a44e 0%,#b8860b 50%,#8B6914 100%)",alignItems:"center",justifyContent:"center"}}>
                 <div style={{fontSize:cfg.ticker&&cfg.ticker.length>3?16:20,fontWeight:800,color:"#000",fontFamily:"var(--fm)",letterSpacing:1}}>{(cfg.ticker||"?").slice(0,4)}</div>
               </div>
             </div>
@@ -228,7 +228,7 @@ export default function DashTab() {
           <Card title="Ventas" icon="📈"><BarChart data={revData} labels={labels} color="var(--gold)" formatFn={fM}/></Card>
           <Card title="Free Cash Flow" icon="💰"><BarChart data={fcfData} labels={labels} color="var(--green)" formatFn={fM}/></Card>
           <Card title="EPS" icon="📊"><BarChart data={epsData} labels={labels} color="#64d2ff" formatFn={f2}/></Card>
-          <Card title="Dividendo/Acción" icon="💰"><BarChart data={CHART_YEARS.map(y=>fin[y]?.dps||0)} labels={chartLabels} color="#d69e2e" formatFn={v=>"$"+_sf(v,2)}/></Card>
+          <Card title="Dividendo/Acción" icon="💰"><BarChart data={CHART_YEARS.map(y=>fin[y]?.dps||0)} labels={chartLabels} color="#c8a44e" formatFn={v=>"$"+_sf(v,2)}/></Card>
         </div>
 
         {/* ROIC vs WACC Spread */}

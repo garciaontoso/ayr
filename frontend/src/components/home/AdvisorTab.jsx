@@ -12,8 +12,8 @@ import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
    ═══════════════════════════════════════════ */
 
 // ── Styles ──
-const GOLD = '#d69e2e';
-const GOLD_DIM = 'rgba(214,158,46,.12)';
+const GOLD = '#c8a44e';
+const GOLD_DIM = 'rgba(200,164,78,.12)';
 const RED = '#f87171';
 const YELLOW = '#f59e0b';
 const GREEN = '#34d399';
@@ -278,7 +278,7 @@ function WhatIfSimulator({
   return (
     <div style={{
       ...card({ padding: '24px 28px' }),
-      background: 'linear-gradient(135deg, rgba(214,158,46,.02) 0%, rgba(0,0,0,0) 60%)',
+      background: 'linear-gradient(135deg, rgba(200,164,78,.02) 0%, rgba(0,0,0,0) 60%)',
       border: `1px solid ${GOLD}12`,
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
@@ -500,7 +500,7 @@ function WhatIfSimulator({
           </div>
 
           {swapSim && !swapSim.needsPrice && (
-            <div style={{ padding: '16px 20px', borderRadius: 12, background: 'rgba(214,158,46,.04)', border: `1px solid ${GOLD}15` }}>
+            <div style={{ padding: '16px 20px', borderRadius: 12, background: 'rgba(200,164,78,.04)', border: `1px solid ${GOLD}15` }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: GOLD, fontFamily: FM, marginBottom: 12 }}>
                 Vender {_sf(swapSim.pct, 0)}% de {wifSwapSellTicker} y comprar {swapSim.buyTicker}:
               </div>
@@ -897,7 +897,7 @@ export default function AdvisorTab() {
           ═══════════════════════════════════════ */}
       <div style={{
         ...card({ padding: '28px 32px' }),
-        background: 'linear-gradient(135deg, rgba(214,158,46,.03) 0%, rgba(0,0,0,0) 60%)',
+        background: 'linear-gradient(135deg, rgba(200,164,78,.03) 0%, rgba(0,0,0,0) 60%)',
         border: `1px solid ${GOLD}15`,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 20 }}>
@@ -1037,12 +1037,12 @@ export default function AdvisorTab() {
               <div key={p.ticker} style={{
                 display: 'grid', gridTemplateColumns: '80px 70px 50px 65px 80px 75px 1fr',
                 gap: 8, padding: '8px 12px', borderBottom: '1px solid var(--row-alt)',
-                background: isTop5 ? 'rgba(214,158,46,.03)' : 'transparent',
+                background: isTop5 ? 'rgba(200,164,78,.03)' : 'transparent',
                 cursor: 'pointer', transition: 'background .15s',
               }}
                 onClick={() => openAnalysis(p.ticker)}
-                onMouseEnter={e => e.currentTarget.style.background = 'rgba(214,158,46,.06)'}
-                onMouseLeave={e => e.currentTarget.style.background = isTop5 ? 'rgba(214,158,46,.03)' : 'transparent'}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(200,164,78,.06)'}
+                onMouseLeave={e => e.currentTarget.style.background = isTop5 ? 'rgba(200,164,78,.03)' : 'transparent'}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   {isTop5 && <span style={{ fontSize: 7, color: GOLD }}>&#9733;</span>}
@@ -1236,7 +1236,7 @@ export default function AdvisorTab() {
         )}
 
         {quickResult && (
-          <div style={{ padding: '16px 18px', borderRadius: 10, background: 'rgba(214,158,46,.03)', border: `1px solid ${GOLD}15` }}>
+          <div style={{ padding: '16px 18px', borderRadius: 10, background: 'rgba(200,164,78,.03)', border: `1px solid ${GOLD}15` }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: GOLD, fontFamily: FM, marginBottom: 10 }}>
               {quickResult.ticker || quickTicker}
               {quickResult.name && <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: FM, marginLeft: 8 }}>{quickResult.name}</span>}

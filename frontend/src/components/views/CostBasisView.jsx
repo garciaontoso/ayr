@@ -33,7 +33,7 @@ export default function CostBasisView() {
     setCbShowForm(false);
   };
 
-  const typeColors = {buy:"#30d158",sell:"#ff453a",dividend:"#d69e2e",option:"#64d2ff",fee:"#ff9f0a"};
+  const typeColors = {buy:"#30d158",sell:"#ff453a",dividend:"#c8a44e",option:"#64d2ff",fee:"#ff9f0a"};
   const typeLabels = {buy:"COMPRA",sell:"VENTA",dividend:"DIVIDENDO",option:"OPCION",fee:"COMISION"};
   const optLabels = {sell_put:"Sell Put",sell_call:"Covered Call",buy_call:"Buy Call",buy_put:"Buy Put"};
   const statusLabels = {expired:"Expirada",assigned:"Asignada",closed:"Cerrada",open:"Abierta"};
@@ -43,7 +43,7 @@ export default function CostBasisView() {
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:24}}>
         <button onClick={goHome} style={{padding:"8px 16px",borderRadius:10,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:13,cursor:"pointer",fontFamily:"var(--fm)",fontWeight:600}}>{"\u2190"} Portfolio</button>
-        <div style={{width:50,height:50,borderRadius:14,background:"linear-gradient(135deg,#d69e2e,#8B6914)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:cbTicker?.length>3?10:14,fontWeight:800,color:"#000",fontFamily:"var(--fm)"}}>{(cbTicker||"?").slice(0,4)}</div>
+        <div style={{width:50,height:50,borderRadius:14,background:"linear-gradient(135deg,#c8a44e,#8B6914)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:cbTicker?.length>3?10:14,fontWeight:800,color:"#000",fontFamily:"var(--fm)"}}>{(cbTicker||"?").slice(0,4)}</div>
         <div>
           <div style={{fontSize:24,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fd)"}}>{pos.name || cbTicker}</div>
           <div style={{fontSize:12,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{cbTicker} {"\u00B7"} {ccy} {"\u00B7"} Cost Basis Tracker</div>

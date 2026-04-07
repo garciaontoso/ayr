@@ -85,7 +85,7 @@ export default function AuthGate({ children }) {
           <svg width="64" height="64" viewBox="0 0 40 40" style={{animation:'logoFloat 3s ease-in-out infinite'}}>
             <defs>
               <linearGradient id="authGrad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor="#d69e2e"/><stop offset="100%" stopColor="#946b1a"/>
+                <stop offset="0%" stopColor="#c8a44e"/><stop offset="100%" stopColor="#946b1a"/>
               </linearGradient>
             </defs>
             <rect width="40" height="40" rx="9" fill="#0d1117"/>

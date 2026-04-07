@@ -35,8 +35,8 @@ export default function ScreenerTab() {
   const sortBy = (col) => setScreenerSort(p => p.col === col ? {col, asc: !p.asc} : {col, asc: false});
   const sortArrow = (col) => screenerSort.col === col ? (screenerSort.asc ? " ▲" : " ▼") : "";
 
-  const scoreColor = (s) => s >= 70 ? "#30d158" : s >= 50 ? "#d69e2e" : "#ff453a";
-  const scoreBg = (s) => s >= 70 ? "rgba(48,209,88,.1)" : s >= 50 ? "rgba(214,158,46,.1)" : "rgba(255,69,58,.1)";
+  const scoreColor = (s) => s >= 70 ? "#30d158" : s >= 50 ? "#c8a44e" : "#ff453a";
+  const scoreBg = (s) => s >= 70 ? "rgba(48,209,88,.1)" : s >= 50 ? "rgba(200,164,78,.1)" : "rgba(255,69,58,.1)";
   const scoreLabel = (s) => s >= 80 ? "CORE HOLD" : s >= 60 ? "HOLD" : s >= 40 ? "REVIEW" : "SELL";
 
   return <div style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -150,7 +150,7 @@ export default function ScreenerTab() {
                   <span style={{padding:"3px 10px",borderRadius:6,background:scoreBg(item.score),color:scoreColor(item.score),fontWeight:800,fontSize:13,fontFamily:"var(--fm)"}}>{item.score}</span>
                 </td>
                 <td style={{padding:"6px 10px",fontWeight:700,color:inPortfolio?"var(--gold)":"var(--text-primary)",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>
-                  {inPortfolio && <span style={{fontSize:7,marginRight:4}}>●</span>}{item.symbol}{item.capSize&&<span style={{fontSize:6,marginLeft:4,padding:"1px 3px",borderRadius:3,background:item.capSize==="Mega Cap"?"rgba(52,211,153,.08)":item.capSize==="Large Cap"?"rgba(96,165,250,.08)":item.capSize==="Mid Cap"?"rgba(214,158,46,.08)":"rgba(248,113,113,.08)",color:item.capSize==="Mega Cap"?"#34d399":item.capSize==="Large Cap"?"#60a5fa":item.capSize==="Mid Cap"?"#d69e2e":"#f87171",verticalAlign:"middle"}}>{item.capSize==="Mega Cap"?"MEGA":item.capSize==="Large Cap"?"LARGE":item.capSize==="Mid Cap"?"MID":item.capSize==="Small Cap"?"SMALL":"MICRO"}</span>}
+                  {inPortfolio && <span style={{fontSize:7,marginRight:4}}>●</span>}{item.symbol}{item.capSize&&<span style={{fontSize:6,marginLeft:4,padding:"1px 3px",borderRadius:3,background:item.capSize==="Mega Cap"?"rgba(52,211,153,.08)":item.capSize==="Large Cap"?"rgba(96,165,250,.08)":item.capSize==="Mid Cap"?"rgba(200,164,78,.08)":"rgba(248,113,113,.08)",color:item.capSize==="Mega Cap"?"#34d399":item.capSize==="Large Cap"?"#60a5fa":item.capSize==="Mid Cap"?"#c8a44e":"#f87171",verticalAlign:"middle"}}>{item.capSize==="Mega Cap"?"MEGA":item.capSize==="Large Cap"?"LARGE":item.capSize==="Mid Cap"?"MID":item.capSize==="Small Cap"?"SMALL":"MICRO"}</span>}
                 </td>
                 <td title={item.name} style={{padding:"6px 10px",color:"var(--text-secondary)",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)",maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</td>
                 <td style={{padding:"6px 10px",color:"var(--text-tertiary)",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)",fontSize:9}}>{item.sector}</td>
@@ -160,7 +160,7 @@ export default function ScreenerTab() {
                 <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:item.roic>15?"var(--green)":item.roic>8?"var(--text-secondary)":"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{_sf(item.roic,1)}%</td>
                 <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",color:item.pe>0&&item.pe<20?"var(--green)":item.pe>0&&item.pe<35?"var(--text-secondary)":"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{item.pe>0?_sf(item.pe,1):"—"}</td>
                 <td style={{padding:"6px 10px",textAlign:"center",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>
-                  <span style={{fontSize:10,padding:"3px 10px",borderRadius:5,fontWeight:700,background:(fmpR.rating||"").startsWith("S")?"rgba(48,209,88,.12)":(fmpR.rating||"").startsWith("A")?"rgba(214,158,46,.12)":(fmpR.rating||"").startsWith("B")?"rgba(10,132,255,.1)":(fmpR.rating||"").startsWith("C")?"rgba(255,69,58,.1)":"var(--subtle-bg2)",color:(fmpR.rating||"").startsWith("S")?"#30d158":(fmpR.rating||"").startsWith("A")?"var(--gold)":(fmpR.rating||"").startsWith("B")?"#64d2ff":(fmpR.rating||"").startsWith("C")?"var(--red)":"var(--text-tertiary)"}}>{fmpR.rating||"—"}</span>
+                  <span style={{fontSize:10,padding:"3px 10px",borderRadius:5,fontWeight:700,background:(fmpR.rating||"").startsWith("S")?"rgba(48,209,88,.12)":(fmpR.rating||"").startsWith("A")?"rgba(200,164,78,.12)":(fmpR.rating||"").startsWith("B")?"rgba(10,132,255,.1)":(fmpR.rating||"").startsWith("C")?"rgba(255,69,58,.1)":"var(--subtle-bg2)",color:(fmpR.rating||"").startsWith("S")?"#30d158":(fmpR.rating||"").startsWith("A")?"var(--gold)":(fmpR.rating||"").startsWith("B")?"#64d2ff":(fmpR.rating||"").startsWith("C")?"var(--red)":"var(--text-tertiary)"}}>{fmpR.rating||"—"}</span>
                 </td>
                 <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>
                   {(() => {

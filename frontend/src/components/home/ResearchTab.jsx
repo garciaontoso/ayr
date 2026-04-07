@@ -56,7 +56,7 @@ export default function ResearchTab() {
   <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center",flexWrap:"wrap"}}>
     <div style={{display:"flex",gap:4,alignItems:"center"}}>
       <span style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginRight:4}}>CAP:</span>
-      {[{v:"all",l:"Todas"},{v:"Mega Cap",l:"Mega",c:"#34d399"},{v:"Large Cap",l:"Large",c:"#60a5fa"},{v:"Mid Cap",l:"Mid",c:"#d69e2e"},{v:"Small Cap",l:"Small",c:"#f59e0b"},{v:"Micro Cap",l:"Micro",c:"#f87171"}].map(f=>
+      {[{v:"all",l:"Todas"},{v:"Mega Cap",l:"Mega",c:"#34d399"},{v:"Large Cap",l:"Large",c:"#60a5fa"},{v:"Mid Cap",l:"Mid",c:"#c8a44e"},{v:"Small Cap",l:"Small",c:"#f59e0b"},{v:"Micro Cap",l:"Micro",c:"#f87171"}].map(f=>
         <button key={f.v} onClick={()=>setResearchCapFilter(f.v)} style={{padding:"4px 10px",borderRadius:6,border:`1px solid ${researchCapFilter===f.v?(f.c||"var(--gold)"):"var(--border)"}`,background:researchCapFilter===f.v?`${f.c||"var(--gold)"}15`:"transparent",color:researchCapFilter===f.v?(f.c||"var(--gold)"):"var(--text-tertiary)",fontSize:9,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>{f.l}</button>
       )}
     </div>
@@ -121,7 +121,7 @@ export default function ResearchTab() {
               await runBulkFetch(toLoad);
               loadScreener();
             };
-            const sc = s => s >= 70 ? "#30d158" : s >= 50 ? "#d69e2e" : "#ff453a";
+            const sc = s => s >= 70 ? "#30d158" : s >= 50 ? "#c8a44e" : "#ff453a";
             const rc = r => (r||"").startsWith("S")?"#30d158":(r||"").startsWith("A")?"var(--gold)":(r||"").startsWith("B")?"#64d2ff":(r||"").startsWith("C")?"var(--red)":"var(--text-tertiary)";
             const riskC = r => r==="Bajo"?"var(--green)":r==="Medio"?"var(--orange)":"var(--red)";
             const typeC = t => t==="Calidad MAX"?"var(--green)":t==="REIT"?"#a855f7":t==="Cíclica"?"var(--orange)":"var(--text-secondary)";
@@ -153,7 +153,7 @@ export default function ResearchTab() {
                         onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"} onMouseLeave={e=>e.currentTarget.style.background=i%2?"var(--row-alt)":"transparent"}
                         onClick={()=>openAnalysis(item.symbol)}>
                         <td style={{...cs,textAlign:"center"}}><span style={{padding:"2px 7px",borderRadius:4,background:`${sc(item.score)}18`,color:sc(item.score),fontWeight:800,fontSize:11}}>{item.score}</span></td>
-                        <td style={{...cs,fontWeight:700,color:ip?"var(--gold)":"var(--text-primary)"}}>{ip?"● ":""}{item.symbol}<span style={{fontSize:7,marginLeft:4,padding:"1px 4px",borderRadius:3,fontWeight:500,background:item.capSize==="Mega Cap"?"rgba(52,211,153,.1)":item.capSize==="Large Cap"?"rgba(96,165,250,.1)":item.capSize==="Mid Cap"?"rgba(214,158,46,.1)":"rgba(248,113,113,.1)",color:item.capSize==="Mega Cap"?"#34d399":item.capSize==="Large Cap"?"#60a5fa":item.capSize==="Mid Cap"?"#d69e2e":"#f87171",verticalAlign:"middle"}}>{item.capSize==="Mega Cap"?"MEGA":item.capSize==="Large Cap"?"LARGE":item.capSize==="Mid Cap"?"MID":item.capSize==="Small Cap"?"SMALL":"MICRO"}</span></td>
+                        <td style={{...cs,fontWeight:700,color:ip?"var(--gold)":"var(--text-primary)"}}>{ip?"● ":""}{item.symbol}<span style={{fontSize:7,marginLeft:4,padding:"1px 4px",borderRadius:3,fontWeight:500,background:item.capSize==="Mega Cap"?"rgba(52,211,153,.1)":item.capSize==="Large Cap"?"rgba(96,165,250,.1)":item.capSize==="Mid Cap"?"rgba(200,164,78,.1)":"rgba(248,113,113,.1)",color:item.capSize==="Mega Cap"?"#34d399":item.capSize==="Large Cap"?"#60a5fa":item.capSize==="Mid Cap"?"#c8a44e":"#f87171",verticalAlign:"middle"}}>{item.capSize==="Mega Cap"?"MEGA":item.capSize==="Large Cap"?"LARGE":item.capSize==="Mid Cap"?"MID":item.capSize==="Small Cap"?"SMALL":"MICRO"}</span></td>
                         <td title={item.name} style={{...cs,color:"var(--text-secondary)",maxWidth:130,overflow:"hidden",textOverflow:"ellipsis"}}>{item.name}</td>
                         {!researchAdvanced && <>
                           <td style={{...cs,color:"var(--text-tertiary)",fontSize:9}}>{item.sector}</td>

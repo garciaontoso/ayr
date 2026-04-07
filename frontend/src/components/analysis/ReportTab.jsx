@@ -13,7 +13,7 @@ function ARReport() {
   const s = r.currency==="EUR"?"€":r.currency==="GBP"?"£":"$";
   const fV = v => v==null?"—":Math.abs(v)>=1e3?`${_sf(v/1e3,1)}B`:`${v}M`;
   const pC = v => v>0?"#34d399":v<0?"#f87171":"var(--text-tertiary)";
-  const qC = v => v>=4?"#34d399":v>=3?"#d69e2e":v>=2?"#f59e0b":"#f87171";
+  const qC = v => v>=4?"#34d399":v>=3?"#c8a44e":v>=2?"#f59e0b":"#f87171";
   const cagr = (first,last,n) => first>0&&last>0&&n>1?((Math.pow(last/first,1/(n-1))-1)*100):null;
   const revCAGR = cagr(F.revenue,L.revenue,yrs.length);
   const epsCAGR = cagr(F.eps,L.eps,yrs.length);
@@ -67,7 +67,7 @@ function ARReport() {
             {l:"FCF Yield",v:L.fcf&&r.marketCap?`${_sf(L.fcf/(r.marketCap/1e6)*100,1)}%`:"—",c:"#34d399"},
             {l:"BPA",v:`${s}${_sf(L.eps,2)}`},
             {l:"DPA",v:`${s}${_sf(L.dps,2)}`,c:"var(--gold)"},
-            {l:"Payout",v:`${L.payout||"—"}%`,c:L.payout<60?"#34d399":L.payout<80?"#d69e2e":"#f87171"},
+            {l:"Payout",v:`${L.payout||"—"}%`,c:L.payout<60?"#34d399":L.payout<80?"#c8a44e":"#f87171"},
             {l:"Score A&R",v:`${_sf(r.finalScore,1)}/5`,c:qC(r.finalScore)},
           ].map((kpi,i)=><div key={i} style={{padding:"10px",background:"var(--row-alt)",borderRadius:10}}>
             <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,textTransform:"uppercase"}}>{kpi.l}</div>
@@ -88,7 +88,7 @@ function ARReport() {
         </div>
         <div style={card}>
           <div style={hd}>Solidez Financiera</div>
-          {[{l:"Deuda Neta / EBITDA",v:L.debtEbitda!=null?`${_sf(L.debtEbitda,1)}x`:"—",c:L.debtEbitda<2?"#34d399":L.debtEbitda<4?"#d69e2e":"#f87171"},
+          {[{l:"Deuda Neta / EBITDA",v:L.debtEbitda!=null?`${_sf(L.debtEbitda,1)}x`:"—",c:L.debtEbitda<2?"#34d399":L.debtEbitda<4?"#c8a44e":"#f87171"},
             {l:"Ratio de Liquidez",v:L.currentRatio!=null?_sf(L.currentRatio,2):"—",c:L.currentRatio>1.5?"#34d399":"#f87171"},
             {l:"Autonomía Financiera",v:L.autonomy!=null?`${L.autonomy}%`:"—",c:L.autonomy>40?"#34d399":"#f87171"},
             {l:"Deuda Neta",v:L.netDebt!=null?`${s}${fV(L.netDebt)}`:"—",c:L.netDebt<0?"#34d399":"var(--text-primary)"},

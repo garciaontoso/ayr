@@ -112,7 +112,7 @@ function RunReminderBadge({ onClick }) {
   if (status.state === "running") {
     return (
       <button onClick={onClick} title="Agentes ejecutándose"
-        style={{padding:"4px 9px",borderRadius:6,border:"1px solid #d69e2e",background:"rgba(214,158,46,.14)",color:"#d69e2e",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>
+        style={{padding:"4px 9px",borderRadius:6,border:"1px solid #c8a44e",background:"rgba(200,164,78,.14)",color:"#c8a44e",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>
         ⏳ Agentes...
       </button>
     );
@@ -643,7 +643,7 @@ export default function HomeView() {
       {/* Logo + Version */}
       <div style={{display:"flex",alignItems:"center",gap:3,flexShrink:0}}>
         <svg width="26" height="26" viewBox="0 0 40 40" style={{cursor:"pointer"}} onClick={()=>setHomeTab("portfolio")}>
-          <defs><linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#d69e2e"/><stop offset="100%" stopColor="#946b1a"/></linearGradient></defs>
+          <defs><linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#c8a44e"/><stop offset="100%" stopColor="#946b1a"/></linearGradient></defs>
           <rect width="40" height="40" rx="9" fill="#0d1117"/>
           <rect x="1.5" y="1.5" width="37" height="37" rx="8" fill="none" stroke="url(#logoGrad)" strokeWidth="1.8" opacity=".55"/>
           <text x="20" y="26.5" textAnchor="middle" fontSize="15" fontWeight="800" fill="url(#logoGrad)" fontFamily="system-ui,-apple-system,sans-serif" letterSpacing="-0.3">A&R</text>
@@ -685,7 +685,7 @@ export default function HomeView() {
                   display:"flex",alignItems:"center",gap:3,
                   padding:"5px 10px",borderRadius:7,
                   border:`1px solid ${isDragOver?"var(--gold)":isActive?"var(--gold)":"transparent"}`,
-                  background:isDragOver?"rgba(214,158,46,.25)":isActive?"var(--gold-dim)":"transparent",
+                  background:isDragOver?"rgba(200,164,78,.25)":isActive?"var(--gold-dim)":"transparent",
                   color:isActive?"var(--gold)":"var(--text-tertiary)",
                   fontSize:12,fontWeight:isActive?700:500,
                   cursor: isDragging ? "grabbing" : "grab",

@@ -214,7 +214,7 @@ function SnapshotsSection() {
 
         {/* Gold + BTC */}
         <div>
-          <div style={{fontSize:9,fontWeight:700,color:"#d69e2e",marginBottom:4,fontFamily:"var(--fm)"}}>🥇 ORO + ₿ BITCOIN</div>
+          <div style={{fontSize:9,fontWeight:700,color:"#c8a44e",marginBottom:4,fontFamily:"var(--fm)"}}>🥇 ORO + ₿ BITCOIN</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:8}}>
             <div>
               <label style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"block",marginBottom:2}}>ORO (gramos)</label>
@@ -277,7 +277,7 @@ function SnapshotsSection() {
         return totalEur > 0 ? <div style={{marginTop:10,padding:"8px 12px",borderRadius:8,background:"rgba(48,209,88,.06)",border:"1px solid rgba(48,209,88,.15)",display:"flex",gap:12,fontSize:11,fontFamily:"var(--fm)",flexWrap:"wrap"}}>
           <span>Bancos: <b style={{color:"#2563eb"}}>€{Math.round(bk).toLocaleString()}</b></span>
           <span>Brokers: <b style={{color:"#30d158"}}>${Math.round(br).toLocaleString()}</b></span>
-          {goldEur > 0 && <span>Oro: <b style={{color:"#d69e2e"}}>€{Math.round(goldEur).toLocaleString()}</b></span>}
+          {goldEur > 0 && <span>Oro: <b style={{color:"#c8a44e"}}>€{Math.round(goldEur).toLocaleString()}</b></span>}
           {btcEur > 0 && <span>BTC: <b style={{color:"#ff9f0a"}}>€{Math.round(btcEur).toLocaleString()}</b></span>}
           <span style={{fontWeight:700,color:"var(--green)"}}>Total: €{Math.round(totalEur).toLocaleString()} / ${Math.round(totalUsd).toLocaleString()}</span>
         </div> : null;
@@ -313,7 +313,7 @@ function SnapshotsSection() {
               <td style={{...td0,fontWeight:600,color:chg>=0?"var(--green)":"var(--red)"}}>{chg?`${chg>=0?"+":""}${_sf(chg,1)}%`:""}</td>
               <td style={{...td0,color:"#30d158"}}>${(c.br||0).toLocaleString()}</td>
               <td style={{...td0,color:"#2563eb"}}>€{(c.bk||0).toLocaleString()}</td>
-              <td style={{...td0,color:"#d69e2e"}}>{c.goldEur ? `€${Math.round(c.goldEur).toLocaleString()}` : "—"}</td>
+              <td style={{...td0,color:"#c8a44e"}}>{c.goldEur ? `€${Math.round(c.goldEur).toLocaleString()}` : "—"}</td>
               <td style={{...td0,color:"#ff9f0a"}}>{c.btcEur ? `€${Math.round(c.btcEur).toLocaleString()}` : "—"}</td>
               <td style={{padding:"6px 10px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)"}}>
                 <button onClick={()=>startEdit(c)} style={{border:"none",background:"none",color:"var(--text-tertiary)",cursor:"pointer",fontSize:11,padding:"2px 4px"}} title="Editar">✏️</button>
@@ -570,7 +570,7 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
             </div>
           ))}
           {/* Mini insights */}
-          <div style={{ marginTop: 12, padding: '10px', background: 'rgba(214,158,46,.04)', borderRadius: 8 }}>
+          <div style={{ marginTop: 12, padding: '10px', background: 'rgba(200,164,78,.04)', borderRadius: 8 }}>
             <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--gold)', fontFamily: 'var(--fm)', marginBottom: 4 }}>📌 DATOS REALES USADOS</div>
             <div style={{ fontSize: 9, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', lineHeight: 1.6 }}>
               • Patrimonio actual: <b style={{ color: 'var(--text-secondary)' }}>{fN(currentPat)}</b><br/>
@@ -685,8 +685,8 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
               <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block', maxWidth: '100%' }}>
                 <defs>
                   <linearGradient id="projWorkGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#d69e2e" stopOpacity="0.35" />
-                    <stop offset="100%" stopColor="#d69e2e" stopOpacity="0.03" />
+                    <stop offset="0%" stopColor="#c8a44e" stopOpacity="0.35" />
+                    <stop offset="100%" stopColor="#c8a44e" stopOpacity="0.03" />
                   </linearGradient>
                   <linearGradient id="projRetGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#64d2ff" stopOpacity="0.30" />
@@ -720,7 +720,7 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
                 {retFill && <path d={retFill} fill="url(#projRetGrad)" />}
 
                 {/* Main curve - working phase */}
-                {workPts.length > 1 && <path d={workPath} fill="none" stroke="#d69e2e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
+                {workPts.length > 1 && <path d={workPath} fill="none" stroke="#c8a44e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
 
                 {/* Main curve - retirement phase */}
                 {retPts.length > 1 && <path d={retPath} fill="none" stroke="#64d2ff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
@@ -788,7 +788,7 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
             { label: 'Dividendos', value: divMes, color: '#64d2ff' },
             { label: 'Opciones', value: opcMes, color: '#a29bfe' },
             { label: 'Gastos', value: -gastosMes, color: '#ff453a' },
-            { label: 'Neto', value: netMes, color: '#d69e2e', isNet: true },
+            { label: 'Neto', value: netMes, color: '#c8a44e', isNet: true },
           ];
 
           const absMax = Math.max(...bars.map(b => Math.abs(b.value)), 1);
@@ -948,7 +948,7 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
                         padding: '5px 8px', textAlign: 'center', fontWeight: isActive ? 800 : 600,
                         fontFamily: 'var(--fm)', borderBottom: '1px solid var(--subtle-bg)',
                         color: p >= 2e6 ? 'var(--green)' : p >= 1e6 ? 'var(--gold)' : p > 0 ? 'var(--orange)' : 'var(--red)',
-                        background: isActive ? 'rgba(214,158,46,.1)' : 'transparent',
+                        background: isActive ? 'rgba(200,164,78,.1)' : 'transparent',
                       }}>
                         {p >= 1e6 ? `$${(p/1e6).toFixed(1)}M` : p > 0 ? `$${(p/1e3).toFixed(0)}K` : '💀'}
                       </td>

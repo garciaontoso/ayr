@@ -38,13 +38,13 @@ export function EmptyState({ icon, title, subtitle, action, onAction, secondaryA
               style={{
                 padding: "10px 24px", borderRadius: 10,
                 border: "1px solid var(--gold)",
-                background: "var(--gold-dim, rgba(214,158,46,.12))",
+                background: "var(--gold-dim, rgba(200,164,78,.12))",
                 color: "var(--gold)", fontSize: 12, fontWeight: 700,
                 cursor: "pointer", fontFamily: "var(--fm)",
                 transition: "all .2s",
               }}
               onMouseEnter={e => { e.currentTarget.style.background = "var(--gold)"; e.currentTarget.style.color = "#000"; }}
-              onMouseLeave={e => { e.currentTarget.style.background = "var(--gold-dim, rgba(214,158,46,.12))"; e.currentTarget.style.color = "var(--gold)"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "var(--gold-dim, rgba(200,164,78,.12))"; e.currentTarget.style.color = "var(--gold)"; }}
             >
               {action}
             </button>

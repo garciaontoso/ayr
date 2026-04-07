@@ -14,7 +14,7 @@ export default function DividendsTab() {
     const safetyBg = S.safetyScore >= 80 ? "rgba(48,209,88,.08)" : S.safetyScore >= 60 ? "rgba(139,195,74,.08)" : S.safetyScore >= 40 ? "rgba(255,159,10,.08)" : "rgba(255,69,58,.08)";
 
     // Color helper — always returns hex for composability
-    const cGreen = "#30d158", cRed = "#ff453a", cYellow = "#ffd60a", cGold = "#d69e2e", cBlue = "#64d2ff", cOrange = "#ff9f0a";
+    const cGreen = "#30d158", cRed = "#ff453a", cYellow = "#ffd60a", cGold = "#c8a44e", cBlue = "#64d2ff", cOrange = "#ff9f0a";
 
     const DivBar = ({data, colorFn, formatFn, height=90}) => {
       const vals = data.map(d=>d.v).filter(v=>v!=null&&!isNaN(v));

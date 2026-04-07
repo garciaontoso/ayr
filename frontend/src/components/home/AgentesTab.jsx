@@ -8,8 +8,8 @@ import { Button } from '../ui';
    11 agents — 5 Opus, 1 Haiku, 5 sin LLM
    ═══════════════════════════════════════════ */
 
-const GOLD = '#d69e2e';
-const GOLD_DIM = 'rgba(214,158,46,.12)';
+const GOLD = '#c8a44e';
+const GOLD_DIM = 'rgba(200,164,78,.12)';
 const RED = '#f87171';
 const YELLOW = '#f59e0b';
 const GREEN = '#34d399';
