@@ -6690,6 +6690,107 @@ function _qs_sectorBase(sector) {
   return 5;
 }
 
+// Piotroski F-Score (0-9): earnings quality + balance sheet + operating efficiency.
+// Detects manipulation, accruals, deteriorating quality. Low F-Score (<5) is a
+// strong signal that reported earnings are unreliable.
+// Returns { score, components } or null if data insufficient.
+function _qs_piotroski(trend) {
+  if (!trend) return null;
+  const niTTM = _qs_sum(trend.netIncome, 4);
+  const niPrev = _qs_sum(trend.netIncome?.slice(4), 4);
+  const ocfTTM = _qs_sum(trend.ocf, 4);
+  const assetsNow = trend.totalAssets?.[0];
+  const assetsPrev = trend.totalAssets?.[4];
+  const debtNow = trend.debt?.[0];
+  const debtPrev = trend.debt?.[4];
+  const caNow = trend.currentAssets?.[0];
+  const clNow = trend.currentLiabilities?.[0];
+  const caPrev = trend.currentAssets?.[4];
+  const clPrev = trend.currentLiabilities?.[4];
+  const sharesNow = trend.sharesOutstanding?.[0];
+  const sharesPrev = trend.sharesOutstanding?.[4];
+  const grossNow = _qs_sum(trend.grossProfit, 4);
+  const grossPrev = _qs_sum(trend.grossProfit?.slice(4), 4);
+  const revNow = _qs_sum(trend.revenue, 4);
+  const revPrev = _qs_sum(trend.revenue?.slice(4), 4);
+
+  // Need at least 8 quarters of history for YoY comparisons
+  if (assetsNow == null || assetsPrev == null) return null;
+
+  let score = 0;
+  const c = {};
+
+  // 1. Net income > 0
+  c.ni_positive = (niTTM != null && niTTM > 0) ? 1 : 0;
+  score += c.ni_positive;
+
+  // 2. OCF > 0
+  c.ocf_positive = (ocfTTM != null && ocfTTM > 0) ? 1 : 0;
+  score += c.ocf_positive;
+
+  // 3. ROA improving (NI/Assets vs prior year)
+  if (niTTM != null && niPrev != null && assetsNow > 0 && assetsPrev > 0) {
+    const roaNow = niTTM / assetsNow;
+    const roaPrev = niPrev / assetsPrev;
+    c.roa_improving = roaNow > roaPrev ? 1 : 0;
+  } else c.roa_improving = 0;
+  score += c.roa_improving;
+
+  // 4. OCF > NI (quality of earnings: cash backs up reported income)
+  c.ocf_gt_ni = (ocfTTM != null && niTTM != null && ocfTTM > niTTM) ? 1 : 0;
+  score += c.ocf_gt_ni;
+
+  // 5. Lower leverage (debt/assets) vs prior year
+  if (debtNow != null && debtPrev != null && assetsNow > 0 && assetsPrev > 0) {
+    const levNow = debtNow / assetsNow;
+    const levPrev = debtPrev / assetsPrev;
+    c.lev_down = levNow < levPrev ? 1 : 0;
+  } else if (!debtNow && !debtPrev) {
+    c.lev_down = 1; // no debt either year = max
+  } else c.lev_down = 0;
+  score += c.lev_down;
+
+  // 6. Higher current ratio vs prior year
+  if (caNow > 0 && clNow > 0 && caPrev > 0 && clPrev > 0) {
+    c.liq_up = (caNow / clNow) > (caPrev / clPrev) ? 1 : 0;
+  } else c.liq_up = 0;
+  score += c.liq_up;
+
+  // 7. No new shares issued (sharesOut decreasing or flat ±0.5%)
+  if (sharesNow > 0 && sharesPrev > 0) {
+    c.no_dilution = sharesNow <= sharesPrev * 1.005 ? 1 : 0;
+  } else c.no_dilution = 0;
+  score += c.no_dilution;
+
+  // 8. Higher gross margin vs prior year
+  if (grossNow != null && grossPrev != null && revNow > 0 && revPrev > 0) {
+    c.margin_up = (grossNow / revNow) > (grossPrev / revPrev) ? 1 : 0;
+  } else c.margin_up = 0;
+  score += c.margin_up;
+
+  // 9. Higher asset turnover vs prior year
+  if (revNow != null && revPrev != null && assetsNow > 0 && assetsPrev > 0) {
+    c.turnover_up = (revNow / assetsNow) > (revPrev / assetsPrev) ? 1 : 0;
+  } else c.turnover_up = 0;
+  score += c.turnover_up;
+
+  return { score, components: c };
+}
+
+// Accruals ratio: (NI - OCF) / TotalAssets. High positive accruals signal
+// earnings quality issues — net income outpacing real cash generation, often
+// preceding writedowns or earnings revisions.
+function _qs_accruals(trend) {
+  if (!trend) return null;
+  const niTTM = _qs_sum(trend.netIncome, 4);
+  const ocfTTM = _qs_sum(trend.ocf, 4);
+  const assetsAvg = (trend.totalAssets?.[0] && trend.totalAssets?.[4])
+    ? (trend.totalAssets[0] + trend.totalAssets[4]) / 2
+    : trend.totalAssets?.[0];
+  if (niTTM == null || ocfTTM == null || !assetsAvg || assetsAvg <= 0) return null;
+  return (niTTM - ocfTTM) / assetsAvg;
+}
+
 // Quality Score components
 function _qs_quality(fin, risk, sector) {
   const trend = fin?.trend || fin || {};
@@ -6910,6 +7011,23 @@ function _qs_quality(fin, risk, sector) {
   // ── Total ──
   const totalRaw = profitability + capitalEfficiency + balanceSheet + growth + dividendTrack + predictability;
 
+  // ── Earnings quality penalties (Piotroski + Accruals) ──
+  // These detect manipulation, value traps, and unreliable reported numbers.
+  const piotroski = _qs_piotroski(trend);
+  let piotroskiPenalty = 0;
+  if (piotroski) {
+    if (piotroski.score < 5) piotroskiPenalty = 15;       // weak quality, high risk
+    else if (piotroski.score < 7) piotroskiPenalty = 5;   // mediocre
+    // 7-9 = no penalty (strong)
+  }
+
+  const accruals = _qs_accruals(trend);
+  let accrualsPenalty = 0;
+  if (accruals != null) {
+    if (accruals > 0.10) accrualsPenalty = 10;            // earnings outpacing cash
+    else if (accruals > 0.05) accrualsPenalty = 5;        // mild concern
+  }
+
   // Data completeness penalty
   const componentsWithData = [
     fcfMargin != null, netMargin != null, grossMargin != null,
@@ -6921,8 +7039,10 @@ function _qs_quality(fin, risk, sector) {
   const completeness = componentsWithData / 10;
   const penalty = completeness < 0.7 ? 10 : 0;
 
+  const finalScore = Math.max(0, Math.round(totalRaw - penalty - piotroskiPenalty - accrualsPenalty));
+
   return {
-    quality_score: Math.max(0, Math.round(totalRaw - penalty)),
+    quality_score: finalScore,
     profitability: Math.round(profitability),
     capital_efficiency: Math.round(capitalEfficiency),
     balance_sheet: Math.round(balanceSheet),
@@ -6930,12 +7050,19 @@ function _qs_quality(fin, risk, sector) {
     dividend_track: Math.round(dividendTrack),
     predictability: Math.round(predictability),
     data_completeness: Math.round(completeness * 100) / 100,
+    piotroski_score: piotroski?.score ?? null,
+    piotroski_penalty: piotroskiPenalty,
+    accruals_ratio: accruals,
+    accruals_penalty: accrualsPenalty,
     inputs: {
       revTTM, fcfTTM, niTTM, opIncTTM, grossTTM,
       fcfMargin, netMargin, grossMargin, roic, assetTurnover,
       debtEbitda, intCov, currentRatio,
       revGrowth, fcfGrowth, buybackYield,
       vol1y: risk?.volatility1y,
+      piotroskiScore: piotroski?.score ?? null,
+      piotroskiComponents: piotroski?.components ?? null,
+      accrualsRatio: accruals,
     },
   };
 }
@@ -6973,15 +7100,25 @@ function _qs_safety(fin, risk, sector, dividendStreakYears) {
     pFcfCov = 10;
   }
 
+  // Payout ratio: use the WORSE of earnings-based and FCF-based.
+  // FCF-based detects "value traps" (KHC 2018: 30% on earnings but 120% on FCF).
   let pPayout = 0;
-  let payoutRatio = null;
+  let payoutRatio = null;       // earnings-based (legacy)
+  let fcfPayoutRatio = null;    // FCF-based (new)
+  let payoutRatioWorst = null;  // max of the two — used for scoring
   if (divTTM != null && divTTM > 0 && niTTM != null && niTTM > 0) {
     payoutRatio = divTTM / niTTM;
-    if (payoutRatio <= 0.30) pPayout = 5;
-    else if (payoutRatio <= 0.50) pPayout = 4;
-    else if (payoutRatio <= 0.65) pPayout = 3;
-    else if (payoutRatio <= 0.75) pPayout = 2;
-    else if (payoutRatio <= 0.90) pPayout = 1;
+  }
+  if (divTTM != null && divTTM > 0 && fcfTTM != null && fcfTTM > 0) {
+    fcfPayoutRatio = divTTM / fcfTTM;
+  }
+  if (payoutRatio != null || fcfPayoutRatio != null) {
+    payoutRatioWorst = Math.max(payoutRatio || 0, fcfPayoutRatio || 0);
+    if (payoutRatioWorst <= 0.30) pPayout = 5;
+    else if (payoutRatioWorst <= 0.50) pPayout = 4;
+    else if (payoutRatioWorst <= 0.65) pPayout = 3;
+    else if (payoutRatioWorst <= 0.75) pPayout = 2;
+    else if (payoutRatioWorst <= 0.90) pPayout = 1;
   } else if (divTTM == null || divTTM === 0) {
     pPayout = 3;
   }
@@ -7124,7 +7261,16 @@ function _qs_safety(fin, risk, sector, dividendStreakYears) {
   // ── Sector adjustment (10 pts) ──
   const sectorAdj = _qs_sectorBase(sector);
 
-  const total = coverage + balanceSheet + trackRecord + forward + sectorAdj;
+  // ── Hard penalty: FCF payout > 80% is a major red flag for unsustainable dividends ──
+  // Detects value traps that look fine on earnings but can't be funded by cash.
+  let fcfPayoutPenalty = 0;
+  if (fcfPayoutRatio != null && fcfPayoutRatio > 0.80) {
+    if (fcfPayoutRatio > 1.20) fcfPayoutPenalty = 20;       // burning cash to pay div
+    else if (fcfPayoutRatio > 1.00) fcfPayoutPenalty = 15;  // 100%+ unsustainable
+    else fcfPayoutPenalty = 10;                              // 80-100% stretched
+  }
+
+  const total = coverage + balanceSheet + trackRecord + forward + sectorAdj - fcfPayoutPenalty;
 
   return {
     safety_score: Math.max(0, Math.min(100, Math.round(total))),
@@ -7133,10 +7279,13 @@ function _qs_safety(fin, risk, sector, dividendStreakYears) {
     track_record: Math.round(trackRecord),
     forward: Math.round(forward),
     sector_adj: Math.round(sectorAdj),
+    fcf_payout_penalty: fcfPayoutPenalty,
     inputs: {
       divTTM, fcfTTM, niTTM,
       fcfCoverage: fcfCov,
       payoutRatio,
+      fcfPayoutRatio,
+      payoutRatioWorst,
       fcfAfterMaintCov,
       debtEbitda,
       currentRatio,
@@ -7147,15 +7296,19 @@ function _qs_safety(fin, risk, sector, dividendStreakYears) {
   };
 }
 
-// Compute dividend streak (years without major cut) from company dividend history.
+// Compute dividend streak (years without material cut) from company dividend history.
 // Real-world challenges:
 // - Current year is incomplete (e.g. only Q1 reported) → would falsely break streak
 // - Calendar-year aggregates capture spinoffs/specials as fake "cuts"
 // - Some companies have one-off year-boundary timing differences
 // Strategy:
-//   1. Skip current year if it's < 70% of previous year (clearly incomplete)
-//   2. Count a "cut" only if drop is > 50% (filters out specials/timing noise)
-//   3. Walk backwards counting non-cut years
+//   1. Skip current year if it's < 60% of previous year (clearly incomplete)
+//      (was 70% — relaxed to avoid hiding moderate cuts that just happened)
+//   2. Count a "cut" if drop is > 25% YoY (was 50%) — catches AT&T 2022,
+//      Intel 2023, Cisco-style moderate cuts that the old threshold missed
+//   3. Spinoff/special tolerance: if the AFTER value rebounds within next year,
+//      treat the dip as a one-off and continue the streak
+//   4. Walk backwards counting non-cut years
 function _qs_streakFromHistory(divHistory) {
   if (!Array.isArray(divHistory) || divHistory.length < 2) return null;
   // Sort ascending by year
@@ -7168,21 +7321,30 @@ function _qs_streakFromHistory(divHistory) {
   const currentYear = new Date().getFullYear();
   let endIdx = valid.length - 1;
   if (valid[endIdx].year === currentYear && endIdx > 0) {
-    if (valid[endIdx].total < valid[endIdx - 1].total * 0.7) {
+    if (valid[endIdx].total < valid[endIdx - 1].total * 0.6) {
       endIdx--;
     }
   }
 
-  // Walk backwards counting consecutive non-cut years
-  // Cut defined as drop > 50% (filters out specials, spinoffs, timing noise)
-  let streak = 1; // counting the end year itself
+  // Walk backwards counting consecutive non-cut years.
+  // Cut defined as drop > 25% YoY (catches moderate cuts).
+  // Spinoff guard: if year-after rebounds within 5% of pre-dip value, treat as one-off.
+  const CUT_THRESHOLD = 0.75; // cur must be >= 75% of prev
+  let streak = 1;
   for (let i = endIdx; i > 0; i--) {
     const cur = valid[i].total;
     const prev = valid[i - 1].total;
-    if (cur >= prev * 0.5) {
+    if (cur >= prev * CUT_THRESHOLD) {
       streak++;
     } else {
-      break;
+      // Possible spinoff/special: check if NEXT year (i+1) recovered close to prev
+      const next = (i + 1 <= endIdx) ? valid[i + 1].total : null;
+      if (next != null && next >= prev * 0.95) {
+        // One-off dip surrounded by normal payments — keep streak
+        streak++;
+      } else {
+        break;
+      }
     }
   }
   return streak;
