@@ -615,7 +615,14 @@ const divByYear={}; all.forEach(d=>{const y=d.date.slice(0,4);if(!divByYear[y])d
 const divYK=Object.keys(divByYear).sort();
 
 const retCol = v => v>0?"var(--green)":v<0?"var(--red)":"var(--text-secondary)";
-const fK = v => Math.abs(v)>=1000?`${_sf(v/1000,1)}K`:_sf(Math.abs(v),0);
+// fK: short money formatter. Uses M for >=1M (was always K — Audit shows
+// FIRE numbers like $3,661,000 displayed as "$3661.0K" instead of "$3.66M").
+const fK = v => {
+  const a = Math.abs(v);
+  if (a >= 1e6) return `${_sf(v/1e6, 2)}M`;
+  if (a >= 1000) return `${_sf(v/1000, 1)}K`;
+  return _sf(a, 0);
+};
 
 const [fireSection, setFireSection] = useState("dashboard");
 const [useBaseReal, setUseBaseReal] = useState(false);
