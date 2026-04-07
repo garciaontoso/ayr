@@ -9111,6 +9111,276 @@ async function runOptionsIncomeAgent(env, fecha) {
   return { agent: "options", insights: Math.min(insights.length, 85), scanned, withOpportunity, noOptions, source: ib ? 'IB+Yahoo' : 'Yahoo' };
 }
 
+// ─── Agent 11: Dividend Cut Early Warning (no LLM) ──────────────
+// Detects dividend cut risk 4-8 weeks BEFORE the announcement by combining:
+//   - FCF payout ratio rising trend (last 4 quarters)
+//   - FCF declining trend
+//   - Current FCF coverage approaching/below 1.0x
+// Uses cached fmp_financials (no extra API calls).
+async function runDividendCutWarningAgent(env, fecha) {
+  const { results: positions } = await env.DB.prepare(
+    "SELECT ticker, name, last_price, div_ttm FROM positions WHERE shares > 0"
+  ).all();
+  if (!positions.length) return { agent: "dividend_cut_warning", skipped: true };
+
+  // Only analyze dividend payers
+  const payers = positions.filter(p => (p.div_ttm || 0) > 0);
+  if (!payers.length) return { agent: "dividend_cut_warning", scanned: 0, alerts: 0 };
+
+  const insights = [];
+  let scanned = 0;
+  let critical = 0;
+  let warning = 0;
+
+  // Pre-fetch financials for all payers (uses cache, no API spam)
+  const tickers = payers.map(p => p.ticker);
+  const finMap = await getFmpFinancials(env, tickers);
+
+  for (const p of payers) {
+    const fin = finMap[p.ticker];
+    if (!fin) continue;
+    const trend = fin.trend || fin || {};
+    const periods = trend.periods || [];
+    if (periods.length < 4) continue;
+    scanned++;
+
+    // Compute FCF payout ratio per quarter (last 4 quarters)
+    // dividendsPaid is reported as negative in cash flow → use abs
+    const fcfArr = (trend.fcf || []).slice(0, 4);
+    const divArr = (trend.dividendsPaid || []).slice(0, 4).map(d => Math.abs(d || 0));
+    if (fcfArr.length < 4 || divArr.length < 4) continue;
+
+    const ratios = [];
+    for (let i = 0; i < 4; i++) {
+      const fcf = fcfArr[i];
+      const div = divArr[i];
+      if (fcf == null || div == null || div === 0) continue;
+      // If FCF is negative, ratio is "infinite" → cap at 5x for sortability
+      if (fcf <= 0) ratios.push({ q: i, ratio: 5.0, fcf, div });
+      else ratios.push({ q: i, ratio: div / fcf, fcf, div });
+    }
+    if (ratios.length < 4) continue;
+
+    // ratios[0] = most recent quarter
+    const recent = ratios[0].ratio;
+    const oldest = ratios[3].ratio;
+    const fcfRecent = ratios[0].fcf;
+    const fcfOldest = ratios[3].fcf;
+
+    // Trend signals
+    const ratioRising = recent > oldest;
+    const ratioDelta = recent - oldest;
+    const fcfDeclining = fcfRecent < fcfOldest;
+    const fcfDeclinePct = fcfOldest > 0 ? (fcfOldest - fcfRecent) / fcfOldest : 0;
+
+    // TTM-based composite check too
+    const fcfTTM = _qs_sum(trend.fcf, 4);
+    const divTTM = _qs_sum(trend.dividendsPaid, 4);
+    const ttmCoverage = (fcfTTM != null && divTTM != null && divTTM !== 0)
+      ? Math.abs(fcfTTM) / Math.abs(divTTM) * (fcfTTM < 0 ? -1 : 1)
+      : null;
+
+    // ── Severity logic ──
+    // CRITICAL: TTM coverage < 1.0 OR (rising payout AND declining FCF AND recent ratio > 0.80)
+    // WARNING:  Rising payout >0.20 OR FCF declining >20% AND recent ratio > 0.60
+    let severity = null;
+    let reason = "";
+
+    if (ttmCoverage != null && ttmCoverage < 1.0 && ttmCoverage > -10) {
+      severity = "critical";
+      reason = `Cobertura FCF/Div TTM = ${ttmCoverage.toFixed(2)}x. La empresa no genera caja suficiente para sostener el dividendo.`;
+    } else if (ratioRising && fcfDeclining && recent > 0.80) {
+      severity = "critical";
+      reason = `FCF payout subiendo (${(oldest*100).toFixed(0)}% → ${(recent*100).toFixed(0)}%) mientras FCF cae ${(fcfDeclinePct*100).toFixed(0)}%. Riesgo de recorte 4-8 semanas.`;
+    } else if (ratioRising && ratioDelta > 0.20 && recent > 0.60) {
+      severity = "warning";
+      reason = `FCF payout acelerando: ${(oldest*100).toFixed(0)}% → ${(recent*100).toFixed(0)}% (+${(ratioDelta*100).toFixed(0)}pp en 4Q). Vigilar próximos earnings.`;
+    } else if (fcfDeclining && fcfDeclinePct > 0.30 && recent > 0.50) {
+      severity = "warning";
+      reason = `FCF cayendo ${(fcfDeclinePct*100).toFixed(0)}% en 4Q con payout ${(recent*100).toFixed(0)}%. Margen de seguridad reduciéndose.`;
+    }
+
+    if (!severity) continue;
+
+    if (severity === "critical") critical++; else warning++;
+
+    insights.push({
+      ticker: p.ticker,
+      severity,
+      title: `${p.ticker}: ${severity === "critical" ? "RIESGO RECORTE" : "Vigilar dividendo"}`,
+      summary: `${p.name || p.ticker}. ${reason}`,
+      details: {
+        fcfPayoutRecent: Math.round(recent * 100),
+        fcfPayoutOldest: Math.round(oldest * 100),
+        fcfPayoutDeltaPP: Math.round(ratioDelta * 100),
+        fcfRecent: Math.round((fcfRecent || 0) / 1e6),
+        fcfOldest: Math.round((fcfOldest || 0) / 1e6),
+        fcfDeclinePct: Math.round(fcfDeclinePct * 100),
+        ttmCoverage: ttmCoverage != null ? Math.round(ttmCoverage * 100) / 100 : null,
+        ratiosLast4Q: ratios.map(r => Math.round(r.ratio * 100) / 100),
+      },
+      score: severity === "critical" ? 9 : 6,
+    });
+  }
+
+  // Sort: critical first, then by score
+  insights.sort((a, b) => {
+    if (a.severity !== b.severity) return a.severity === "critical" ? -1 : 1;
+    return (b.score || 0) - (a.score || 0);
+  });
+
+  const stored = await storeInsights(env, "dividend_cut_warning", fecha, insights);
+  return { agent: "dividend_cut_warning", scanned, alerts: insights.length, critical, warning, stored };
+}
+
+// ─── Agent 12: Analyst Downgrade Tracker (no LLM, FMP-based) ────
+// Detects clusters of analyst rating downgrades that often precede
+// dividend cuts by 4-8 weeks. Uses FMP /stable/grades-historical.
+async function runAnalystDowngradeAgent(env, fecha) {
+  const key = env.FMP_KEY;
+  if (!key) return { agent: "analyst_downgrade", skipped: true, reason: "no FMP key" };
+
+  const { results: positions } = await env.DB.prepare(
+    "SELECT ticker, name, last_price FROM positions WHERE shares > 0"
+  ).all();
+  if (!positions.length) return { agent: "analyst_downgrade", skipped: true };
+
+  const cutoff14 = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
+  const cutoff90 = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+
+  // Load previous snapshot from agent_memory
+  const prevMem = (await getAgentMemory(env, "analyst_grades")) || {};
+
+  const insights = [];
+  let scanned = 0;
+  let withDowngrades = 0;
+  const newMem = {};
+
+  // Process in batches of 5 to respect rate limits
+  for (let i = 0; i < positions.length; i += 5) {
+    const batch = positions.slice(i, i + 5);
+    const results = await Promise.allSettled(
+      batch.map(async (p) => {
+        const sym = toFMP(p.ticker);
+        try {
+          const url = `https://financialmodelingprep.com/stable/grades-historical?symbol=${encodeURIComponent(sym)}&apikey=${key}`;
+          const resp = await fetch(url);
+          if (!resp.ok) return null;
+          const data = await resp.json();
+          if (!Array.isArray(data) || !data.length) return null;
+          // Each row: { symbol, date, analystRatingsBuy, analystRatingsHold, analystRatingsSell, analystRatingsStrongBuy, analystRatingsStrongSell }
+          // Sort by date desc
+          const sorted = data.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+          const latest = sorted[0];
+          if (!latest) return null;
+
+          // Find a row from ~14 days ago for comparison
+          const old = sorted.find(r => (r.date || '') <= cutoff14) || sorted[Math.min(2, sorted.length - 1)];
+          if (!old) return null;
+
+          // Score = strongBuy*2 + buy - sell - strongSell*2 (positive = bullish)
+          const sentScore = (r) => {
+            if (!r) return 0;
+            return (Number(r.analystRatingsStrongBuy) || 0) * 2
+                 + (Number(r.analystRatingsBuy) || 0)
+                 - (Number(r.analystRatingsSell) || 0)
+                 - (Number(r.analystRatingsStrongSell) || 0) * 2;
+          };
+          const totalAnalysts = (r) => (
+            (Number(r.analystRatingsStrongBuy) || 0)
+          + (Number(r.analystRatingsBuy) || 0)
+          + (Number(r.analystRatingsHold) || 0)
+          + (Number(r.analystRatingsSell) || 0)
+          + (Number(r.analystRatingsStrongSell) || 0)
+          );
+          const sNow = sentScore(latest);
+          const sOld = sentScore(old);
+          const totNow = totalAnalysts(latest);
+          const drop = sOld - sNow; // positive = sentiment deterioration
+
+          return {
+            ticker: p.ticker,
+            name: p.name,
+            latestDate: latest.date,
+            sNow,
+            sOld,
+            drop,
+            totNow,
+            buy: Number(latest.analystRatingsBuy) || 0,
+            strongBuy: Number(latest.analystRatingsStrongBuy) || 0,
+            hold: Number(latest.analystRatingsHold) || 0,
+            sell: Number(latest.analystRatingsSell) || 0,
+            strongSell: Number(latest.analystRatingsStrongSell) || 0,
+          };
+        } catch { return null; }
+      })
+    );
+
+    for (const r of results) {
+      if (r.status !== "fulfilled" || !r.value) continue;
+      const v = r.value;
+      scanned++;
+      newMem[v.ticker] = { sentScore: v.sNow, date: v.latestDate, total: v.totNow };
+
+      // Severity logic:
+      //  - critical: sentiment dropped by 4+ points AND has >= 6 analysts (real cluster of downgrades)
+      //  - warning:  sentiment dropped by 2-3 points OR drop of 1+ on a name with very high coverage
+      //  - info:     no actionable change
+      let severity = null;
+      let reason = "";
+      if (v.drop >= 4 && v.totNow >= 6) {
+        severity = "critical";
+        reason = `Sentimiento analistas cayó ${v.drop} pts en ~14 días (${v.totNow} cubriendo). Cluster de downgrades — históricamente precede recortes de dividendo en 4-8 semanas.`;
+      } else if (v.drop >= 2 && v.totNow >= 4) {
+        severity = "warning";
+        reason = `Sentimiento analistas bajando: ${v.sOld} → ${v.sNow} (${v.drop} pts). Vigilar próximas guidance.`;
+      } else if (v.drop >= 1 && v.totNow >= 15) {
+        severity = "warning";
+        reason = `Pequeña deriva negativa pero alta cobertura (${v.totNow} analistas). Watchlist.`;
+      }
+
+      if (!severity) continue;
+      withDowngrades++;
+
+      insights.push({
+        ticker: v.ticker,
+        severity,
+        title: `${v.ticker}: ${severity === "critical" ? "Cluster downgrades" : "Sentiment downgrade"}`,
+        summary: `${v.name || v.ticker}. ${reason}`,
+        details: {
+          sentimentNow: v.sNow,
+          sentimentPrev: v.sOld,
+          deltaPts: v.drop,
+          analystsCovering: v.totNow,
+          breakdown: {
+            strongBuy: v.strongBuy,
+            buy: v.buy,
+            hold: v.hold,
+            sell: v.sell,
+            strongSell: v.strongSell,
+          },
+          asOf: v.latestDate,
+        },
+        score: severity === "critical" ? 9 : 5,
+      });
+    }
+
+    // Throttle between batches
+    if (i + 5 < positions.length) await new Promise(r => setTimeout(r, 1200));
+  }
+
+  // Persist new snapshot for next-run comparison (overwrite — we use FMP historical, not delta tracking here)
+  await setAgentMemory(env, "analyst_grades", newMem);
+
+  insights.sort((a, b) => {
+    if (a.severity !== b.severity) return a.severity === "critical" ? -1 : 1;
+    return (b.score || 0) - (a.score || 0);
+  });
+
+  const stored = await storeInsights(env, "analyst_downgrade", fecha, insights);
+  return { agent: "analyst_downgrade", scanned, alerts: insights.length, withDowngrades, stored };
+}
+
 // ─── Agent Orchestrator ────────────────────────────────────────
 async function runAllAgents(env) {
   const fecha = new Date().toISOString().slice(0, 10);
@@ -9197,6 +9467,8 @@ async function runAllAgents(env) {
     ['insider', runInsiderAgent],       // Step 8: FMP /stable/insider-trading/search (no LLM)
     ['value', runValueSignalsAgent],   // Step 9: GuruFocus value signals (no LLM, scalars only)
     ['options', runOptionsIncomeAgent], // Step 10: Yahoo options chain (no LLM, FMP no expone options)
+    ['dividend_cut_warning', runDividendCutWarningAgent], // Step 11: No LLM, FCF payout trend (Tier 1)
+    ['analyst_downgrade', runAnalystDowngradeAgent],      // Step 12: FMP grades-historical (no LLM, Tier 1)
   ];
 
   for (let i = 0; i < agents.length; i++) {
