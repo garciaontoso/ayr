@@ -5193,6 +5193,40 @@ export default {
 
       // ─── AI AGENTS ──────────────────────────────────────────────
 
+      // GET /api/fmp-map-check — validate FMP_MAP entries by querying FMP profile.
+      // Catches relistings, ticker changes, and stale mappings before they corrupt scoring.
+      // Run weekly via manual trigger or scheduled task.
+      if (path === "/api/fmp-map-check" && request.method === "GET") {
+        const key = env.FMP_KEY;
+        if (!key) return json({ error: "no FMP key" }, corsHeaders, 500);
+        const results = [];
+        for (const [ourTicker, fmpSym] of Object.entries(FMP_MAP)) {
+          try {
+            const url2 = `https://financialmodelingprep.com/stable/profile?symbol=${encodeURIComponent(fmpSym)}&apikey=${key}`;
+            const resp = await fetch(url2);
+            const data = await resp.json();
+            const ok = Array.isArray(data) && data.length > 0 && data[0]?.symbol;
+            results.push({
+              ours: ourTicker,
+              fmp: fmpSym,
+              ok,
+              actualSymbol: ok ? data[0].symbol : null,
+              name: ok ? data[0].companyName : null,
+              status: ok ? "valid" : "INVALID — needs review",
+            });
+          } catch (e) {
+            results.push({ ours: ourTicker, fmp: fmpSym, ok: false, status: `error: ${e.message}` });
+          }
+          await new Promise(r => setTimeout(r, 200)); // light rate limit
+        }
+        const invalid = results.filter(r => !r.ok);
+        // Persist last check timestamp for monitoring
+        try {
+          await setAgentMemory(env, "fmp_map_last_check", { ts: Date.now(), invalid: invalid.length, total: results.length });
+        } catch {}
+        return json({ ok: invalid.length === 0, total: results.length, invalid: invalid.length, results }, corsHeaders);
+      }
+
       // GET /api/agent-insights — retrieve agent insights
       if (path === "/api/agent-insights" && request.method === "GET") {
         const agent = url.searchParams.get("agent");
@@ -5302,6 +5336,7 @@ export default {
             options: runOptionsIncomeAgent,
             dividend_cut_warning: runDividendCutWarningAgent,
             analyst_downgrade: runAnalystDowngradeAgent,
+            earnings_trend: runEarningsTrendAgent,
             summary: async (env, fecha) => {
               const { results: all } = await env.DB.prepare(
                 "SELECT agent_name, ticker, severity, title, summary, score, details FROM agent_insights WHERE fecha = ? ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END, score DESC"
@@ -7416,42 +7451,100 @@ async function _qs_getDividendStreak(env, ticker, _fmpFin = null) {
   return null;
 }
 
-// Detect material drops vs previous snapshot, insert into alerts table
-async function _qs_detectScoreDrops(env, ticker, newQ, newS) {
+// Detect material drops, coverage red flags, streak breaks, and compound
+// degradation patterns. Insert into alerts table for the alerts panel.
+async function _qs_detectScoreDrops(env, ticker, newQ, newS, sInputs, prevStreakYears) {
   try {
+    // Pull last 3 snapshots so we can detect compound/sustained degradation
     const { results } = await env.DB.prepare(
-      `SELECT quality_score, safety_score, snapshot_date FROM quality_safety_scores
+      `SELECT quality_score, safety_score, snapshot_date, inputs_json FROM quality_safety_scores
        WHERE ticker = ? AND snapshot_date < date('now')
-       ORDER BY snapshot_date DESC LIMIT 1`
+       ORDER BY snapshot_date DESC LIMIT 3`
     ).bind(ticker).all();
+
+    const today = new Date().toISOString().slice(0, 10);
+    const insertAlert = async (tipo, titulo, detalle, valor) => {
+      try {
+        await env.DB.prepare(
+          `INSERT INTO alerts (fecha, tipo, titulo, detalle, ticker, valor)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        ).bind(today, tipo, titulo, detalle, ticker, valor).run();
+      } catch {}
+    };
+
+    // ── 1. FCF Coverage red flag (immediate, no history needed) ──
+    const fcfCov = sInputs?.fcfCoverage;
+    if (fcfCov != null && fcfCov < 1.5 && fcfCov > -10) {
+      const sev = fcfCov < 1.0 ? "CUT RISK INMINENTE" : "Cobertura FCF baja";
+      await insertAlert(
+        "fcf_coverage_low",
+        `${ticker}: ${sev} (FCF/Div ${fcfCov.toFixed(2)}x)`,
+        `Cobertura FCF/Div = ${fcfCov.toFixed(2)}x. ${fcfCov < 1.0 ? 'La empresa NO genera caja suficiente para sostener el dividendo.' : 'Margen de seguridad insuficiente.'}`,
+        Math.round(fcfCov * 100)
+      );
+    }
+
+    // ── 2. FCF Payout > 100% (already penalized in score, but flag explicitly) ──
+    const fcfPayout = sInputs?.fcfPayoutRatio;
+    if (fcfPayout != null && fcfPayout > 1.0) {
+      await insertAlert(
+        "fcf_payout_high",
+        `${ticker}: FCF Payout ${(fcfPayout*100).toFixed(0)}%`,
+        `Payout sobre FCF = ${(fcfPayout*100).toFixed(0)}%. Insostenible si persiste.`,
+        Math.round(fcfPayout * 100)
+      );
+    }
+
     if (!results || !results.length) return;
     const prev = results[0];
     const dropQ = (prev.quality_score ?? 0) - (newQ ?? 0);
     const dropS = (prev.safety_score ?? 0) - (newS ?? 0);
-    const today = new Date().toISOString().slice(0, 10);
-    if (dropQ >= 10) {
-      await env.DB.prepare(
-        `INSERT INTO alerts (fecha, tipo, titulo, detalle, ticker, valor)
-         VALUES (?, 'quality_drop', ?, ?, ?, ?)`
-      ).bind(
-        today,
-        `${ticker}: Quality cayó ${dropQ.toFixed(0)} pts`,
-        `De ${prev.quality_score} (${prev.snapshot_date}) a ${newQ}. Revisar tesis.`,
-        ticker,
+
+    // ── 3. Material drop (lowered threshold from 10 to 5) ──
+    if (dropQ >= 5) {
+      const sev = dropQ >= 10 ? "GRAN" : "";
+      await insertAlert(
+        "quality_drop",
+        `${ticker}: ${sev}Caída Quality ${dropQ.toFixed(0)} pts`,
+        `Quality bajó de ${prev.quality_score} (${prev.snapshot_date}) a ${newQ}. Revisar tesis.`,
         -dropQ
-      ).run();
+      );
     }
-    if (dropS >= 10) {
-      await env.DB.prepare(
-        `INSERT INTO alerts (fecha, tipo, titulo, detalle, ticker, valor)
-         VALUES (?, 'safety_drop', ?, ?, ?, ?)`
-      ).bind(
-        today,
-        `${ticker}: Safety cayó ${dropS.toFixed(0)} pts`,
-        `De ${prev.safety_score} (${prev.snapshot_date}) a ${newS}. Riesgo dividendo.`,
-        ticker,
+    if (dropS >= 5) {
+      const sev = dropS >= 10 ? "GRAN" : "";
+      await insertAlert(
+        "safety_drop",
+        `${ticker}: ${sev}Caída Safety ${dropS.toFixed(0)} pts`,
+        `Safety bajó de ${prev.safety_score} (${prev.snapshot_date}) a ${newS}. Riesgo dividendo creciente.`,
         -dropS
-      ).run();
+      );
+    }
+
+    // ── 4. Compound degradation: 3 consecutive snapshots dropping ──
+    if (results.length >= 2) {
+      const prev2 = results[1];
+      const trend1 = (prev2.safety_score ?? 0) - (prev.safety_score ?? 0); // older→prev
+      const trend2 = dropS;                                                  // prev→now
+      if (trend1 > 0 && trend2 > 0 && (trend1 + trend2) >= 6) {
+        await insertAlert(
+          "safety_sustained_drop",
+          `${ticker}: Safety cayendo 3 snapshots seguidos`,
+          `Safety: ${prev2.safety_score} → ${prev.safety_score} → ${newS}. Tendencia compuesta de ${(trend1+trend2).toFixed(0)} pts. Patrón de deterioro sostenido.`,
+          -(trend1 + trend2)
+        );
+      }
+    }
+
+    // ── 5. Streak broken (years_without_cut decreased) ──
+    const newStreak = sInputs?.streakYears;
+    if (prevStreakYears != null && newStreak != null && newStreak < prevStreakYears) {
+      const lost = prevStreakYears - newStreak;
+      await insertAlert(
+        "dividend_streak_broken",
+        `${ticker}: Streak ROTO (${prevStreakYears}y → ${newStreak}y)`,
+        `Histórico sin recortes pasó de ${prevStreakYears} a ${newStreak} años (perdidos ${lost}). Posible recorte detectado.`,
+        -lost
+      );
     }
   } catch (e) {
     // Don't fail score compute if alert insert fails
@@ -7552,8 +7645,22 @@ async function computeQualitySafetyScore(env, ticker) {
     JSON.stringify(inputs)
   ).run();
 
-  // Detect material drops vs previous snapshot → insert into alerts
-  await _qs_detectScoreDrops(env, ticker, q?.quality_score, s?.safety_score);
+  // Capture previous streak so we can detect streak-break alerts
+  let prevStreakYears = null;
+  try {
+    const { results: prevRows } = await env.DB.prepare(
+      `SELECT inputs_json FROM quality_safety_scores
+       WHERE ticker = ? AND snapshot_date < date('now')
+       ORDER BY snapshot_date DESC LIMIT 1`
+    ).bind(ticker).all();
+    if (prevRows?.[0]?.inputs_json) {
+      const parsed = JSON.parse(prevRows[0].inputs_json);
+      prevStreakYears = parsed?.safety?.streakYears ?? null;
+    }
+  } catch {}
+
+  // Detect material drops, FCF coverage flags, streak breaks, compound degradation
+  await _qs_detectScoreDrops(env, ticker, q?.quality_score, s?.safety_score, s?.inputs, prevStreakYears);
 
   return {
     ok: true,
@@ -7569,6 +7676,21 @@ async function computeQualitySafetyScore(env, ticker) {
 // Batch compute for all positions
 async function computeQualitySafetyAll(env, opts = {}) {
   await ensureQualitySafetyTable(env);
+
+  // Pre-warm dividend_history cache so REIT/MLP FFO patch works correctly.
+  // _qs_safety relies on dividend_history to detect streak + patch dividendsPaid
+  // for issuers FMP doesn't report in cash flow. If cache is empty, scoring is
+  // worse for REITs and high-yield names.
+  try {
+    const existing = (await getAgentMemory(env, "dividend_history")) || {};
+    if (Object.keys(existing).length < 30) {
+      console.log("[Q+S] Pre-warming dividend_history cache (empty/stale)");
+      await cacheDividendHistory(env, { limit: 30 });
+    }
+  } catch (e) {
+    console.error("[Q+S] dividend_history pre-warm failed:", e.message);
+  }
+
   const { results: positions } = await env.DB.prepare(
     "SELECT ticker FROM positions WHERE shares > 0"
   ).all();
@@ -7731,6 +7853,11 @@ async function runEarningsAgent(env, fecha) {
   // Load GuruFocus ranks (kept until Phase 4b replaces with FMP-derived equivalents)
   const gfMap = await getGfData(env, tickers);
 
+  // Load FMP quarterly trends (revenue, FCF, margins, EPS) — same source the
+  // Dividend agent already uses. Lets the model see whether a quarterly miss
+  // is part of a trend or a one-off, instead of evaluating each quarter blind.
+  const finMap = await getFmpFinancials(env, tickers);
+
   // Load most recent transcript per ticker. Tickers stored without exchange prefix
   // (BME:/HKG:/LSE: stripped at download time, see /api/download-transcripts).
   const transcriptMap = {};
@@ -7768,6 +7895,26 @@ async function runEarningsAgent(env, fecha) {
     console.error("[Earnings] transcript load failed:", e.message);
   }
 
+  // Helper: pick last 6 quarters of a trend series, rounded to 2 decimals
+  const last6 = (arr) => Array.isArray(arr) ? arr.slice(0, 6) : null;
+  // Helper: compute YoY-style margin compression flag
+  const buildTrends = (ticker) => {
+    const fin = finMap[ticker];
+    if (!fin) return null;
+    const t = fin.trend || fin || {};
+    if (!t.periods?.length) return null;
+    return {
+      periods: last6(t.periods),
+      revenue: last6(t.revenue),
+      netIncome: last6(t.netIncome),
+      operatingIncome: last6(t.operatingIncome),
+      grossProfit: last6(t.grossProfit),
+      fcf: last6(t.fcf),
+      ocf: last6(t.ocf),
+      eps: last6(t.eps),
+    };
+  };
+
   const allPosData = positions.filter(p => fundMap[p.ticker]?.earnings).map(p => {
     const f = fundMap[p.ticker];
     const gf = gfMap[p.ticker] || {};
@@ -7783,6 +7930,8 @@ async function runEarningsAgent(env, fecha) {
       analystGrades: Array.isArray(f.grades) ? f.grades.slice(0, 3) : null,
       gfGrowthRank: gf.growthRank, gfMomentumRank: gf.momentumRank,
       gfProfitabilityRank: gf.profitabilityRank,
+      // Quarterly trends (last 6 quarters) — context for "trend vs one-off"
+      trends: buildTrends(p.ticker),
       // Most recent earnings call transcript (management commentary)
       transcript: tr ? { period: `${tr.quarter} ${tr.year}`, date: tr.date, excerpt: tr.excerpt } : null,
     };
@@ -7804,6 +7953,14 @@ YOU NOW HAVE EARNINGS CALL TRANSCRIPTS. Use them as the PRIMARY source for tone 
 - A +2% EPS beat with management warning about deteriorating demand for next quarter is WARNING despite the beat.
 - When citing the transcript, quote a SHORT phrase (under 15 words) from management in transcript_insight.
 - If no transcript provided for a ticker, set transcript_insight to "No transcript" and rely on numerical data only.
+
+YOU NOW HAVE 6-QUARTER TREND DATA (revenue, netIncome, operatingIncome, grossProfit, fcf, ocf, eps).
+- ALWAYS check the trend before flagging a quarter as critical:
+  * A -8% EPS miss in isolation looks bad. If the prior 5 quarters were +12%, +8%, +5%, +9%, +6%, this is a single-quarter blip → WARNING at most.
+  * A -3% miss following -2%, -5%, -7% misses is a real deteriorating trend → WARNING or CRITICAL.
+- Margin trend: compute (operatingIncome / revenue) for each of the last 6 quarters. Flag CRITICAL only if margins compressed AND revenue is also declining.
+- If trends are improving but the latest quarter is one-off bad, the answer is INFO with explanation, not warning.
+- Trends array is most-recent-first: trends.revenue[0] is the LATEST quarter.
 
 CONTEXT IS EVERYTHING:
 - One-time write-downs, impairments, restructuring charges are NOT operational problems. Explain what happened.
@@ -8763,7 +8920,8 @@ async function runInsiderAgent(env, fecha) {
 }
 
 // ─── Agent 8: Value Signals (GuruFocus cached data — no LLM) ───
-// Scans portfolio + watchlist for undervalued stocks with institutional buying
+// Scans portfolio + watchlist for undervalued stocks with institutional buying.
+// Quality is now scored as a multi-factor COMPOSITE so we don't rely on GF Score alone.
 async function runValueSignalsAgent(env, fecha) {
   const token = env.GURUFOCUS_TOKEN;
   if (!token) return { agent: "value", skipped: true, reason: "no GF token" };
@@ -8772,11 +8930,36 @@ async function runValueSignalsAgent(env, fecha) {
 
   // 1. Portfolio positions + GF cache (already have this data)
   const { results: positions } = await env.DB.prepare(
-    "SELECT ticker, name, shares, market_value, last_price, div_yield FROM positions WHERE shares > 0"
+    "SELECT ticker, name, shares, market_value, last_price, div_yield, div_ttm FROM positions WHERE shares > 0"
   ).all();
   const ownedSet = new Set(positions.map(p => p.ticker));
   const ownedTickers = positions.map(p => p.ticker);
   const gfMap = await getGfData(env, ownedTickers);
+
+  // Load latest Q+S scores so we can blend them into the composite
+  const { results: qsRows } = await env.DB.prepare(
+    `SELECT ticker, quality_score, safety_score FROM quality_safety_scores
+     WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM quality_safety_scores)`
+  ).all().catch(() => ({ results: [] }));
+  const qsMap = {};
+  for (const r of (qsRows || [])) qsMap[r.ticker] = r;
+
+  // Quality composite (0-10 scale). Combines:
+  //   GF Score (40%), Financial Strength (25%), Q+S Quality (25%), insider buys (10%)
+  // This catches "high GF Score but high debt" or "decent GF but Piotroski tanked" cases
+  // that the previous single-factor filter missed.
+  const qualityComposite = ({ gfScore, finStrength, qsQuality, insiderBuys, dividendStreakYears }) => {
+    const w = { gf: 0.30, fin: 0.20, qs: 0.30, insider: 0.10, streak: 0.10 };
+    const norm = {
+      gf: Math.min(10, (Number(gfScore) || 0) / 10),
+      fin: Math.min(10, Number(finStrength) || 0),
+      qs: Math.min(10, (Number(qsQuality) || 0) / 10),
+      insider: insiderBuys > 5 ? 9 : insiderBuys > 0 ? 7 : 5,
+      streak: dividendStreakYears != null ? Math.min(10, dividendStreakYears / 5) : 5,
+    };
+    const composite = w.gf*norm.gf + w.fin*norm.fin + w.qs*norm.qs + w.insider*norm.insider + w.streak*norm.streak;
+    return Math.round(composite * 10) / 10; // 0..10 with 1 decimal
+  };
 
   // 2. Scan 120+ top dividend stocks NOT in portfolio
   // Dividend Aristocrats + Champions + high-quality dividend payers
@@ -8853,8 +9036,13 @@ async function runValueSignalsAgent(env, fecha) {
 
     // Only flag if meaningfully undervalued
     if (discount < 10) continue;
-    // Must have decent quality
-    if (gfScore < 50 || finStrength < 4) continue;
+
+    // Quality composite (multi-factor: GF + finStrength + Q+S + insider + streak)
+    const qsQuality = qsMap[p.ticker]?.quality_score;
+    const dgrStreak = parseFloat(gf.dividendStreakYears || gf.streak) || null;
+    const composite = qualityComposite({ gfScore, finStrength, qsQuality, insiderBuys, dividendStreakYears: dgrStreak });
+    // Must have decent quality on COMPOSITE — not just GF Score alone
+    if (composite < 5.0) continue;
 
     const divYieldPct = (p.div_yield || 0) * 100;
     const volatility = parseFloat(gf.volatility1y) || 20;
@@ -8880,6 +9068,9 @@ async function runValueSignalsAgent(env, fecha) {
       details: {
         descuento: `${discount}%`, gfScore, gfValue: `$${gfValue.toFixed(2)}`, precio: `$${price.toFixed(2)}`,
         financialStrength: finStrength,
+        qualityComposite: composite,
+        qsQuality: qsQuality ?? null,
+        dividendStreakYears: dgrStreak ?? null,
         dividendYield: `${divYieldPct.toFixed(2)}%`,
         dividendYieldNum: divYieldPct,
         putStrike: price > 20 ? `$${putStrike}` : 'N/A (precio bajo)',
@@ -8889,7 +9080,8 @@ async function runValueSignalsAgent(env, fecha) {
         gfValuation: gf.gfValuation || 'N/A',
         fuente: 'Portfolio scan', enPortfolio: 'SI',
       },
-      score: Math.min(10, Math.round(discount / 5) + (gfScore >= 80 ? 2 : 0)),
+      // Score combines discount magnitude AND quality composite
+      score: Math.min(10, Math.round(discount / 5) + (composite >= 7.5 ? 2 : composite >= 6 ? 1 : 0)),
     });
   }
 
@@ -8913,6 +9105,11 @@ async function runValueSignalsAgent(env, fecha) {
     if (finStrength < 5) continue;
     if (divYield < 1) continue;
 
+    // Watchlist tickers don't have Q+S yet, but we still apply the composite
+    // (without the qsQuality term) to keep filtering consistent.
+    const watchComposite = qualityComposite({ gfScore, finStrength, qsQuality: null, insiderBuys: 0, dividendStreakYears: null });
+    if (watchComposite < 5.5) continue;
+
     // Put selling calculation
     const putStrike = Math.round(price * 0.90 * 100) / 100;
     const putDiscountVsGF = gfValue > 0 ? Math.round((1 - putStrike / gfValue) * 100) : 0;
@@ -8930,6 +9127,7 @@ async function runValueSignalsAgent(env, fecha) {
       details: {
         descuento: `${discount}%`, gfScore, gfValue: `$${gfValue.toFixed(2)}`, precio: `$${price.toFixed(2)}`,
         financialStrength: finStrength, profitabilityRank: profitRank,
+        qualityComposite: watchComposite,
         dividendYield: `${divYield.toFixed(2)}%`,
         dividendYieldNum: divYield,
         shareholderYield: `${shareholderYield.toFixed(2)}%`,
@@ -9146,6 +9344,142 @@ async function runOptionsIncomeAgent(env, fecha) {
 
   const stored = await storeInsights(env, "options", fecha, insights.slice(0, 85));
   return { agent: "options", insights: Math.min(insights.length, 85), scanned, withOpportunity, noOptions, source: ib ? 'IB+Yahoo' : 'Yahoo' };
+}
+
+// ─── Agent 13: Earnings Trend Pattern (no LLM) ──────────────────
+// Pure-calculation pattern detector that complements the Opus Earnings agent.
+// Flags two specific patterns that humans miss when looking quarter-by-quarter:
+//   1. 2+ consecutive earnings misses (operating income or EPS down YoY twice in a row)
+//   2. Operating margin compression > 100bps YoY with revenue flat/down
+// Uses cached FMP financials — zero API calls, zero LLM cost.
+async function runEarningsTrendAgent(env, fecha) {
+  const { results: positions } = await env.DB.prepare(
+    "SELECT ticker, name, sector, category FROM positions WHERE shares > 0"
+  ).all();
+  if (!positions.length) return { agent: "earnings_trend", skipped: true };
+
+  // Skip ETFs/preferreds — they have no income statement
+  const eligible = positions.filter(p => !/etf|preferred/i.test(p.category || ""));
+  if (!eligible.length) return { agent: "earnings_trend", scanned: 0, alerts: 0 };
+
+  const tickers = eligible.map(p => p.ticker);
+  const finMap = await getFmpFinancials(env, tickers);
+
+  const insights = [];
+  let scanned = 0;
+  let critical = 0;
+  let warning = 0;
+
+  for (const p of eligible) {
+    const fin = finMap[p.ticker];
+    if (!fin) continue;
+    const trend = fin.trend || fin || {};
+    const periods = trend.periods || [];
+    if (periods.length < 8) continue;
+    scanned++;
+
+    const rev = trend.revenue || [];
+    const opInc = trend.operatingIncome || [];
+    const ni = trend.netIncome || [];
+
+    if (rev.length < 8 || opInc.length < 8 || ni.length < 8) continue;
+
+    // ── Pattern 1: 2+ consecutive YoY operating income misses ──
+    // Compare each of last 4 quarters to its YoY counterpart (4 quarters earlier)
+    let consecutiveMisses = 0;
+    for (let i = 0; i < 4; i++) {
+      const cur = opInc[i];
+      const yoy = opInc[i + 4];
+      if (cur != null && yoy != null && yoy > 0) {
+        if (cur < yoy * 0.95) consecutiveMisses++;
+        else break; // streak broken
+      } else break;
+    }
+
+    // ── Pattern 2: Operating margin compression > 100 bps YoY ──
+    const marginTtmNow = (() => {
+      const r = _qs_sum(rev, 4); const o = _qs_sum(opInc, 4);
+      return (r != null && o != null && r > 0) ? o / r : null;
+    })();
+    const marginTtmYoY = (() => {
+      const r = _qs_sum(rev.slice(4), 4); const o = _qs_sum(opInc.slice(4), 4);
+      return (r != null && o != null && r > 0) ? o / r : null;
+    })();
+    const marginCompressionBps = (marginTtmNow != null && marginTtmYoY != null)
+      ? Math.round((marginTtmYoY - marginTtmNow) * 10000)
+      : null;
+
+    // ── Pattern 3: Revenue flat or down (TTM vs TTM YoY) ──
+    const revTtmNow = _qs_sum(rev, 4);
+    const revTtmYoY = _qs_sum(rev.slice(4), 4);
+    const revGrowthYoY = (revTtmNow != null && revTtmYoY != null && revTtmYoY > 0)
+      ? (revTtmNow - revTtmYoY) / revTtmYoY
+      : null;
+
+    let severity = null;
+    let title = "";
+    let reason = "";
+
+    if (consecutiveMisses >= 3 && (revGrowthYoY != null && revGrowthYoY < 0)) {
+      severity = "critical";
+      title = `${p.ticker}: 3+ misses + revenue cayendo`;
+      reason = `Operating income ha caído YoY en los últimos ${consecutiveMisses} trimestres y revenue TTM cae ${(revGrowthYoY*100).toFixed(0)}%. Patrón estructural.`;
+    } else if (consecutiveMisses >= 2 && marginCompressionBps != null && marginCompressionBps > 100) {
+      severity = "critical";
+      title = `${p.ticker}: 2 misses + márgenes contraídos`;
+      reason = `${consecutiveMisses}Q seguidos de earnings miss YoY, márgenes operativos contraídos ${marginCompressionBps}bps.`;
+    } else if (consecutiveMisses >= 2) {
+      severity = "warning";
+      title = `${p.ticker}: ${consecutiveMisses} earnings misses seguidos`;
+      reason = `Operating income cayendo YoY en ${consecutiveMisses} trimestres consecutivos. Vigilar próximos resultados.`;
+    } else if (marginCompressionBps != null && marginCompressionBps > 200 && revGrowthYoY != null && revGrowthYoY < 0.02) {
+      severity = "warning";
+      title = `${p.ticker}: márgenes contraídos ${marginCompressionBps}bps`;
+      reason = `Margen operativo TTM contraído ${marginCompressionBps}bps con revenue plano (${(revGrowthYoY*100).toFixed(1)}% YoY). Posible pérdida de pricing power.`;
+    }
+
+    if (!severity) continue;
+    if (severity === "critical") critical++; else warning++;
+
+    insights.push({
+      ticker: p.ticker,
+      severity,
+      title,
+      summary: `${p.name || p.ticker}. ${reason}`,
+      details: {
+        consecutiveMisses,
+        marginTtmNow: marginTtmNow != null ? Math.round(marginTtmNow * 1000) / 10 : null,
+        marginTtmYoY: marginTtmYoY != null ? Math.round(marginTtmYoY * 1000) / 10 : null,
+        marginCompressionBps,
+        revGrowthYoYPct: revGrowthYoY != null ? Math.round(revGrowthYoY * 100) : null,
+        revTtmNowM: revTtmNow != null ? Math.round(revTtmNow / 1e6) : null,
+      },
+      score: severity === "critical" ? 9 : 6,
+    });
+  }
+
+  // Cleanup stale rows from previous runs
+  const flagged = new Set(insights.map(i => i.ticker));
+  try {
+    const { results: existing } = await env.DB.prepare(
+      "SELECT ticker FROM agent_insights WHERE agent_name = 'earnings_trend' AND fecha = ?"
+    ).bind(fecha).all();
+    for (const row of (existing || [])) {
+      if (!flagged.has(row.ticker)) {
+        await env.DB.prepare(
+          "DELETE FROM agent_insights WHERE agent_name = 'earnings_trend' AND fecha = ? AND ticker = ?"
+        ).bind(fecha, row.ticker).run();
+      }
+    }
+  } catch {}
+
+  insights.sort((a, b) => {
+    if (a.severity !== b.severity) return a.severity === "critical" ? -1 : 1;
+    return (b.score || 0) - (a.score || 0);
+  });
+
+  const stored = await storeInsights(env, "earnings_trend", fecha, insights);
+  return { agent: "earnings_trend", scanned, alerts: insights.length, critical, warning, stored };
 }
 
 // ─── Agent 11: Dividend Cut Early Warning (no LLM) ──────────────
@@ -9557,6 +9891,7 @@ async function runAllAgents(env) {
     ['options', runOptionsIncomeAgent], // Step 10: Yahoo options chain (no LLM, FMP no expone options)
     ['dividend_cut_warning', runDividendCutWarningAgent], // Step 11: No LLM, FCF payout trend (Tier 1)
     ['analyst_downgrade', runAnalystDowngradeAgent],      // Step 12: FMP grades-historical (no LLM, Tier 1)
+    ['earnings_trend', runEarningsTrendAgent],            // Step 13: No LLM, op-income/margin pattern (Tier 3)
   ];
 
   for (let i = 0; i < agents.length; i++) {

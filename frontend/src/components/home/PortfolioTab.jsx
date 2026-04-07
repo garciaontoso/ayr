@@ -144,14 +144,24 @@ export default function PortfolioTab() {
   const [listSort, setListSort] = useState("value");
   const searchRef = useRef(null);
 
-  // Quality + Safety scores (local state — fetched once on mount, cached daily in sessionStorage)
+  // Quality + Safety scores (local state — cached in sessionStorage with 4h TTL).
+  // Previous implementation keyed by date YYYY-MM-DD which made the boundary at
+  // midnight buggy (open at 23:59 and refresh at 00:01 → two different caches
+  // pointing to the same compute). Now we use a TTL-based cache.
   const [qsScores, setQsScores] = useState({});
   useEffect(() => {
-    const cacheKey = 'qs-scores-' + new Date().toISOString().slice(0, 10);
-    const cached = sessionStorage.getItem(cacheKey);
-    if (cached) {
-      try { setQsScores(JSON.parse(cached) || {}); return; } catch {}
-    }
+    const CACHE_KEY = 'qs-scores-v2';
+    const TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+    try {
+      const raw = sessionStorage.getItem(CACHE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.ts && (Date.now() - parsed.ts) < TTL_MS) {
+          setQsScores(parsed.data || {});
+          return;
+        }
+      }
+    } catch {}
     let cancelled = false;
     (async () => {
       try {
@@ -161,7 +171,7 @@ export default function PortfolioTab() {
         const map = {};
         for (const row of (d.scores || [])) map[row.ticker] = row;
         setQsScores(map);
-        try { sessionStorage.setItem(cacheKey, JSON.stringify(map)); } catch {}
+        try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data: map })); } catch {}
       } catch {}
     })();
     return () => { cancelled = true; };

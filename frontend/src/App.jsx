@@ -2393,18 +2393,77 @@ function buildPositionsFromCB() {
                     <div>Interest Cov: <span style={{color:"var(--text-primary)"}}>{fmtMul(qInputs.intCov)}</span></div>
                     <div>Current Ratio: <span style={{color:"var(--text-primary)"}}>{fmtMul(qInputs.currentRatio)}</span></div>
                     {sInputs.fcfCoverage != null && <div>FCF/Div: <span style={{color:"var(--text-primary)"}}>{fmtMul(sInputs.fcfCoverage)}</span></div>}
-                    {sInputs.payoutRatio != null && <div>Payout Ratio: <span style={{color:"var(--text-primary)"}}>{fmtPct(sInputs.payoutRatio)}</span></div>}
+                    {sInputs.payoutRatio != null && <div>Payout (NI): <span style={{color:"var(--text-primary)"}}>{fmtPct(sInputs.payoutRatio)}</span></div>}
+                    {sInputs.fcfPayoutRatio != null && <div>Payout (FCF): <span style={{color: sInputs.fcfPayoutRatio > 1 ? "var(--red)" : sInputs.fcfPayoutRatio > 0.8 ? "var(--gold)" : "var(--text-primary)"}}>{fmtPct(sInputs.fcfPayoutRatio)}</span></div>}
+                    {qInputs.piotroskiScore != null && <div>Piotroski: <span style={{color: qInputs.piotroskiScore < 5 ? "var(--red)" : qInputs.piotroskiScore < 7 ? "var(--gold)" : "var(--green)"}}>{qInputs.piotroskiScore}/9</span></div>}
+                    {qInputs.accrualsRatio != null && <div>Accruals: <span style={{color: qInputs.accrualsRatio > 0.10 ? "var(--red)" : qInputs.accrualsRatio > 0.05 ? "var(--gold)" : "var(--text-primary)"}}>{fmtPct(qInputs.accrualsRatio)}</span></div>}
                     {sInputs.streakYears != null && <div>Streak: <span style={{color:"var(--text-primary)"}}>{sInputs.streakYears} años</span></div>}
                     {qInputs.vol1y != null && <div>Volatility 1y: <span style={{color:"var(--text-primary)"}}>{qInputs.vol1y.toFixed(1)}%</span></div>}
                   </div>
                 </div>
 
-                {/* History (sparkline) */}
-                {scoresModalData.history && scoresModalData.history.length > 1 && (
-                  <div style={{marginTop:14,fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>
-                    Histórico: {scoresModalData.history.length} snapshots desde {scoresModalData.history[scoresModalData.history.length-1].snapshot_date}
-                  </div>
-                )}
+                {/* Acción sugerida — derivada de thresholds Q+S */}
+                {(() => {
+                  const q = d.quality_score ?? 0;
+                  const s = d.safety_score ?? 0;
+                  let label = "HOLD", color = "var(--text-secondary)", reason = "Posición estable según métricas actuales.";
+                  if (s < 25 || (sInputs.fcfPayoutRatio != null && sInputs.fcfPayoutRatio > 1.0)) {
+                    label = "AVOID / TRIM"; color = "var(--red)";
+                    reason = "Safety en zona peligro o FCF payout > 100%. Considerar reducir exposición.";
+                  } else if (s < 45 || (qInputs.piotroskiScore != null && qInputs.piotroskiScore < 5)) {
+                    label = "WATCH"; color = "var(--gold)";
+                    reason = "Vigilar de cerca: safety mediocre o calidad de earnings deteriorándose (Piotroski < 5).";
+                  } else if (q >= 75 && s >= 70) {
+                    label = "ADD si valoración OK"; color = "var(--green)";
+                    reason = "Top tier en Quality + Safety. Si la valoración es atractiva, candidato a añadir.";
+                  } else if (q >= 60 && s >= 55) {
+                    label = "HOLD"; color = "var(--text-primary)";
+                    reason = "Calidad y seguridad razonables para una posición core.";
+                  }
+                  return (
+                    <div style={{marginTop:14,padding:12,border:`1px solid ${color}`,borderRadius:8,background:"var(--subtle-bg)"}}>
+                      <div style={{fontSize:9,color:"var(--text-tertiary)",letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Acción sugerida</div>
+                      <div style={{fontSize:14,fontWeight:700,color,fontFamily:"var(--fm)",marginBottom:4}}>{label}</div>
+                      <div style={{fontSize:10,color:"var(--text-secondary)",lineHeight:1.4}}>{reason}</div>
+                    </div>
+                  );
+                })()}
+
+                {/* Sparkline histórico Q + S */}
+                {scoresModalData.history && scoresModalData.history.length > 1 && (() => {
+                  const hist = [...scoresModalData.history].reverse(); // oldest → newest
+                  const W = 300, H = 60, P = 4;
+                  const xs = (i) => P + (i / Math.max(1, hist.length - 1)) * (W - 2*P);
+                  const ys = (v) => H - P - ((v ?? 0) / 100) * (H - 2*P);
+                  const qPath = hist.map((h, i) => `${i === 0 ? 'M' : 'L'} ${xs(i)} ${ys(h.quality_score)}`).join(' ');
+                  const sPath = hist.map((h, i) => `${i === 0 ? 'M' : 'L'} ${xs(i)} ${ys(h.safety_score)}`).join(' ');
+                  return (
+                    <div style={{marginTop:14,padding:12,background:"var(--subtle-bg)",borderRadius:8}}>
+                      <div style={{fontSize:9,color:"var(--text-tertiary)",letterSpacing:1,textTransform:"uppercase",marginBottom:6,display:"flex",justifyContent:"space-between"}}>
+                        <span>Histórico ({hist.length} snapshots)</span>
+                        <span style={{fontSize:9}}>
+                          <span style={{color:"var(--gold)"}}>━ Q</span> &nbsp;
+                          <span style={{color:"var(--green)"}}>━ S</span>
+                        </span>
+                      </div>
+                      <svg width={W} height={H} style={{display:"block",width:"100%",maxWidth:W}}>
+                        <line x1={P} y1={ys(50)} x2={W-P} y2={ys(50)} stroke="var(--border)" strokeDasharray="2,3"/>
+                        <path d={qPath} fill="none" stroke="var(--gold)" strokeWidth="1.5"/>
+                        <path d={sPath} fill="none" stroke="var(--green)" strokeWidth="1.5"/>
+                        {hist.map((h, i) => (
+                          <g key={i}>
+                            <circle cx={xs(i)} cy={ys(h.quality_score)} r="2" fill="var(--gold)"/>
+                            <circle cx={xs(i)} cy={ys(h.safety_score)} r="2" fill="var(--green)"/>
+                          </g>
+                        ))}
+                      </svg>
+                      <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",display:"flex",justifyContent:"space-between",marginTop:4}}>
+                        <span>{hist[0].snapshot_date}</span>
+                        <span>{hist[hist.length-1].snapshot_date}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div style={{marginTop:14,fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"center",borderTop:"1px solid var(--border)",paddingTop:10}}>
                   Snapshot {d.snapshot_date} · Computed {d.computed_at}
