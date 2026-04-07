@@ -845,6 +845,16 @@ export default function AgentesTab() {
 // Side drawer that exposes the system prompt + I/O shapes + insights
 // for a single agent. Opens when user clicks any agent card.
 function PromptDrawer({ agent, meta, insights, activeTab, setActiveTab, onClose }) {
+  // Escape key handler (a11y). Added 2026-04-08 per Audit D finding —
+  // the drawer is a full-height side panel with no way to close via
+  // keyboard. Registered only when the drawer is open (agent truthy).
+  useEffect(() => {
+    if (!agent) return;
+    const handler = (e) => { if (e.key === 'Escape') onClose?.(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [agent, onClose]);
+
   if (!agent) return null;
 
   const copyPrompt = () => {
