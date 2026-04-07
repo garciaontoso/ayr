@@ -7453,8 +7453,13 @@ async function _qs_getDividendStreak(env, ticker, _fmpFin = null) {
 
 // Detect material drops, coverage red flags, streak breaks, and compound
 // degradation patterns. Insert into alerts table for the alerts panel.
-async function _qs_detectScoreDrops(env, ticker, newQ, newS, sInputs, prevStreakYears) {
+async function _qs_detectScoreDrops(env, ticker, newQ, newS, sInputs, prevStreakYears, sector) {
   try {
+    // FCF-related alerts are MISLEADING for REITs (FFO-based) and asset
+    // managers / BDCs / MLPs (NII / DCF / carry). Quality + Safety score drops
+    // still fire — only suppress the FCF coverage / payout red flags.
+    const fcfAlertsCarvedOut = (sector && /real.?estate/i.test(sector))
+      || FCF_PAYOUT_CARVEOUT.has(ticker);
     // Pull last 3 snapshots so we can detect compound/sustained degradation
     const { results } = await env.DB.prepare(
       `SELECT quality_score, safety_score, snapshot_date, inputs_json FROM quality_safety_scores
@@ -7465,6 +7470,11 @@ async function _qs_detectScoreDrops(env, ticker, newQ, newS, sInputs, prevStreak
     const today = new Date().toISOString().slice(0, 10);
     const insertAlert = async (tipo, titulo, detalle, valor) => {
       try {
+        // Dedup: skip if same fecha+tipo+ticker already exists (idempotent reruns)
+        const existing = await env.DB.prepare(
+          "SELECT id FROM alerts WHERE fecha=? AND tipo=? AND ticker=? LIMIT 1"
+        ).bind(today, tipo, ticker).first();
+        if (existing) return;
         await env.DB.prepare(
           `INSERT INTO alerts (fecha, tipo, titulo, detalle, ticker, valor)
            VALUES (?, ?, ?, ?, ?, ?)`
@@ -7472,27 +7482,39 @@ async function _qs_detectScoreDrops(env, ticker, newQ, newS, sInputs, prevStreak
       } catch {}
     };
 
-    // ── 1. FCF Coverage red flag (immediate, no history needed) ──
-    const fcfCov = sInputs?.fcfCoverage;
-    if (fcfCov != null && fcfCov < 1.5 && fcfCov > -10) {
-      const sev = fcfCov < 1.0 ? "CUT RISK INMINENTE" : "Cobertura FCF baja";
-      await insertAlert(
-        "fcf_coverage_low",
-        `${ticker}: ${sev} (FCF/Div ${fcfCov.toFixed(2)}x)`,
-        `Cobertura FCF/Div = ${fcfCov.toFixed(2)}x. ${fcfCov < 1.0 ? 'La empresa NO genera caja suficiente para sostener el dividendo.' : 'Margen de seguridad insuficiente.'}`,
-        Math.round(fcfCov * 100)
-      );
+    // If this ticker is now carved out from FCF alerts, sweep any stale
+    // FCF alerts that may have been inserted today before the carve-out fix.
+    if (fcfAlertsCarvedOut) {
+      try {
+        await env.DB.prepare(
+          "DELETE FROM alerts WHERE fecha=? AND ticker=? AND tipo IN ('fcf_coverage_low','fcf_payout_high')"
+        ).bind(today, ticker).run();
+      } catch {}
     }
 
-    // ── 2. FCF Payout > 100% (already penalized in score, but flag explicitly) ──
-    const fcfPayout = sInputs?.fcfPayoutRatio;
-    if (fcfPayout != null && fcfPayout > 1.0) {
-      await insertAlert(
-        "fcf_payout_high",
-        `${ticker}: FCF Payout ${(fcfPayout*100).toFixed(0)}%`,
-        `Payout sobre FCF = ${(fcfPayout*100).toFixed(0)}%. Insostenible si persiste.`,
-        Math.round(fcfPayout * 100)
-      );
+    // ── 1. FCF Coverage red flag (immediate, no history needed) ──
+    if (!fcfAlertsCarvedOut) {
+      const fcfCov = sInputs?.fcfCoverage;
+      if (fcfCov != null && fcfCov < 1.5 && fcfCov > -10) {
+        const sev = fcfCov < 1.0 ? "CUT RISK INMINENTE" : "Cobertura FCF baja";
+        await insertAlert(
+          "fcf_coverage_low",
+          `${ticker}: ${sev} (FCF/Div ${fcfCov.toFixed(2)}x)`,
+          `Cobertura FCF/Div = ${fcfCov.toFixed(2)}x. ${fcfCov < 1.0 ? 'La empresa NO genera caja suficiente para sostener el dividendo.' : 'Margen de seguridad insuficiente.'}`,
+          Math.round(fcfCov * 100)
+        );
+      }
+
+      // ── 2. FCF Payout > 100% (already penalized in score, but flag explicitly) ──
+      const fcfPayout = sInputs?.fcfPayoutRatio;
+      if (fcfPayout != null && fcfPayout > 1.0) {
+        await insertAlert(
+          "fcf_payout_high",
+          `${ticker}: FCF Payout ${(fcfPayout*100).toFixed(0)}%`,
+          `Payout sobre FCF = ${(fcfPayout*100).toFixed(0)}%. Insostenible si persiste.`,
+          Math.round(fcfPayout * 100)
+        );
+      }
     }
 
     if (!results || !results.length) return;
@@ -7660,7 +7682,7 @@ async function computeQualitySafetyScore(env, ticker) {
   } catch {}
 
   // Detect material drops, FCF coverage flags, streak breaks, compound degradation
-  await _qs_detectScoreDrops(env, ticker, q?.quality_score, s?.safety_score, s?.inputs, prevStreakYears);
+  await _qs_detectScoreDrops(env, ticker, q?.quality_score, s?.safety_score, s?.inputs, prevStreakYears, sector);
 
   return {
     ok: true,
