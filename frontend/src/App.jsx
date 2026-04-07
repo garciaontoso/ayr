@@ -133,27 +133,31 @@ export default function ARApp() {
     });
   }, []);
 
-  // Destructure apiData for use throughout the component
-  const CTRL_DATA = apiData?.CTRL_DATA || [];
-  const INCOME_DATA = apiData?.INCOME_DATA || [];
-  const DIV_BY_YEAR = apiData?.DIV_BY_YEAR || {};
-  const DIV_BY_MONTH = apiData?.DIV_BY_MONTH || {};
-  const GASTOS_MONTH = apiData?.GASTOS_MONTH || {};
-  const FIRE_PROJ = apiData?.FIRE_PROJ || [];
-  const FIRE_PARAMS = apiData?.FIRE_PARAMS || {target:1350000,returnPct:0.11,inflation:0.025,monthlyExp:4000};
-  const ANNUAL_PL = apiData?.ANNUAL_PL || [];
-  const FI_TRACK = apiData?.FI_TRACK || [];
-  const HIST_INIT = apiData?.HIST_INIT || [];
-  const GASTO_CATS = apiData?.GASTO_CATS || {};
-  const _DIV_ENTRIES = apiData?._DIV_ENTRIES || [];
-  const _GASTO_ENTRIES = apiData?._GASTO_ENTRIES || [];
-  const GASTOS_CAT = apiData?.GASTOS_CAT || {};
-  const CASH_DATA = apiData?.CASH_DATA || [];
-  const MARGIN_INTEREST_DATA = apiData?.MARGIN_INTEREST_DATA || [];
-  const D1_POSITIONS = apiData?.D1_POSITIONS || {};
-  const LIVE_DPS = apiData?.LIVE_DPS || {};
-  const FORWARD_DIV = apiData?.FORWARD_DIV || {annual_projected:0,monthly:[],by_ticker:[]};
-  const CACHED_PNL = apiData?.CACHED_PNL || {pnl:0,cost:0,pnlPct:0,timestamp:null};
+  // Destructure apiData for use throughout the component.
+  // MEMOIZED (Audit B H2, 2026-04-08): previously these 20 fallbacks were
+  // evaluated on every render, creating new []/{}/array references each time
+  // and invalidating useCallback/useEffect dep arrays throughout the tree.
+  // Now they each get a stable reference derived only when apiData changes.
+  const CTRL_DATA = useMemo(() => apiData?.CTRL_DATA || [], [apiData]);
+  const INCOME_DATA = useMemo(() => apiData?.INCOME_DATA || [], [apiData]);
+  const DIV_BY_YEAR = useMemo(() => apiData?.DIV_BY_YEAR || {}, [apiData]);
+  const DIV_BY_MONTH = useMemo(() => apiData?.DIV_BY_MONTH || {}, [apiData]);
+  const GASTOS_MONTH = useMemo(() => apiData?.GASTOS_MONTH || {}, [apiData]);
+  const FIRE_PROJ = useMemo(() => apiData?.FIRE_PROJ || [], [apiData]);
+  const FIRE_PARAMS = useMemo(() => apiData?.FIRE_PARAMS || {target:1350000,returnPct:0.11,inflation:0.025,monthlyExp:4000}, [apiData]);
+  const ANNUAL_PL = useMemo(() => apiData?.ANNUAL_PL || [], [apiData]);
+  const FI_TRACK = useMemo(() => apiData?.FI_TRACK || [], [apiData]);
+  const HIST_INIT = useMemo(() => apiData?.HIST_INIT || [], [apiData]);
+  const GASTO_CATS = useMemo(() => apiData?.GASTO_CATS || {}, [apiData]);
+  const _DIV_ENTRIES = useMemo(() => apiData?._DIV_ENTRIES || [], [apiData]);
+  const _GASTO_ENTRIES = useMemo(() => apiData?._GASTO_ENTRIES || [], [apiData]);
+  const GASTOS_CAT = useMemo(() => apiData?.GASTOS_CAT || {}, [apiData]);
+  const CASH_DATA = useMemo(() => apiData?.CASH_DATA || [], [apiData]);
+  const MARGIN_INTEREST_DATA = useMemo(() => apiData?.MARGIN_INTEREST_DATA || [], [apiData]);
+  const D1_POSITIONS = useMemo(() => apiData?.D1_POSITIONS || {}, [apiData]);
+  const LIVE_DPS = useMemo(() => apiData?.LIVE_DPS || {}, [apiData]);
+  const FORWARD_DIV = useMemo(() => apiData?.FORWARD_DIV || {annual_projected:0,monthly:[],by_ticker:[]}, [apiData]);
+  const CACHED_PNL = useMemo(() => apiData?.CACHED_PNL || {pnl:0,cost:0,pnlPct:0,timestamp:null}, [apiData]);
 
   // Financial data for analysis — loaded via "Importar" JSON or FMP API
   const [fin, setFin] = useState(()=>{
