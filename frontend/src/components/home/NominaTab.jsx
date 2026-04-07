@@ -32,8 +32,11 @@ function HeroCard({ annualDiv, displayCcy, privacyMode }) {
       <div style={{ position: "absolute", top: -30, right: -30, width: 120, height: 120, borderRadius: "50%", background: "rgba(200,164,78,.06)" }} />
       <div style={{ position: "absolute", bottom: -20, left: -20, width: 80, height: 80, borderRadius: "50%", background: "rgba(200,164,78,.04)" }} />
 
-      <div style={{ fontSize: 11, fontWeight: 600, color: GOLD, fontFamily: "var(--fm)", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 6, opacity: .8 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: GOLD, fontFamily: "var(--fm)", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 2, opacity: .8 }}>
         Tu Sueldo Pasivo
+      </div>
+      <div style={{ fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)", marginBottom: 6, opacity: .7 }}>
+        neto estimado · 10% WHT (China-US treaty)
       </div>
 
       <div style={{ ...blur(privacyMode), fontSize: 42, fontWeight: 800, color: GOLD, fontFamily: "var(--fd)", lineHeight: 1.1 }}>
@@ -449,8 +452,13 @@ export default function NominaTab() {
   const sym = displayCcy === "EUR" ? "\u20ac" : "$";
   const toDisplay = displayCcy === "EUR" ? (fxRates?.EUR || 0.92) : 1;
 
-  // Annual dividend in display currency
-  const annualDivUSD = portfolioTotals?.totalDivUSD || 0;
+  // Annual dividend in display currency.
+  // Apply DEFAULT_WHT_NET (0.90, China-US treaty 10%) so "Sueldo Pasivo"
+  // reflects actual take-home, not gross. Audit C flagged that the
+  // previous gross number overstated freedom by ~10% on US dividend
+  // stocks. HeroCard subtitle makes the treatment explicit.
+  const annualDivUSDGross = portfolioTotals?.totalDivUSD || 0;
+  const annualDivUSD = annualDivUSDGross * 0.9;
   const annualDiv = annualDivUSD * toDisplay;
 
   const monthlyExp = (FIRE_PARAMS?.monthlyExp || 4000) * toDisplay;
