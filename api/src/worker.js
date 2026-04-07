@@ -6249,6 +6249,57 @@ export default {
         }, corsHeaders);
       }
 
+      // ── User preferences (cross-device persistence via D1 agent_memory) ──
+      //
+      // GET  /api/preferences        → all prefs as { key: value } map
+      // GET  /api/preferences/:key   → single preference value
+      // POST /api/preferences        body { key, value }
+      //
+      // Storage: agent_memory table with key prefix "pref_*". Single-user
+      // system so no auth needed. Keys used so far:
+      //   pref_ui_home_tabs_order  — array of tab ids in desired render order
+      //   pref_ui_theme            — "light" | "dark"  (future)
+      //   pref_ui_display_ccy      — "USD" | "EUR" ...  (future)
+      if (path === "/api/preferences" && request.method === "GET") {
+        try {
+          const { results } = await env.DB.prepare(
+            "SELECT id, data FROM agent_memory WHERE id LIKE 'pref_%'"
+          ).all();
+          const prefs = {};
+          for (const row of (results || [])) {
+            const key = row.id.slice(5); // strip 'pref_' prefix
+            try { prefs[key] = JSON.parse(row.data); } catch { prefs[key] = null; }
+          }
+          return json({ preferences: prefs }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+      if (path.startsWith("/api/preferences/") && request.method === "GET") {
+        const key = decodeURIComponent(path.slice("/api/preferences/".length));
+        if (!key || !/^[a-z0-9_]+$/i.test(key)) {
+          return json({ error: "invalid key" }, corsHeaders, 400);
+        }
+        const value = await getAgentMemory(env, `pref_${key}`);
+        return json({ key, value: value ?? null }, corsHeaders);
+      }
+      if (path === "/api/preferences" && request.method === "POST") {
+        try {
+          const body = await request.json();
+          const key = String(body.key || "").trim();
+          if (!key || !/^[a-z0-9_]+$/i.test(key)) {
+            return json({ error: "invalid key (a-z, 0-9, _)" }, corsHeaders, 400);
+          }
+          if (key.length > 60) return json({ error: "key too long" }, corsHeaders, 400);
+          const value = body.value;
+          // Accept any JSON-serializable value (array, object, string, number, boolean, null)
+          await setAgentMemory(env, `pref_${key}`, value);
+          return json({ ok: true, key, value }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
       // GET /api/agent-run/status — current state + last completed run metadata
       // Used by the frontend button to poll progress and show "Last run: Xh ago"
       if (path === "/api/agent-run/status" && request.method === "GET") {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { CURRENCIES, DISPLAY_CCYS, APP_VERSION, API_URL } from '../../constants/index.js';
 import { saveCompanyToStorage } from '../../utils/storage.js';
@@ -464,6 +464,86 @@ export default function HomeView() {
     alerts, alertsUnread, showAlertPanel, setShowAlertPanel, markAlertsRead, theme, toggleTheme,
   } = useHome();
 
+  // ── Draggable tab order (persisted in the cloud via /api/preferences) ──
+  // tabOrder is an array of tab ids. null = loading; once fetched we apply.
+  // Fallback: localStorage (offline) → HOME_TABS default order.
+  const [tabOrder, setTabOrder] = useState(() => {
+    try {
+      const cached = localStorage.getItem('ui_home_tabs_order');
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return null;
+  });
+  const [draggedTabId, setDraggedTabId] = useState(null);
+  const [dragOverTabId, setDragOverTabId] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(API_URL + "/api/preferences/ui_home_tabs_order");
+        const d = await r.json();
+        if (!cancelled && Array.isArray(d?.value)) {
+          setTabOrder(d.value);
+          try { localStorage.setItem('ui_home_tabs_order', JSON.stringify(d.value)); } catch {}
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  // Compute ordered tabs: use saved order first, then append any new tabs not in it
+  const orderedTabs = (() => {
+    if (!tabOrder) return HOME_TABS;
+    const byId = Object.fromEntries(HOME_TABS.map(t => [t.id, t]));
+    const seen = new Set();
+    const out = [];
+    for (const id of tabOrder) {
+      if (byId[id] && !seen.has(id)) { out.push(byId[id]); seen.add(id); }
+    }
+    for (const t of HOME_TABS) {
+      if (!seen.has(t.id)) out.push(t);
+    }
+    return out;
+  })();
+  const persistTabOrder = useCallback(async (newOrder) => {
+    setTabOrder(newOrder);
+    try { localStorage.setItem('ui_home_tabs_order', JSON.stringify(newOrder)); } catch {}
+    try {
+      await fetch(API_URL + "/api/preferences", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: "ui_home_tabs_order", value: newOrder }),
+      });
+    } catch (e) { console.error("persist tab order failed:", e); }
+  }, []);
+  const handleTabDragStart = (e, tabId) => {
+    setDraggedTabId(tabId);
+    try { e.dataTransfer.setData("text/plain", tabId); e.dataTransfer.effectAllowed = "move"; } catch {}
+  };
+  const handleTabDragOver = (e, tabId) => {
+    e.preventDefault();
+    try { e.dataTransfer.dropEffect = "move"; } catch {}
+    if (dragOverTabId !== tabId) setDragOverTabId(tabId);
+  };
+  const handleTabDragEnd = () => {
+    setDraggedTabId(null);
+    setDragOverTabId(null);
+  };
+  const handleTabDrop = (e, targetId) => {
+    e.preventDefault();
+    const sourceId = draggedTabId || (() => { try { return e.dataTransfer.getData("text/plain"); } catch { return null; } })();
+    setDraggedTabId(null);
+    setDragOverTabId(null);
+    if (!sourceId || sourceId === targetId) return;
+    const currentIds = orderedTabs.map(t => t.id);
+    const fromIdx = currentIds.indexOf(sourceId);
+    const toIdx = currentIds.indexOf(targetId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const newOrder = [...currentIds];
+    newOrder.splice(fromIdx, 1);
+    newOrder.splice(toIdx, 0, sourceId);
+    persistTabOrder(newOrder);
+  };
+
   // IB badge logic
   const ibLoaded = ibData?.loaded;
   const ibLoading = ibData?.loading;
@@ -497,17 +577,46 @@ export default function HomeView() {
       {/* Divider */}
       <div style={{width:1,height:20,background:"var(--border)",flexShrink:0}}/>
 
-      {/* Tabs — scrollable, same row */}
+      {/* Tabs — scrollable, same row, drag-and-drop to reorder (desktop) */}
       <div style={{position:"relative",flex:1,minWidth:0}}>
         <div className="ar-home-tabs" style={{display:"flex",alignItems:"center",gap:3,overflowX:"auto",flexWrap:"nowrap",scrollbarWidth:"none",padding:"2px 0"}}>
-          {HOME_TABS.map(t=>(
-            <button key={t.id} onClick={()=>setHomeTab(t.id)} style={{display:"flex",alignItems:"center",gap:3,padding:"5px 10px",borderRadius:7,border:`1px solid ${homeTab===t.id?"var(--gold)":"transparent"}`,background:homeTab===t.id?"var(--gold-dim)":"transparent",color:homeTab===t.id?"var(--gold)":"var(--text-tertiary)",fontSize:12,fontWeight:homeTab===t.id?700:500,cursor:"pointer",fontFamily:"var(--fb)",whiteSpace:"nowrap",flexShrink:0}}>
-              <span style={{fontSize:12}}>{t.ico}</span>{t.lbl}
-              {t.id==="portfolio" && portfolioList.length>0 && <span style={{fontSize:9,opacity:.7,fontFamily:"var(--fm)"}}>{portfolioList.length}</span>}
-              {t.id==="watchlist" && watchlistList.length>0 && <span style={{fontSize:9,opacity:.7,fontFamily:"var(--fm)"}}>{watchlistList.length}</span>}
-              {t.id==="historial" && historialList.length>0 && <span style={{fontSize:9,opacity:.7,fontFamily:"var(--fm)"}}>{historialList.length}</span>}
-            </button>
-          ))}
+          {orderedTabs.map(t=>{
+            const isActive = homeTab===t.id;
+            const isDragging = draggedTabId === t.id;
+            const isDragOver = dragOverTabId === t.id && draggedTabId && draggedTabId !== t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={()=>setHomeTab(t.id)}
+                draggable
+                onDragStart={(e)=>handleTabDragStart(e, t.id)}
+                onDragOver={(e)=>handleTabDragOver(e, t.id)}
+                onDragLeave={()=>{ if (dragOverTabId === t.id) setDragOverTabId(null); }}
+                onDrop={(e)=>handleTabDrop(e, t.id)}
+                onDragEnd={handleTabDragEnd}
+                title="Arrastra para reordenar"
+                style={{
+                  display:"flex",alignItems:"center",gap:3,
+                  padding:"5px 10px",borderRadius:7,
+                  border:`1px solid ${isDragOver?"var(--gold)":isActive?"var(--gold)":"transparent"}`,
+                  background:isDragOver?"rgba(214,158,46,.25)":isActive?"var(--gold-dim)":"transparent",
+                  color:isActive?"var(--gold)":"var(--text-tertiary)",
+                  fontSize:12,fontWeight:isActive?700:500,
+                  cursor: isDragging ? "grabbing" : "grab",
+                  fontFamily:"var(--fb)",whiteSpace:"nowrap",flexShrink:0,
+                  opacity: isDragging ? 0.4 : 1,
+                  transform: isDragOver ? "scale(1.05)" : "none",
+                  transition: "transform .12s ease, opacity .12s ease, background .12s ease",
+                  userSelect: "none",
+                }}
+              >
+                <span style={{fontSize:12}}>{t.ico}</span>{t.lbl}
+                {t.id==="portfolio" && portfolioList.length>0 && <span style={{fontSize:9,opacity:.7,fontFamily:"var(--fm)"}}>{portfolioList.length}</span>}
+                {t.id==="watchlist" && watchlistList.length>0 && <span style={{fontSize:9,opacity:.7,fontFamily:"var(--fm)"}}>{watchlistList.length}</span>}
+                {t.id==="historial" && historialList.length>0 && <span style={{fontSize:9,opacity:.7,fontFamily:"var(--fm)"}}>{historialList.length}</span>}
+              </button>
+            );
+          })}
         </div>
         <div className="ar-tabs-fade-right"/>
       </div>
