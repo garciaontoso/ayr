@@ -326,6 +326,9 @@ export default function ARApp() {
   const [alertsUnread, setAlertsUnread] = useState(0);
   const [showAlertPanel, setShowAlertPanel] = useState(false);
   const [divStreaks, setDivStreaks] = useState({});
+  const [qsScores, setQsScores] = useState({});            // { ticker: { quality_score, safety_score, ... } }
+  const [scoresModalTicker, setScoresModalTicker] = useState(null);
+  const [scoresModalData, setScoresModalData] = useState(null);
 
   const [uiZoom, setUiZoom] = useState(() => {
     const saved = localStorage.getItem("ayr_zoom");
@@ -1400,6 +1403,39 @@ function buildPositionsFromCB() {
     loadBatch();
   }, [portfolioList.length]);
 
+  // ── Quality + Safety Scores ─────────────────────────────────────
+  // Fetch all latest scores once on mount, store as map { ticker: scoreRow }
+  useEffect(() => {
+    const cacheKey = 'qs-scores-' + new Date().toISOString().slice(0, 10);
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) {
+      try { setQsScores(JSON.parse(cached) || {}); return; } catch {}
+    }
+    (async () => {
+      try {
+        const r = await fetch(`${API_URL}/api/scores`);
+        const d = await r.json();
+        const map = {};
+        for (const row of (d.scores || [])) map[row.ticker] = row;
+        setQsScores(map);
+        try { sessionStorage.setItem(cacheKey, JSON.stringify(map)); } catch {}
+      } catch {}
+    })();
+  }, []);
+
+  // Open Q/S drill-down modal — fetch detailed history
+  const openScoresModal = async (ticker) => {
+    setScoresModalTicker(ticker);
+    setScoresModalData(null);
+    try {
+      const r = await fetch(`${API_URL}/api/scores/${encodeURIComponent(ticker)}`);
+      const d = await r.json();
+      setScoresModalData(d);
+    } catch (e) {
+      setScoresModalData({ error: e.message });
+    }
+  };
+
   // Auto-run alert checks after IB data + prices loaded
   useEffect(() => {
     if (!ibData.loaded || !portfolioList.length) return;
@@ -1825,6 +1861,23 @@ function buildPositionsFromCB() {
           {badge}
           {p.dataSource==="IB" && <span style={{fontSize:6,fontWeight:700,padding:"1px 3px",borderRadius:3,background:"rgba(100,210,255,.1)",color:"#64d2ff",flexShrink:0}}>IB</span>}
           {divStreaks[p.ticker]?.streak >= 5 && <span style={{fontSize:6,fontWeight:700,padding:"1px 3px",borderRadius:3,background:divStreaks[p.ticker].streak>=25?"rgba(200,164,78,.15)":divStreaks[p.ticker].streak>=10?"rgba(48,209,88,.1)":"rgba(255,214,10,.08)",color:divStreaks[p.ticker].streak>=25?"var(--gold)":divStreaks[p.ticker].streak>=10?"var(--green)":"#ffd60a",flexShrink:0}} title={`${divStreaks[p.ticker].streak} años subiendo dividendo`}>{divStreaks[p.ticker].streak}y</span>}
+          {/* Quality + Safety badges (Q + S, color-coded by tier) */}
+          {qsScores[p.ticker] && (() => {
+            const sc = qsScores[p.ticker];
+            const q = sc.quality_score;
+            const s = sc.safety_score;
+            const colorFor = (v) => v == null ? {bg:"transparent",fg:"var(--text-tertiary)"} :
+              v >= 80 ? {bg:"rgba(200,164,78,.18)", fg:"var(--gold)"} :
+              v >= 65 ? {bg:"rgba(48,209,88,.12)", fg:"var(--green)"} :
+              v >= 50 ? {bg:"rgba(255,214,10,.10)", fg:"#ffd60a"} :
+                        {bg:"rgba(255,69,58,.12)", fg:"#ff6b6b"};
+            const qc = colorFor(q);
+            const sc2 = colorFor(s);
+            return <span onClick={(e)=>{e.stopPropagation();openScoresModal(p.ticker);}} style={{display:"inline-flex",gap:1,flexShrink:0,cursor:"pointer"}} title={`Quality ${q ?? '—'} · Safety ${s ?? 'N/A'} (click para detalles)`}>
+              {q != null && <span style={{fontSize:6,fontWeight:800,padding:"1px 3px",borderRadius:3,background:qc.bg,color:qc.fg,letterSpacing:.2}}>Q{q.toFixed(0)}</span>}
+              {s != null && <span style={{fontSize:6,fontWeight:800,padding:"1px 3px",borderRadius:3,background:sc2.bg,color:sc2.fg,letterSpacing:.2}}>S{s.toFixed(0)}</span>}
+            </span>;
+          })()}
           {p.notes && <span style={{fontSize:7,flexShrink:0,opacity:.5}} title={p.notes.length > 80 ? p.notes.slice(0,80)+'...' : p.notes}>📝</span>}
           {/* Sparkline inline — gradient fill + hover tooltip */}
           {(p.spark||[]).length >= 2 && (() => {
@@ -2251,6 +2304,150 @@ function buildPositionsFromCB() {
             <div style={{padding:"6px 18px",fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",borderTop:"1px solid var(--border)"}}>
               ⌘K para abrir · ESC para cerrar · Enter para seleccionar
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Quality + Safety Score drill-down modal ── */}
+      {scoresModalTicker && (
+        <div onClick={()=>{setScoresModalTicker(null);setScoresModalData(null);}}
+          style={{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",backdropFilter:"blur(8px)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div onClick={e=>e.stopPropagation()}
+            style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,maxWidth:680,width:"100%",maxHeight:"85vh",overflowY:"auto",padding:"22px 26px",boxShadow:"0 20px 60px rgba(0,0,0,.5)"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18,paddingBottom:14,borderBottom:"1px solid var(--border)"}}>
+              <div>
+                <div style={{fontSize:20,fontWeight:800,color:"var(--text-primary)",fontFamily:"var(--fb)",letterSpacing:-.3}}>{scoresModalTicker}</div>
+                <div style={{fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>Quality + Safety Score breakdown</div>
+              </div>
+              <button onClick={()=>{setScoresModalTicker(null);setScoresModalData(null);}}
+                style={{width:30,height:30,borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:14,cursor:"pointer"}}>✕</button>
+            </div>
+
+            {!scoresModalData && <div style={{padding:30,textAlign:"center",color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontSize:12}}>Cargando...</div>}
+
+            {scoresModalData?.error && <div style={{padding:20,color:"var(--red)",fontFamily:"var(--fm)",fontSize:12}}>Error: {scoresModalData.error}</div>}
+
+            {scoresModalData?.message && (
+              <div style={{padding:20,textAlign:"center",color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontSize:12}}>
+                {scoresModalData.message}
+                <div style={{marginTop:12}}>
+                  <button onClick={async()=>{
+                    setScoresModalData(null);
+                    try {
+                      const r = await fetch(`${API_URL}/api/scores/compute?ticker=${encodeURIComponent(scoresModalTicker)}`,{method:"POST"});
+                      const d = await r.json();
+                      // Reload via GET
+                      const r2 = await fetch(`${API_URL}/api/scores/${encodeURIComponent(scoresModalTicker)}`);
+                      setScoresModalData(await r2.json());
+                    } catch (e) { setScoresModalData({error:e.message}); }
+                  }} style={{padding:"6px 14px",borderRadius:8,border:"1px solid var(--gold)",background:"var(--gold-dim)",color:"var(--gold)",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>
+                    ⚡ Computar ahora
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {scoresModalData?.latest && (() => {
+              const d = scoresModalData.latest;
+              const inputs = d.inputs || {};
+              const qInputs = inputs.quality || {};
+              const sInputs = inputs.safety || {};
+              const fmt = (v, decimals=2) => v == null ? "—" : (typeof v === 'number' ? v.toFixed(decimals) : v);
+              const fmtPct = (v) => v == null ? "—" : (v*100).toFixed(1)+"%";
+              const fmtMul = (v) => v == null ? "—" : v.toFixed(2)+"x";
+              const fmtBn = (v) => v == null ? "—" : v >= 1e9 ? "$"+(v/1e9).toFixed(1)+"B" : v >= 1e6 ? "$"+(v/1e6).toFixed(0)+"M" : "$"+v.toFixed(0);
+
+              const ScoreBar = ({label, pts, max, val=null, fmt=null}) => {
+                const pct = (pts || 0) / max * 100;
+                const col = pct >= 80 ? "var(--gold)" : pct >= 60 ? "var(--green)" : pct >= 40 ? "#ffd60a" : "#ff6b6b";
+                return (
+                  <div style={{marginBottom:8}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3,fontFamily:"var(--fm)"}}>
+                      <span style={{color:"var(--text-secondary)"}}>{label}</span>
+                      <span style={{color:"var(--text-tertiary)",fontSize:10}}>{val != null && fmt ? fmt(val) + " · " : ""}<span style={{color:col,fontWeight:700}}>{pts ?? "—"}/{max}</span></span>
+                    </div>
+                    <div style={{height:5,background:"var(--subtle-bg2)",borderRadius:3,overflow:"hidden"}}>
+                      <div style={{height:"100%",width:`${pct}%`,background:col,borderRadius:3,transition:"width .3s"}}/>
+                    </div>
+                  </div>
+                );
+              };
+
+              return <>
+                {/* Big score numbers */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:18}}>
+                  <div style={{padding:"14px 16px",background:"var(--subtle-bg)",borderRadius:10,textAlign:"center"}}>
+                    <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Quality</div>
+                    <div style={{fontSize:38,fontWeight:800,color:d.quality_score >= 80 ? "var(--gold)" : d.quality_score >= 65 ? "var(--green)" : d.quality_score >= 50 ? "#ffd60a" : "#ff6b6b",fontFamily:"var(--fb)",lineHeight:1}}>{d.quality_score ?? "—"}</div>
+                    <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:4}}>de 100</div>
+                  </div>
+                  <div style={{padding:"14px 16px",background:"var(--subtle-bg)",borderRadius:10,textAlign:"center"}}>
+                    <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Dividend Safety</div>
+                    {d.safety_score != null ? (
+                      <div style={{fontSize:38,fontWeight:800,color:d.safety_score >= 80 ? "var(--gold)" : d.safety_score >= 65 ? "var(--green)" : d.safety_score >= 50 ? "#ffd60a" : "#ff6b6b",fontFamily:"var(--fb)",lineHeight:1}}>{d.safety_score}</div>
+                    ) : (
+                      <div style={{fontSize:18,fontWeight:700,color:"var(--text-tertiary)",fontFamily:"var(--fm)",lineHeight:1.5,paddingTop:8}}>N/A<div style={{fontSize:8}}>(no dividend payer)</div></div>
+                    )}
+                    {d.safety_score != null && <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:4}}>de 100</div>}
+                  </div>
+                </div>
+
+                {/* Quality breakdown */}
+                <div style={{marginBottom:14}}>
+                  <div style={{fontSize:10,fontWeight:700,color:"var(--text-tertiary)",letterSpacing:1,textTransform:"uppercase",fontFamily:"var(--fm)",marginBottom:8}}>Quality Components</div>
+                  <ScoreBar label="Profitability" pts={d.q_profitability} max={25} val={qInputs.fcfMargin} fmt={fmtPct}/>
+                  <ScoreBar label="Capital Efficiency (ROIC)" pts={d.q_capital_efficiency} max={20} val={qInputs.roic} fmt={fmtPct}/>
+                  <ScoreBar label="Balance Sheet" pts={d.q_balance_sheet} max={20} val={qInputs.debtEbitda} fmt={fmtMul}/>
+                  <ScoreBar label="Growth (Rev + FCF)" pts={d.q_growth} max={15} val={qInputs.revGrowth} fmt={fmtPct}/>
+                  <ScoreBar label="Capital Allocation" pts={d.q_dividend_track} max={10}/>
+                  <ScoreBar label="Predictability" pts={d.q_predictability} max={10} val={qInputs.vol1y} fmt={v=>v?.toFixed(1)+"%"}/>
+                </div>
+
+                {/* Safety breakdown */}
+                {d.safety_score != null && (
+                  <div style={{marginBottom:14}}>
+                    <div style={{fontSize:10,fontWeight:700,color:"var(--text-tertiary)",letterSpacing:1,textTransform:"uppercase",fontFamily:"var(--fm)",marginBottom:8}}>Dividend Safety Components</div>
+                    <ScoreBar label="FCF Coverage" pts={d.s_coverage} max={30} val={sInputs.fcfCoverage} fmt={fmtMul}/>
+                    <ScoreBar label="Balance Sheet Stress" pts={d.s_balance_sheet} max={25}/>
+                    <ScoreBar label="Track Record" pts={d.s_track_record} max={20} val={sInputs.streakYears} fmt={v=>v?v+" años":"—"}/>
+                    <ScoreBar label="Forward Visibility" pts={d.s_forward} max={15}/>
+                    <ScoreBar label="Sector Adjustment" pts={d.s_sector_adj} max={10}/>
+                  </div>
+                )}
+
+                {/* Key inputs raw */}
+                <div style={{marginTop:14,padding:12,background:"var(--subtle-bg)",borderRadius:8,fontSize:10,fontFamily:"var(--fm)",color:"var(--text-secondary)",lineHeight:1.6}}>
+                  <div style={{fontSize:9,color:"var(--text-tertiary)",letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Métricas brutas</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px 14px"}}>
+                    <div>Revenue TTM: <span style={{color:"var(--text-primary)"}}>{fmtBn(qInputs.revTTM)}</span></div>
+                    <div>FCF TTM: <span style={{color:"var(--text-primary)"}}>{fmtBn(qInputs.fcfTTM)}</span></div>
+                    <div>Net Income TTM: <span style={{color:"var(--text-primary)"}}>{fmtBn(qInputs.niTTM)}</span></div>
+                    <div>Op Income TTM: <span style={{color:"var(--text-primary)"}}>{fmtBn(qInputs.opIncTTM)}</span></div>
+                    <div>FCF Margin: <span style={{color:"var(--text-primary)"}}>{fmtPct(qInputs.fcfMargin)}</span></div>
+                    <div>Net Margin: <span style={{color:"var(--text-primary)"}}>{fmtPct(qInputs.netMargin)}</span></div>
+                    <div>ROIC: <span style={{color:"var(--text-primary)"}}>{fmtPct(qInputs.roic)}</span></div>
+                    <div>Debt/EBITDA: <span style={{color:"var(--text-primary)"}}>{fmtMul(qInputs.debtEbitda)}</span></div>
+                    <div>Interest Cov: <span style={{color:"var(--text-primary)"}}>{fmtMul(qInputs.intCov)}</span></div>
+                    <div>Current Ratio: <span style={{color:"var(--text-primary)"}}>{fmtMul(qInputs.currentRatio)}</span></div>
+                    {sInputs.fcfCoverage != null && <div>FCF/Div: <span style={{color:"var(--text-primary)"}}>{fmtMul(sInputs.fcfCoverage)}</span></div>}
+                    {sInputs.payoutRatio != null && <div>Payout Ratio: <span style={{color:"var(--text-primary)"}}>{fmtPct(sInputs.payoutRatio)}</span></div>}
+                    {sInputs.streakYears != null && <div>Streak: <span style={{color:"var(--text-primary)"}}>{sInputs.streakYears} años</span></div>}
+                    {qInputs.vol1y != null && <div>Volatility 1y: <span style={{color:"var(--text-primary)"}}>{qInputs.vol1y.toFixed(1)}%</span></div>}
+                  </div>
+                </div>
+
+                {/* History (sparkline) */}
+                {scoresModalData.history && scoresModalData.history.length > 1 && (
+                  <div style={{marginTop:14,fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>
+                    Histórico: {scoresModalData.history.length} snapshots desde {scoresModalData.history[scoresModalData.history.length-1].snapshot_date}
+                  </div>
+                )}
+
+                <div style={{marginTop:14,fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"center",borderTop:"1px solid var(--border)",paddingTop:10}}>
+                  Snapshot {d.snapshot_date} · Computed {d.computed_at}
+                </div>
+              </>;
+            })()}
           </div>
         </div>
       )}
