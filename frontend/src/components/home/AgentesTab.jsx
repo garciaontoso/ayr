@@ -54,9 +54,9 @@ const AGENTS = [
   { id: 'options', name: 'Options Income', icon: '🎰', desc: 'CC, CSP, spreads con datos reales',
     info: 'Escanea tus 20 mayores posiciones buscando oportunidades de income con opciones. Covered Calls (5-10% OTM) para posiciones con 100+ acciones, Cash Secured Puts para comprar mas barato, y Bull Put Spreads en SPY/QQQ. Usa precios reales de Yahoo Finance (bid/ask) — FMP Ultimate no expone options chain bajo /stable. Evita posiciones con earnings cercanos.',
     model: 'Sin LLM', dataSources: 'Yahoo Finance + IB (options chain, Greeks), D1 (positions, shares), Market regime (VIX)' },
-  { id: 'summary', name: 'Resumen Ejecutivo', icon: '📌', desc: 'Top acciones del dia',
-    info: 'Resumen automatico generado al final del pipeline. Muestra las acciones mas importantes a tomar hoy: operaciones recomendadas, alertas de insiders, oportunidades de opciones, y estado del mercado. Es lo primero que debes mirar.',
-    model: 'Sin LLM', dataSources: 'Todos los agentes (compilado)' },
+  // `summary` phantom tile removed 2026-04-08 — no backend runner existed, the card
+  // never showed data. Audit finding: ghost tile. Either build runSummaryAgent
+  // reading today's agent_insights, or keep this removed.
   { id: 'dividend_cut_warning', name: 'Dividend Cut Early Warning', icon: '🚨', desc: 'FCF payout, coverage trend',
     info: 'Sin LLM. Detecta riesgo de recorte de dividendo 4-8 semanas antes del anuncio. Computa rolling TTM windows (4 quarters) de FCF coverage y payout ratio. Critical si TTM coverage < 0.85x. Excluye REITs, BDCs, MLPs y asset managers (carve-out por su modelo de distribucion no-FCF).',
     model: 'Sin LLM', dataSources: 'Q+S inputs cached (fcf, dividendsPaid, payoutRatio TTM)' },

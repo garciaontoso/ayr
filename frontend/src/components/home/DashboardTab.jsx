@@ -3,6 +3,7 @@ import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { _CURRENT_YEAR, API_URL } from '../../constants/index.js';
 import { EmptyState } from '../ui/EmptyState.jsx';
+import { useFireMetrics } from '../../hooks/useFireMetrics.js';
 
 export default function DashboardTab() {
   const [nlvHistory, setNlvHistory] = useState([]);
@@ -28,8 +29,33 @@ export default function DashboardTab() {
     portfolioTotals, portfolioList, privacyMode, hide, hideN,
     openAnalysis, POS_STATIC, getCountry, FLAGS,
     CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, DIV_BY_MONTH, GASTOS_CAT, CASH_DATA, MARGIN_INTEREST_DATA, FI_TRACK, FIRE_PROJ, FIRE_PARAMS, ANNUAL_PL,
+    GASTOS_MONTH, fxRates,
     ibData, ibDiscrepancies,
   } = useHome();
+
+  // ── Canonical FIRE metrics (single source of truth via useFireMetrics) ──
+  const fxEurUsdDash = fxRates?.EUR ? 1/fxRates.EUR : 1.18;
+  const fxCnyUsdDash = fxRates?.CNY ? 1/fxRates.CNY : 1/7.25;
+  const annualGastosUSDDash = useMemo(() => {
+    const months = Object.keys(GASTOS_MONTH || {}).sort().slice(-12);
+    if (!months.length) return 0;
+    const sum = months.reduce((s, m) => {
+      const d = GASTOS_MONTH[m] || {};
+      return s + (d.eur||0) * fxEurUsdDash + (d.cny||0) * fxCnyUsdDash + (d.usd||0);
+    }, 0);
+    return (sum / months.length) * 12;
+  }, [GASTOS_MONTH, fxEurUsdDash, fxCnyUsdDash]);
+  const nlvDash = ibData?.summary?.nlv?.amount || 0;
+  const annualDivDash = useMemo(() => {
+    const yrs = Object.keys(DIV_BY_YEAR || {}).sort();
+    const last = yrs[yrs.length-1];
+    return last ? (DIV_BY_YEAR[last]?.n || 0) : 0;
+  }, [DIV_BY_YEAR]);
+  const fire = useFireMetrics({
+    nlv: nlvDash,
+    annualExpenses: annualGastosUSDDash,
+    annualDividendsNet: annualDivDash,
+  });
 
   // ── Earnings Calendar: fetch upcoming earnings for portfolio tickers ──
   useEffect(() => {
@@ -1104,7 +1130,7 @@ return (
       </div>
       <div style={{padding:"8px 14px",borderRadius:8,background:"rgba(255,69,58,.06)",border:"1px solid rgba(255,69,58,.15)"}}>
         <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>GASTOS/MES</div>
-        <div style={{fontSize:16,fontWeight:700,color:"var(--red)",fontFamily:"var(--fm)"}}>${(FIRE_PARAMS.monthlyExp||0).toLocaleString()}</div>
+        <div style={{fontSize:16,fontWeight:700,color:"var(--red)",fontFamily:"var(--fm)"}}>${Math.round(fire.monthlyDivNeeded || FIRE_PARAMS.monthlyExp || 0).toLocaleString()}</div>
       </div>
       <div style={{padding:"8px 14px",borderRadius:8,background:"rgba(200,164,78,.06)",border:"1px solid rgba(200,164,78,.15)"}}>
         <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>PATRIMONIO 2040</div>

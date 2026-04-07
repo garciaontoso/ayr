@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { API_URL } from '../../constants/index.js';
 
 // ── Severity → color + label ──
+// Semantic tokens — match other severity panels across the app.
 const SEVERITY_COLOR = {
-  critical: '#ef4444',
-  warning:  '#f59e0b',
-  info:     '#3b82f6',
+  critical: 'var(--ds-danger)',
+  warning:  'var(--ds-warning)',
+  info:     'var(--ds-info)',
 };
 const SEVERITY_LABEL = {
   critical: 'CRITICAL',
@@ -296,10 +297,10 @@ export default function NewsTab() {
           style={{
             padding: 14,
             background: 'var(--subtle-bg)',
-            border: '1px solid var(--red, #ef4444)',
+            border: '1px solid var(--ds-danger)',
             borderRadius: 8,
             marginBottom: 16,
-            color: 'var(--red, #ef4444)',
+            color: 'var(--ds-danger)',
             fontSize: 13,
           }}
         >

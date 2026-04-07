@@ -5395,23 +5395,23 @@ export default {
           },
           {
             id: "macro", name: "Radar Macro", icon: "🌍",
-            type: "llm", model: "claude-opus-4-20250514",
-            description: "Síntesis macro narrativa. Analiza calendario económico, treasury rates, credit, factores y sectores.",
+            type: "llm", model: "claude-haiku-4-5-20251001",
+            description: "Síntesis macro narrativa (Haiku desde 2026-04-08 tras audit: Opus no aportaba valor único). Analiza calendario económico, treasury rates, credit, factores y sectores.",
             system_prompt: "You are a macro strategist analyzing a $1.35M dividend portfolio (China fiscal resident).\n\nReason step by step:\n1. REGIME: risk-on, risk-off or transition?\n2. CREDIT: HYG/LQD spreads stress? TLT flight-to-quality?\n3. FACTORS: QUAL/MTUM/VLUE vs SPY rotation?\n4. SECTORS: Defensives outperforming? Cyclicals weak?\n5. COMMODITIES: GLD/USO inflation/geopolitics?\n6. IMPLICATION for dividend stocks.\n\nSEVERITY:\n- critical = credit blowing out (HYG -3%+ in week) or regime shift to bear\n- warning = sector rotation hurting portfolio\n- info = stable\n\nRespond ONLY JSON narrative (4-5 sentences, NOT bullets).",
             input_shape: { currentRegime: "From regime agent", marketIndicators: "24 ETFs", economicEvents: "FMP economic-calendar last 7d", treasuryRates: "FMP yields", portfolioSectors: "Sector weights" },
             output_shape: { severity: "info|warning|critical", summary: "4-5 sentence narrative", details: { regime: "risk-on|risk-off|transition", creditStress: "none|mild|elevated|severe", portfolioImplications: "string[]", keyRisks: "string[]", opportunities: "string[]" } },
-            cost_per_run_estimate_usd: 0.05,
+            cost_per_run_estimate_usd: 0.01,
             trigger: "Manual o pipeline",
             when_it_fires: "Step 4. Lee agent_memory.regime_current.",
           },
           {
             id: "risk", name: "Control de Riesgo", icon: "⚠️",
-            type: "llm", model: "claude-opus-4-20250514",
-            description: "Análisis a nivel portfolio (concentración, drawdown, beta ponderado). NUNCA recomienda vender en dips.",
+            type: "llm", model: "claude-haiku-4-5-20251001",
+            description: "Análisis portfolio (concentración, drawdown, beta). Haiku desde 2026-04-08 — las métricas se calculan en código, el LLM solo las narra.",
             system_prompt: "You are a portfolio risk analyst for a $1.35M dividend portfolio.\nEvaluate the PORTFOLIO AS A WHOLE (concentration, diversification, drawdown, leverage, regime alignment).\n\nPHILOSOPHY (CRITICAL):\n- LONG-TERM buy-and-hold. NEVER recommend selling quality during temporary drawdowns.\n- A position down 30% is an opportunity to add if dividend is intact and fundamentals sound.\n- The owner does NOT trade. Don't recommend SELL/EXIT/REDUCE unless real bankruptcy risk.\n\nSEVERITY:\n- critical = single >15% AND bankruptcy risk, OR maxDD >15%, OR margin > dividend income, OR beta >1.3\n- warning = top 5 > 40%, OR drawdown >8%, OR single sector >50%, OR beta >1.0\n- info = well-diversified\n\nReturn EXACTLY ONE JSON object (no array). Focus on portfolio-level metrics.",
             input_shape: { totalNLV: "number", top5: "[{ ticker, weight }]", sectorWeights: "[{ sector, weight }]", maxDrawdown60d: "%", currentRegime: "from agent_memory", weightedBeta: "number", positionRiskMetrics: "Top 15 with beta, vol, sharpe, sortino, maxDD" },
             output_shape: { severity: "info|warning|critical", summary: "3-4 sentences portfolio-level", details: { concentrationScore: "1-10", portfolioBeta: "number", topRisks: "string[]", recommendations: "string[]" } },
-            cost_per_run_estimate_usd: 0.04,
+            cost_per_run_estimate_usd: 0.01,
             trigger: "Manual o pipeline",
             when_it_fires: "Step 5. Lee agent_memory.regime_current.",
           },
@@ -10296,8 +10296,13 @@ Respond ONLY JSON:
     fecha: todayStr,
   };
 
-  // Use Opus for complex narrative synthesis
-  const rawInsight = await callAgentClaude(env, system, userContent, { model: "claude-opus-4-20250514" });
+  // Downgraded Opus → Haiku 2026-04-08. Audit finding: macro produced generic
+  // prose ("defensives outperforming, stay long dividend stocks") that Opus
+  // can't add unique value to. Haiku at 5x cheaper is sufficient for this
+  // template-style synthesis. If we ever want real Opus-quality macro analysis
+  // we should bring it back only weekly, not daily, and track one concrete
+  // prediction (e.g. "HYG will drop >2% in 5d") to score the agent.
+  const rawInsight = await callAgentClaude(env, system, userContent, { model: "claude-haiku-4-5-20251001" });
   let insight = Array.isArray(rawInsight) ? rawInsight[0] : rawInsight;
   if (!insight || typeof insight !== 'object') insight = { severity: "info", title: "Macro analysis", summary: String(rawInsight).slice(0, 500), details: {}, score: 5 };
   insight.ticker = "_MACRO_";
@@ -10416,7 +10421,12 @@ Do NOT return an array. Do NOT return per-position rows. Return ONE object descr
     positionRiskMetrics,
   };
 
-  const rawInsight = await callAgentClaude(env, system, userContent, { model: "claude-opus-4-20250514" });
+  // Downgraded Opus → Haiku 2026-04-08. Audit finding: the numerical risk
+  // computations (top5, sector Herfindahl, maxDD, weightedBeta) happen in
+  // code BEFORE the LLM is called. Opus was only paraphrasing them while
+  // fighting its own instinct to recommend SELL. Haiku can paraphrase fine.
+  // Saves ~$0.03/run.
+  const rawInsight = await callAgentClaude(env, system, userContent, { model: "claude-haiku-4-5-20251001" });
   let insight = Array.isArray(rawInsight) ? rawInsight[0] : rawInsight;
   // Validate it's a portfolio insight (has severity/title), otherwise wrap or fallback
   if (!insight || typeof insight !== 'object' || !insight.severity || !insight.title) {
@@ -12049,19 +12059,21 @@ async function runAnalystDowngradeAgent(env, fecha) {
       scanned++;
       newMem[v.ticker] = { sentScore: v.sNow, date: v.latestDate, total: v.totNow };
 
-      // Severity logic:
-      //  - critical: sentiment dropped by 4+ points AND has >= 6 analysts (real cluster of downgrades)
-      //  - warning:  sentiment dropped by 2-3 points OR drop of 1+ on a name with very high coverage
+      // Severity logic (loosened 2026-04-08 per audit — critical threshold
+      // was too strict for blue-chip dividend payers, rarely firing):
+      //  - critical: drop >= 3 AND >= 5 analysts (was 4/6)
+      //  - warning:  drop >= 2 with >= 4 analysts (unchanged)
+      //              OR drop >= 1 with >= 12 analysts (loosened from 15)
       //  - info:     no actionable change
       let severity = null;
       let reason = "";
-      if (v.drop >= 4 && v.totNow >= 6) {
+      if (v.drop >= 3 && v.totNow >= 5) {
         severity = "critical";
         reason = `Sentimiento analistas cayó ${v.drop} pts en ~14 días (${v.totNow} cubriendo). Cluster de downgrades — históricamente precede recortes de dividendo en 4-8 semanas.`;
       } else if (v.drop >= 2 && v.totNow >= 4) {
         severity = "warning";
         reason = `Sentimiento analistas bajando: ${v.sOld} → ${v.sNow} (${v.drop} pts). Vigilar próximas guidance.`;
-      } else if (v.drop >= 1 && v.totNow >= 15) {
+      } else if (v.drop >= 1 && v.totNow >= 12) {
         severity = "warning";
         reason = `Pequeña deriva negativa pero alta cobertura (${v.totNow} analistas). Watchlist.`;
       }

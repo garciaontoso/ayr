@@ -3,6 +3,7 @@ import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { API_URL } from '../../constants/index.js';
 import { EmptyState } from '../ui/EmptyState.jsx';
+import { useFireMetrics, FIRE_SWR } from '../../hooks/useFireMetrics.js';
 
 // ═══════════════════════════════════════
 // Snapshots Section (ex-ControlTab)
@@ -359,13 +360,25 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
   const last12Income = INCOME_DATA.slice(-12);
   const annualOptionsUSD = last12Income.reduce((s,d) => s + (d.cs||0) + (d.rop||0) + (d.roc||0) + (d.cal||0) + (d.leaps||0), 0);
 
-  // Average annual gastos from GASTOS_MONTH
+  // Average annual gastos from GASTOS_MONTH.
+  // CNY fx now reads from live fxRates (was hardcoded 7.25 — Discrepancy Audit
+  // #8, 2026-04-08). fxRates.CNY is CNY-per-USD, so divide to go CNY→USD.
+  const cnyPerUsd = fxRates?.CNY || 7.25;
   const gMonths = Object.keys(GASTOS_MONTH).sort().slice(-12);
   const avgGastosMensual = gMonths.length > 0 ? gMonths.reduce((s,m) => {
     const d = GASTOS_MONTH[m];
-    return s + (d.eur||0) * fxEurUsd + (d.cny||0) / 7.25 + (d.usd||0);
+    return s + (d.eur||0) * fxEurUsd + (d.cny||0) / cnyPerUsd + (d.usd||0);
   }, 0) / gMonths.length : 7580;
   const annualGastosUSD = avgGastosMensual * 12;
+
+  // ─── Canonical "today" FIRE metrics (single source of truth) ───
+  // Used so the static KPI matches FireTab/DividendosTab even before the
+  // user touches the editable scenario params below.
+  const fireToday = useFireMetrics({
+    nlv: currentPat,
+    annualExpenses: annualGastosUSD,
+    annualDividendsNet: annualDivUSD,
+  });
 
   // ─── Editable Params ───
   const [params, setParams] = useState({
@@ -431,7 +444,8 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
 
       const retReal = retornoPct - inflacionPct;
       const patReal = i === 0 ? patInicio : patInicio / Math.pow(1 + inflacionPct/100, i);
-      const fireNumber = retornoPct > 0 ? gastos / (retornoPct / 100) : 0;
+      // Canonical FIRE target: gastos / SWR (3.5%) — single source of truth
+      const fireNumber = gastos > 0 ? gastos / FIRE_SWR : 0;
 
       rows.push({
         year, edad, retirado,

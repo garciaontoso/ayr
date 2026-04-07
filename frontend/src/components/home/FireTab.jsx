@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { EmptyState } from '../ui/EmptyState.jsx';
+import { useFireMetrics, FIRE_SWR } from '../../hooks/useFireMetrics.js';
 
 // ─── Your Number Calculator ───
 function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA, fxEurUsd, fireCcy }) {
@@ -580,19 +581,34 @@ const sueldos = INCOME_DATA.filter(d => d.sl>0).map(d => d.sl);
 const sueldoMUSD = sueldos.length>0 ? sueldos.reduce((s,v)=>s+v,0)/sueldos.length : 0;
 const sueldoM = isUSD ? sueldoMUSD : sueldoMUSD / fxEurUsd;
 
-// === FIRE METRICS ===
+// === FIRE METRICS (single source of truth via useFireMetrics hook) ===
 const divCoversPct = gastosAvg>0 ? (divNetM/gastosAvg*100) : 0;
 const espCoversPct = espRealistaM>0 ? (divNetM/espRealistaM*100) : 0;
 const espBasePct = espBaseM>0 ? (divNetM/espBaseM*100) : 0;
 const baseRealCoversPct = baseRealM>0 ? (divNetM/baseRealM*100) : 0;
-const fireRet = pat>0 ? (gastosAnnual/pat*100) : 0;
 const gapM = divNetM - gastosAvg;
 const savingsM = divNetM + sueldoM - gastosAvg;
 const savingsRate = (divNetM+sueldoM)>0 ? (savingsM/(divNetM+sueldoM)*100) : 0;
-const swr35 = gastosAnnual > 0 ? gastosAnnual / 0.035 : 0;
-const swr35BaseReal = baseRealA > 0 ? baseRealA / 0.035 : 0;
-const yearsToFire = (()=>{ if(!pat||!savingsM||!gastosAnnual||isNaN(pat)||isNaN(swr35)) return 99; if(pat>=swr35) return 0; let p=pat; for(let y=1;y<=50;y++){p=p*1.07+savingsM*12;if(p*0.035>=gastosAnnual)return y;} return 99; })();
-const yearsToFireBaseReal = (()=>{ if(!pat||!savingsM||!baseRealA||isNaN(pat)||isNaN(swr35BaseReal)) return 99; if(pat>=swr35BaseReal) return 0; let p=pat; for(let y=1;y<=50;y++){p=p*1.07+savingsM*12;if(p*0.035>=baseRealA)return y;} return 99; })();
+
+// Canonical FIRE metrics for "Vida Actual" (full gastos)
+const fireMain = useFireMetrics({
+  nlv: patUSD,
+  annualExpenses: gastosAnnual,
+  annualDividendsNet: divNetA,
+  monthlySavings: savingsM,
+});
+// FIRE metrics for "Base Real" (Spain + China obligatorio)
+const fireBaseReal = useFireMetrics({
+  nlv: patUSD,
+  annualExpenses: baseRealA,
+  annualDividendsNet: divNetA,
+  monthlySavings: savingsM,
+});
+const swr35 = fireMain.fireTarget;
+const swr35BaseReal = fireBaseReal.fireTarget;
+const yearsToFire = fireMain.yearsToFire;
+const yearsToFireBaseReal = fireBaseReal.yearsToFire;
+const fireRet = pat>0 ? (gastosAnnual/pat*100) : 0;
 
 // Div by year
 const divByYear={}; all.forEach(d=>{const y=d.date.slice(0,4);if(!divByYear[y])divByYear[y]={g:0,n:0};divByYear[y].g+=d.gross||0;divByYear[y].n+=d.net||0;});

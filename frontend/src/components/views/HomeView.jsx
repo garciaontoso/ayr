@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useHome } from '../../context/HomeContext';
-import { CURRENCIES, DISPLAY_CCYS, APP_VERSION, API_URL } from '../../constants/index.js';
+import { CURRENCIES, DISPLAY_CCYS, APP_VERSION, API_URL, HOME_TAB_GROUPS } from '../../constants/index.js';
 import { saveCompanyToStorage } from '../../utils/storage.js';
 import { PortfolioTab } from '../home';
 import { ErrorBoundary } from '../ui';
@@ -466,13 +466,41 @@ export default function HomeView() {
     alerts, alertsUnread, showAlertPanel, setShowAlertPanel, markAlertsRead, theme, toggleTheme,
   } = useHome();
 
-  // ── Draggable tab order (persisted in the cloud via /api/preferences) ──
-  // tabOrder is an array of tab ids. null = loading; once fetched we apply.
-  // Fallback: localStorage (offline) → HOME_TABS default order.
-  const [tabOrder, setTabOrder] = useState(() => {
+  // ── 2-level navigation: groups + tabs (added 2026-04-08) ──
+  // Top row = group labels (Cartera | Ingresos | …). Second row = the tabs
+  // inside the active group. Active group is derived from `homeTab` so deep
+  // links and global Cmd+K search continue to work.
+  // Drag-and-drop reordering is preserved but only WITHIN a group.
+  // Per-group tab order persists via /api/preferences (cloud sync) under
+  // the legacy key `ui_home_tabs_order` (now stores an object, not array).
+  const groupOf = (tabId) =>
+    HOME_TAB_GROUPS.find(g => g.tabs.some(t => t.id === tabId))?.id
+    || HOME_TAB_GROUPS[0].id;
+  const [activeGroupId, setActiveGroupId] = useState(() => groupOf(homeTab));
+  // Sync activeGroup when homeTab changes from outside (e.g. Cmd+K, RunReminderBadge)
+  useEffect(() => {
+    const g = groupOf(homeTab);
+    if (g !== activeGroupId) setActiveGroupId(g);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [homeTab]);
+
+  // tabOrderByGroup: { groupId: [tabId,…] }. null = loading.
+  const [tabOrderByGroup, setTabOrderByGroup] = useState(() => {
     try {
       const cached = localStorage.getItem('ui_home_tabs_order');
-      if (cached) return JSON.parse(cached);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        // Migrate legacy flat array → per-group object
+        if (Array.isArray(parsed)) {
+          const migrated = {};
+          for (const g of HOME_TAB_GROUPS) {
+            const ids = new Set(g.tabs.map(t => t.id));
+            migrated[g.id] = parsed.filter(id => ids.has(id));
+          }
+          return migrated;
+        }
+        if (parsed && typeof parsed === 'object') return parsed;
+      }
     } catch {}
     return null;
   });
@@ -484,39 +512,56 @@ export default function HomeView() {
       try {
         const r = await fetch(API_URL + "/api/preferences/ui_home_tabs_order");
         const d = await r.json();
-        if (!cancelled && Array.isArray(d?.value)) {
-          setTabOrder(d.value);
-          try { localStorage.setItem('ui_home_tabs_order', JSON.stringify(d.value)); } catch {}
+        if (cancelled) return;
+        const v = d?.value;
+        if (Array.isArray(v)) {
+          const migrated = {};
+          for (const g of HOME_TAB_GROUPS) {
+            const ids = new Set(g.tabs.map(t => t.id));
+            migrated[g.id] = v.filter(id => ids.has(id));
+          }
+          setTabOrderByGroup(migrated);
+          try { localStorage.setItem('ui_home_tabs_order', JSON.stringify(migrated)); } catch {}
+        } else if (v && typeof v === 'object') {
+          setTabOrderByGroup(v);
+          try { localStorage.setItem('ui_home_tabs_order', JSON.stringify(v)); } catch {}
         }
       } catch {}
     })();
     return () => { cancelled = true; };
   }, []);
-  // Compute ordered tabs: use saved order first, then append any new tabs not in it
-  const orderedTabs = (() => {
-    if (!tabOrder) return HOME_TABS;
-    const byId = Object.fromEntries(HOME_TABS.map(t => [t.id, t]));
+
+  // Compute ordered tabs for a given group: saved order first, then any new
+  // tabs not yet in the saved order (so adding tabs to a group is safe).
+  const orderedTabsForGroup = (groupId) => {
+    const group = HOME_TAB_GROUPS.find(g => g.id === groupId) || HOME_TAB_GROUPS[0];
+    const saved = tabOrderByGroup?.[groupId];
+    if (!saved || !Array.isArray(saved)) return group.tabs;
+    const byId = Object.fromEntries(group.tabs.map(t => [t.id, t]));
     const seen = new Set();
     const out = [];
-    for (const id of tabOrder) {
+    for (const id of saved) {
       if (byId[id] && !seen.has(id)) { out.push(byId[id]); seen.add(id); }
     }
-    for (const t of HOME_TABS) {
+    for (const t of group.tabs) {
       if (!seen.has(t.id)) out.push(t);
     }
     return out;
-  })();
-  const persistTabOrder = useCallback(async (newOrder) => {
-    setTabOrder(newOrder);
-    try { localStorage.setItem('ui_home_tabs_order', JSON.stringify(newOrder)); } catch {}
+  };
+  const orderedTabs = orderedTabsForGroup(activeGroupId);
+
+  const persistTabOrder = useCallback(async (groupId, newGroupOrder) => {
+    const next = { ...(tabOrderByGroup || {}), [groupId]: newGroupOrder };
+    setTabOrderByGroup(next);
+    try { localStorage.setItem('ui_home_tabs_order', JSON.stringify(next)); } catch {}
     try {
       await fetch(API_URL + "/api/preferences", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: "ui_home_tabs_order", value: newOrder }),
+        body: JSON.stringify({ key: "ui_home_tabs_order", value: next }),
       });
     } catch (e) { console.error("persist tab order failed:", e); }
-  }, []);
+  }, [tabOrderByGroup]);
   const handleTabDragStart = (e, tabId) => {
     setDraggedTabId(tabId);
     try { e.dataTransfer.setData("text/plain", tabId); e.dataTransfer.effectAllowed = "move"; } catch {}
@@ -536,6 +581,7 @@ export default function HomeView() {
     setDraggedTabId(null);
     setDragOverTabId(null);
     if (!sourceId || sourceId === targetId) return;
+    // Reorder only within the active group
     const currentIds = orderedTabs.map(t => t.id);
     const fromIdx = currentIds.indexOf(sourceId);
     const toIdx = currentIds.indexOf(targetId);
@@ -543,7 +589,7 @@ export default function HomeView() {
     const newOrder = [...currentIds];
     newOrder.splice(fromIdx, 1);
     newOrder.splice(toIdx, 0, sourceId);
-    persistTabOrder(newOrder);
+    persistTabOrder(activeGroupId, newOrder);
   };
 
   // ── Touch drag support for iPad / iPhone ──
@@ -600,7 +646,7 @@ export default function HomeView() {
           const newOrder = [...currentIds];
           newOrder.splice(fromIdx, 1);
           newOrder.splice(toIdx, 0, sourceId);
-          persistTabOrder(newOrder);
+          persistTabOrder(activeGroupId, newOrder);
         }
       }
     }
@@ -654,59 +700,39 @@ export default function HomeView() {
       {/* Divider */}
       <div style={{width:1,height:20,background:"var(--border)",flexShrink:0}}/>
 
-      {/* Tabs — scrollable, same row, drag-and-drop to reorder (desktop) */}
+      {/* Group selector — top-level navigation (Cartera | Ingresos | …) */}
       <div style={{position:"relative",flex:1,minWidth:0}}>
         <div className="ar-home-tabs" style={{display:"flex",alignItems:"center",gap:3,overflowX:"auto",flexWrap:"nowrap",scrollbarWidth:"none",padding:"2px 0"}}>
-          {orderedTabs.map(t=>{
-            const isActive = homeTab===t.id;
-            const isDragging = draggedTabId === t.id;
-            const isDragOver = dragOverTabId === t.id && draggedTabId && draggedTabId !== t.id;
+          {HOME_TAB_GROUPS.map(g=>{
+            const isActive = activeGroupId === g.id;
             return (
               <button
-                key={t.id}
-                data-tab-id={t.id}
+                key={g.id}
                 onClick={()=>{
-                  // If we're mid-touch-drag, don't treat as click
-                  if (touchDragRef.current.active) return;
-                  setHomeTab(t.id);
+                  setActiveGroupId(g.id);
+                  // If current homeTab isn't in the new group, jump to its first tab
+                  if (!g.tabs.some(t=>t.id===homeTab)) {
+                    const ordered = orderedTabsForGroup(g.id);
+                    if (ordered[0]) setHomeTab(ordered[0].id);
+                  }
                 }}
-                draggable
-                onDragStart={(e)=>handleTabDragStart(e, t.id)}
-                onDragOver={(e)=>handleTabDragOver(e, t.id)}
-                onDragLeave={()=>{ if (dragOverTabId === t.id) setDragOverTabId(null); }}
-                onDrop={(e)=>handleTabDrop(e, t.id)}
-                onDragEnd={handleTabDragEnd}
-                onPointerDown={(e)=>handleTabPointerDown(e, t.id)}
-                onPointerMove={handleTabPointerMove}
-                onPointerUp={handleTabPointerUp}
-                onPointerCancel={handleTabPointerCancel}
-                title="Arrastra para reordenar (desktop: ratón · móvil: mantén pulsado)"
                 style={{
-                  display:"flex",alignItems:"center",gap:3,
-                  padding:"5px 10px",borderRadius:7,
-                  border:`1px solid ${isDragOver?"var(--gold)":isActive?"var(--gold)":"transparent"}`,
-                  background:isDragOver?"rgba(200,164,78,.25)":isActive?"var(--gold-dim)":"transparent",
+                  display:"flex",alignItems:"center",gap:4,
+                  padding:"5px 12px",borderRadius:7,
+                  border:`1px solid ${isActive?"var(--gold)":"transparent"}`,
+                  background:isActive?"var(--gold-dim)":"transparent",
                   color:isActive?"var(--gold)":"var(--text-tertiary)",
                   fontSize:12,fontWeight:isActive?700:500,
-                  cursor: isDragging ? "grabbing" : "grab",
-                  fontFamily:"var(--fb)",whiteSpace:"nowrap",flexShrink:0,
-                  opacity: isDragging ? 0.4 : 1,
-                  transform: isDragOver ? "scale(1.05)" : "none",
-                  transition: "transform .12s ease, opacity .12s ease, background .12s ease",
-                  userSelect: "none",
-                }}
-              >
-                <span style={{fontSize:12}}>{t.ico}</span>{t.lbl}
-                {t.id==="portfolio" && portfolioList.length>0 && <span style={{fontSize:9,opacity:.7,fontFamily:"var(--fm)"}}>{portfolioList.length}</span>}
-                {t.id==="watchlist" && watchlistList.length>0 && <span style={{fontSize:9,opacity:.7,fontFamily:"var(--fm)"}}>{watchlistList.length}</span>}
-                {t.id==="historial" && historialList.length>0 && <span style={{fontSize:9,opacity:.7,fontFamily:"var(--fm)"}}>{historialList.length}</span>}
+                  cursor:"pointer",fontFamily:"var(--fb)",whiteSpace:"nowrap",flexShrink:0,
+                  transition:"all .12s ease",userSelect:"none",
+                }}>
+                <span style={{fontSize:12}}>{g.ico}</span>{g.lbl}
               </button>
             );
           })}
         </div>
         <div className="ar-tabs-fade-right"/>
       </div>
-
       {/* Controls — compact */}
       <div className="ar-controls-group" style={{display:"flex",gap:4,alignItems:"center",flexShrink:0}}>
         {/* Currency selector */}
@@ -781,6 +807,58 @@ export default function HomeView() {
         <AirplaneMode portfolioList={portfolioList} />
 
         <button onClick={()=>setShowSettings(!showSettings)} style={{padding:"4px 7px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer"}}>⚙</button>
+      </div>
+    </div>
+
+    {/* ── Second-level nav: tabs inside the active group ── */}
+    {/* Drag-and-drop reorder works WITHIN this group only. */}
+    <div style={{display:"flex",alignItems:"center",gap:3,marginBottom:6,paddingLeft:34,position:"relative"}}>
+      <div className="ar-home-tabs" style={{display:"flex",alignItems:"center",gap:3,overflowX:"auto",flexWrap:"nowrap",scrollbarWidth:"none",padding:"2px 0",flex:1,minWidth:0}}>
+        {orderedTabs.map(t=>{
+          const isActive = homeTab===t.id;
+          const isDragging = draggedTabId === t.id;
+          const isDragOver = dragOverTabId === t.id && draggedTabId && draggedTabId !== t.id;
+          return (
+            <button
+              key={t.id}
+              data-tab-id={t.id}
+              onClick={()=>{
+                if (touchDragRef.current.active) return;
+                setHomeTab(t.id);
+              }}
+              draggable
+              onDragStart={(e)=>handleTabDragStart(e, t.id)}
+              onDragOver={(e)=>handleTabDragOver(e, t.id)}
+              onDragLeave={()=>{ if (dragOverTabId === t.id) setDragOverTabId(null); }}
+              onDrop={(e)=>handleTabDrop(e, t.id)}
+              onDragEnd={handleTabDragEnd}
+              onPointerDown={(e)=>handleTabPointerDown(e, t.id)}
+              onPointerMove={handleTabPointerMove}
+              onPointerUp={handleTabPointerUp}
+              onPointerCancel={handleTabPointerCancel}
+              title="Arrastra para reordenar dentro del grupo"
+              style={{
+                display:"flex",alignItems:"center",gap:3,
+                padding:"4px 9px",borderRadius:6,
+                border:`1px solid ${isDragOver?"var(--gold)":isActive?"var(--gold)":"var(--border)"}`,
+                background:isDragOver?"rgba(200,164,78,.25)":isActive?"var(--gold-dim)":"transparent",
+                color:isActive?"var(--gold)":"var(--text-tertiary)",
+                fontSize:11,fontWeight:isActive?700:500,
+                cursor: isDragging ? "grabbing" : "grab",
+                fontFamily:"var(--fb)",whiteSpace:"nowrap",flexShrink:0,
+                opacity: isDragging ? 0.4 : 1,
+                transform: isDragOver ? "scale(1.05)" : "none",
+                transition: "transform .12s ease, opacity .12s ease, background .12s ease",
+                userSelect: "none",
+              }}
+            >
+              <span style={{fontSize:11}}>{t.ico}</span>{t.lbl}
+              {t.id==="portfolio" && portfolioList.length>0 && <span style={{fontSize:9,opacity:.7,fontFamily:"var(--fm)"}}>{portfolioList.length}</span>}
+              {t.id==="watchlist" && watchlistList.length>0 && <span style={{fontSize:9,opacity:.7,fontFamily:"var(--fm)"}}>{watchlistList.length}</span>}
+              {t.id==="historial" && historialList.length>0 && <span style={{fontSize:9,opacity:.7,fontFamily:"var(--fm)"}}>{historialList.length}</span>}
+            </button>
+          );
+        })}
       </div>
     </div>
 

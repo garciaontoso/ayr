@@ -3,140 +3,9 @@ import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { API_URL } from '../../constants/index.js';
 import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
+import { useFireMetrics } from '../../hooks/useFireMetrics.js';
 
 /* Charts removed — integrated inline in dashboard */
-function _unused_MonthlyTracker({ DIV_BY_MONTH }) {
-  const MNAMES_SHORT = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-  const curYear = new Date().getFullYear();
-  const prevYear = curYear - 1;
-
-  const { curData, prevData, maxVal } = useMemo(() => {
-    const cur = new Array(12).fill(0);
-    const prev = new Array(12).fill(0);
-    for (const [ym, d] of Object.entries(DIV_BY_MONTH || {})) {
-      const y = parseInt(ym.slice(0, 4), 10);
-      const m = parseInt(ym.slice(5, 7), 10) - 1;
-      if (y === curYear) cur[m] = d?.g || 0;
-      if (y === prevYear) prev[m] = d?.g || 0;
-    }
-    // Cumulative
-    const curCum = []; const prevCum = [];
-    let sc = 0, sp = 0;
-    for (let i = 0; i < 12; i++) {
-      sc += cur[i]; sp += prev[i];
-      curCum.push(sc); prevCum.push(sp);
-    }
-    const mx = Math.max(...curCum, ...prevCum, 1);
-    return { curData: curCum, prevData: prevCum, maxVal: mx };
-  }, [DIV_BY_MONTH, curYear, prevYear]);
-
-  const svgW = 420;
-  const svgH = 180;
-  const padL = 46;
-  const padR = 14;
-  const padT = 14;
-  const padB = 32;
-  const chartW = svgW - padL - padR;
-  const chartH = svgH - padT - padB;
-
-  const pts = (data) =>
-    data.map((v, i) => {
-      const x = padL + (i / 11) * chartW;
-      const y = padT + chartH - (v / maxVal) * chartH;
-      return `${x},${y}`;
-    }).join(" ");
-
-  const curPts = pts(curData);
-  const prevPts = pts(prevData);
-
-  // Grid lines
-  const gridLines = 4;
-  const gridStep = maxVal / gridLines;
-
-  return (
-    <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 14, padding: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--gold)", fontFamily: "var(--fd)" }}>
-          📈 Acumulado Mensual: {prevYear} vs {curYear}
-        </div>
-        <div style={{ display: "flex", gap: 14, fontSize: 10, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <span style={{ width: 16, height: 2, borderRadius: 1, background: "var(--text-tertiary)", opacity: 0.5 }} /> {prevYear}
-          </span>
-          <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <span style={{ width: 16, height: 2, borderRadius: 1, background: "var(--gold)" }} /> {curYear}
-          </span>
-        </div>
-      </div>
-      <svg width="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{ display: "block" }}>
-        {/* Grid */}
-        {Array.from({ length: gridLines + 1 }, (_, i) => {
-          const v = i * gridStep;
-          const y = padT + chartH - (v / maxVal) * chartH;
-          return (
-            <g key={i}>
-              <line x1={padL} y1={y} x2={svgW - padR} y2={y} stroke="var(--subtle-bg2)" strokeWidth={1} />
-              <text x={padL - 6} y={y + 4} textAnchor="end"
-                style={{ fontSize: 9, fill: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>
-                ${v >= 1000 ? `${_sf(v / 1000, 0)}K` : _sf(v, 0)}
-              </text>
-            </g>
-          );
-        })}
-        {/* Previous year line */}
-        <polyline points={prevPts} fill="none" stroke="var(--text-tertiary)" strokeWidth={1.5}
-          strokeDasharray="4,3" opacity={0.4} />
-        {/* Current year line */}
-        <polyline points={curPts} fill="none" stroke="var(--gold)" strokeWidth={2} />
-        {/* Area under current year */}
-        <polygon
-          points={`${padL},${padT + chartH} ${curPts} ${padL + chartW},${padT + chartH}`}
-          fill="var(--gold)" opacity={0.06} />
-        {/* Dots for current year */}
-        {curData.map((v, i) => {
-          if (v === 0) return null;
-          const x = padL + (i / 11) * chartW;
-          const y = padT + chartH - (v / maxVal) * chartH;
-          return <circle key={i} cx={x} cy={y} r={3} fill="var(--gold)" />;
-        })}
-        {/* Month labels */}
-        {MNAMES_SHORT.map((m, i) => {
-          const x = padL + (i / 11) * chartW;
-          return (
-            <text key={i} x={x} y={svgH - 6} textAnchor="middle"
-              style={{ fontSize: 10, fontWeight: 500, fill: "var(--text-secondary)", fontFamily: "var(--fm)" }}>{m}</text>
-          );
-        })}
-        {/* End values */}
-        {(() => {
-          const curNow = new Date().getMonth();
-          const cv = curData[curNow];
-          const pv = prevData[11];
-          const cx = padL + (curNow / 11) * chartW;
-          const cy = padT + chartH - (cv / maxVal) * chartH;
-          const py = padT + chartH - (pv / maxVal) * chartH;
-          return (
-            <>
-              {cv > 0 && (
-                <text x={cx + 10} y={cy - 6}
-                  style={{ fontSize: 11, fontWeight: 700, fill: "var(--gold)", fontFamily: "var(--fm)" }}>
-                  ${cv >= 1000 ? _sf(cv / 1000, 1) + "K" : _sf(cv, 0)}
-                </text>
-              )}
-              {pv > 0 && (
-                <text x={svgW - padR + 4} y={py + 4}
-                  style={{ fontSize: 9, fill: "var(--text-tertiary)", fontFamily: "var(--fm)", opacity: 0.7 }}>
-                  ${pv >= 1000 ? _sf(pv / 1000, 1) + "K" : _sf(pv, 0)}
-                </text>
-              )}
-            </>
-          );
-        })()}
-      </svg>
-    </div>
-  );
-}
-
 /* ═══════════════════════════════════════════════════════════════
    📅 CalendarioSection — Mac Calendar-style dividend calendar
    ═══════════════════════════════════════════════════════════════ */
@@ -580,7 +449,36 @@ export default function DividendosTab() {
     POS_STATIC, getCountry, FLAGS,
     DIV_BY_YEAR, DIV_BY_MONTH,
     portfolioTotals, FORWARD_DIV,
+    GASTOS_MONTH, ibData, fxRates,
   } = useHome();
+
+  // ── Canonical FIRE metrics (single source of truth) ────────────────
+  // Compute annual expenses in USD from last 12m of GASTOS_MONTH (multi-currency)
+  const fxEurUsdDiv = fxRates?.EUR ? 1/fxRates.EUR : 1.18;
+  const fxCnyUsdDiv = fxRates?.CNY ? 1/fxRates.CNY : 1/7.25;
+  const annualExpensesUSD = useMemo(() => {
+    const months = Object.keys(GASTOS_MONTH || {}).sort().slice(-12);
+    if (!months.length) return 0;
+    const sum = months.reduce((s, m) => {
+      const d = GASTOS_MONTH[m] || {};
+      return s + (d.eur||0) * fxEurUsdDiv + (d.cny||0) * fxCnyUsdDiv + (d.usd||0);
+    }, 0);
+    return (sum / months.length) * 12;
+  }, [GASTOS_MONTH, fxEurUsdDiv, fxCnyUsdDiv]);
+  const nlvUSD = ibData?.summary?.nlv?.amount || 0;
+  // Annual net dividends from divLog (last 12 months by date)
+  const annualDivNetUSD = useMemo(() => {
+    const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth()-12);
+    const cs = cutoff.toISOString().slice(0,10);
+    return divLog
+      .filter(d => d.date && d.date >= cs)
+      .reduce((s, d) => s + (d.net || 0), 0);
+  }, [divLog]);
+  const fire = useFireMetrics({
+    nlv: nlvUSD,
+    annualExpenses: annualExpensesUSD,
+    annualDividendsNet: annualDivNetUSD,
+  });
 
   const [section, setSection] = useState("dashboard");
   const [soloActuales, setSoloActuales] = useState(true);
@@ -598,7 +496,10 @@ export default function DividendosTab() {
 
   const divTTM = portfolioTotals?.totalDivUSD || 0;
   const avgWhtRate = divLog.length > 0 ? divLog.reduce((s,d) => s + (d.gross||0), 0) : 0;
-  const avgNetRate = avgWhtRate > 0 ? divLog.reduce((s,d) => s + (d.net||0), 0) / avgWhtRate : 0.94;
+  // Fallback 0.90 (10% China-US treaty) for new positions with no payment history.
+  // Previously 0.94 which assumed 6% WHT — wrong for a Chinese fiscal resident on
+  // US dividends (Discrepancy Audit #7, 2026-04-08).
+  const avgNetRate = avgWhtRate > 0 ? divLog.reduce((s,d) => s + (d.net||0), 0) / avgWhtRate : 0.90;
   const avgWhtPct = avgWhtRate > 0 ? (1 - avgNetRate) * 100 : 0;
 
   // Per-ticker WHT net rates — computed from historical dividends
@@ -912,14 +813,16 @@ export default function DividendosTab() {
     const byMonth = {}; all.forEach(d => { const m=d.date.slice(0,7); if(!byMonth[m])byMonth[m]={g:0,n:0,c:0}; byMonth[m].g+=d.gross||0; byMonth[m].n+=d.net||0; byMonth[m].c++; });
     const monthKeys = Object.keys(byMonth).sort().slice(-36);
     const maxMonthG = Math.max(...monthKeys.map(m=>byMonth[m].g),1);
-    const fireTarget = 3500;
+    // Use canonical FIRE target from useFireMetrics (real expenses, not hardcoded $3500)
+    // Falls back to 3500/mo only if expense data isn't loaded yet
+    const fireTarget = fire.monthlyDivNeeded > 0 ? fire.monthlyDivNeeded : 3500;
     const last12m = all.filter(d => { const c=new Date(); c.setMonth(c.getMonth()-12); return d.date>=c.toISOString().slice(0,10); });
     const gross12m = last12m.reduce((s,d)=>s+(d.gross||0),0);
     const net12m = last12m.reduce((s,d)=>s+(d.net||0),0);
     const tax12m = gross12m - net12m;
     const taxRate12m = gross12m > 0 ? (tax12m / gross12m * 100) : 0;
     const avgNetMonth = net12m/12;
-    const firePct = Math.min(avgNetMonth/fireTarget*100,100);
+    const firePct = Math.min(fire.coveragePct, 100);
     const byCalMonth = {}; all.forEach(d => { const k=d.date.slice(0,4)+"-"+d.date.slice(5,7); if(!byCalMonth[k])byCalMonth[k]={g:0,n:0}; byCalMonth[k].g+=d.gross||0; byCalMonth[k].n+=d.net||0; });
     const twelveMonthsAgo = new Date(); twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth()-12);
     const cutoff12m = twelveMonthsAgo.toISOString().slice(0,10);

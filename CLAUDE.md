@@ -89,7 +89,7 @@ api/src/worker.js      (~3200 lines — 73 endpoints)
 ## Known Issues / Pending
 - **HKG:9618 cost shows $0** — FX conversion works but POS_STATIC fallback data was incomplete
 - **Foreign tickers (BME:, HKG:, HGK:)** — IB ticker mapping in IB_TICKER_MAP may need updates for new positions
-- **Massive API** — free plan returns 403 for options. Endpoint exists but unused (key: H8r7gucQHBoxhXqGIkNIcBs96Ksnpav7)
+- **Massive API** — free plan returns 403 for options. Endpoint exists but unused (key scrubbed 2026-04-08 — rotate if still active). Consider deleting the endpoint.
 - **IB Flex trades** — only syncs when Mac is on (cron). IB blocks Cloudflare Workers IPs
 - **Some DIV/AÑO show "—"** — positions without divTTM in D1 need updating
 

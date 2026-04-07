@@ -32,9 +32,9 @@ function daysLabel(n) {
 }
 
 const IMPORTANCE_COLOR = {
-  critical: '#dc2626',
-  high: '#d97706',
-  normal: '#6b7280',
+  critical: 'var(--ds-danger)',
+  high: 'var(--ds-warning)',
+  normal: 'var(--text-tertiary)',
 };
 const IMPORTANCE_LABEL = {
   critical: 'CRÍTICO',

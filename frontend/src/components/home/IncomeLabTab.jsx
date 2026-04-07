@@ -139,31 +139,74 @@ export default function IncomeLabTab() {
     });
   }, []);
 
-  // ── DIVIDEND CALENDAR ──
+  // ── DIVIDEND CALENDAR (real ex-dates from /api/dividend-calendar) ──
+  // Fix 2026-04-08 (Discrepancy Audit #9): previously used
+  // `ticker.charCodeAt(0) % 3` as a placement hash, which produced fake
+  // results (AAPL and AMZN landed in the SAME months because both start
+  // with 'A', regardless of real ex-dates). Now uses the same API as
+  // DividendosTab CalendarioSection for a consistent source of truth.
+  const [calRaw, setCalRaw] = useState(null);
+  useEffect(() => {
+    const tickers = pos.map(p => p.ticker).filter(Boolean).join(",");
+    if (!tickers) return;
+    fetch(`${API_URL}/api/dividend-calendar?symbols=${tickers}`)
+      .then(r => r.json())
+      .then(setCalRaw)
+      .catch(() => setCalRaw(null));
+  }, [pos.length]);
+
   const calendar = useMemo(() => {
-    // Estimate monthly dividend income based on DPS and frequency
     const months = Array.from({length:12}, () => ({total:0, tickers:[]}));
+    if (!pos.length) return months;
+
+    // Prefer real ex-date history from API (last 12 months by symbol).
+    // Fall back to the quarterly-estimate heuristic only if the API failed
+    // or returned nothing for this ticker.
+    const history = calRaw?.history || {};
+    const posBySymbol = Object.fromEntries(
+      pos.map(p => [p.ticker, p])
+    );
+
     pos.forEach(p => {
       const annual = p.divAnnualUSD || 0;
       if (annual <= 0 || !p.shares) return;
-      // Most US stocks pay quarterly. REITs/CEFs may pay monthly.
+      const perShare = annual / p.shares;
+      const hist = history[p.ticker] || [];
+
+      if (hist.length >= 2) {
+        // Use real ex-date months from the last 12 months of payments.
+        // Distribute `annual/hist.length` into each real payment month.
+        const perPayment = annual / hist.length;
+        hist.forEach(h => {
+          if (!h.exDate) return;
+          const m = new Date(h.exDate).getMonth();
+          if (isNaN(m)) return;
+          months[m].total += perPayment;
+          months[m].tickers.push({ t: p.ticker, amt: perPayment });
+        });
+        return;
+      }
+
+      // Fallback — no real history, use category heuristic (monthly vs quarterly).
       const cat = POS_STATIC[p.ticker]?.cat || "";
       const isMonthly = cat === "CEF" || (p.ticker||"").match(/^(O|MAIN|STAG|AGNC|NLY|PSEC|GAIN|GLAD)$/);
       if (isMonthly) {
-        // Monthly payer
-        for (let m = 0; m < 12; m++) { months[m].total += annual/12; months[m].tickers.push({t:p.ticker,amt:annual/12}); }
+        for (let m = 0; m < 12; m++) {
+          months[m].total += annual/12;
+          months[m].tickers.push({t:p.ticker,amt:annual/12});
+        }
       } else {
-        // Quarterly — estimate months based on ticker hash for distribution
-        const hash = p.ticker.charCodeAt(0) % 3;
-        for (let q = 0; q < 4; q++) {
-          const m = (hash + q * 3) % 12;
+        // Quarterly — default to Mar/Jun/Sep/Dec (most common US schedule)
+        // instead of hashing. This is not per-ticker-accurate but at least
+        // aggregates deterministically and doesn't invent patterns.
+        for (const m of [2, 5, 8, 11]) {
           months[m].total += annual/4;
           months[m].tickers.push({t:p.ticker,amt:annual/4});
         }
       }
     });
     return months;
-  }, [pos]);
+  }, [pos, calRaw, POS_STATIC]);
 
   const totalAnnualDiv = pos.reduce((s,p) => s + (p.divAnnualUSD||0), 0);
   const avgMonthly = totalAnnualDiv / 12;

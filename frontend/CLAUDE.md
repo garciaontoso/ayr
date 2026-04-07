@@ -41,7 +41,7 @@ frontend/src/
 - **Data flow**: fetchAllData() returns object → stored in `apiData` state → passed through HomeContext to components. Components NEVER import from api/data.js directly.
 - **Code splitting**: React.lazy() for all tabs. Initial bundle ~337KB. Each tab loads on demand.
 - **Context**: 3 contexts (Analysis, Home, CostBasis) pass state from App.jsx to extracted components.
-- Dark theme, gold accent (#d69e2e)
+- Dark theme, gold accent (#c8a44e — unified 2026-04-08, formerly #d69e2e)
 - Spanish UI, English technical terms
 - Financial data in millions (M = v/1e6)
 - POS_STATIC has mc (billions), cat (COMPANY/REIT/ETF), tg (strategy)
