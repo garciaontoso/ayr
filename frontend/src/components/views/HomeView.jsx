@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { CURRENCIES, DISPLAY_CCYS, APP_VERSION, API_URL } from '../../constants/index.js';
 import { saveCompanyToStorage } from '../../utils/storage.js';
@@ -544,6 +544,81 @@ export default function HomeView() {
     persistTabOrder(newOrder);
   };
 
+  // ── Touch drag support for iPad / iPhone ──
+  // HTML5 native drag doesn't fire on touch devices, so we implement a
+  // lightweight long-press + drag using pointer events.
+  // Flow: pointerdown → 400ms timer → enter drag mode → track pointermove
+  // hover-target by elementFromPoint → pointerup drops on current target.
+  const touchDragRef = useRef({ tabId: null, timer: null, active: false, pointerId: null });
+  const handleTabPointerDown = (e, tabId) => {
+    if (e.pointerType !== 'touch') return; // HTML5 drag handles mouse/pen
+    touchDragRef.current.tabId = tabId;
+    touchDragRef.current.pointerId = e.pointerId;
+    touchDragRef.current.active = false;
+    if (touchDragRef.current.timer) clearTimeout(touchDragRef.current.timer);
+    // Long-press 400ms to enter drag mode (so normal taps still select)
+    touchDragRef.current.timer = setTimeout(() => {
+      touchDragRef.current.active = true;
+      setDraggedTabId(tabId);
+      // Haptic feedback if available
+      try { navigator.vibrate && navigator.vibrate(30); } catch {}
+    }, 400);
+  };
+  const handleTabPointerMove = (e) => {
+    if (e.pointerType !== 'touch') return;
+    if (!touchDragRef.current.active) {
+      // Cancel long-press if the user starts scrolling before 400ms
+      if (touchDragRef.current.timer) {
+        clearTimeout(touchDragRef.current.timer);
+        touchDragRef.current.timer = null;
+      }
+      return;
+    }
+    e.preventDefault(); // block scroll while dragging
+    // Find the tab under the pointer
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const btn = el?.closest('[data-tab-id]');
+    const overId = btn?.getAttribute('data-tab-id');
+    if (overId && overId !== dragOverTabId) setDragOverTabId(overId);
+  };
+  const handleTabPointerUp = (e) => {
+    if (e.pointerType !== 'touch') return;
+    if (touchDragRef.current.timer) {
+      clearTimeout(touchDragRef.current.timer);
+      touchDragRef.current.timer = null;
+    }
+    if (touchDragRef.current.active) {
+      const sourceId = touchDragRef.current.tabId;
+      const targetId = dragOverTabId;
+      if (sourceId && targetId && sourceId !== targetId) {
+        const currentIds = orderedTabs.map(t => t.id);
+        const fromIdx = currentIds.indexOf(sourceId);
+        const toIdx = currentIds.indexOf(targetId);
+        if (fromIdx >= 0 && toIdx >= 0) {
+          const newOrder = [...currentIds];
+          newOrder.splice(fromIdx, 1);
+          newOrder.splice(toIdx, 0, sourceId);
+          persistTabOrder(newOrder);
+        }
+      }
+    }
+    touchDragRef.current.active = false;
+    touchDragRef.current.tabId = null;
+    touchDragRef.current.pointerId = null;
+    setDraggedTabId(null);
+    setDragOverTabId(null);
+  };
+  const handleTabPointerCancel = () => {
+    if (touchDragRef.current.timer) {
+      clearTimeout(touchDragRef.current.timer);
+      touchDragRef.current.timer = null;
+    }
+    touchDragRef.current.active = false;
+    touchDragRef.current.tabId = null;
+    setDraggedTabId(null);
+    setDragOverTabId(null);
+  };
+
   // IB badge logic
   const ibLoaded = ibData?.loaded;
   const ibLoading = ibData?.loading;
@@ -587,14 +662,23 @@ export default function HomeView() {
             return (
               <button
                 key={t.id}
-                onClick={()=>setHomeTab(t.id)}
+                data-tab-id={t.id}
+                onClick={()=>{
+                  // If we're mid-touch-drag, don't treat as click
+                  if (touchDragRef.current.active) return;
+                  setHomeTab(t.id);
+                }}
                 draggable
                 onDragStart={(e)=>handleTabDragStart(e, t.id)}
                 onDragOver={(e)=>handleTabDragOver(e, t.id)}
                 onDragLeave={()=>{ if (dragOverTabId === t.id) setDragOverTabId(null); }}
                 onDrop={(e)=>handleTabDrop(e, t.id)}
                 onDragEnd={handleTabDragEnd}
-                title="Arrastra para reordenar"
+                onPointerDown={(e)=>handleTabPointerDown(e, t.id)}
+                onPointerMove={handleTabPointerMove}
+                onPointerUp={handleTabPointerUp}
+                onPointerCancel={handleTabPointerCancel}
+                title="Arrastra para reordenar (desktop: ratón · móvil: mantén pulsado)"
                 style={{
                   display:"flex",alignItems:"center",gap:3,
                   padding:"5px 10px",borderRadius:7,

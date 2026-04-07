@@ -6300,6 +6300,59 @@ export default {
         }
       }
 
+      // GET /api/agents/health — detailed agent-level health for the last run.
+      // Returns per-agent: ran today? last success timestamp? insight count?
+      // Useful to spot which specific agent is silently failing.
+      if (path === "/api/agents/health" && request.method === "GET") {
+        const todayUtc = new Date().toISOString().slice(0, 10);
+        const yesterdayUtc = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+        const ALL_AGENTS = [
+          "regime", "earnings", "dividend", "risk", "macro", "trade",
+          "postmortem", "insider", "value", "options",
+          "dividend_cut_warning", "analyst_downgrade", "earnings_trend",
+          "sec_filings", "summary",
+        ];
+        // Get insight counts by agent for today and yesterday
+        const counts = {};
+        for (const fecha of [todayUtc, yesterdayUtc]) {
+          counts[fecha] = {};
+          try {
+            const { results } = await env.DB.prepare(
+              "SELECT agent_name, COUNT(*) as c FROM agent_insights WHERE fecha = ? GROUP BY agent_name"
+            ).bind(fecha).all();
+            for (const r of (results || [])) counts[fecha][r.agent_name] = r.c;
+          } catch {}
+        }
+        const health = ALL_AGENTS.map(name => {
+          const todayCount = counts[todayUtc][name] || 0;
+          const yesterdayCount = counts[yesterdayUtc][name] || 0;
+          const ranToday = todayCount > 0;
+          const ranYesterday = yesterdayCount > 0;
+          // Postmortem legitimately writes 0 insights when no signals are due
+          const excusedZero = name === "postmortem";
+          let status;
+          if (ranToday) status = "ok";
+          else if (excusedZero && ranYesterday) status = "idle_ok"; // fine, just nothing to report
+          else if (ranYesterday) status = "missing_today";
+          else status = "missing";
+          return {
+            agent: name,
+            status,
+            insights_today: todayCount,
+            insights_yesterday: yesterdayCount,
+          };
+        });
+        const missing = health.filter(h => h.status === "missing" || h.status === "missing_today").map(h => h.agent);
+        const ranCount = health.filter(h => h.status === "ok").length;
+        return json({
+          fecha: todayUtc,
+          total_agents: ALL_AGENTS.length,
+          ran_today: ranCount,
+          missing_today: missing,
+          health,
+        }, corsHeaders);
+      }
+
       // GET /api/agent-run/status — current state + last completed run metadata
       // Used by the frontend button to poll progress and show "Last run: Xh ago"
       if (path === "/api/agent-run/status" && request.method === "GET") {
@@ -7043,23 +7096,49 @@ Use real numbers from the data provided. If data is missing, use reasonable esti
 async function callAgentClaude(env, systemPrompt, userContent, opts = {}) {
   const model = opts.model || "claude-haiku-4-5-20251001";
   const maxTokens = opts.maxTokens || 3000;
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": env.ANTHROPIC_API_KEY || "",
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      system: systemPrompt,
-      messages: [{ role: "user", content: typeof userContent === "string" ? userContent : JSON.stringify(userContent) }],
-    }),
+  const body = JSON.stringify({
+    model,
+    max_tokens: maxTokens,
+    system: systemPrompt,
+    messages: [{ role: "user", content: typeof userContent === "string" ? userContent : JSON.stringify(userContent) }],
   });
-  if (!resp.ok) {
-    const errText = await resp.text();
-    throw new Error(`Claude API error ${resp.status}: ${errText}`);
+  // ── Retry with exponential backoff on transient failures ──
+  // Anthropic returns 529 "overloaded_error" intermittently. Previously this
+  // would crash any single-Opus-call agent (macro, trade synth) mid-cron.
+  // Retry on: 429 (rate limit), 500-504 (gateway), 529 (overloaded).
+  const RETRYABLE = new Set([429, 500, 502, 503, 504, 529]);
+  const BACKOFF_MS = [5000, 15000, 30000]; // 3 attempts total after the initial try
+  let lastErr = null;
+  let resp = null;
+  for (let attempt = 0; attempt <= BACKOFF_MS.length; attempt++) {
+    try {
+      resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": env.ANTHROPIC_API_KEY || "",
+          "anthropic-version": "2023-06-01",
+        },
+        body,
+      });
+      if (resp.ok) break;
+      if (!RETRYABLE.has(resp.status) || attempt === BACKOFF_MS.length) {
+        const errText = await resp.text();
+        throw new Error(`Claude API error ${resp.status}: ${errText}`);
+      }
+      // Log the retry attempt so the cron investigation / logs can see it
+      console.warn(`[callAgentClaude] ${resp.status} on attempt ${attempt + 1}/${BACKOFF_MS.length + 1}, retrying in ${BACKOFF_MS[attempt]}ms...`);
+      await new Promise(r => setTimeout(r, BACKOFF_MS[attempt]));
+    } catch (e) {
+      lastErr = e;
+      // Network error — also retry up to the same budget
+      if (attempt === BACKOFF_MS.length) throw e;
+      console.warn(`[callAgentClaude] network error on attempt ${attempt + 1}: ${e.message}, retrying in ${BACKOFF_MS[attempt]}ms...`);
+      await new Promise(r => setTimeout(r, BACKOFF_MS[attempt]));
+    }
+  }
+  if (!resp || !resp.ok) {
+    throw lastErr || new Error("Claude API: all retries exhausted");
   }
   const result = await resp.json();
   const rawText = result.content?.[0]?.text || "";
@@ -9426,12 +9505,28 @@ Respond ONLY JSON array: [{"ticker":"XX","severity":"info|warning|critical","tit
 "score":1-10}]
 Max 10 most actionable recommendations. Score = conviction (1=low, 10=very high).`;
 
-  const synthResult = await callAgentClaude(env, synthSystem, {
-    bullArguments: bullResult,
-    bearArguments: bearResult,
-    todayInsights,
-    positions: posData.slice(0, 20),
-  }, { model: "claude-opus-4-20250514" });
+  // Wrap the Opus synth in try/catch so a 529 overload (even after retries)
+  // doesn't wipe out the two Haiku calls we already paid for. If the synth
+  // fails, we degrade gracefully with an info-level summary.
+  let synthResult;
+  try {
+    synthResult = await callAgentClaude(env, synthSystem, {
+      bullArguments: bullResult,
+      bearArguments: bearResult,
+      todayInsights,
+      positions: posData.slice(0, 20),
+    }, { model: "claude-opus-4-20250514" });
+  } catch (e) {
+    console.error(`[trade] Opus synth failed after retries: ${e.message}`);
+    synthResult = [{
+      ticker: "_TRADE_",
+      severity: "info",
+      title: "Trade Advisor: síntesis Opus no disponible",
+      summary: `La síntesis final falló tras reintentos (${e.message.slice(0, 100)}). Los argumentos bull/bear se generaron correctamente. Reintentar manualmente desde el botón del tab Agentes.`,
+      details: { action: "HOLD", conviction: "low", error: e.message.slice(0, 200) },
+      score: 5,
+    }];
+  }
 
   // Store signals for future postmortem tracking
   const signals = Array.isArray(synthResult) ? synthResult : [synthResult];
