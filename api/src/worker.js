@@ -1061,27 +1061,53 @@ async function performAutoSync(env) {
     errors.push("Trades fetch error: " + e.message);
   }
 
-  // 3. Fetch account summary and save NLV + buying power
+  // 3. Fetch account summary and save NLV + buying power.
+  // Guarded against partial-account writes — the #1 source of corrupt rows.
+  // Bug history 2026-04-07: a partial multi-account fetch wrote a row with
+  // only 1 of 4 accounts' NLV (~$1.12M vs real $1.32M), which then became
+  // the default cached snapshot on every app load until we DELETED it
+  // manually. Fix 2026-04-08:
+  //   (a) require ALL accountIds to return a positive netliquidation,
+  //   (b) refuse >30% drops vs the most recent prior row,
+  //   (c) otherwise skip the write and log to errors (next cron retries).
   let totalBuyingPower = 0;
   try {
     const today = new Date().toISOString().slice(0, 10);
     let totalNlv = 0, totalCash = 0, totalGross = 0, totalMargin = 0;
+    let accountsOk = 0;
     const get = (summary, field) => summary?.[field]?.amount || 0;
 
     for (const accountId of accountIds) {
       const summary = await ib("GET", `/portfolio/${accountId}/summary`);
-      totalNlv += get(summary, "netliquidation");
+      const nlv = get(summary, "netliquidation");
+      if (nlv <= 0) {
+        errors.push(`NLV missing for account ${accountId}`);
+        continue;
+      }
+      accountsOk++;
+      totalNlv += nlv;
       totalCash += get(summary, "totalcashvalue");
       totalGross += get(summary, "grosspositionvalue");
       totalMargin += get(summary, "initmarginreq");
       totalBuyingPower += get(summary, "buyingpower");
     }
 
-    if (totalNlv > 0) {
-      await env.DB.prepare(
-        "INSERT OR REPLACE INTO nlv_history (fecha, nlv, cash, positions_value, margin_used, accounts, positions_count, buying_power) VALUES (?,?,?,?,?,?,?,?)"
-      ).bind(today, totalNlv, totalCash, totalGross, totalMargin, accountIds.length, 0, totalBuyingPower).run();
-      nlvUpdated = true;
+    if (accountsOk < accountIds.length) {
+      errors.push(`Skipping NLV save: only ${accountsOk}/${accountIds.length} accounts returned valid data`);
+    } else if (totalNlv > 0) {
+      // Sanity check vs previous row — refuse >30% drops (always partial fetches)
+      const prev = await env.DB.prepare(
+        "SELECT nlv FROM nlv_history WHERE fecha < ? ORDER BY fecha DESC LIMIT 1"
+      ).bind(today).first();
+      const prevNlv = prev?.nlv || 0;
+      if (prevNlv > 0 && totalNlv < prevNlv * 0.7) {
+        errors.push(`Skipping NLV save: ${totalNlv.toFixed(0)} is >30% drop vs prev ${prevNlv.toFixed(0)} — likely partial fetch`);
+      } else {
+        await env.DB.prepare(
+          "INSERT OR REPLACE INTO nlv_history (fecha, nlv, cash, positions_value, margin_used, accounts, positions_count, buying_power) VALUES (?,?,?,?,?,?,?,?)"
+        ).bind(today, totalNlv, totalCash, totalGross, totalMargin, accountIds.length, 0, totalBuyingPower).run();
+        nlvUpdated = true;
+      }
     }
   } catch(e) {
     errors.push("NLV save error: " + e.message);
@@ -2794,7 +2820,10 @@ export default {
         }
       }
 
-      // POST /api/ib-nlv-save — save daily NLV snapshot
+      // POST /api/ib-nlv-save — save daily NLV snapshot.
+      // Sanity-guarded 2026-04-08 against partial-fetch writes (see
+      // performAutoSync comment). Refuses >30% drops vs the most recent
+      // prior row to prevent corrupt rows from becoming the cached snapshot.
       if (path === "/api/ib-nlv-save" && request.method === "POST") {
         try {
           const body = await request.json();
@@ -2803,6 +2832,21 @@ export default {
           if (fechaErr) return validationError(fechaErr, corsHeaders);
           const numErr = validateNumber(body.nlv, 'nlv');
           if (numErr) return validationError(numErr, corsHeaders);
+
+          // Guard: reject anomalous drops
+          const prev = await env.DB.prepare(
+            "SELECT nlv FROM nlv_history WHERE fecha < ? ORDER BY fecha DESC LIMIT 1"
+          ).bind(fecha).first();
+          const prevNlv = prev?.nlv || 0;
+          if (prevNlv > 0 && body.nlv > 0 && body.nlv < prevNlv * 0.7) {
+            return json({
+              error: "rejected_anomalous_nlv",
+              detail: `NLV ${body.nlv.toFixed(0)} is >30% drop vs prev ${prevNlv.toFixed(0)} — likely partial fetch`,
+              prevNlv,
+              submittedNlv: body.nlv,
+            }, corsHeaders, 422);
+          }
+
           await env.DB.prepare(
             "INSERT OR REPLACE INTO nlv_history (fecha, nlv, cash, positions_value, margin_used, accounts, positions_count, buying_power) VALUES (?,?,?,?,?,?,?,?)"
           ).bind(fecha, body.nlv||0, body.cash||0, body.positionsValue||0, body.marginUsed||0, body.accounts||0, body.positionsCount||0, body.buyingPower||0).run();
