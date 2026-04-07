@@ -14,9 +14,10 @@ const FMP_MAP = {
   "LSEG": "LSEG.L", "ITRK": "ITRK.L",
   "ENG": "ENG.MC",       // Enagas (Spain), NOT ENGlobal Corp
   "AZJ": "AZJ.AX", "GQG": "GQG.AX",
-  "WKL": "WKL.AS", "SHUR": "SHUR.AS",
+  "WKL": "WKL.AS",
+  "SHUR": "SHUR.BR",     // Shurgard (Euronext Brussels) — was wrongly SHUR.AS
   "RAND": "RAND.AS",     // Randstad (Netherlands), NOT Rand Capital
-  "NET.UN": "NET-UN.TO",
+  "NET.UN": "NET-UN.V",  // Canadian Net REIT (TSX Venture) — was wrongly NET-UN.TO
   "CNSWF": "CNSWF",
 };
 // Helper: convert our ticker to FMP symbol
@@ -6490,16 +6491,30 @@ async function cacheFmpFinancials(env, opts = {}) {
        updated_at TEXT NOT NULL
      )`
   ).run();
+  // Skip ETFs (they have no income statement of their own — would always fail)
   const { results: positions } = await env.DB.prepare(
-    "SELECT ticker FROM positions WHERE shares > 0"
+    "SELECT ticker FROM positions WHERE shares > 0 AND COALESCE(category, '') != 'ETF'"
   ).all();
   if (!positions.length) return { cached: 0, failed: 0, total: 0 };
   const offset = opts.offset || 0;
   const limit = opts.limit || 0;
   const sliced = limit > 0 ? positions.slice(offset, offset + limit) : positions;
 
-  let cached = 0, failed = 0;
-  // Batches of 3 in parallel + 700ms delay (each ticker = 3 FMP calls, so ~9 in flight)
+  // Helper: store one ticker's result
+  const store = async (ticker, value) => {
+    if (!value) return false;
+    const payload = { trend: value };
+    await env.DB.prepare(
+      `INSERT INTO fmp_financials_cache (ticker, data, updated_at)
+       VALUES (?, ?, datetime('now'))
+       ON CONFLICT(ticker) DO UPDATE SET data = excluded.data, updated_at = datetime('now')`
+    ).bind(ticker, JSON.stringify(payload)).run();
+    return true;
+  };
+
+  let cached = 0;
+  const failedFirstPass = [];
+  // First pass: batches of 3 in parallel + 700ms delay (~9 calls in flight)
   for (let i = 0; i < sliced.length; i += 3) {
     const batch = sliced.slice(i, i + 3);
     const results = await Promise.allSettled(
@@ -6509,28 +6524,45 @@ async function cacheFmpFinancials(env, opts = {}) {
       const ticker = batch[j].ticker;
       const r = results[j];
       if (r.status === "fulfilled" && r.value) {
-        const payload = { trend: r.value };
-        await env.DB.prepare(
-          `INSERT INTO fmp_financials_cache (ticker, data, updated_at)
-           VALUES (?, ?, datetime('now'))
-           ON CONFLICT(ticker) DO UPDATE SET data = excluded.data, updated_at = datetime('now')`
-        ).bind(ticker, JSON.stringify(payload)).run();
+        await store(ticker, r.value);
         cached++;
       } else {
-        failed++;
+        failedFirstPass.push(ticker);
       }
     }
     if (i + 3 < sliced.length) await new Promise(r => setTimeout(r, 700));
   }
-  console.log(`[FMP-FIN] Cached ${cached}/${sliced.length} (failed ${failed})`);
-  return { cached, failed, total: sliced.length, portfolio: positions.length };
+
+  // Retry pass: failed tickers SEQUENTIALLY with longer delay (rate limit relief)
+  let retryCached = 0;
+  const stillFailed = [];
+  for (const ticker of failedFirstPass) {
+    try {
+      await new Promise(r => setTimeout(r, 1200));
+      const result = await fmpFinancials(ticker, env);
+      if (result) {
+        await store(ticker, result);
+        retryCached++;
+        cached++;
+      } else {
+        stillFailed.push(ticker);
+      }
+    } catch (e) {
+      stillFailed.push(ticker);
+    }
+  }
+
+  const failed = stillFailed.length;
+  console.log(`[FMP-FIN] Cached ${cached}/${sliced.length} (first pass ${cached - retryCached}, retry ${retryCached}, still failed ${failed}: ${stillFailed.join(',')})`);
+  return { cached, failed, total: sliced.length, portfolio: positions.length, retried: failedFirstPass.length, retry_cached: retryCached, still_failed: stillFailed };
 }
 
 // Cache full company dividend history for all positions in agent_memory.dividend_history
 // Stored as map { ticker: [{year, total}, ...] }
 async function cacheDividendHistory(env, opts = {}) {
+  // Skip ETFs
   const { results: positions } = await env.DB.prepare(
-    "SELECT ticker FROM positions WHERE shares > 0"
+    "SELECT ticker FROM positions WHERE shares > 0 AND COALESCE(category, '') != 'ETF'"
   ).all();
   if (!positions.length) return { cached: 0, total: 0 };
   const offset = opts.offset || 0;
@@ -6538,8 +6570,9 @@ async function cacheDividendHistory(env, opts = {}) {
   const sliced = limit > 0 ? positions.slice(offset, offset + limit) : positions;
 
   const map = (await getAgentMemory(env, "dividend_history")) || {};
-  let cached = 0, failed = 0;
-  // Batches of 4 in parallel + 700ms delay (1 call per ticker)
+  let cached = 0;
+  const failedFirstPass = [];
+  // First pass: batches of 4 parallel + 700ms delay
   for (let i = 0; i < sliced.length; i += 4) {
     const batch = sliced.slice(i, i + 4);
     const results = await Promise.all(batch.map(p => fmpDividendHistory(p.ticker, env)));
@@ -6548,13 +6581,31 @@ async function cacheDividendHistory(env, opts = {}) {
         map[p.ticker] = results[idx];
         cached++;
       } else {
-        failed++;
+        failedFirstPass.push(p.ticker);
       }
     });
     if (i + 4 < sliced.length) await new Promise(r => setTimeout(r, 700));
   }
+  // Retry pass: sequential with longer delay
+  let retryCached = 0;
+  const stillFailed = [];
+  for (const ticker of failedFirstPass) {
+    try {
+      await new Promise(r => setTimeout(r, 1000));
+      const result = await fmpDividendHistory(ticker, env);
+      if (result && result.length > 0) {
+        map[ticker] = result;
+        retryCached++;
+        cached++;
+      } else {
+        stillFailed.push(ticker);
+      }
+    } catch {
+      stillFailed.push(ticker);
+    }
+  }
   await setAgentMemory(env, "dividend_history", map);
-  return { cached, failed, total: sliced.length, portfolio: positions.length };
+  return { cached, failed: stillFailed.length, total: sliced.length, portfolio: positions.length, retry_cached: retryCached, still_failed: stillFailed };
 }
 
 // Reader for cached dividend history
