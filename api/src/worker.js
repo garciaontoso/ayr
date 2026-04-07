@@ -26,6 +26,36 @@ const toFMP = (t) => FMP_MAP[t] || t;
 const FMP_REVERSE = Object.fromEntries(Object.entries(FMP_MAP).map(([k, v]) => [v, k]));
 const fromFMP = (fmpSym) => FMP_REVERSE[fmpSym] || fmpSym;
 
+// Asset managers, BDCs, and partnerships that distribute from carry/NII/distributable
+// earnings rather than free cash flow. The FCF-payout penalty in Safety scoring
+// produces false positives for these because their distribution model is structurally
+// different from traditional dividend payers. Q+S Safety should treat them with the
+// same care as REITs (which are already carved out by sector).
+const FCF_PAYOUT_CARVEOUT = new Set([
+  // Public-equity asset managers / partnerships (carry-driven)
+  "BX",   // Blackstone
+  "KKR",  // KKR
+  "BAM",  // Brookfield Asset Management
+  "ARES", // Ares Management
+  "APO",  // Apollo Global
+  "CG",   // Carlyle
+  "TPG",  // TPG
+  "OWL",  // Blue Owl
+  "GQG",  // GQG Partners
+  "BEN",  // Franklin Resources
+  // BDCs (distribute net investment income)
+  "OBDC", // Blue Owl Capital Corp
+  "MSDL", // Morgan Stanley Direct Lending
+  "ARCC", // Ares Capital
+  "MAIN", // Main Street Capital
+  "BIZD", // BDC ETF
+  // MLPs and partnerships (distribute from DCF, not FCF)
+  "EPD",  // Enterprise Products Partners
+  "ET",   // Energy Transfer
+  "MPLX", // MPLX
+  "OKE",  // Oneok (technically C-corp now but legacy)
+]);
+
 // Currency map for international tickers (FMP /quote doesn't return currency)
 const CURRENCY_MAP = {
   "BME:VIS": "EUR", "BME:AMS": "EUR", "ENG": "EUR", "WKL": "EUR",
@@ -7071,7 +7101,9 @@ function _qs_quality(fin, risk, sector) {
 
 // Safety Score components
 // Returns null if ticker is not a dividend payer (Safety is N/A — there's nothing to be safe).
-function _qs_safety(fin, risk, sector, dividendStreakYears) {
+// `ticker` is used to apply ticker-level carve-outs (asset managers, BDCs, MLPs)
+// that distribute from a non-FCF source.
+function _qs_safety(fin, risk, sector, dividendStreakYears, ticker) {
   const trend = fin?.trend || fin || {};
   const periods = trend.periods || [];
   const n = periods.length;
@@ -7265,8 +7297,11 @@ function _qs_safety(fin, risk, sector, dividendStreakYears) {
 
   // ── Hard penalty: FCF payout > 80% is a major red flag for unsustainable dividends ──
   // Detects value traps that look fine on earnings but can't be funded by cash.
+  // Carve-out: asset managers, BDCs, MLPs distribute from carry/NII/DCF, not FCF —
+  // applying this penalty produces false positives for them.
   let fcfPayoutPenalty = 0;
-  if (fcfPayoutRatio != null && fcfPayoutRatio > 0.80) {
+  const fcfPayoutCarveOut = ticker && FCF_PAYOUT_CARVEOUT.has(ticker);
+  if (!fcfPayoutCarveOut && fcfPayoutRatio != null && fcfPayoutRatio > 0.80) {
     if (fcfPayoutRatio > 1.20) fcfPayoutPenalty = 20;       // burning cash to pay div
     else if (fcfPayoutRatio > 1.00) fcfPayoutPenalty = 15;  // 100%+ unsustainable
     else fcfPayoutPenalty = 10;                              // 80-100% stretched
@@ -7473,7 +7508,7 @@ async function computeQualitySafetyScore(env, ticker) {
   }
 
   const q = _qs_quality(fin, risk, sector);
-  const s = _qs_safety(fin, risk, sector, streak);
+  const s = _qs_safety(fin, risk, sector, streak, ticker);
 
   if (!q && !s) return { error: "compute_failed", ticker };
 
@@ -9135,6 +9170,7 @@ async function runDividendCutWarningAgent(env, fecha) {
     if ((p.div_ttm || 0) <= 0) return false;
     if (p.sector && SKIP_SECTORS.test(p.sector)) return false;
     if (p.category && SKIP_CATEGORIES.test(p.category)) return false;
+    if (FCF_PAYOUT_CARVEOUT.has(p.ticker)) return false; // asset managers, BDCs, MLPs
     return true;
   });
   if (!payers.length) return { agent: "dividend_cut_warning", scanned: 0, alerts: 0 };
