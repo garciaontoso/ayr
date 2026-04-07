@@ -103,6 +103,15 @@ const COL_DEFS = [
     fmt:v=>v!==0?_sf(v,1)+"%":"\u2014", color:v=>v>-5?"var(--green)":v>-15?"var(--gold)":"var(--red)", sortV:p=>{const h=p.fiftyTwoWeekHigh||0,c=p.lastPrice||0;return h>0?((c-h)/h):0;} },
   { id:"ytd", label:"YTD%", group:"Performance", w:"42px", defaultOn:false,
     val:p=>p._fund?.ytd||0, fmt:v=>v!==0?(v>=0?"+":"")+_sf(v*100,1)+"%":"\u2014", color:v=>v>=0?"var(--green)":"var(--red)", sortV:p=>p._fund?.ytd||0 },
+  // ── Quality + Safety Scores (computed from FMP cache, click for breakdown) ──
+  { id:"quality", label:"Q", group:"Calidad", w:"36px", defaultOn:true, isQS:true,
+    val:p=>p._qs?.quality_score, fmt:v=>v!=null?v.toFixed(0):"\u2014",
+    color:v=>v==null?"var(--text-tertiary)":v>=80?"var(--gold)":v>=65?"var(--green)":v>=50?"#ffd60a":"#ff6b6b",
+    sortV:p=>p._qs?.quality_score||0 },
+  { id:"safety", label:"S", group:"Calidad", w:"36px", defaultOn:true, isQS:true,
+    val:p=>p._qs?.safety_score, fmt:v=>v!=null?v.toFixed(0):"\u2014",
+    color:v=>v==null?"var(--text-tertiary)":v>=80?"var(--gold)":v>=65?"var(--green)":v>=50?"#ffd60a":"#ff6b6b",
+    sortV:p=>p._qs?.safety_score||0 },
 ];
 
 const DEFAULT_COLS = COL_DEFS.filter(c=>c.defaultOn).map(c=>c.id);
@@ -166,7 +175,17 @@ export default function PortfolioTab() {
   const saveAlerts = useCallback((a) => { setAlerts(a); localStorage.setItem(ALERTS_KEY, JSON.stringify(a)); }, []);
 
   const [visibleCols, setVisibleCols] = useState(() => {
-    try { const s = JSON.parse(localStorage.getItem(COLS_KEY)); if (s && Array.isArray(s) && s.length > 0) return s; } catch {} return DEFAULT_COLS;
+    try {
+      const s = JSON.parse(localStorage.getItem(COLS_KEY));
+      if (s && Array.isArray(s) && s.length > 0) {
+        // Migration: append Q/S columns if user has older saved list (one-time)
+        let migrated = [...s];
+        if (!s.includes('quality')) migrated.push('quality');
+        if (!s.includes('safety')) migrated.push('safety');
+        return migrated;
+      }
+    } catch {}
+    return DEFAULT_COLS;
   });
   const [showColPicker, setShowColPicker] = useState(false);
   const colPickerRef = useRef(null);
@@ -605,38 +624,36 @@ export default function PortfolioTab() {
                         </div>
                       </td>
                       {activeCols.map(c => {
+                        // Inject _qs into position object so columns can read it
+                        const pWithQs = qsScores && qsScores[p.ticker] ? { ...p, _qs: qsScores[p.ticker] } : p;
                         if (c.id === "ticker") {
+                          const ibTitle = p.dataSource==="IB" ? "Sincronizado desde Interactive Brokers" : "";
                           return (<td key={c.id} style={{padding:"3px 3px",verticalAlign:"middle",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>
-                            <div style={{display:"flex",alignItems:"center",gap:2,minWidth:0}}>
+                            <div style={{display:"flex",alignItems:"center",gap:3,minWidth:0}}>
                               <span style={{fontSize:11,flexShrink:0}}>{FLAGS[cc]||""}</span>
                               <span style={{fontSize:10,fontWeight:600,color:"var(--text-primary)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name||p.ticker}</span>
                               <span style={{fontSize:8,color:"var(--text-tertiary)",flexShrink:0}}>{p.ticker}</span>
-                              {sectorColor && <div style={{width:4,height:4,borderRadius:"50%",background:sectorColor,flexShrink:0,opacity:.7}} title={p.sector}/>}
-                              {p.dataSource==="IB" && <span style={{fontSize:5,fontWeight:700,padding:"0 2px",borderRadius:2,background:"rgba(100,210,255,.1)",color:"#64d2ff",flexShrink:0}}>IB</span>}
-                              {divStreaks && divStreaks[p.ticker]?.streak >= 5 && <span style={{fontSize:5,fontWeight:700,padding:"0 2px",borderRadius:2,background:divStreaks[p.ticker]?.streak>=25?"rgba(200,164,78,.15)":"rgba(255,214,10,.08)",color:divStreaks[p.ticker]?.streak>=25?"var(--gold)":"#ffd60a",flexShrink:0}}>{divStreaks[p.ticker].streak}y</span>}
-                              {/* Quality + Safety badges (color-coded by tier) */}
-                              {qsScores && qsScores[p.ticker] && (() => {
-                                const sc = qsScores[p.ticker];
-                                const q = sc.quality_score;
-                                const s = sc.safety_score;
-                                const colorFor = (v) => v == null ? null :
-                                  v >= 80 ? {bg:"rgba(200,164,78,.18)", fg:"var(--gold)"} :
-                                  v >= 65 ? {bg:"rgba(48,209,88,.12)", fg:"var(--green)"} :
-                                  v >= 50 ? {bg:"rgba(255,214,10,.10)", fg:"#ffd60a"} :
-                                            {bg:"rgba(255,69,58,.12)", fg:"#ff6b6b"};
-                                const qc = colorFor(q);
-                                const sc2 = colorFor(s);
-                                return <span onClick={(e)=>{e.stopPropagation();openScoresModal && openScoresModal(p.ticker);}} style={{display:"inline-flex",gap:1,flexShrink:0,cursor:"pointer"}} title={`Quality ${q ?? '—'} · Safety ${s ?? 'N/A'} (click para detalles)`}>
-                                  {q != null && qc && <span style={{fontSize:5,fontWeight:800,padding:"0 2px",borderRadius:2,background:qc.bg,color:qc.fg,letterSpacing:.2,flexShrink:0}}>Q{q.toFixed(0)}</span>}
-                                  {s != null && sc2 && <span style={{fontSize:5,fontWeight:800,padding:"0 2px",borderRadius:2,background:sc2.bg,color:sc2.fg,letterSpacing:.2,flexShrink:0}}>S{s.toFixed(0)}</span>}
-                                </span>;
-                              })()}
+                              {sectorColor && <div style={{width:5,height:5,borderRadius:"50%",background:sectorColor,flexShrink:0,opacity:.8}} title={p.sector}/>}
+                              {p.dataSource==="IB" && <div title={ibTitle} style={{width:5,height:5,borderRadius:"50%",background:"#64d2ff",flexShrink:0,opacity:.8}}/>}
+                              {divStreaks && divStreaks[p.ticker]?.streak >= 5 && <span style={{fontSize:6,fontWeight:700,padding:"0 3px",borderRadius:3,background:divStreaks[p.ticker]?.streak>=25?"rgba(200,164,78,.18)":"rgba(255,214,10,.10)",color:divStreaks[p.ticker]?.streak>=25?"var(--gold)":"#ffd60a",flexShrink:0,letterSpacing:.2}} title={`${divStreaks[p.ticker].streak} años subiendo dividendo`}>{divStreaks[p.ticker].streak}y</span>}
                             </div>
                           </td>);
                         }
                         if (c.id === "sector") {
                           const sc = getSectorColor(p.sector);
                           return (<td key={c.id} style={{padding:"3px 3px",verticalAlign:"middle",textAlign:"left",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}><span style={{fontSize:9,color:sc||"var(--text-tertiary)"}} title={p.sector||""}>{c.fmt(c.val(p),p)}</span></td>);
+                        }
+                        // Q/S columns: clickable to open drill-down modal
+                        if (c.isQS) {
+                          const val = c.val(pWithQs);
+                          const formatted = c.fmt(val, pWithQs);
+                          const cellColor = c.color ? c.color(val) : "var(--text-primary)";
+                          const isClickable = val != null;
+                          const tooltip = isClickable ? `${c.id === 'quality' ? 'Quality' : 'Dividend Safety'}: ${val.toFixed(0)}/100 (click para detalles)` : (c.id === 'safety' ? 'Safety N/A — no dividend payer o sin datos' : 'Sin datos');
+                          return (<td key={c.id} title={tooltip} onClick={isClickable ? (e)=>{e.stopPropagation();openScoresModal && openScoresModal(p.ticker);} : undefined}
+                            style={{padding:"3px 3px",textAlign:"center",verticalAlign:"middle",fontFamily:"var(--fm)",fontSize:11,fontWeight:800,color:cellColor,whiteSpace:"nowrap",cursor:isClickable?"pointer":"default"}}>
+                            {formatted}
+                          </td>);
                         }
                         // DGR columns: show tooltip with 1Y/3Y/5Y/10Y breakdown
                         if (c.isDGR && p._dgr) {
