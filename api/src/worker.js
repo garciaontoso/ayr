@@ -9929,6 +9929,31 @@ async function runEarningsAgent(env, fecha) {
   // is part of a trend or a one-off, instead of evaluating each quarter blind.
   const finMap = await getFmpFinancials(env, tickers);
 
+  // ── Cross-agent ground-truth: earnings_trend signals (added 2026-04-08) ──
+  // earnings_trend (no LLM) runs BEFORE this agent in the pipeline so we can
+  // ingest its deterministic 2+ misses + margin compression flags. The audit
+  // (Audit A finding #2) recommended folding earnings_trend output into this
+  // LLM agent so the user gets ONE coherent verdict per ticker.
+  const earningsTrendMap = {};
+  try {
+    const { results: etRows } = await env.DB.prepare(
+      `SELECT ticker, severity, summary, details FROM agent_insights
+       WHERE agent_name = 'earnings_trend' AND fecha = ?`
+    ).bind(fecha).all();
+    for (const r of (etRows || [])) {
+      try {
+        const det = JSON.parse(r.details || '{}');
+        earningsTrendMap[r.ticker] = {
+          severity: r.severity,
+          consecutiveMisses: det.consecutiveMisses,
+          marginCompressionBps: det.marginCompressionBps,
+          revGrowthYoY: det.revGrowthYoY,
+          summary: r.summary,
+        };
+      } catch {}
+    }
+  } catch (e) { console.error("[Earnings] earnings_trend load failed:", e.message); }
+
   // Load most recent transcript per ticker. Tickers stored without exchange prefix
   // (BME:/HKG:/LSE: stripped at download time, see /api/download-transcripts).
   const transcriptMap = {};
@@ -10005,6 +10030,8 @@ async function runEarningsAgent(env, fecha) {
       trends: buildTrends(p.ticker),
       // Most recent earnings call transcript (management commentary)
       transcript: tr ? { period: `${tr.quarter} ${tr.year}`, date: tr.date, excerpt: tr.excerpt } : null,
+      // Cross-agent ground-truth — only present if flagged today
+      earningsTrendSignal: earningsTrendMap[p.ticker] || null,
     };
   });
 
@@ -10032,6 +10059,15 @@ YOU NOW HAVE 6-QUARTER TREND DATA (revenue, netIncome, operatingIncome, grossPro
 - Margin trend: compute (operatingIncome / revenue) for each of the last 6 quarters. Flag CRITICAL only if margins compressed AND revenue is also declining.
 - If trends are improving but the latest quarter is one-off bad, the answer is INFO with explanation, not warning.
 - Trends array is most-recent-first: trends.revenue[0] is the LATEST quarter.
+
+CROSS-AGENT GROUND-TRUTH SIGNAL (added 2026-04-08):
+You now receive an earningsTrendSignal field per ticker (only when flagged):
+- Fields: severity, consecutiveMisses (count of YoY op income misses), marginCompressionBps, revGrowthYoY, summary.
+- This is a deterministic pattern detector that ran BEFORE you. If it flagged a ticker, the misses are real.
+- If present with severity=critical and your trends agree → reflect it (warning or critical).
+- If present but the transcript explains a one-off cause AND management gives credible recovery plan → you may keep it info but EXPLAIN.
+- If null, the deterministic detector found no pattern — proceed normally.
+DO NOT mention the signal explicitly in your summary field unless it changes your verdict.
 
 CONTEXT IS EVERYTHING:
 - One-time write-downs, impairments, restructuring charges are NOT operational problems. Explain what happened.
@@ -10132,6 +10168,48 @@ async function runDividendAgent(env, fecha) {
     realDivMap[d.ticker].push(d);
   }
 
+  // ── Cross-agent ground-truth signals (added 2026-04-08 per Audit A merge) ──
+  // dividend_cut_warning + analyst_downgrade now run BEFORE this agent in the
+  // pipeline. We read their per-ticker output here so Opus can produce ONE
+  // coherent verdict per dividend payer instead of having 3 cards disagreeing.
+  const cutWarningMap = {};
+  const downgradeMap = {};
+  try {
+    const { results: cwRows } = await env.DB.prepare(
+      `SELECT ticker, severity, summary, details FROM agent_insights
+       WHERE agent_name = 'dividend_cut_warning' AND fecha = ?`
+    ).bind(fecha).all();
+    for (const r of (cwRows || [])) {
+      try {
+        const det = JSON.parse(r.details || '{}');
+        cutWarningMap[r.ticker] = {
+          severity: r.severity,
+          ttmCoverage: det.ttmCoverageNow,
+          fcfPayoutPct: det.fcfPayoutNow,
+          fcfGrowthYoY: det.fcfGrowthYoY,
+          summary: r.summary,
+        };
+      } catch {}
+    }
+  } catch (e) { console.error("[Dividend] cut_warning load failed:", e.message); }
+  try {
+    const { results: dgRows } = await env.DB.prepare(
+      `SELECT ticker, severity, summary, details FROM agent_insights
+       WHERE agent_name = 'analyst_downgrade' AND fecha = ?`
+    ).bind(fecha).all();
+    for (const r of (dgRows || [])) {
+      try {
+        const det = JSON.parse(r.details || '{}');
+        downgradeMap[r.ticker] = {
+          severity: r.severity,
+          deltaPts: det.deltaPts,
+          analystsCovering: det.analystsCovering,
+          summary: r.summary,
+        };
+      } catch {}
+    }
+  } catch (e) { console.error("[Dividend] analyst_downgrade load failed:", e.message); }
+
   const fundMap = {};
   for (const f of fundamentals) {
     fundMap[f.symbol] = {
@@ -10210,6 +10288,10 @@ async function runDividendAgent(env, fecha) {
       trendFCF: trend.fcf?.slice(0, 6),
       trendDebt: trend.debt?.slice(0, 4),
       trendDivPaid: trend.dividendsPaid?.slice(0, 4),
+
+      // Cross-agent ground-truth signals (only present if flagged today)
+      cutWarningSignal: cutWarningMap[p.ticker] || null,
+      analystDowngradeSignal: downgradeMap[p.ticker] || null,
     };
   });
 
@@ -10240,6 +10322,19 @@ TREND ANALYSIS (use trendRevenue, trendFCF, trendDebt, trendDivPaid — most rec
 - If debt is INCREASING AND FCF is DECREASING → genuine stress. Score 3-4.
 - If dividendsPaid dropped but FCF is strong → voluntary cut to invest or pay debt. Explain WHY.
 - Always analyze the DIRECTION of the trend, not just the latest number.
+
+CROSS-AGENT GROUND-TRUTH SIGNALS (added 2026-04-08):
+You now receive two pre-computed signals per ticker (when flagged):
+- cutWarningSignal: if present, the deterministic FCF analyzer flagged this ticker.
+  Fields: severity (warning/critical), ttmCoverage, fcfPayoutPct, fcfGrowthYoY, summary.
+  → If present with severity=critical, you SHOULD reflect that risk in your verdict (warning at minimum).
+  → If present but the trend data shows a clear strategic explanation (debt paydown, restructuring),
+    you may keep it info but EXPLAIN why you're overriding the signal.
+- analystDowngradeSignal: if present, sell-side analysts cut sentiment in the last ~14 days.
+  Fields: severity, deltaPts, analystsCovering, summary.
+  → Treat as a directional warning. Doesn't override fundamentals, but lower your conviction one notch.
+For tickers with NO signals present, those fields are null — proceed normally with your TTM analysis.
+DO NOT mention these signals in your output summary unless they materially change your verdict.
 
 SEVERITY (be conservative — only "critical" for REAL danger):
 - critical = company is genuinely at risk of bankruptcy or permanent dividend elimination. Max 2-3 across entire portfolio.
@@ -12216,22 +12311,38 @@ async function runAllAgents(env) {
   // Skipped here — runs on-demand via POST /api/download-transcripts to avoid 30s timeouts.
   // The Earnings agent reads whatever is cached. Manual refresh weekly is sufficient.
 
-  // Pipeline order: Regime first → analysis agents → Trade Advisor last → Postmortem
+  // Pipeline order REORDERED 2026-04-08 per Audit A finding #2:
+  // The 3 quantitative "is dividend at risk?" / "earnings deteriorating?"
+  // agents (dividend_cut_warning, analyst_downgrade, earnings_trend) now
+  // run BEFORE their LLM siblings so the LLM agents can ingest their
+  // ground-truth signals and produce one coherent verdict per ticker
+  // instead of 4 separate cards answering the same question.
+  //
+  // Order:
+  //  1. regime (Haiku) — sets context for all
+  //  2. no-LLM data feeders (parallel-safe, all use cached FMP data)
+  //  3. earnings (Opus) — now reads earnings_trend signals
+  //  4. dividend (Opus) — now reads cut_warning + analyst_downgrade signals
+  //  5. risk + macro (Haiku post-2026-04-08)
+  //  6. trade (Opus) — synthesizes everything
+  //  7. postmortem — last (no signals to evaluate until tomorrow)
   const agents = [
-    ['regime', runRegimeAgent],       // Step 1: Haiku — sets regime context for all others
-    ['earnings', runEarningsAgent],   // Step 2: Opus + earnings_transcripts (12-batch)
-    ['dividend', runDividendAgent],   // Step 3: Opus + FMP quarterly financials trends
-    ['risk', runRiskAgent],           // Step 4: Opus + FMP-derived risk metrics (reads regime)
-    ['macro', runMacroAgent],         // Step 5: Opus (reads regime + market data + economic calendar)
-    ['trade', runTradeAgent],         // Step 6: Haiku bull + Haiku bear + Opus synth
-    ['postmortem', runPostmortemAgent], // Step 7: No LLM (pure calculation)
-    ['insider', runInsiderAgent],       // Step 8: FMP /stable/insider-trading/search (no LLM)
-    ['value', runValueSignalsAgent],   // Step 9: GuruFocus value signals (no LLM, scalars only)
-    ['options', runOptionsIncomeAgent], // Step 10: Yahoo options chain (no LLM, FMP no expone options)
-    ['dividend_cut_warning', runDividendCutWarningAgent], // Step 11: No LLM, FCF payout trend (Tier 1)
-    ['analyst_downgrade', runAnalystDowngradeAgent],      // Step 12: FMP grades-historical (no LLM, Tier 1)
-    ['earnings_trend', runEarningsTrendAgent],            // Step 13: No LLM, op-income/margin pattern (Tier 3)
-    ['sec_filings', runSECFilingsAgent],                  // Step 14: SEC EDGAR 8-K tracker (no LLM, Tier 3)
+    ['regime', runRegimeAgent],       // Step 1: Haiku — sets regime context
+    // ── no-LLM ground-truth feeders (run first so LLM agents can read them) ──
+    ['insider', runInsiderAgent],                         // FMP insider transactions
+    ['dividend_cut_warning', runDividendCutWarningAgent], // FCF payout trend (Tier 1)
+    ['analyst_downgrade', runAnalystDowngradeAgent],      // FMP grades-historical (Tier 1)
+    ['earnings_trend', runEarningsTrendAgent],            // op-income/margin pattern (Tier 3)
+    ['value', runValueSignalsAgent],                      // GuruFocus value signals
+    ['options', runOptionsIncomeAgent],                   // Yahoo options chain
+    ['sec_filings', runSECFilingsAgent],                  // SEC EDGAR 8-K tracker
+    // ── LLM agents (consume the no-LLM signals above) ──
+    ['earnings', runEarningsAgent],   // Opus + transcripts + earnings_trend signals
+    ['dividend', runDividendAgent],   // Opus + Q+S + cut_warning + downgrade signals
+    ['risk', runRiskAgent],           // Haiku + FMP-derived risk metrics
+    ['macro', runMacroAgent],         // Haiku + market data + economic calendar
+    ['trade', runTradeAgent],         // Opus single-call synthesis
+    ['postmortem', runPostmortemAgent], // No LLM — runs last, evaluates yesterday's signals
   ];
 
   for (let i = 0; i < agents.length; i++) {
