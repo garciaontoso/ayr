@@ -69,4 +69,5 @@ export const HOME_TABS = [
   {id:"research",lbl:"Research",ico:"🔍"},
   {id:"library",lbl:"Library",ico:"📚"},
   {id:"earnings",lbl:"Earnings",ico:"📊"},
+  {id:"news",lbl:"News",ico:"📰"},
 ];
