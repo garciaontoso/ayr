@@ -8,6 +8,9 @@ binding = "DB"
 database_name = "aar-finanzas"
 database_id = "d9dc97c1-1ea5-4e05-b637-89e52229d099"
 
-# IB auto-sync: daily at 9:00 UTC (11:00 Madrid) Mon-Fri
-[triggers]
-crons = ["0 9 * * 1-5"]
+# Cron DISABLED 2026-04-08 — AI agents now triggered manually by user from
+# the "Ejecutar agentes" button in the AgentesTab. Saves ~$33/month when
+# user doesn't open the app. To re-enable, uncomment the block below.
+#
+# [triggers]
+# crons = ["0 9 * * 1-5"]

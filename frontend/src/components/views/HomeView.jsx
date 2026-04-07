@@ -91,6 +91,42 @@ function MiniGauge({ value, min, max, colors, size = 80, label }) {
   );
 }
 
+// ─── Small reminder badge that shows when the AI agents haven't run today ───
+// Fetches /api/agent-run/status once on mount. Click → switches to AgentesTab.
+function RunReminderBadge({ onClick }) {
+  const [status, setStatus] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(API_URL + "/api/agent-run/status");
+        const d = await r.json();
+        if (!cancelled) setStatus(d);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  if (!status) return null;
+  if (status.state === "running") {
+    return (
+      <button onClick={onClick} title="Agentes ejecutándose"
+        style={{padding:"4px 9px",borderRadius:6,border:"1px solid #d69e2e",background:"rgba(214,158,46,.14)",color:"#d69e2e",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>
+        ⏳ Agentes...
+      </button>
+    );
+  }
+  const todayUtc = new Date().toISOString().slice(0, 10);
+  const lastDay = status.finished_at ? status.finished_at.slice(0, 10) : (status.started_at || "").slice(0, 10);
+  const ranToday = lastDay === todayUtc;
+  if (ranToday) return null; // Hide badge when fresh
+  return (
+    <button onClick={onClick} title="Los agentes no se han ejecutado hoy — pulsa para ir al tab Agentes"
+      style={{padding:"4px 9px",borderRadius:6,border:"1px solid #f87171",background:"rgba(248,113,113,.14)",color:"#f87171",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)",whiteSpace:"nowrap"}}>
+      🤖 Sin ejecutar hoy
+    </button>
+  );
+}
+
 function SentimentBar() {
   const [data, setData] = useState(null);
   useEffect(() => {
@@ -516,6 +552,9 @@ export default function HomeView() {
           <span style={{fontSize:9,color:uiZoom!==100?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",minWidth:24,textAlign:"center",fontWeight:600,cursor:"pointer"}} onClick={()=>changeZoom(100)}>{uiZoom}%</span>
           <button onClick={()=>changeZoom(uiZoom+10)} style={{padding:"1px 5px",border:"none",background:"transparent",color:"var(--text-tertiary)",fontSize:11,cursor:"pointer",fontWeight:700,lineHeight:1}}>+</button>
         </div>
+
+        {/* AI Agents run reminder — badge red if agents haven't run today */}
+        <RunReminderBadge onClick={() => setHomeTab("agentes")} />
 
         {/* Settings */}
         {/* Health Check */}

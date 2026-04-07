@@ -96,6 +96,9 @@ export default function AgentesTab() {
   const [portfolioFilter, setPortfolioFilter] = useState('all');
   const [viewMode, setViewMode] = useState('timeline');
   const [portfolioSort, setPortfolioSort] = useState('severity');
+  // Manual-run status: polled from /api/agent-run/status so the UI knows
+  // if there's a run in progress AND when was the last successful run.
+  const [runStatus, setRunStatus] = useState(null);
   const [agentOrder, setAgentOrder] = useState(() => {
     try { return JSON.parse(localStorage.getItem('ayr-agent-order')) || DEFAULT_ORDER; } catch { return DEFAULT_ORDER; }
   });
@@ -131,20 +134,56 @@ export default function AgentesTab() {
   }, [days, filterAgent, filterSev]);
 
   const pollRef = useRef(null);
-  useEffect(() => { fetchInsights(); return () => { if (pollRef.current) clearInterval(pollRef.current); }; }, [fetchInsights]);
+  const statusPollRef = useRef(null);
+
+  // Fetch run-status once and on each tick of the status poll
+  const fetchStatus = useCallback(async () => {
+    try {
+      const resp = await fetch(`${API_URL}/api/agent-run/status`);
+      const data = await resp.json();
+      setRunStatus(data);
+      if (data.state === "running") setRunning(true);
+      else if (running && (data.state === "completed" || data.state === "failed")) {
+        setRunning(false);
+        // Refresh insights when the pipeline ends
+        fetchInsights();
+      }
+    } catch (e) { /* silent */ }
+  }, [running, fetchInsights]);
+
+  useEffect(() => {
+    fetchInsights();
+    fetchStatus();
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      if (statusPollRef.current) clearInterval(statusPollRef.current);
+    };
+  }, [fetchInsights, fetchStatus]);
 
   const runAgents = async () => {
     setRunning(true);
     try {
-      await fetch(`${API_URL}/api/agent-run`, { method: 'POST' });
-      if (pollRef.current) clearInterval(pollRef.current);
-      let checks = 0;
-      pollRef.current = setInterval(async () => {
-        checks++;
-        await fetchInsights();
-        if (checks >= 12) { clearInterval(pollRef.current); pollRef.current = null; setRunning(false); }
-      }, 30000);
+      const resp = await fetch(`${API_URL}/api/agent-run`, { method: 'POST' });
+      const data = await resp.json();
+      if (data.already_running) {
+        // Another run is in progress — just attach to it
+        console.log('Agents already running, attaching to existing run');
+      }
+      // Poll the status endpoint every 10s to detect completion
+      if (statusPollRef.current) clearInterval(statusPollRef.current);
+      let ticks = 0;
+      statusPollRef.current = setInterval(async () => {
+        ticks++;
+        await fetchStatus();
+        // Give up polling after 20 minutes (max realistic run duration)
+        if (ticks >= 120) {
+          clearInterval(statusPollRef.current);
+          statusPollRef.current = null;
+        }
+      }, 10000);
+      // Also refresh insights at 5s + 60s so the user sees partial results quickly
       setTimeout(() => fetchInsights(), 5000);
+      setTimeout(() => fetchInsights(), 60000);
     } catch (e) {
       console.error('Agent run error:', e);
       setRunning(false);
@@ -203,29 +242,109 @@ export default function AgentesTab() {
 
   return (
     <div style={{ maxWidth: 1600, margin: '0 auto', padding: '0 8px' }}>
-      {/* ── Header ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <div>
-          <h2 style={{ fontSize: 18, fontWeight: 800, fontFamily: FB, color: 'var(--text-primary)', margin: 0 }}>
-            AI Agents
-          </h2>
-          <p style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: FM, margin: '4px 0 0' }}>
-            10 agentes monitorizando tu portfolio diariamente a las 11:00 Madrid
-          </p>
-        </div>
-        <button
-          onClick={runAgents}
-          disabled={running}
-          style={{
-            background: running ? 'var(--border)' : GOLD, color: running ? 'var(--text-tertiary)' : '#000',
-            border: 'none', borderRadius: 10, padding: '8px 18px', fontSize: 11,
-            fontWeight: 700, fontFamily: FB, cursor: running ? 'default' : 'pointer',
-            opacity: running ? .6 : 1, transition: 'all .2s',
-          }}
-        >
-          {running ? 'Ejecutando...' : 'Ejecutar Agentes'}
-        </button>
-      </div>
+      {/* ── Manual Run Card ── */}
+      {(() => {
+        const s = runStatus || {};
+        const isRunning = running || s.state === "running";
+        const lastRunIso = s.finished_at || (s.state === "never_run" ? null : s.started_at);
+        const lastRunDate = lastRunIso ? new Date(lastRunIso) : null;
+        const todayUtc = new Date().toISOString().slice(0, 10);
+        const lastRunDay = lastRunIso ? lastRunIso.slice(0, 10) : null;
+        const ranToday = lastRunDay === todayUtc;
+        const ageSec = s.age_s;
+        const ageLabel = (() => {
+          if (!ageSec) return null;
+          if (ageSec < 60) return `hace ${ageSec}s`;
+          if (ageSec < 3600) return `hace ${Math.round(ageSec/60)} min`;
+          if (ageSec < 86400) return `hace ${Math.round(ageSec/3600)} h`;
+          return `hace ${Math.round(ageSec/86400)} días`;
+        })();
+        const stateLabel = ({
+          running: "⏳ Ejecutando...",
+          completed: "✅ Completado",
+          failed: "❌ Falló",
+          never_run: "Nunca ejecutado",
+        })[s.state] || "—";
+        const stateColor = ({
+          running: GOLD,
+          completed: GREEN,
+          failed: RED,
+          never_run: 'var(--text-tertiary)',
+        })[s.state] || 'var(--text-tertiary)';
+        const bannerColor = isRunning ? GOLD : (ranToday ? GREEN : RED);
+        return (
+          <div style={{
+            ...card({ padding: '18px 24px', marginBottom: 20, borderColor: bannerColor, borderWidth: 1 }),
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap',
+          }}>
+            <div style={{ flex: '1 1 auto', minWidth: 260 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 800, fontFamily: FB, color: 'var(--text-primary)', margin: 0 }}>
+                AI Agents — Ejecución manual
+              </h2>
+              <div style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: FM, margin: '4px 0 10px' }}>
+                12 agentes (sin cron automático). Pulsa cuando quieras refrescar el análisis.
+              </div>
+              <div style={{ display: 'flex', gap: 14, fontSize: 10, fontFamily: FM, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div>
+                  <span style={{ color: 'var(--text-tertiary)' }}>Estado: </span>
+                  <span style={{ color: stateColor, fontWeight: 700 }}>{stateLabel}</span>
+                </div>
+                {lastRunDate && (
+                  <div>
+                    <span style={{ color: 'var(--text-tertiary)' }}>Último run: </span>
+                    <span style={{ color: 'var(--text-secondary)' }}>
+                      {lastRunDate.toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      {ageLabel ? ` (${ageLabel})` : ''}
+                    </span>
+                  </div>
+                )}
+                {s.duration_s != null && (
+                  <div>
+                    <span style={{ color: 'var(--text-tertiary)' }}>Duración: </span>
+                    <span style={{ color: 'var(--text-secondary)' }}>{s.duration_s}s</span>
+                  </div>
+                )}
+                {s.insights_today != null && (
+                  <div>
+                    <span style={{ color: 'var(--text-tertiary)' }}>Insights hoy (UTC): </span>
+                    <span style={{ color: 'var(--text-secondary)' }}>{s.insights_today}</span>
+                  </div>
+                )}
+                {s.agents_ok != null && (
+                  <div>
+                    <span style={{ color: 'var(--text-tertiary)' }}>Agentes OK: </span>
+                    <span style={{ color: GREEN }}>{s.agents_ok}</span>
+                    {s.agents_failed > 0 && <>/<span style={{ color: RED }}>{s.agents_failed}</span></>}
+                  </div>
+                )}
+              </div>
+              {!ranToday && !isRunning && s.state !== "never_run" && (
+                <div style={{ marginTop: 8, padding: '6px 10px', background: `${RED}20`, border: `1px solid ${RED}60`, borderRadius: 6, color: RED, fontSize: 10, fontFamily: FM, display: 'inline-block' }}>
+                  ⚠️ No has ejecutado los agentes hoy. Pulsa el botón para analizar tu portfolio con datos frescos.
+                </div>
+              )}
+            </div>
+            <button
+              onClick={runAgents}
+              disabled={isRunning}
+              style={{
+                background: isRunning ? 'var(--border)' : GOLD,
+                color: isRunning ? 'var(--text-tertiary)' : '#000',
+                border: 'none', borderRadius: 12,
+                padding: '14px 28px', fontSize: 14,
+                fontWeight: 800, fontFamily: FB,
+                cursor: isRunning ? 'default' : 'pointer',
+                opacity: isRunning ? .6 : 1,
+                transition: 'all .2s',
+                whiteSpace: 'nowrap',
+                boxShadow: isRunning ? 'none' : `0 4px 14px ${GOLD_DIM}`,
+              }}
+            >
+              {isRunning ? '⏳ Ejecutando agentes...' : '🚀 Ejecutar agentes ahora'}
+            </button>
+          </div>
+        );
+      })()}
 
       {/* ── Agent Cards Grid ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 24 }}>

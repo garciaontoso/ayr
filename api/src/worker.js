@@ -6184,16 +6184,97 @@ export default {
             return json({ error: e.message, stack: e.stack?.split('\n').slice(0, 3) }, corsHeaders, 500);
           }
         }
+        // ── Manual "run all" trigger — instrumented so the frontend can poll status ──
+        // Check if another run is already in progress (prevents double-click from user)
+        const existingStatus = (await getAgentMemory(env, "agent_run_status")) || {};
+        if (existingStatus.state === "running") {
+          // Timeout old runs > 15 minutes (pipeline shouldn't take that long)
+          const startedMs = Date.parse(existingStatus.started_at || 0);
+          if (startedMs && (Date.now() - startedMs) < 15 * 60 * 1000) {
+            return json({
+              ok: false,
+              already_running: true,
+              message: "Ya hay una ejecución en curso — espera a que termine antes de relanzar.",
+              started_at: existingStatus.started_at,
+            }, corsHeaders);
+          }
+        }
+        // Mark as running BEFORE ctx.waitUntil so the client sees the state immediately
+        await setAgentMemory(env, "agent_run_status", {
+          state: "running",
+          started_at: new Date().toISOString(),
+          finished_at: null,
+          duration_s: null,
+          agents_ok: null,
+          agents_failed: null,
+          fecha,
+          last_result: null,
+        });
         // Run all in background
         ctx.waitUntil((async () => {
+          const t0 = Date.now();
+          let outcome;
           try {
             const result = await runAllAgents(env);
-            console.log("Manual agent run completed:", JSON.stringify(result));
+            outcome = {
+              state: "completed",
+              started_at: new Date(t0).toISOString(),
+              finished_at: new Date().toISOString(),
+              duration_s: Math.round((Date.now() - t0) / 1000),
+              agents_ok: Object.entries(result || {}).filter(([k, v]) => v && !v.error).length,
+              agents_failed: Object.entries(result || {}).filter(([k, v]) => v && v.error).length,
+              fecha,
+              last_result: result,
+            };
+            console.log("Manual agent run completed:", JSON.stringify({ duration_s: outcome.duration_s, ok: outcome.agents_ok, failed: outcome.agents_failed }));
           } catch (e) {
+            outcome = {
+              state: "failed",
+              started_at: new Date(t0).toISOString(),
+              finished_at: new Date().toISOString(),
+              duration_s: Math.round((Date.now() - t0) / 1000),
+              error: e.message,
+              fecha,
+              last_result: null,
+            };
             console.error("Manual agent run failed:", e.message);
           }
+          try { await setAgentMemory(env, "agent_run_status", outcome); } catch {}
         })());
-        return json({ ok: true, message: "Agents started in background (~2 min). Refresh insights to see results." }, corsHeaders);
+        return json({
+          ok: true,
+          state: "running",
+          message: "Agentes lanzados en background (~2-5 min). Poll /api/agent-run/status para progreso.",
+          started_at: new Date().toISOString(),
+        }, corsHeaders);
+      }
+
+      // GET /api/agent-run/status — current state + last completed run metadata
+      // Used by the frontend button to poll progress and show "Last run: Xh ago"
+      if (path === "/api/agent-run/status" && request.method === "GET") {
+        const status = (await getAgentMemory(env, "agent_run_status")) || { state: "never_run" };
+        // Compute human-readable age in seconds (for the frontend)
+        let age_s = null;
+        if (status.finished_at) {
+          age_s = Math.round((Date.now() - Date.parse(status.finished_at)) / 1000);
+        } else if (status.started_at) {
+          age_s = Math.round((Date.now() - Date.parse(status.started_at)) / 1000);
+        }
+        // Count insights generated today (UTC) as a sanity check
+        const todayUtc = new Date().toISOString().slice(0, 10);
+        let insights_today = 0;
+        try {
+          const row = await env.DB.prepare(
+            "SELECT COUNT(*) as c FROM agent_insights WHERE fecha = ?"
+          ).bind(todayUtc).first();
+          insights_today = row?.c || 0;
+        } catch {}
+        return json({
+          ...status,
+          age_s,
+          insights_today,
+          now_utc: new Date().toISOString(),
+        }, corsHeaders);
       }
 
       // GET /api/tastytrade-test — verify Tastytrade API connection
