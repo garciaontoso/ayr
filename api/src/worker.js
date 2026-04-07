@@ -9358,8 +9358,14 @@ async function runEarningsTrendAgent(env, fecha) {
   ).all();
   if (!positions.length) return { agent: "earnings_trend", skipped: true };
 
-  // Skip ETFs/preferreds — they have no income statement
-  const eligible = positions.filter(p => !/etf|preferred/i.test(p.category || ""));
+  // Skip ETFs/preferreds (no income statement) and REITs/MLPs (operating income
+  // is not representative of business health — they report FFO/AFFO).
+  const eligible = positions.filter(p => {
+    if (/etf|preferred/i.test(p.category || "")) return false;
+    if (/real.?estate/i.test(p.sector || "")) return false;
+    if (FCF_PAYOUT_CARVEOUT.has(p.ticker)) return false;
+    return true;
+  });
   if (!eligible.length) return { agent: "earnings_trend", scanned: 0, alerts: 0 };
 
   const tickers = eligible.map(p => p.ticker);
@@ -9420,19 +9426,28 @@ async function runEarningsTrendAgent(env, fecha) {
     let title = "";
     let reason = "";
 
-    if (consecutiveMisses >= 3 && (revGrowthYoY != null && revGrowthYoY < 0)) {
+    // Growth-investment carve-out: companies growing revenue > 8% YoY are very
+    // likely deploying capex, not in structural decline. Don't flag them as critical
+    // even if margins are compressing (they are by design).
+    const isGrowthCo = revGrowthYoY != null && revGrowthYoY > 0.08;
+
+    if (consecutiveMisses >= 3 && revGrowthYoY != null && revGrowthYoY < 0) {
       severity = "critical";
       title = `${p.ticker}: 3+ misses + revenue cayendo`;
       reason = `Operating income ha caído YoY en los últimos ${consecutiveMisses} trimestres y revenue TTM cae ${(revGrowthYoY*100).toFixed(0)}%. Patrón estructural.`;
-    } else if (consecutiveMisses >= 2 && marginCompressionBps != null && marginCompressionBps > 100) {
+    } else if (consecutiveMisses >= 2 && marginCompressionBps != null && marginCompressionBps > 250 && !isGrowthCo) {
       severity = "critical";
-      title = `${p.ticker}: 2 misses + márgenes contraídos`;
-      reason = `${consecutiveMisses}Q seguidos de earnings miss YoY, márgenes operativos contraídos ${marginCompressionBps}bps.`;
-    } else if (consecutiveMisses >= 2) {
+      title = `${p.ticker}: 2+ misses + grandes contracciones`;
+      reason = `${consecutiveMisses}Q seguidos de earnings miss YoY, márgenes operativos contraídos ${marginCompressionBps}bps con revenue ${revGrowthYoY != null ? (revGrowthYoY*100).toFixed(0)+'%' : 'flat'}.`;
+    } else if (consecutiveMisses >= 3 && !isGrowthCo) {
       severity = "warning";
-      title = `${p.ticker}: ${consecutiveMisses} earnings misses seguidos`;
+      title = `${p.ticker}: 3 earnings misses seguidos`;
       reason = `Operating income cayendo YoY en ${consecutiveMisses} trimestres consecutivos. Vigilar próximos resultados.`;
-    } else if (marginCompressionBps != null && marginCompressionBps > 200 && revGrowthYoY != null && revGrowthYoY < 0.02) {
+    } else if (consecutiveMisses >= 2 && !isGrowthCo && marginCompressionBps != null && marginCompressionBps > 100) {
+      severity = "warning";
+      title = `${p.ticker}: 2 misses + margen contraído`;
+      reason = `${consecutiveMisses} trimestres de miss YoY con margen contraído ${marginCompressionBps}bps.`;
+    } else if (marginCompressionBps != null && marginCompressionBps > 300 && revGrowthYoY != null && revGrowthYoY < 0.02) {
       severity = "warning";
       title = `${p.ticker}: márgenes contraídos ${marginCompressionBps}bps`;
       reason = `Margen operativo TTM contraído ${marginCompressionBps}bps con revenue plano (${(revGrowthYoY*100).toFixed(1)}% YoY). Posible pérdida de pricing power.`;
