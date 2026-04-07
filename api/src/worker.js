@@ -5211,6 +5211,16 @@ export default {
               const limit = parseInt(url.searchParams.get('limit') || '0', 10);
               return { agent: "risk-metrics", ...(await cacheRiskMetrics(env, { offset, limit })) };
             },
+            'dividend-history': async (env, fecha) => {
+              const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+              const limit = parseInt(url.searchParams.get('limit') || '0', 10);
+              return { agent: "dividend-history", ...(await cacheDividendHistory(env, { offset, limit })) };
+            },
+            'quality-safety': async (env, fecha) => {
+              const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+              const limit = parseInt(url.searchParams.get('limit') || '0', 10);
+              return { agent: "quality-safety", ...(await computeQualitySafetyAll(env, { offset, limit })) };
+            },
             gf: async (env, fecha) => ({ agent: "gf", ...(await cacheGuruFocusData(env)) }),
             'gf-trends': async (env, fecha) => {
               const token = env.GURUFOCUS_TOKEN;
@@ -6375,6 +6385,37 @@ async function getGfData(env, tickers) {
 
 // ─── FMP Ultimate financials (replaces GuruFocus trend data) ───
 // Returns same shape as gf.trend so consumers can keep using `obj.trend.revenue` etc.
+// Pull complete company dividend history (per-share, all years).
+// Returns array sorted chronologically: [{year, total}, ...]
+async function fmpDividendHistory(ticker, env) {
+  const key = env.FMP_KEY;
+  if (!key) return null;
+  const sym = toFMP(ticker);
+  try {
+    const r = await fetch(
+      `https://financialmodelingprep.com/stable/dividends?symbol=${encodeURIComponent(sym)}&apikey=${key}`
+    );
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (!Array.isArray(data) || !data.length) return null;
+    // Group by year, sum
+    const byYear = {};
+    for (const d of data) {
+      const date = d.date || d.recordDate || d.paymentDate;
+      if (!date) continue;
+      const year = parseInt(date.slice(0, 4), 10);
+      if (isNaN(year)) continue;
+      const amt = Number(d.adjDividend ?? d.dividend);
+      if (isNaN(amt) || amt <= 0) continue;
+      byYear[year] = (byYear[year] || 0) + amt;
+    }
+    const years = Object.keys(byYear).map(Number).sort((a, b) => a - b);
+    return years.map(y => ({ year: y, total: byYear[y] }));
+  } catch (e) {
+    return null;
+  }
+}
+
 async function fmpFinancials(ticker, env) {
   const key = env.FMP_KEY;
   if (!key) return null;
@@ -6483,6 +6524,45 @@ async function cacheFmpFinancials(env, opts = {}) {
   }
   console.log(`[FMP-FIN] Cached ${cached}/${sliced.length} (failed ${failed})`);
   return { cached, failed, total: sliced.length, portfolio: positions.length };
+}
+
+// Cache full company dividend history for all positions in agent_memory.dividend_history
+// Stored as map { ticker: [{year, total}, ...] }
+async function cacheDividendHistory(env, opts = {}) {
+  const { results: positions } = await env.DB.prepare(
+    "SELECT ticker FROM positions WHERE shares > 0"
+  ).all();
+  if (!positions.length) return { cached: 0, total: 0 };
+  const offset = opts.offset || 0;
+  const limit = opts.limit || 0;
+  const sliced = limit > 0 ? positions.slice(offset, offset + limit) : positions;
+
+  const map = (await getAgentMemory(env, "dividend_history")) || {};
+  let cached = 0, failed = 0;
+  // Batches of 4 in parallel + 700ms delay (1 call per ticker)
+  for (let i = 0; i < sliced.length; i += 4) {
+    const batch = sliced.slice(i, i + 4);
+    const results = await Promise.all(batch.map(p => fmpDividendHistory(p.ticker, env)));
+    batch.forEach((p, idx) => {
+      if (results[idx] && results[idx].length > 0) {
+        map[p.ticker] = results[idx];
+        cached++;
+      } else {
+        failed++;
+      }
+    });
+    if (i + 4 < sliced.length) await new Promise(r => setTimeout(r, 700));
+  }
+  await setAgentMemory(env, "dividend_history", map);
+  return { cached, failed, total: sliced.length, portfolio: positions.length };
+}
+
+// Reader for cached dividend history
+async function getDividendHistoryCache(env, tickers) {
+  const all = (await getAgentMemory(env, "dividend_history")) || {};
+  const result = {};
+  for (const t of tickers) if (all[t]) result[t] = all[t];
+  return result;
 }
 
 // Reader equivalent to getGfData — returns map of ticker → { trend: {...} }
@@ -6810,6 +6890,7 @@ function _qs_quality(fin, risk, sector) {
 }
 
 // Safety Score components
+// Returns null if ticker is not a dividend payer (Safety is N/A — there's nothing to be safe).
 function _qs_safety(fin, risk, sector, dividendStreakYears) {
   const trend = fin?.trend || fin || {};
   const periods = trend.periods || [];
@@ -6820,6 +6901,11 @@ function _qs_safety(fin, risk, sector, dividendStreakYears) {
   const fcfTTM = _qs_sum(trend.fcf, 4);
   const niTTM = _qs_sum(trend.netIncome, 4);
   const opIncTTM = _qs_sum(trend.operatingIncome, 4);
+
+  // Non-dividend payer: Safety is N/A
+  if (divTTM == null || divTTM === 0) {
+    return null;
+  }
 
   // ── Coverage (30 pts) ──
   let pFcfCov = 0;
@@ -7010,12 +7096,61 @@ function _qs_safety(fin, risk, sector, dividendStreakYears) {
   };
 }
 
+// Compute dividend streak (years without major cut) from company dividend history.
+// Real-world challenges:
+// - Current year is incomplete (e.g. only Q1 reported) → would falsely break streak
+// - Calendar-year aggregates capture spinoffs/specials as fake "cuts"
+// - Some companies have one-off year-boundary timing differences
+// Strategy:
+//   1. Skip current year if it's < 70% of previous year (clearly incomplete)
+//   2. Count a "cut" only if drop is > 50% (filters out specials/timing noise)
+//   3. Walk backwards counting non-cut years
+function _qs_streakFromHistory(divHistory) {
+  if (!Array.isArray(divHistory) || divHistory.length < 2) return null;
+  // Sort ascending by year
+  const sorted = [...divHistory].sort((a, b) => a.year - b.year);
+  // Filter years with positive total
+  const valid = sorted.filter(r => r.total > 0);
+  if (valid.length < 2) return null;
+
+  // Determine end index — skip current year if clearly incomplete
+  const currentYear = new Date().getFullYear();
+  let endIdx = valid.length - 1;
+  if (valid[endIdx].year === currentYear && endIdx > 0) {
+    if (valid[endIdx].total < valid[endIdx - 1].total * 0.7) {
+      endIdx--;
+    }
+  }
+
+  // Walk backwards counting consecutive non-cut years
+  // Cut defined as drop > 50% (filters out specials, spinoffs, timing noise)
+  let streak = 1; // counting the end year itself
+  for (let i = endIdx; i > 0; i--) {
+    const cur = valid[i].total;
+    const prev = valid[i - 1].total;
+    if (cur >= prev * 0.5) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
 // Get dividend streak years.
-// Note: dividendos table only contains user's RECEIVED dividends (since position open),
-// not the company's true lifetime dividend history. So this is a weak proxy.
-// For a real "years without cut" we'd need FMP /stable/dividends history.
-// Meanwhile we use the dividendos table as a lower bound when available.
-async function _qs_getDividendStreak(env, ticker) {
+// Priority order:
+//   1. FMP /stable/dividends cached in agent_memory.dividend_history — TRUE streak
+//   2. dividendos table (user's RECEIVED dividends since position open) — lower bound proxy
+async function _qs_getDividendStreak(env, ticker, _fmpFin = null) {
+  // Try FMP cached history first
+  try {
+    const histMap = await getDividendHistoryCache(env, [ticker]);
+    if (histMap[ticker]) {
+      const fromHistory = _qs_streakFromHistory(histMap[ticker]);
+      if (fromHistory != null) return fromHistory;
+    }
+  } catch {}
+  // Fallback: dividendos table (lower bound)
   try {
     const { results } = await env.DB.prepare(
       `SELECT MIN(SUBSTR(fecha, 1, 4)) as first_year, MAX(SUBSTR(fecha, 1, 4)) as last_year, COUNT(*) as cnt
@@ -7025,11 +7160,52 @@ async function _qs_getDividendStreak(env, ticker) {
     if (row && row.first_year && row.last_year && row.cnt >= 2) {
       const first = parseInt(row.first_year);
       const last = parseInt(row.last_year);
-      // Years of dividend history we have observed (lower bound for actual streak)
       return last - first + 1;
     }
   } catch {}
   return null;
+}
+
+// Detect material drops vs previous snapshot, insert into alerts table
+async function _qs_detectScoreDrops(env, ticker, newQ, newS) {
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT quality_score, safety_score, snapshot_date FROM quality_safety_scores
+       WHERE ticker = ? AND snapshot_date < date('now')
+       ORDER BY snapshot_date DESC LIMIT 1`
+    ).bind(ticker).all();
+    if (!results || !results.length) return;
+    const prev = results[0];
+    const dropQ = (prev.quality_score ?? 0) - (newQ ?? 0);
+    const dropS = (prev.safety_score ?? 0) - (newS ?? 0);
+    const today = new Date().toISOString().slice(0, 10);
+    if (dropQ >= 10) {
+      await env.DB.prepare(
+        `INSERT INTO alerts (fecha, tipo, titulo, detalle, ticker, valor)
+         VALUES (?, 'quality_drop', ?, ?, ?, ?)`
+      ).bind(
+        today,
+        `${ticker}: Quality cayó ${dropQ.toFixed(0)} pts`,
+        `De ${prev.quality_score} (${prev.snapshot_date}) a ${newQ}. Revisar tesis.`,
+        ticker,
+        -dropQ
+      ).run();
+    }
+    if (dropS >= 10) {
+      await env.DB.prepare(
+        `INSERT INTO alerts (fecha, tipo, titulo, detalle, ticker, valor)
+         VALUES (?, 'safety_drop', ?, ?, ?, ?)`
+      ).bind(
+        today,
+        `${ticker}: Safety cayó ${dropS.toFixed(0)} pts`,
+        `De ${prev.safety_score} (${prev.snapshot_date}) a ${newS}. Riesgo dividendo.`,
+        ticker,
+        -dropS
+      ).run();
+    }
+  } catch (e) {
+    // Don't fail score compute if alert insert fails
+  }
 }
 
 // Main compute function: combines all inputs and writes to D1
@@ -7048,7 +7224,38 @@ async function computeQualitySafetyScore(env, ticker) {
   const pos = posRows?.[0] || {};
   const sector = pos.sector || "";
 
-  const streak = await _qs_getDividendStreak(env, ticker);
+  const streak = await _qs_getDividendStreak(env, ticker, fin);
+
+  // REIT/MLP fix: some companies don't report dividendsPaid in cash flow statement
+  // (FMP /stable uses different field names for REITs). If dividend history shows
+  // they ARE a payer but cf statement is null, patch the trend with derived values
+  // from dividendHistory × sharesOutstanding.
+  const trend = fin.trend || fin || {};
+  const divTTMfromCf = _qs_sum(trend.dividendsPaid, 4);
+  if ((divTTMfromCf == null || divTTMfromCf === 0) && streak != null && streak >= 1) {
+    // Patch trend with derived dividendsPaid from dividend_history
+    const histMap = await getDividendHistoryCache(env, [ticker]);
+    const history = histMap[ticker];
+    if (Array.isArray(history) && history.length >= 2 && trend.sharesOutstanding?.[0]) {
+      const sorted = [...history].sort((a, b) => b.year - a.year); // newest first
+      const currentYear = new Date().getFullYear();
+      // Use last complete year's DPS as TTM proxy
+      let dpsAnnual = null;
+      for (const r of sorted) {
+        if (r.year !== currentYear && r.total > 0) {
+          dpsAnnual = r.total;
+          break;
+        }
+      }
+      if (dpsAnnual && trend.sharesOutstanding[0]) {
+        const annualDivDollars = dpsAnnual * trend.sharesOutstanding[0];
+        // Distribute equally across last 4 quarters as approximation
+        const perQuarter = annualDivDollars / 4;
+        // Patch trend.dividendsPaid in-place (4 quarters as TTM)
+        trend.dividendsPaid = [perQuarter, perQuarter, perQuarter, perQuarter, ...((trend.dividendsPaid || []).slice(4))];
+      }
+    }
+  }
 
   const q = _qs_quality(fin, risk, sector);
   const s = _qs_safety(fin, risk, sector, streak);
@@ -7094,6 +7301,9 @@ async function computeQualitySafetyScore(env, ticker) {
     s?.track_record ?? null, s?.forward ?? null, s?.sector_adj ?? null,
     JSON.stringify(inputs)
   ).run();
+
+  // Detect material drops vs previous snapshot → insert into alerts
+  await _qs_detectScoreDrops(env, ticker, q?.quality_score, s?.safety_score);
 
   return {
     ok: true,
