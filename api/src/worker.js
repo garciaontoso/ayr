@@ -3069,6 +3069,73 @@ export default {
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
       }
 
+      // ── Quality + Safety Scores endpoints ──
+      // POST /api/scores/compute?ticker=KO        → compute & store 1 ticker
+      // POST /api/scores/compute?all=1            → compute & store all positions
+      //                                              (supports ?offset=N&limit=N)
+      if (path === "/api/scores/compute" && request.method === "POST") {
+        try {
+          const ticker = url.searchParams.get("ticker");
+          const all = url.searchParams.get("all") === "1";
+          if (ticker) {
+            const r = await computeQualitySafetyScore(env, ticker.toUpperCase());
+            return json(r, corsHeaders, r.error ? 400 : 200);
+          }
+          if (all) {
+            const offset = parseInt(url.searchParams.get("offset") || "0", 10);
+            const limit = parseInt(url.searchParams.get("limit") || "0", 10);
+            const r = await computeQualitySafetyAll(env, { offset, limit });
+            return json(r, corsHeaders);
+          }
+          return json({ error: "Provide ?ticker= or ?all=1" }, corsHeaders, 400);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // GET /api/scores            → latest snapshot of all tickers
+      if (path === "/api/scores" && request.method === "GET") {
+        try {
+          await ensureQualitySafetyTable(env);
+          const { results } = await env.DB.prepare(
+            `SELECT qss.* FROM quality_safety_scores qss
+             INNER JOIN (
+               SELECT ticker, MAX(snapshot_date) AS max_date
+               FROM quality_safety_scores
+               GROUP BY ticker
+             ) latest ON qss.ticker = latest.ticker AND qss.snapshot_date = latest.max_date
+             ORDER BY qss.quality_score DESC NULLS LAST`
+          ).all();
+          return json({ scores: results || [], count: (results || []).length }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // GET /api/scores/:ticker    → history + breakdown for one ticker
+      if (path.match(/^\/api\/scores\/[^/]+$/) && request.method === "GET") {
+        try {
+          const ticker = decodeURIComponent(path.split("/")[3]).toUpperCase();
+          await ensureQualitySafetyTable(env);
+          const { results } = await env.DB.prepare(
+            `SELECT * FROM quality_safety_scores WHERE ticker = ? ORDER BY snapshot_date DESC LIMIT 24`
+          ).bind(ticker).all();
+          if (!results || !results.length) {
+            return json({ ticker, history: [], message: "No scores yet — POST /api/scores/compute?ticker=" + ticker }, corsHeaders);
+          }
+          // Parse inputs_json on the latest snapshot
+          const latest = { ...results[0] };
+          try { latest.inputs = JSON.parse(latest.inputs_json || "{}"); } catch {}
+          delete latest.inputs_json;
+          return json({ ticker, latest, history: results }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // GET /api/forward-yield/:ticker  → forward dividend yield from cached financials
+      if (path.match(/^\/api\/forward-yield\/[^/]+$/) && request.method === "GET") {
+        try {
+          const ticker = decodeURIComponent(path.split("/")[3]).toUpperCase();
+          const r = await computeForwardYield(env, ticker);
+          return json(r, corsHeaders, r.error ? 400 : 200);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
       // POST /api/positions/import — bulk import positions (from POS_STATIC migration or IB sync)
       if (path === "/api/positions/import" && request.method === "POST") {
         try {
@@ -6342,7 +6409,25 @@ async function fmpFinancials(ticker, env) {
       const ltd = num(r.longTermDebt);
       return ltd != null ? ltd : num(r.totalDebt);
     });
-    return { periods, revenue, fcf, debt, dividendsPaid };
+    // ── Extra fields for Quality + Safety Score (extracted from same payloads) ──
+    const netIncome = inc.map(r => num(r.netIncome));
+    const operatingIncome = inc.map(r => num(r.operatingIncome));
+    const grossProfit = inc.map(r => num(r.grossProfit));
+    const eps = inc.map(r => num(r.eps ?? r.epsdiluted));
+    const sharesOutstanding = inc.map(r => num(r.weightedAverageShsOut ?? r.weightedAverageShsOutDil));
+    const interestExpense = inc.map(r => num(r.interestExpense));
+    const ocf = cf.map(r => num(r.operatingCashFlow));
+    const capex = cf.map(r => num(r.capitalExpenditure)); // negative in FMP
+    const totalAssets = bs.map(r => num(r.totalAssets));
+    const totalEquity = bs.map(r => num(r.totalStockholdersEquity ?? r.totalEquity));
+    const cash = bs.map(r => num(r.cashAndShortTermInvestments ?? r.cashAndCashEquivalents));
+    const currentLiabilities = bs.map(r => num(r.totalCurrentLiabilities));
+    const currentAssets = bs.map(r => num(r.totalCurrentAssets));
+    return {
+      periods, revenue, fcf, debt, dividendsPaid,
+      netIncome, operatingIncome, grossProfit, eps, sharesOutstanding, interestExpense,
+      ocf, capex, totalAssets, totalEquity, cash, currentLiabilities, currentAssets,
+    };
   } catch (e) {
     console.error(`[FMP financials] ${ticker}:`, e.message);
     return null;
@@ -6407,6 +6492,680 @@ async function getFmpFinancials(env, tickers) {
     try { map[r.ticker] = JSON.parse(r.data); } catch {}
   }
   return map;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// QUALITY + SAFETY SCORES (0-100)
+// Implementa docs/quality-safety-score-design.md adaptado a datos cacheados.
+// Pure JS, sin LLM, reusa fmp_financials_cache + agent_memory.risk_metrics + positions.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function ensureQualitySafetyTable(env) {
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS quality_safety_scores (
+       ticker TEXT NOT NULL,
+       snapshot_date TEXT NOT NULL,
+       quality_score REAL,
+       safety_score REAL,
+       q_profitability REAL,
+       q_capital_efficiency REAL,
+       q_balance_sheet REAL,
+       q_growth REAL,
+       q_dividend_track REAL,
+       q_predictability REAL,
+       q_data_completeness REAL,
+       s_coverage REAL,
+       s_balance_sheet REAL,
+       s_track_record REAL,
+       s_forward REAL,
+       s_sector_adj REAL,
+       inputs_json TEXT,
+       computed_at TEXT NOT NULL,
+       PRIMARY KEY (ticker, snapshot_date)
+     )`
+  ).run();
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_qss_ticker ON quality_safety_scores(ticker)`).run();
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_qss_date ON quality_safety_scores(snapshot_date DESC)`).run();
+}
+
+// Helpers numéricos
+const _qs_safe = (v) => (v == null || isNaN(v)) ? null : Number(v);
+const _qs_div = (a, b) => (a == null || b == null || b === 0) ? null : a / b;
+const _qs_sum = (arr, n) => {
+  const slice = (arr || []).slice(0, n).filter(v => v != null);
+  return slice.length ? slice.reduce((s, v) => s + v, 0) : null;
+};
+const _qs_avg = (arr) => {
+  const valid = (arr || []).filter(v => v != null);
+  return valid.length ? valid.reduce((s, v) => s + v, 0) / valid.length : null;
+};
+
+// Sector defensive adjustment
+function _qs_sectorBase(sector) {
+  const s = (sector || "").toLowerCase();
+  if (/staple|utilit|healthcare|real.?estate/.test(s)) return 10;
+  if (/financial/.test(s)) return 6;
+  if (/technology|communicat|consumer.cyclical|consumer.disc/.test(s)) return 7;
+  if (/industrial|material|energy/.test(s)) return 4;
+  return 5;
+}
+
+// Quality Score components
+function _qs_quality(fin, risk, sector) {
+  const trend = fin?.trend || fin || {};
+  const periods = trend.periods || [];
+  const n = periods.length;
+  if (n < 2) return null;
+
+  // ── Profitability (25 pts) ──
+  // FCF margin: avg FCF / avg revenue (last 4Q)
+  const revTTM = _qs_sum(trend.revenue, 4);
+  const fcfTTM = _qs_sum(trend.fcf, 4);
+  const niTTM = _qs_sum(trend.netIncome, 4);
+  const opIncTTM = _qs_sum(trend.operatingIncome, 4);
+  const grossTTM = _qs_sum(trend.grossProfit, 4);
+
+  const fcfMargin = _qs_div(fcfTTM, revTTM);
+  let pFcfMargin = 0;
+  if (fcfMargin != null) {
+    if (fcfMargin >= 0.20) pFcfMargin = 10;
+    else if (fcfMargin >= 0.15) pFcfMargin = 8;
+    else if (fcfMargin >= 0.10) pFcfMargin = 6;
+    else if (fcfMargin >= 0.05) pFcfMargin = 3;
+    else if (fcfMargin > 0) pFcfMargin = 1;
+  }
+
+  const netMargin = _qs_div(niTTM, revTTM);
+  let pNetMargin = 0;
+  if (netMargin != null) {
+    if (netMargin >= 0.20) pNetMargin = 8;
+    else if (netMargin >= 0.15) pNetMargin = 6;
+    else if (netMargin >= 0.10) pNetMargin = 4;
+    else if (netMargin >= 0.05) pNetMargin = 2;
+    else if (netMargin > 0) pNetMargin = 1;
+  }
+
+  const grossMargin = _qs_div(grossTTM, revTTM);
+  let pGrossMargin = 0;
+  if (grossMargin != null) {
+    if (grossMargin >= 0.50) pGrossMargin = 7;
+    else if (grossMargin >= 0.35) pGrossMargin = 5;
+    else if (grossMargin >= 0.25) pGrossMargin = 3;
+    else if (grossMargin >= 0.15) pGrossMargin = 1;
+  }
+
+  const profitability = pFcfMargin + pNetMargin + pGrossMargin;
+
+  // ── Capital Efficiency (20 pts) ──
+  // ROIC proxy: NOPAT / InvestedCapital
+  // NOPAT ≈ operatingIncome × (1 - 0.21)  (US tax assumption)
+  // InvestedCapital ≈ totalEquity + debt - cash
+  let roic = null;
+  if (opIncTTM != null && trend.totalEquity?.[0] && trend.debt?.[0]) {
+    const nopat = opIncTTM * 0.79;
+    const equity = trend.totalEquity[0];
+    const debt0 = trend.debt[0] || 0;
+    const cash0 = trend.cash?.[0] || 0;
+    const invested = equity + debt0 - cash0;
+    if (invested > 0) roic = nopat / invested;
+  }
+  let pRoic = 0;
+  if (roic != null) {
+    if (roic >= 0.20) pRoic = 12;
+    else if (roic >= 0.15) pRoic = 10;
+    else if (roic >= 0.10) pRoic = 7;
+    else if (roic >= 0.05) pRoic = 4;
+    else if (roic > 0) pRoic = 1;
+  }
+
+  // Asset turnover proxy
+  const assetTurnover = (revTTM != null && trend.totalAssets?.[0])
+    ? revTTM / trend.totalAssets[0]
+    : null;
+  let pAssetTurn = 0;
+  if (assetTurnover != null) {
+    if (assetTurnover >= 1.0) pAssetTurn = 8;
+    else if (assetTurnover >= 0.6) pAssetTurn = 6;
+    else if (assetTurnover >= 0.3) pAssetTurn = 4;
+    else if (assetTurnover > 0) pAssetTurn = 2;
+  }
+
+  const capitalEfficiency = pRoic + pAssetTurn;
+
+  // ── Balance Sheet (20 pts) ──
+  // Debt/EBITDA proxy: debt / (operatingIncome × 1.3 as EBITDA approx)
+  let debtEbitda = null;
+  if (trend.debt?.[0] != null && opIncTTM != null && opIncTTM > 0) {
+    debtEbitda = trend.debt[0] / (opIncTTM * 1.3);
+  }
+  let pDebtEbitda = 0;
+  if (debtEbitda != null) {
+    if (debtEbitda <= 1) pDebtEbitda = 10;
+    else if (debtEbitda <= 2) pDebtEbitda = 8;
+    else if (debtEbitda <= 3) pDebtEbitda = 5;
+    else if (debtEbitda <= 4) pDebtEbitda = 2;
+  } else if (!trend.debt?.[0]) {
+    // No debt = perfect
+    pDebtEbitda = 10;
+  }
+
+  // Interest coverage: opIncome / interestExpense
+  const intExpTTM = _qs_sum(trend.interestExpense, 4);
+  let intCov = null;
+  if (opIncTTM != null && intExpTTM != null && intExpTTM > 0) {
+    intCov = opIncTTM / intExpTTM;
+  }
+  let pIntCov = 0;
+  if (intCov != null) {
+    if (intCov >= 15) pIntCov = 6;
+    else if (intCov >= 8) pIntCov = 5;
+    else if (intCov >= 4) pIntCov = 3;
+    else if (intCov >= 2) pIntCov = 1;
+  } else if (intExpTTM == null || intExpTTM === 0) {
+    // No interest expense = perfect
+    pIntCov = 6;
+  }
+
+  // Current ratio
+  const currentRatio = (trend.currentAssets?.[0] && trend.currentLiabilities?.[0])
+    ? trend.currentAssets[0] / trend.currentLiabilities[0]
+    : null;
+  let pCurrent = 0;
+  if (currentRatio != null) {
+    if (currentRatio >= 1.5) pCurrent = 4;
+    else if (currentRatio >= 1.0) pCurrent = 3;
+    else if (currentRatio >= 0.7) pCurrent = 1;
+  }
+
+  const balanceSheet = pDebtEbitda + pIntCov + pCurrent;
+
+  // ── Growth (15 pts) ──
+  // Revenue trend: avg of last 4Q vs avg of previous 4Q
+  const rev4Recent = _qs_avg((trend.revenue || []).slice(0, 4));
+  const rev4Prev = _qs_avg((trend.revenue || []).slice(4, 8));
+  let revGrowth = null;
+  if (rev4Recent != null && rev4Prev != null && rev4Prev > 0) {
+    revGrowth = (rev4Recent - rev4Prev) / rev4Prev;
+  }
+  let pRevGrowth = 0;
+  if (revGrowth != null) {
+    if (revGrowth >= 0.15) pRevGrowth = 8;
+    else if (revGrowth >= 0.08) pRevGrowth = 6;
+    else if (revGrowth >= 0.03) pRevGrowth = 4;
+    else if (revGrowth >= 0) pRevGrowth = 2;
+  }
+
+  // FCF trend
+  const fcf4Recent = _qs_avg((trend.fcf || []).slice(0, 4));
+  const fcf4Prev = _qs_avg((trend.fcf || []).slice(4, 8));
+  let fcfGrowth = null;
+  if (fcf4Recent != null && fcf4Prev != null && fcf4Prev > 0) {
+    fcfGrowth = (fcf4Recent - fcf4Prev) / fcf4Prev;
+  }
+  let pFcfGrowth = 0;
+  if (fcfGrowth != null) {
+    if (fcfGrowth >= 0.10) pFcfGrowth = 7;
+    else if (fcfGrowth >= 0.05) pFcfGrowth = 5;
+    else if (fcfGrowth >= 0) pFcfGrowth = 3;
+  }
+
+  const growth = pRevGrowth + pFcfGrowth;
+
+  // ── Dividend & Allocation (10 pts) ──
+  // Buyback yield from sharesOutstanding trend
+  const sharesNow = trend.sharesOutstanding?.[0];
+  const sharesPrev = trend.sharesOutstanding?.[Math.min(7, n - 1)];
+  let buybackYield = null;
+  if (sharesNow && sharesPrev && sharesNow > 0) {
+    // Approx 2y diff (8 quarters), annualize
+    const yearsDiff = (n - 1) / 4;
+    if (yearsDiff > 0) {
+      buybackYield = ((sharesPrev - sharesNow) / sharesNow) / yearsDiff;
+    }
+  }
+  let pBuyback = 0;
+  if (buybackYield != null) {
+    if (buybackYield >= 0.03) pBuyback = 5;
+    else if (buybackYield >= 0.01) pBuyback = 4;
+    else if (buybackYield >= 0) pBuyback = 3;
+    else if (buybackYield >= -0.02) pBuyback = 1;
+  }
+
+  // Dividend payer bonus
+  const divTTM = _qs_sum(trend.dividendsPaid, 4);
+  const pDivPayer = (divTTM != null && divTTM > 0) ? 5 : 0;
+
+  const dividendTrack = pBuyback + pDivPayer;
+
+  // ── Predictability (10 pts) ──
+  // Revenue surprise std dev proxy
+  const revGrowths = [];
+  for (let i = 0; i < Math.min(n - 1, 6); i++) {
+    if (trend.revenue?.[i] && trend.revenue?.[i + 1] && trend.revenue[i + 1] > 0) {
+      revGrowths.push((trend.revenue[i] - trend.revenue[i + 1]) / trend.revenue[i + 1]);
+    }
+  }
+  let pRevPredict = 0;
+  if (revGrowths.length >= 4) {
+    const mean = revGrowths.reduce((s, v) => s + v, 0) / revGrowths.length;
+    const std = Math.sqrt(revGrowths.reduce((s, v) => s + (v - mean) ** 2, 0) / revGrowths.length);
+    if (std < 0.05) pRevPredict = 5;
+    else if (std < 0.10) pRevPredict = 4;
+    else if (std < 0.20) pRevPredict = 2;
+    else pRevPredict = 1;
+  }
+
+  // Vol-adjusted from risk_metrics
+  let pVolAdj = 0;
+  if (risk?.volatility1y != null) {
+    const vol = risk.volatility1y; // already in %
+    if (vol < 15) pVolAdj = 5;
+    else if (vol < 25) pVolAdj = 4;
+    else if (vol < 35) pVolAdj = 2;
+    else pVolAdj = 1;
+  }
+
+  const predictability = pRevPredict + pVolAdj;
+
+  // ── Total ──
+  const totalRaw = profitability + capitalEfficiency + balanceSheet + growth + dividendTrack + predictability;
+
+  // Data completeness penalty
+  const componentsWithData = [
+    fcfMargin != null, netMargin != null, grossMargin != null,
+    roic != null, assetTurnover != null,
+    debtEbitda != null, intCov != null,
+    revGrowth != null, fcfGrowth != null,
+    risk?.volatility1y != null,
+  ].filter(Boolean).length;
+  const completeness = componentsWithData / 10;
+  const penalty = completeness < 0.7 ? 10 : 0;
+
+  return {
+    quality_score: Math.max(0, Math.round(totalRaw - penalty)),
+    profitability: Math.round(profitability),
+    capital_efficiency: Math.round(capitalEfficiency),
+    balance_sheet: Math.round(balanceSheet),
+    growth: Math.round(growth),
+    dividend_track: Math.round(dividendTrack),
+    predictability: Math.round(predictability),
+    data_completeness: Math.round(completeness * 100) / 100,
+    inputs: {
+      revTTM, fcfTTM, niTTM, opIncTTM, grossTTM,
+      fcfMargin, netMargin, grossMargin, roic, assetTurnover,
+      debtEbitda, intCov, currentRatio,
+      revGrowth, fcfGrowth, buybackYield,
+      vol1y: risk?.volatility1y,
+    },
+  };
+}
+
+// Safety Score components
+function _qs_safety(fin, risk, sector, dividendStreakYears) {
+  const trend = fin?.trend || fin || {};
+  const periods = trend.periods || [];
+  const n = periods.length;
+  if (n < 2) return null;
+
+  const divTTM = _qs_sum(trend.dividendsPaid, 4);
+  const fcfTTM = _qs_sum(trend.fcf, 4);
+  const niTTM = _qs_sum(trend.netIncome, 4);
+  const opIncTTM = _qs_sum(trend.operatingIncome, 4);
+
+  // ── Coverage (30 pts) ──
+  let pFcfCov = 0;
+  let fcfCov = null;
+  if (divTTM != null && divTTM > 0 && fcfTTM != null) {
+    fcfCov = fcfTTM / divTTM;
+    if (fcfCov >= 3.0) pFcfCov = 15;
+    else if (fcfCov >= 2.0) pFcfCov = 12;
+    else if (fcfCov >= 1.5) pFcfCov = 9;
+    else if (fcfCov >= 1.2) pFcfCov = 5;
+    else if (fcfCov >= 1.0) pFcfCov = 2;
+  } else if (divTTM == null || divTTM === 0) {
+    // No paga dividendos = score N/A, default 10 (no risk de cut si no hay dividend)
+    pFcfCov = 10;
+  }
+
+  let pPayout = 0;
+  let payoutRatio = null;
+  if (divTTM != null && divTTM > 0 && niTTM != null && niTTM > 0) {
+    payoutRatio = divTTM / niTTM;
+    if (payoutRatio <= 0.30) pPayout = 5;
+    else if (payoutRatio <= 0.50) pPayout = 4;
+    else if (payoutRatio <= 0.65) pPayout = 3;
+    else if (payoutRatio <= 0.75) pPayout = 2;
+    else if (payoutRatio <= 0.90) pPayout = 1;
+  } else if (divTTM == null || divTTM === 0) {
+    pPayout = 3;
+  }
+
+  // FCF after estimated maintenance capex (~50% of total capex as rough proxy)
+  let pFcfAfterMaint = 0;
+  let fcfAfterMaintCov = null;
+  const ocfTTM = _qs_sum(trend.ocf, 4);
+  const capexTTM = _qs_sum(trend.capex, 4);
+  if (ocfTTM != null && capexTTM != null && divTTM != null && divTTM > 0) {
+    const maintCapex = Math.abs(capexTTM) * 0.5;
+    const fcfAfter = ocfTTM - maintCapex;
+    fcfAfterMaintCov = fcfAfter / divTTM;
+    if (fcfAfterMaintCov >= 2.5) pFcfAfterMaint = 10;
+    else if (fcfAfterMaintCov >= 1.8) pFcfAfterMaint = 8;
+    else if (fcfAfterMaintCov >= 1.3) pFcfAfterMaint = 5;
+    else if (fcfAfterMaintCov >= 1.0) pFcfAfterMaint = 2;
+  } else if (divTTM == null || divTTM === 0) {
+    pFcfAfterMaint = 7;
+  }
+
+  const coverage = pFcfCov + pPayout + pFcfAfterMaint;
+
+  // ── Balance Sheet Stress (25 pts) ──
+  // Reuse Quality logic but stricter thresholds
+  let pDebt = 0;
+  let debtEbitda = null;
+  if (trend.debt?.[0] != null && opIncTTM != null && opIncTTM > 0) {
+    debtEbitda = trend.debt[0] / (opIncTTM * 1.3);
+    if (debtEbitda <= 1) pDebt = 10;
+    else if (debtEbitda <= 2) pDebt = 8;
+    else if (debtEbitda <= 3) pDebt = 5;
+    else if (debtEbitda <= 4) pDebt = 2;
+  } else if (!trend.debt?.[0]) {
+    pDebt = 10;
+  }
+
+  let pIntCov = 0;
+  const intExpTTM = _qs_sum(trend.interestExpense, 4);
+  if (opIncTTM != null && intExpTTM != null && intExpTTM > 0) {
+    const ic = opIncTTM / intExpTTM;
+    if (ic >= 15) pIntCov = 8;
+    else if (ic >= 10) pIntCov = 6;
+    else if (ic >= 5) pIntCov = 4;
+    else if (ic >= 3) pIntCov = 2;
+  } else if (intExpTTM == null || intExpTTM === 0) {
+    pIntCov = 8;
+  }
+
+  let pLiq = 0;
+  const currentRatio = (trend.currentAssets?.[0] && trend.currentLiabilities?.[0])
+    ? trend.currentAssets[0] / trend.currentLiabilities[0]
+    : null;
+  if (currentRatio != null) {
+    if (currentRatio >= 1.5) pLiq = 7;
+    else if (currentRatio >= 1.0) pLiq = 5;
+    else if (currentRatio >= 0.7) pLiq = 3;
+    else if (currentRatio >= 0.5) pLiq = 1;
+  }
+
+  const balanceSheet = pDebt + pIntCov + pLiq;
+
+  // ── Track Record (20 pts) ──
+  // Years without cut (passed in from positions/dividendos table)
+  let pYears = 0;
+  if (dividendStreakYears != null) {
+    if (dividendStreakYears >= 50) pYears = 10;
+    else if (dividendStreakYears >= 25) pYears = 9;
+    else if (dividendStreakYears >= 20) pYears = 8;
+    else if (dividendStreakYears >= 15) pYears = 7;
+    else if (dividendStreakYears >= 10) pYears = 5;
+    else if (dividendStreakYears >= 5) pYears = 3;
+    else if (dividendStreakYears >= 1) pYears = 1;
+  } else if (divTTM == null || divTTM === 0) {
+    pYears = 0; // no dividend, no track
+  } else {
+    pYears = 2; // unknown, conservative default
+  }
+
+  // DGR consistency proxy: dividend stable in 8 quarters (no quarter < previous)
+  let pConsist = 0;
+  if (trend.dividendsPaid && trend.dividendsPaid.length >= 4) {
+    const dividends = trend.dividendsPaid.filter(d => d != null);
+    if (dividends.length >= 4) {
+      let cuts = 0;
+      for (let i = 0; i < dividends.length - 1; i++) {
+        // dividends[0] is most recent → if dividends[i] < dividends[i+1] = cut detected
+        if (dividends[i] < dividends[i + 1] * 0.95) cuts++;
+      }
+      if (cuts === 0) pConsist = 5;
+      else if (cuts === 1) pConsist = 3;
+      else pConsist = 0;
+    }
+  } else if (divTTM == null || divTTM === 0) {
+    pConsist = 0;
+  }
+
+  // Recession survival (only if streak data available)
+  let pRecession = 0;
+  if (dividendStreakYears != null) {
+    // 2026 - streak ≥ 2008? (18 years)
+    if (dividendStreakYears >= 18) pRecession = 5;
+    else if (dividendStreakYears >= 6) pRecession = 3;
+    else pRecession = 1;
+  } else {
+    pRecession = 2;
+  }
+
+  const trackRecord = pYears + pConsist + pRecession;
+
+  // ── Forward Visibility (15 pts) ──
+  // Proxy: revenue trend acceleration / deceleration
+  const rev4Recent = _qs_avg((trend.revenue || []).slice(0, 4));
+  const rev4Prev = _qs_avg((trend.revenue || []).slice(4, 8));
+  let revGrowth = null;
+  if (rev4Recent != null && rev4Prev != null && rev4Prev > 0) {
+    revGrowth = (rev4Recent - rev4Prev) / rev4Prev;
+  }
+  let pFwdGrowth = 0;
+  if (revGrowth != null) {
+    if (revGrowth >= 0.08) pFwdGrowth = 8;
+    else if (revGrowth >= 0.04) pFwdGrowth = 6;
+    else if (revGrowth >= 0) pFwdGrowth = 4;
+    else if (revGrowth >= -0.05) pFwdGrowth = 2;
+  }
+
+  // Capex stability (pCapex 4 default)
+  const pCapex = 3;
+
+  // Estimate stability proxy from risk_metrics volatility
+  let pEstStab = 0;
+  if (risk?.volatility1y != null) {
+    if (risk.volatility1y < 20) pEstStab = 4;
+    else if (risk.volatility1y < 30) pEstStab = 2;
+    else pEstStab = 1;
+  }
+
+  const forward = pFwdGrowth + pCapex + pEstStab;
+
+  // ── Sector adjustment (10 pts) ──
+  const sectorAdj = _qs_sectorBase(sector);
+
+  const total = coverage + balanceSheet + trackRecord + forward + sectorAdj;
+
+  return {
+    safety_score: Math.max(0, Math.min(100, Math.round(total))),
+    coverage: Math.round(coverage),
+    balance_sheet: Math.round(balanceSheet),
+    track_record: Math.round(trackRecord),
+    forward: Math.round(forward),
+    sector_adj: Math.round(sectorAdj),
+    inputs: {
+      divTTM, fcfTTM, niTTM,
+      fcfCoverage: fcfCov,
+      payoutRatio,
+      fcfAfterMaintCov,
+      debtEbitda,
+      currentRatio,
+      streakYears: dividendStreakYears,
+      revGrowth,
+      vol1y: risk?.volatility1y,
+    },
+  };
+}
+
+// Get dividend streak years from dividendos table (best-effort)
+async function _qs_getDividendStreak(env, ticker) {
+  try {
+    const { results } = await env.DB.prepare(
+      `SELECT MIN(SUBSTR(fecha, 1, 4)) as first_year, MAX(SUBSTR(fecha, 1, 4)) as last_year
+       FROM dividendos WHERE ticker = ? AND amount > 0`
+    ).bind(ticker).all();
+    if (results?.[0]?.first_year && results?.[0]?.last_year) {
+      const first = parseInt(results[0].first_year);
+      const last = parseInt(results[0].last_year);
+      // This is years of data, not strict streak — but a useful proxy
+      return last - first + 1;
+    }
+  } catch {}
+  return null;
+}
+
+// Main compute function: combines all inputs and writes to D1
+async function computeQualitySafetyScore(env, ticker) {
+  const finMap = await getFmpFinancials(env, [ticker]);
+  const fin = finMap[ticker];
+  if (!fin) return { error: "no_fmp_financials_cache", ticker };
+
+  const riskMap = await getRiskMetrics(env, [ticker]);
+  const risk = riskMap[ticker] || null;
+
+  // Get sector + position from positions table
+  const { results: posRows } = await env.DB.prepare(
+    `SELECT sector, last_price, div_ttm FROM positions WHERE ticker = ?`
+  ).bind(ticker).all();
+  const pos = posRows?.[0] || {};
+  const sector = pos.sector || "";
+
+  const streak = await _qs_getDividendStreak(env, ticker);
+
+  const q = _qs_quality(fin, risk, sector);
+  const s = _qs_safety(fin, risk, sector, streak);
+
+  if (!q && !s) return { error: "compute_failed", ticker };
+
+  const today = new Date().toISOString().slice(0, 10);
+  const inputs = { quality: q?.inputs, safety: s?.inputs };
+
+  await ensureQualitySafetyTable(env);
+  await env.DB.prepare(
+    `INSERT INTO quality_safety_scores (
+       ticker, snapshot_date, quality_score, safety_score,
+       q_profitability, q_capital_efficiency, q_balance_sheet, q_growth,
+       q_dividend_track, q_predictability, q_data_completeness,
+       s_coverage, s_balance_sheet, s_track_record, s_forward, s_sector_adj,
+       inputs_json, computed_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(ticker, snapshot_date) DO UPDATE SET
+       quality_score = excluded.quality_score,
+       safety_score = excluded.safety_score,
+       q_profitability = excluded.q_profitability,
+       q_capital_efficiency = excluded.q_capital_efficiency,
+       q_balance_sheet = excluded.q_balance_sheet,
+       q_growth = excluded.q_growth,
+       q_dividend_track = excluded.q_dividend_track,
+       q_predictability = excluded.q_predictability,
+       q_data_completeness = excluded.q_data_completeness,
+       s_coverage = excluded.s_coverage,
+       s_balance_sheet = excluded.s_balance_sheet,
+       s_track_record = excluded.s_track_record,
+       s_forward = excluded.s_forward,
+       s_sector_adj = excluded.s_sector_adj,
+       inputs_json = excluded.inputs_json,
+       computed_at = excluded.computed_at`
+  ).bind(
+    ticker, today,
+    q?.quality_score ?? null, s?.safety_score ?? null,
+    q?.profitability ?? null, q?.capital_efficiency ?? null,
+    q?.balance_sheet ?? null, q?.growth ?? null,
+    q?.dividend_track ?? null, q?.predictability ?? null, q?.data_completeness ?? null,
+    s?.coverage ?? null, s?.balance_sheet ?? null,
+    s?.track_record ?? null, s?.forward ?? null, s?.sector_adj ?? null,
+    JSON.stringify(inputs)
+  ).run();
+
+  return {
+    ok: true,
+    ticker,
+    snapshot_date: today,
+    quality: q,
+    safety: s,
+    sector,
+    streak_years: streak,
+  };
+}
+
+// Batch compute for all positions
+async function computeQualitySafetyAll(env, opts = {}) {
+  await ensureQualitySafetyTable(env);
+  const { results: positions } = await env.DB.prepare(
+    "SELECT ticker FROM positions WHERE shares > 0"
+  ).all();
+  const offset = opts.offset || 0;
+  const limit = opts.limit || 0;
+  const sliced = limit > 0 ? positions.slice(offset, offset + limit) : positions;
+
+  let computed = 0, failed = 0;
+  const results = [];
+  for (const p of sliced) {
+    try {
+      const r = await computeQualitySafetyScore(env, p.ticker);
+      if (r.ok) {
+        computed++;
+        results.push({ ticker: p.ticker, q: r.quality?.quality_score, s: r.safety?.safety_score });
+      } else {
+        failed++;
+      }
+    } catch (e) {
+      failed++;
+    }
+  }
+  return { computed, failed, total: sliced.length, portfolio: positions.length, results };
+}
+
+// ── Forward Dividend Yield helper (bonus, uses cached fmp_financials) ──
+async function computeForwardYield(env, ticker) {
+  const finMap = await getFmpFinancials(env, [ticker]);
+  const fin = finMap[ticker];
+  if (!fin) return { error: "no_cache", ticker };
+  const trend = fin.trend || {};
+  const dividends = trend.dividendsPaid || [];
+  const sharesArr = trend.sharesOutstanding || [];
+
+  // Most recent quarterly dividend per share
+  const lastDividendTotal = dividends[0];
+  const lastShares = sharesArr[0];
+  const lastDPS = (lastDividendTotal != null && lastShares != null && lastShares > 0)
+    ? lastDividendTotal / lastShares
+    : null;
+  // TTM dividend total
+  const ttmDividendTotal = _qs_sum(dividends, 4);
+  const ttmDPS = (ttmDividendTotal != null && lastShares != null && lastShares > 0)
+    ? ttmDividendTotal / lastShares
+    : null;
+  // Forward = last quarter × 4
+  const fwdDPS = lastDPS != null ? lastDPS * 4 : null;
+
+  const { results: posRows } = await env.DB.prepare(
+    `SELECT last_price, div_yield FROM positions WHERE ticker = ?`
+  ).bind(ticker).all();
+  const pos = posRows?.[0] || {};
+  const price = pos.last_price;
+
+  const ttmYield = pos.div_yield ?? null; // already in %
+  const fwdYield = (fwdDPS != null && price != null && price > 0)
+    ? (fwdDPS / price) * 100
+    : null;
+  const impliedDgr = (fwdDPS != null && ttmDPS != null && ttmDPS > 0)
+    ? ((fwdDPS / ttmDPS) - 1) * 100
+    : null;
+
+  return {
+    ticker,
+    price,
+    ttm_dps: ttmDPS,
+    fwd_dps: fwdDPS,
+    ttm_yield_pct: ttmYield,
+    fwd_yield_pct: fwdYield != null ? Math.round(fwdYield * 100) / 100 : null,
+    implied_dgr_pct: impliedDgr != null ? Math.round(impliedDgr * 100) / 100 : null,
+  };
 }
 
 // ─── Agent 0: Market Regime (runs FIRST) ───────────────────────
