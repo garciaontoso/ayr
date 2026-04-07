@@ -24,6 +24,7 @@ import ProcesoTab from '../home/ProcesoTab';
 import LibraryTab from '../home/LibraryTab';
 import CurrencyTab from '../home/CurrencyTab';
 import MacroTab from '../home/MacroTab';
+import EarningsTab from '../home/EarningsTab';
 
 // Combined Income tab with sub-tabs
 function IncomeTab() {
@@ -664,6 +665,7 @@ export default function HomeView() {
       {homeTab==="library" && <LibraryTab />}
       {homeTab==="currency" && <CurrencyTab />}
       {homeTab==="macro" && <MacroTab />}
+      {homeTab==="earnings" && <EarningsTab />}
     </ErrorBoundary>
 
     {/* Settings Panel */}
