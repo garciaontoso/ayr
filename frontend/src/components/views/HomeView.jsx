@@ -20,6 +20,10 @@ import ResearchTab from '../home/ResearchTab';
 import AgentesTab from '../home/AgentesTab';
 import CoveredCallsTab from '../home/CoveredCallsTab';
 import IncomeLabTab from '../home/IncomeLabTab';
+import ProcesoTab from '../home/ProcesoTab';
+import LibraryTab from '../home/LibraryTab';
+import CurrencyTab from '../home/CurrencyTab';
+import MacroTab from '../home/MacroTab';
 
 // Combined Income tab with sub-tabs
 function IncomeTab() {
@@ -656,6 +660,10 @@ export default function HomeView() {
       {homeTab==="income" && <IncomeTab />}
       {homeTab==="nomina" && <NominaTab />}
       {homeTab==="presupuesto" && <PresupuestoTab />}
+      {homeTab==="proceso" && <ProcesoTab />}
+      {homeTab==="library" && <LibraryTab />}
+      {homeTab==="currency" && <CurrencyTab />}
+      {homeTab==="macro" && <MacroTab />}
     </ErrorBoundary>
 
     {/* Settings Panel */}

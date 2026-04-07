@@ -49,9 +49,13 @@ export const API_URL = "https://aar-api.garciaontoso.workers.dev";
 
 export const HOME_TABS = [
   {id:"portfolio",lbl:"Portfolio",ico:"💼"},
+  {id:"agentes",lbl:"Agentes",ico:"🤖"},
+  {id:"proceso",lbl:"Proceso",ico:"📝"},
   {id:"dashboard",lbl:"Dashboard",ico:"📊"},
   {id:"income",lbl:"Income",ico:"🥦"},
   {id:"dividendos",lbl:"Dividendos",ico:"💰"},
+  {id:"macro",lbl:"Macro",ico:"🌍"},
+  {id:"currency",lbl:"Currency",ico:"💱"},
   {id:"fire",lbl:"FIRE",ico:"🔥"},
   {id:"trades",lbl:"Trades",ico:"📊"},
   {id:"gastos",lbl:"Gastos",ico:"💸"},
@@ -63,5 +67,5 @@ export const HOME_TABS = [
   {id:"watchlist",lbl:"Watchlist",ico:"👁"},
   {id:"historial",lbl:"Historial",ico:"📦"},
   {id:"research",lbl:"Research",ico:"🔍"},
-  {id:"agentes",lbl:"Agentes",ico:"🤖"},
+  {id:"library",lbl:"Library",ico:"📚"},
 ];

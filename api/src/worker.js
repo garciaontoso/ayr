@@ -498,6 +498,95 @@ async function ensureMigrations(env) {
       last_used TEXT
     )`).run();
 
+    // ═══════ DESIGN BACKLOG MVPs ═══════════════════════════════
+    // theses: Proceso module — structured investment theses per ticker.
+    // Versioned: new saves become is_current=1, previous versions kept for history.
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS theses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1,
+      is_current INTEGER NOT NULL DEFAULT 1,
+      why_owned TEXT NOT NULL,
+      what_would_make_sell TEXT NOT NULL,
+      thesis_type TEXT DEFAULT 'compounder',
+      conviction INTEGER DEFAULT 3,
+      target_weight_min REAL DEFAULT 0,
+      target_weight_max REAL DEFAULT 0,
+      notes_md TEXT DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_theses_ticker ON theses(ticker, is_current)`).run();
+
+    // library_items: Reading List MVP — books, papers, podcasts, articles
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS library_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL DEFAULT 'book',
+      title TEXT NOT NULL,
+      author TEXT DEFAULT '',
+      year INTEGER,
+      tier TEXT DEFAULT 'A',
+      status TEXT DEFAULT 'queue',
+      rating INTEGER,
+      source_url TEXT DEFAULT '',
+      started_at TEXT,
+      finished_at TEXT,
+      added_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_library_status ON library_items(status)`).run();
+
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS library_notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      item_id INTEGER NOT NULL,
+      note_text TEXT NOT NULL,
+      related_tickers_json TEXT DEFAULT '[]',
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY(item_id) REFERENCES library_items(id) ON DELETE CASCADE
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_library_notes_item ON library_notes(item_id)`).run();
+
+    // macro_events + event_sector_mapping: Macro Calendar MVP
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS macro_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_date TEXT NOT NULL,
+      event_time TEXT DEFAULT '',
+      country TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      event_name TEXT NOT NULL,
+      consensus_estimate TEXT DEFAULT '',
+      previous_value TEXT DEFAULT '',
+      actual_value TEXT DEFAULT '',
+      impact_level TEXT DEFAULT 'medium',
+      status TEXT DEFAULT 'scheduled',
+      fetched_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(event_date, country, event_type)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_macro_events_date ON macro_events(event_date)`).run();
+
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS event_sector_mapping (
+      event_type TEXT PRIMARY KEY,
+      primary_sectors_json TEXT DEFAULT '[]',
+      secondary_sectors_json TEXT DEFAULT '[]',
+      rationale TEXT DEFAULT '',
+      typical_reaction TEXT DEFAULT '',
+      user_action_advice TEXT DEFAULT ''
+    )`).run();
+
+    // revenue_segmentation: Currency Exposure MVP
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS revenue_segmentation (
+      ticker TEXT NOT NULL,
+      fiscal_year INTEGER NOT NULL,
+      region TEXT NOT NULL,
+      revenue_usd REAL DEFAULT 0,
+      pct_of_total REAL DEFAULT 0,
+      confidence TEXT DEFAULT 'low',
+      source TEXT DEFAULT '',
+      fetched_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY(ticker, fiscal_year, region)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_revenue_segmentation_ticker ON revenue_segmentation(ticker)`).run();
+
     // ─── Performance indexes ───────────────────────────
     const indexes = [
       "CREATE INDEX IF NOT EXISTS idx_gastos_fecha ON gastos(fecha)",
@@ -5188,6 +5277,436 @@ export default {
           topIncomeOpportunities: incomeOpps.slice(0, 10),
           alerts,
           lastUpdated: analyses[0]?.updated_at || null,
+        }, corsHeaders);
+      }
+
+      // ─── DESIGN BACKLOG MVPs ───────────────────────────────────
+
+      // ── Proceso module: Investment Theses (CRUD + versioning) ──
+      //
+      // GET /api/theses — list all current theses
+      // GET /api/theses/missing — positions with weight >= 1% that have no thesis
+      // GET /api/theses/:ticker — current thesis for a ticker (or null)
+      // POST /api/theses — create or update thesis (increments version, marks previous as not current)
+      if (path === "/api/theses" && request.method === "GET") {
+        const { results } = await env.DB.prepare(
+          "SELECT * FROM theses WHERE is_current = 1 ORDER BY updated_at DESC"
+        ).all();
+        return json({ theses: results || [] }, corsHeaders);
+      }
+      if (path === "/api/theses/missing" && request.method === "GET") {
+        // Compute weights in-app (positions table has market_value)
+        const { results: positions } = await env.DB.prepare(
+          "SELECT ticker, name, market_value FROM positions WHERE shares > 0"
+        ).all();
+        const total = positions.reduce((s, p) => s + (p.market_value || 0), 0);
+        const weighted = positions.map(p => ({
+          ticker: p.ticker,
+          name: p.name,
+          weight_pct: total > 0 ? (p.market_value / total) * 100 : 0,
+        })).filter(p => p.weight_pct >= 1);
+        const { results: thesesRows } = await env.DB.prepare(
+          "SELECT ticker FROM theses WHERE is_current = 1"
+        ).all();
+        const thesesTickers = new Set((thesesRows || []).map(r => r.ticker));
+        const missing = weighted
+          .filter(p => !thesesTickers.has(p.ticker))
+          .sort((a, b) => b.weight_pct - a.weight_pct);
+        return json({
+          missing,
+          missing_count: missing.length,
+          total_eligible: weighted.length,
+          coverage_pct: weighted.length > 0
+            ? Math.round((weighted.length - missing.length) / weighted.length * 100)
+            : 0,
+        }, corsHeaders);
+      }
+      if (path.startsWith("/api/theses/") && request.method === "GET") {
+        const ticker = decodeURIComponent(path.slice("/api/theses/".length));
+        const { results } = await env.DB.prepare(
+          "SELECT * FROM theses WHERE ticker = ? AND is_current = 1 LIMIT 1"
+        ).bind(ticker).all();
+        return json({ thesis: results?.[0] || null }, corsHeaders);
+      }
+      if (path === "/api/theses" && request.method === "POST") {
+        const body = await request.json();
+        const ticker = String(body.ticker || "").trim();
+        if (!ticker) return json({ error: "ticker required" }, corsHeaders, 400);
+        const why = String(body.why_owned || "").slice(0, 2000);
+        const sell = String(body.what_would_make_sell || "").slice(0, 2000);
+        if (!why || !sell) return json({ error: "why_owned and what_would_make_sell required" }, corsHeaders, 400);
+        const thesisType = String(body.thesis_type || "compounder");
+        const conviction = Math.max(1, Math.min(5, parseInt(body.conviction || 3, 10)));
+        const twMin = Number(body.target_weight_min || 0);
+        const twMax = Number(body.target_weight_max || 0);
+        const notesMd = String(body.notes_md || "");
+
+        // Mark previous as not current + compute next version
+        const { results: prev } = await env.DB.prepare(
+          "SELECT MAX(version) as maxv FROM theses WHERE ticker = ?"
+        ).bind(ticker).all();
+        const nextVersion = ((prev?.[0]?.maxv) || 0) + 1;
+        await env.DB.prepare(
+          "UPDATE theses SET is_current = 0 WHERE ticker = ? AND is_current = 1"
+        ).bind(ticker).run();
+        await env.DB.prepare(
+          `INSERT INTO theses (ticker, version, is_current, why_owned, what_would_make_sell,
+             thesis_type, conviction, target_weight_min, target_weight_max, notes_md, updated_at)
+           VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+        ).bind(ticker, nextVersion, why, sell, thesisType, conviction, twMin, twMax, notesMd).run();
+        return json({ ok: true, ticker, version: nextVersion }, corsHeaders);
+      }
+
+      // ── Reading List MVP: library CRUD + notes ──
+      //
+      // GET  /api/library?type=&status=  — list items (filters optional)
+      // POST /api/library  — create item
+      // PUT  /api/library/:id  — update status/rating/started_at/finished_at
+      // DELETE /api/library/:id
+      // GET  /api/library/:id/notes  — list notes for item
+      // POST /api/library/:id/notes  — add note
+      if (path === "/api/library" && request.method === "GET") {
+        const type = url.searchParams.get("type");
+        const status = url.searchParams.get("status");
+        let sql = "SELECT * FROM library_items WHERE 1=1";
+        const params = [];
+        if (type) { sql += " AND type = ?"; params.push(type); }
+        if (status) { sql += " AND status = ?"; params.push(status); }
+        sql += " ORDER BY CASE tier WHEN 'S' THEN 0 WHEN 'A' THEN 1 ELSE 2 END, added_at DESC";
+        const { results } = await env.DB.prepare(sql).bind(...params).all();
+        return json({ items: results || [] }, corsHeaders);
+      }
+      if (path === "/api/library" && request.method === "POST") {
+        const b = await request.json();
+        const title = String(b.title || "").trim();
+        if (!title) return json({ error: "title required" }, corsHeaders, 400);
+        await env.DB.prepare(
+          `INSERT INTO library_items (type, title, author, year, tier, status, rating, source_url)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          String(b.type || "book"),
+          title,
+          String(b.author || ""),
+          b.year ? parseInt(b.year, 10) : null,
+          String(b.tier || "A"),
+          String(b.status || "queue"),
+          b.rating ? parseInt(b.rating, 10) : null,
+          String(b.source_url || "")
+        ).run();
+        return json({ ok: true }, corsHeaders);
+      }
+      if (path.startsWith("/api/library/") && path.endsWith("/notes")) {
+        const idStr = path.slice("/api/library/".length, -"/notes".length);
+        const id = parseInt(idStr, 10);
+        if (isNaN(id)) return json({ error: "invalid id" }, corsHeaders, 400);
+        if (request.method === "GET") {
+          const { results } = await env.DB.prepare(
+            "SELECT * FROM library_notes WHERE item_id = ? ORDER BY created_at DESC"
+          ).bind(id).all();
+          return json({ notes: results || [] }, corsHeaders);
+        }
+        if (request.method === "POST") {
+          const b = await request.json();
+          const text = String(b.note_text || "").trim();
+          if (!text) return json({ error: "note_text required" }, corsHeaders, 400);
+          const tickers = Array.isArray(b.related_tickers) ? b.related_tickers : [];
+          await env.DB.prepare(
+            "INSERT INTO library_notes (item_id, note_text, related_tickers_json) VALUES (?, ?, ?)"
+          ).bind(id, text, JSON.stringify(tickers)).run();
+          return json({ ok: true }, corsHeaders);
+        }
+      }
+      if (path.startsWith("/api/library/") && (request.method === "PUT" || request.method === "DELETE")) {
+        const id = parseInt(path.slice("/api/library/".length), 10);
+        if (isNaN(id)) return json({ error: "invalid id" }, corsHeaders, 400);
+        if (request.method === "DELETE") {
+          await env.DB.prepare("DELETE FROM library_items WHERE id = ?").bind(id).run();
+          return json({ ok: true }, corsHeaders);
+        }
+        const b = await request.json();
+        const sets = [];
+        const params = [];
+        for (const k of ["status", "rating", "tier", "started_at", "finished_at", "title", "author", "year", "source_url"]) {
+          if (b[k] !== undefined) { sets.push(`${k} = ?`); params.push(b[k]); }
+        }
+        if (!sets.length) return json({ error: "nothing to update" }, corsHeaders, 400);
+        sets.push("updated_at = datetime('now')");
+        params.push(id);
+        await env.DB.prepare(`UPDATE library_items SET ${sets.join(", ")} WHERE id = ?`).bind(...params).run();
+        return json({ ok: true }, corsHeaders);
+      }
+
+      // ── Currency Exposure MVP ──
+      //
+      // POST /api/currency/refresh — pull revenue segmentation from FMP for all positions
+      // GET  /api/currency/exposure — compute exposure by currency using cached data + defaults
+      if (path === "/api/currency/refresh" && request.method === "POST") {
+        const key = env.FMP_KEY;
+        if (!key) return json({ error: "no FMP key" }, corsHeaders, 500);
+        const { results: positions } = await env.DB.prepare(
+          "SELECT ticker FROM positions WHERE shares > 0 AND COALESCE(category,'') != 'ETF'"
+        ).all();
+        let cached = 0, failed = 0;
+        for (let i = 0; i < positions.length; i += 4) {
+          const batch = positions.slice(i, i + 4);
+          const results = await Promise.allSettled(batch.map(async (p) => {
+            const sym = toFMP(p.ticker);
+            const url2 = `https://financialmodelingprep.com/stable/revenue-geographic-segmentation?symbol=${encodeURIComponent(sym)}&structure=flat&apikey=${key}`;
+            const resp = await fetch(url2);
+            if (!resp.ok) return { ticker: p.ticker, ok: false };
+            const data = await resp.json();
+            if (!Array.isArray(data) || !data.length) return { ticker: p.ticker, ok: false };
+            const latest = data[0]; // most recent fiscal year
+            // Shape varies: some have a `data` map, others have the regions at the root
+            const regions = latest.data || latest;
+            const fiscalYear = parseInt(String(latest.date || "").slice(0, 4), 10) || new Date().getFullYear();
+            // Delete existing rows for this ticker+year (refresh)
+            await env.DB.prepare(
+              "DELETE FROM revenue_segmentation WHERE ticker = ? AND fiscal_year = ?"
+            ).bind(p.ticker, fiscalYear).run();
+            let total = 0;
+            for (const k of Object.keys(regions)) {
+              if (k === "date" || k === "symbol") continue;
+              const v = Number(regions[k]);
+              if (!isNaN(v) && v > 0) total += v;
+            }
+            if (total <= 0) return { ticker: p.ticker, ok: false };
+            for (const region of Object.keys(regions)) {
+              if (region === "date" || region === "symbol") continue;
+              const v = Number(regions[region]);
+              if (isNaN(v) || v <= 0) continue;
+              await env.DB.prepare(
+                `INSERT INTO revenue_segmentation (ticker, fiscal_year, region, revenue_usd, pct_of_total, confidence, source)
+                 VALUES (?, ?, ?, ?, ?, 'high', 'fmp-segmentation')`
+              ).bind(p.ticker, fiscalYear, region, v, v / total).run();
+            }
+            return { ticker: p.ticker, ok: true };
+          }));
+          for (const r of results) {
+            if (r.status === "fulfilled" && r.value?.ok) cached++; else failed++;
+          }
+          if (i + 4 < positions.length) await new Promise(r => setTimeout(r, 600));
+        }
+        return json({ ok: true, cached, failed, total: positions.length }, corsHeaders);
+      }
+      if (path === "/api/currency/exposure" && request.method === "GET") {
+        // Region-to-currency mapping (seed)
+        const REGION_CCY = {
+          // Americas
+          "United States": { USD: 1.0 },
+          "North America": { USD: 0.9, CAD: 0.1 },
+          "Canada": { CAD: 1.0 },
+          "Latin America": { USD: 0.3, BRL: 0.4, MXN: 0.3 },
+          "South America": { USD: 0.3, BRL: 0.4, MXN: 0.3 },
+          "Americas": { USD: 0.85, CAD: 0.08, BRL: 0.07 },
+          // Europe
+          "Europe": { EUR: 0.65, GBP: 0.20, CHF: 0.10, Other: 0.05 },
+          "European Union": { EUR: 0.85, Other: 0.15 },
+          "EMEA": { EUR: 0.55, GBP: 0.15, Other: 0.30 },
+          "Germany": { EUR: 1.0 },
+          "France": { EUR: 1.0 },
+          "Spain": { EUR: 1.0 },
+          "Italy": { EUR: 1.0 },
+          "United Kingdom": { GBP: 1.0 },
+          "Switzerland": { CHF: 1.0 },
+          // Asia
+          "Asia Pacific": { JPY: 0.35, CNY: 0.25, HKD: 0.10, AUD: 0.15, Other: 0.15 },
+          "Asia": { CNY: 0.35, JPY: 0.30, HKD: 0.10, Other: 0.25 },
+          "Greater China": { CNY: 0.60, HKD: 0.35, TWD: 0.05 },
+          "China": { CNY: 1.0 },
+          "Hong Kong": { HKD: 1.0 },
+          "Japan": { JPY: 1.0 },
+          "Australia": { AUD: 1.0 },
+          // Fallback
+          "International": { EUR: 0.35, JPY: 0.20, GBP: 0.15, CNY: 0.15, Other: 0.15 },
+          "Rest of World": { EUR: 0.35, JPY: 0.20, GBP: 0.15, CNY: 0.15, Other: 0.15 },
+          "Other": { Other: 1.0 },
+        };
+        const { results: positions } = await env.DB.prepare(
+          "SELECT ticker, name, market_value, usd_value, currency FROM positions WHERE shares > 0"
+        ).all();
+        const { results: segRows } = await env.DB.prepare(
+          `SELECT ticker, region, pct_of_total FROM revenue_segmentation rs
+           WHERE fiscal_year = (SELECT MAX(fiscal_year) FROM revenue_segmentation WHERE ticker = rs.ticker)`
+        ).all();
+        const byTicker = {};
+        for (const r of (segRows || [])) {
+          if (!byTicker[r.ticker]) byTicker[r.ticker] = [];
+          byTicker[r.ticker].push({ region: r.region, pct: r.pct_of_total });
+        }
+        const byCurrency = {};
+        const coverage = {};
+        let totalUsd = 0;
+        let highConfUsd = 0;
+        for (const p of positions) {
+          const posValue = p.usd_value || p.market_value || 0;
+          totalUsd += posValue;
+          const segs = byTicker[p.ticker];
+          if (segs && segs.length > 0) {
+            coverage[p.ticker] = "high";
+            highConfUsd += posValue;
+            for (const s of segs) {
+              const mapping = REGION_CCY[s.region] || REGION_CCY["Other"];
+              for (const ccy of Object.keys(mapping)) {
+                const share = posValue * s.pct * mapping[ccy];
+                byCurrency[ccy] = (byCurrency[ccy] || 0) + share;
+              }
+            }
+          } else {
+            // Fallback: use listing currency of the position as a rough proxy
+            coverage[p.ticker] = "low";
+            const ccy = p.currency || "USD";
+            byCurrency[ccy] = (byCurrency[ccy] || 0) + posValue;
+          }
+        }
+        const byCurrencyArr = Object.entries(byCurrency)
+          .map(([ccy, value]) => ({ currency: ccy, value_usd: value, pct: totalUsd > 0 ? (value / totalUsd) * 100 : 0 }))
+          .sort((a, b) => b.value_usd - a.value_usd);
+        return json({
+          total_usd: totalUsd,
+          by_currency: byCurrencyArr,
+          high_confidence_pct: totalUsd > 0 ? (highConfUsd / totalUsd) * 100 : 0,
+          coverage,
+        }, corsHeaders);
+      }
+
+      // ── Macro Calendar MVP ──
+      //
+      // POST /api/macro/refresh — pull upcoming economic events from FMP
+      // GET  /api/macro/upcoming?days=14 — upcoming events + user exposure
+      if (path === "/api/macro/refresh" && request.method === "POST") {
+        const key = env.FMP_KEY;
+        if (!key) return json({ error: "no FMP key" }, corsHeaders, 500);
+        // Ensure seeds for event_sector_mapping exist
+        const MAPPING_SEED = [
+          ["FOMC Decision", ["Financial Services", "Real Estate", "Utilities"], ["Consumer Cyclical"], "Decisiones de tipos de la Fed. Afectan descuento de cash flows futuros.", "REITs y utilities sufren con subidas. Financieras se benefician.", "No operar en el día del anuncio. Esperar dirección."],
+          ["FOMC Minutes", ["Financial Services", "Real Estate"], [], "Minutas con dirección hawkish/dovish.", "Movimientos moderados según tono.", "Revisar dirección, no operar reactivo."],
+          ["CPI", ["Consumer Defensive", "Real Estate", "Utilities"], ["Consumer Cyclical"], "Inflación. Impacta decisión Fed.", "CPI alto = risk-off. Bajo = rally duration.", "Esperar a ver reacción del mercado antes de actuar."],
+          ["Core CPI", ["Consumer Defensive", "Real Estate"], [], "CPI subyacente sin energía/alimentos.", "Señal más limpia de inflación estructural.", "Mismo que CPI."],
+          ["Core PCE", ["Consumer Defensive", "Real Estate"], [], "Medida inflación preferida de la Fed.", "Cualquier sorpresa mueve mucho rates.", "Vigilar reacción de TLT como proxy."],
+          ["Unemployment Rate", ["Consumer Cyclical", "Financial Services"], [], "Salud laboral US.", "Paro alto = recesión signal, defensivos suben.", "Si sube mucho, revisar exposición cíclica."],
+          ["Non Farm Payrolls", ["Financial Services", "Consumer Cyclical"], [], "Empleos netos US mensuales.", "Fuerte = Fed hawkish, rally financieras. Débil = defensive rotation.", "Esperar a la reacción de TLT y XLF."],
+          ["NFP", ["Financial Services", "Consumer Cyclical"], [], "Non-Farm Payrolls abreviado.", "Igual que NFP completo.", "Igual que NFP."],
+          ["GDP", ["Industrials", "Consumer Cyclical", "Financial Services"], [], "Crecimiento económico.", "Sorpresa positiva rally cíclicas.", "Revisar exposición cíclica post-release."],
+          ["Retail Sales", ["Consumer Cyclical", "Consumer Defensive"], [], "Gasto del consumidor.", "Fuerte = risk-on consumer. Débil = defensive rotation.", "Ver reacción XLY/XLP."],
+          ["PPI", ["Industrials", "Consumer Defensive"], [], "Precios productor — señal adelantada inflación.", "Alto = márgenes comprimidos.", "Revisar empresas con debt refinancing cercano."],
+          ["ISM Manufacturing PMI", ["Industrials", "Basic Materials"], [], "Confianza manufacturera.", "<50 = contracción, cíclicas sufren.", "Vigilar posiciones industriales."],
+          ["Crude Oil Inventories", ["Energy"], [], "Inventarios petróleo US.", "Afecta price action XLE.", "Solo relevante si tienes energéticas pesadas."],
+          ["ECB Decision", ["Financial Services", "Real Estate"], [], "Tipos BCE.", "Afecta EUR/USD y bancos europeos.", "Revisar exposición europea."],
+          ["BOJ Decision", ["Financial Services"], [], "Tipos Banco de Japón.", "Afecta JPY y carry trades.", "Revisar yen exposure."],
+        ];
+        for (const row of MAPPING_SEED) {
+          await env.DB.prepare(
+            `INSERT OR IGNORE INTO event_sector_mapping
+               (event_type, primary_sectors_json, secondary_sectors_json, rationale, typical_reaction, user_action_advice)
+             VALUES (?, ?, ?, ?, ?, ?)`
+          ).bind(row[0], JSON.stringify(row[1]), JSON.stringify(row[2]), row[3], row[4], row[5]).run();
+        }
+        const today = new Date().toISOString().slice(0, 10);
+        const plus30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+        const url2 = `https://financialmodelingprep.com/stable/economic-calendar?from=${today}&to=${plus30}&apikey=${key}`;
+        const resp = await fetch(url2);
+        if (!resp.ok) return json({ error: "fmp fetch failed", status: resp.status }, corsHeaders, 500);
+        const data = await resp.json();
+        if (!Array.isArray(data)) return json({ error: "unexpected FMP shape" }, corsHeaders, 500);
+        const COUNTRIES = new Set(["US", "EU", "CN", "JP", "GB", "DE"]);
+        const IMPACTS = new Set(["Medium", "High", "medium", "high"]);
+        const normEventType = (name) => {
+          const s = String(name || "").toLowerCase();
+          if (/fomc/.test(s) && /minute/.test(s)) return "FOMC Minutes";
+          if (/fomc|fed.*rate|interest rate decision.*us/.test(s)) return "FOMC Decision";
+          if (/core cpi/.test(s)) return "Core CPI";
+          if (/core pce/.test(s)) return "Core PCE";
+          if (/\bcpi\b/.test(s)) return "CPI";
+          if (/non.?farm|\bnfp\b/.test(s)) return "Non Farm Payrolls";
+          if (/unemploy/.test(s)) return "Unemployment Rate";
+          if (/gdp/.test(s)) return "GDP";
+          if (/retail sales/.test(s)) return "Retail Sales";
+          if (/\bppi\b|producer price/.test(s)) return "PPI";
+          if (/ism manufactur/.test(s)) return "ISM Manufacturing PMI";
+          if (/crude oil inven/.test(s)) return "Crude Oil Inventories";
+          if (/ecb.*rate|ecb.*decision/.test(s)) return "ECB Decision";
+          if (/boj.*rate|boj.*decision|bank of japan/.test(s)) return "BOJ Decision";
+          return null;
+        };
+        let inserted = 0;
+        for (const ev of data) {
+          const country = ev.country || "";
+          const impact = ev.impact || "";
+          if (!COUNTRIES.has(country)) continue;
+          if (!IMPACTS.has(impact)) continue;
+          const eventType = normEventType(ev.event);
+          if (!eventType) continue;
+          const date = String(ev.date || "").slice(0, 10);
+          const time = String(ev.date || "").slice(11, 16);
+          try {
+            await env.DB.prepare(
+              `INSERT OR REPLACE INTO macro_events
+                 (event_date, event_time, country, event_type, event_name, consensus_estimate, previous_value, actual_value, impact_level, status, fetched_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', datetime('now'))`
+            ).bind(
+              date, time, country, eventType, ev.event || "",
+              String(ev.estimate || ev.consensus || ""),
+              String(ev.previous || ""),
+              String(ev.actual || ""),
+              String(impact).toLowerCase()
+            ).run();
+            inserted++;
+          } catch {}
+        }
+        return json({ ok: true, inserted, total_from_fmp: data.length }, corsHeaders);
+      }
+      if (path === "/api/macro/upcoming" && request.method === "GET") {
+        const days = parseInt(url.searchParams.get("days") || "14", 10);
+        const today = new Date().toISOString().slice(0, 10);
+        const until = new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+        const { results: events } = await env.DB.prepare(
+          `SELECT e.*, m.primary_sectors_json, m.secondary_sectors_json, m.rationale, m.typical_reaction, m.user_action_advice
+           FROM macro_events e
+           LEFT JOIN event_sector_mapping m ON m.event_type = e.event_type
+           WHERE e.event_date >= ? AND e.event_date <= ?
+           ORDER BY e.event_date ASC, e.event_time ASC`
+        ).bind(today, until).all();
+
+        // Current portfolio by sector
+        const { results: positions } = await env.DB.prepare(
+          "SELECT ticker, sector, market_value, usd_value FROM positions WHERE shares > 0"
+        ).all();
+        const bySector = {};
+        let totalValue = 0;
+        for (const p of positions) {
+          const v = p.usd_value || p.market_value || 0;
+          totalValue += v;
+          const s = p.sector || "Unknown";
+          if (!bySector[s]) bySector[s] = { value: 0, tickers: [] };
+          bySector[s].value += v;
+          bySector[s].tickers.push({ ticker: p.ticker, value: v });
+        }
+        const sectorPct = {};
+        for (const s of Object.keys(bySector)) sectorPct[s] = totalValue > 0 ? (bySector[s].value / totalValue) * 100 : 0;
+
+        // For each event compute exposure
+        const enriched = (events || []).map(e => {
+          const primarySectors = e.primary_sectors_json ? JSON.parse(e.primary_sectors_json) : [];
+          const matchedSectors = primarySectors.filter(s => sectorPct[s] !== undefined);
+          const exposurePct = matchedSectors.reduce((sum, s) => sum + (sectorPct[s] || 0), 0);
+          const affectedTickers = matchedSectors.flatMap(s => (bySector[s]?.tickers || []).map(t => t.ticker));
+          let exposureLevel = "low";
+          if (exposurePct >= 30) exposureLevel = "high";
+          else if (exposurePct >= 15) exposureLevel = "medium";
+          return {
+            ...e,
+            primary_sectors: primarySectors,
+            exposure_pct: Math.round(exposurePct * 10) / 10,
+            exposure_level: exposureLevel,
+            affected_tickers: affectedTickers.slice(0, 10),
+          };
+        });
+
+        return json({
+          events: enriched,
+          portfolio_sectors: sectorPct,
+          total_value_usd: totalValue,
         }, corsHeaders);
       }
 
