@@ -126,7 +126,7 @@ export default function PortfolioTab() {
     displayCcy, privacyMode, hide,
     openAnalysis, openCostBasis, removePosition,
     getCountry, FLAGS, POS_STATIC, CompanyRow,
-    ibData, divStreaks,
+    ibData, divStreaks, openScoresModal,
     setHomeTab,
     CACHED_PNL,
   } = useHome();
@@ -134,6 +134,29 @@ export default function PortfolioTab() {
   const [quickFilter, setQuickFilter] = useState("");
   const [listSort, setListSort] = useState("value");
   const searchRef = useRef(null);
+
+  // Quality + Safety scores (local state — fetched once on mount, cached daily in sessionStorage)
+  const [qsScores, setQsScores] = useState({});
+  useEffect(() => {
+    const cacheKey = 'qs-scores-' + new Date().toISOString().slice(0, 10);
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) {
+      try { setQsScores(JSON.parse(cached) || {}); return; } catch {}
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`${API_URL}/api/scores`);
+        const d = await r.json();
+        if (cancelled) return;
+        const map = {};
+        for (const row of (d.scores || [])) map[row.ticker] = row;
+        setQsScores(map);
+        try { sessionStorage.setItem(cacheKey, JSON.stringify(map)); } catch {}
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const [showRebalance, setShowRebalance] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);
   const [alertForm, setAlertForm] = useState({ ticker: "", price: "", direction: "below" });
@@ -591,6 +614,23 @@ export default function PortfolioTab() {
                               {sectorColor && <div style={{width:4,height:4,borderRadius:"50%",background:sectorColor,flexShrink:0,opacity:.7}} title={p.sector}/>}
                               {p.dataSource==="IB" && <span style={{fontSize:5,fontWeight:700,padding:"0 2px",borderRadius:2,background:"rgba(100,210,255,.1)",color:"#64d2ff",flexShrink:0}}>IB</span>}
                               {divStreaks && divStreaks[p.ticker]?.streak >= 5 && <span style={{fontSize:5,fontWeight:700,padding:"0 2px",borderRadius:2,background:divStreaks[p.ticker]?.streak>=25?"rgba(200,164,78,.15)":"rgba(255,214,10,.08)",color:divStreaks[p.ticker]?.streak>=25?"var(--gold)":"#ffd60a",flexShrink:0}}>{divStreaks[p.ticker].streak}y</span>}
+                              {/* Quality + Safety badges (color-coded by tier) */}
+                              {qsScores && qsScores[p.ticker] && (() => {
+                                const sc = qsScores[p.ticker];
+                                const q = sc.quality_score;
+                                const s = sc.safety_score;
+                                const colorFor = (v) => v == null ? null :
+                                  v >= 80 ? {bg:"rgba(200,164,78,.18)", fg:"var(--gold)"} :
+                                  v >= 65 ? {bg:"rgba(48,209,88,.12)", fg:"var(--green)"} :
+                                  v >= 50 ? {bg:"rgba(255,214,10,.10)", fg:"#ffd60a"} :
+                                            {bg:"rgba(255,69,58,.12)", fg:"#ff6b6b"};
+                                const qc = colorFor(q);
+                                const sc2 = colorFor(s);
+                                return <span onClick={(e)=>{e.stopPropagation();openScoresModal && openScoresModal(p.ticker);}} style={{display:"inline-flex",gap:1,flexShrink:0,cursor:"pointer"}} title={`Quality ${q ?? '—'} · Safety ${s ?? 'N/A'} (click para detalles)`}>
+                                  {q != null && qc && <span style={{fontSize:5,fontWeight:800,padding:"0 2px",borderRadius:2,background:qc.bg,color:qc.fg,letterSpacing:.2,flexShrink:0}}>Q{q.toFixed(0)}</span>}
+                                  {s != null && sc2 && <span style={{fontSize:5,fontWeight:800,padding:"0 2px",borderRadius:2,background:sc2.bg,color:sc2.fg,letterSpacing:.2,flexShrink:0}}>S{s.toFixed(0)}</span>}
+                                </span>;
+                              })()}
                             </div>
                           </td>);
                         }

@@ -326,7 +326,6 @@ export default function ARApp() {
   const [alertsUnread, setAlertsUnread] = useState(0);
   const [showAlertPanel, setShowAlertPanel] = useState(false);
   const [divStreaks, setDivStreaks] = useState({});
-  const [qsScores, setQsScores] = useState({});            // { ticker: { quality_score, safety_score, ... } }
   const [scoresModalTicker, setScoresModalTicker] = useState(null);
   const [scoresModalData, setScoresModalData] = useState(null);
 
@@ -1403,28 +1402,8 @@ function buildPositionsFromCB() {
     loadBatch();
   }, [portfolioList.length]);
 
-  // ── Quality + Safety Scores ─────────────────────────────────────
-  // Fetch all latest scores once on mount, store as map { ticker: scoreRow }
-  useEffect(() => {
-    const cacheKey = 'qs-scores-' + new Date().toISOString().slice(0, 10);
-    const cached = sessionStorage.getItem(cacheKey);
-    if (cached) {
-      try { setQsScores(JSON.parse(cached) || {}); return; } catch {}
-    }
-    (async () => {
-      try {
-        const r = await fetch(`${API_URL}/api/scores`);
-        const d = await r.json();
-        const map = {};
-        for (const row of (d.scores || [])) map[row.ticker] = row;
-        setQsScores(map);
-        try { sessionStorage.setItem(cacheKey, JSON.stringify(map)); } catch {}
-      } catch {}
-    })();
-  }, []);
-
   // Open Q/S drill-down modal — fetch detailed history
-  const openScoresModal = async (ticker) => {
+  const openScoresModal = useCallback(async (ticker) => {
     setScoresModalTicker(ticker);
     setScoresModalData(null);
     try {
@@ -1434,7 +1413,7 @@ function buildPositionsFromCB() {
     } catch (e) {
       setScoresModalData({ error: e.message });
     }
-  };
+  }, []);
 
   // Auto-run alert checks after IB data + prices loaded
   useEffect(() => {
@@ -1861,23 +1840,6 @@ function buildPositionsFromCB() {
           {badge}
           {p.dataSource==="IB" && <span style={{fontSize:6,fontWeight:700,padding:"1px 3px",borderRadius:3,background:"rgba(100,210,255,.1)",color:"#64d2ff",flexShrink:0}}>IB</span>}
           {divStreaks[p.ticker]?.streak >= 5 && <span style={{fontSize:6,fontWeight:700,padding:"1px 3px",borderRadius:3,background:divStreaks[p.ticker].streak>=25?"rgba(200,164,78,.15)":divStreaks[p.ticker].streak>=10?"rgba(48,209,88,.1)":"rgba(255,214,10,.08)",color:divStreaks[p.ticker].streak>=25?"var(--gold)":divStreaks[p.ticker].streak>=10?"var(--green)":"#ffd60a",flexShrink:0}} title={`${divStreaks[p.ticker].streak} años subiendo dividendo`}>{divStreaks[p.ticker].streak}y</span>}
-          {/* Quality + Safety badges (Q + S, color-coded by tier) */}
-          {qsScores[p.ticker] && (() => {
-            const sc = qsScores[p.ticker];
-            const q = sc.quality_score;
-            const s = sc.safety_score;
-            const colorFor = (v) => v == null ? {bg:"transparent",fg:"var(--text-tertiary)"} :
-              v >= 80 ? {bg:"rgba(200,164,78,.18)", fg:"var(--gold)"} :
-              v >= 65 ? {bg:"rgba(48,209,88,.12)", fg:"var(--green)"} :
-              v >= 50 ? {bg:"rgba(255,214,10,.10)", fg:"#ffd60a"} :
-                        {bg:"rgba(255,69,58,.12)", fg:"#ff6b6b"};
-            const qc = colorFor(q);
-            const sc2 = colorFor(s);
-            return <span onClick={(e)=>{e.stopPropagation();openScoresModal(p.ticker);}} style={{display:"inline-flex",gap:1,flexShrink:0,cursor:"pointer"}} title={`Quality ${q ?? '—'} · Safety ${s ?? 'N/A'} (click para detalles)`}>
-              {q != null && <span style={{fontSize:6,fontWeight:800,padding:"1px 3px",borderRadius:3,background:qc.bg,color:qc.fg,letterSpacing:.2}}>Q{q.toFixed(0)}</span>}
-              {s != null && <span style={{fontSize:6,fontWeight:800,padding:"1px 3px",borderRadius:3,background:sc2.bg,color:sc2.fg,letterSpacing:.2}}>S{s.toFixed(0)}</span>}
-            </span>;
-          })()}
           {p.notes && <span style={{fontSize:7,flexShrink:0,opacity:.5}} title={p.notes.length > 80 ? p.notes.slice(0,80)+'...' : p.notes}>📝</span>}
           {/* Sparkline inline — gradient fill + hover tooltip */}
           {(p.spark||[]).length >= 2 && (() => {
@@ -2042,6 +2004,7 @@ function buildPositionsFromCB() {
     // IB Integration
     ibData, ibDiscrepancies, loadIBData, ibSyncMsg,
     alerts, alertsUnread, showAlertPanel, setShowAlertPanel, divStreaks, theme, toggleTheme,
+    openScoresModal,
     markAlertsRead: () => { fetch(`${API_URL}/api/alerts/read`, { method: "POST" }).catch(() => {}); setAlertsUnread(0); setAlerts(a => a.map(x => ({ ...x, leida: 1 }))); },
   }), [homeTab, portfolioList, watchlistList, historialList, portfolioTotals, portfolioComputed,
     positions, portfolio, searchTicker, countryFilter, portSort, showCapTable,
