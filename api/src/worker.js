@@ -6401,8 +6401,9 @@ async function fmpFinancials(ticker, env) {
     const revenue = inc.map(r => num(r.revenue));
     const fcf = cf.map(r => num(r.freeCashFlow));
     // FMP returns dividendsPaid as negative → flip sign
+    // /stable endpoint may use commonDividendsPaid or netDividendsPaid instead
     const dividendsPaid = cf.map(r => {
-      const v = num(r.dividendsPaid);
+      const v = num(r.dividendsPaid) ?? num(r.commonDividendsPaid) ?? num(r.netDividendsPaid) ?? num(r.netCommonDividendsPaid) ?? num(r.paymentsForDividends);
       return v == null ? null : Math.abs(v);
     });
     const debt = bs.map(r => {
@@ -6415,7 +6416,11 @@ async function fmpFinancials(ticker, env) {
     const grossProfit = inc.map(r => num(r.grossProfit));
     const eps = inc.map(r => num(r.eps ?? r.epsdiluted));
     const sharesOutstanding = inc.map(r => num(r.weightedAverageShsOut ?? r.weightedAverageShsOutDil));
-    const interestExpense = inc.map(r => num(r.interestExpense));
+    // Interest expense — FMP can return positive or negative depending on endpoint version
+    const interestExpense = inc.map(r => {
+      const v = num(r.interestExpense);
+      return v == null ? null : Math.abs(v);
+    });
     const ocf = cf.map(r => num(r.operatingCashFlow));
     const capex = cf.map(r => num(r.capitalExpenditure)); // negative in FMP
     const totalAssets = bs.map(r => num(r.totalAssets));
@@ -6543,9 +6548,13 @@ const _qs_avg = (arr) => {
 // Sector defensive adjustment
 function _qs_sectorBase(sector) {
   const s = (sector || "").toLowerCase();
-  if (/staple|utilit|healthcare|real.?estate/.test(s)) return 10;
-  if (/financial/.test(s)) return 6;
+  // Defensive (10): staples, utilities, healthcare, REITs, consumer defensive
+  if (/staple|utilit|healthcare|health.care|real.?estate|consumer.?def|defensive/.test(s)) return 10;
+  // Financials (6)
+  if (/financial|bank|insurance/.test(s)) return 6;
+  // Tech / Communication / Consumer Cyclical (7)
   if (/technology|communicat|consumer.cyclical|consumer.disc/.test(s)) return 7;
+  // Cyclical (4): industrials, materials, energy
   if (/industrial|material|energy/.test(s)) return 4;
   return 5;
 }
@@ -7001,17 +7010,22 @@ function _qs_safety(fin, risk, sector, dividendStreakYears) {
   };
 }
 
-// Get dividend streak years from dividendos table (best-effort)
+// Get dividend streak years.
+// Note: dividendos table only contains user's RECEIVED dividends (since position open),
+// not the company's true lifetime dividend history. So this is a weak proxy.
+// For a real "years without cut" we'd need FMP /stable/dividends history.
+// Meanwhile we use the dividendos table as a lower bound when available.
 async function _qs_getDividendStreak(env, ticker) {
   try {
     const { results } = await env.DB.prepare(
-      `SELECT MIN(SUBSTR(fecha, 1, 4)) as first_year, MAX(SUBSTR(fecha, 1, 4)) as last_year
-       FROM dividendos WHERE ticker = ? AND amount > 0`
+      `SELECT MIN(SUBSTR(fecha, 1, 4)) as first_year, MAX(SUBSTR(fecha, 1, 4)) as last_year, COUNT(*) as cnt
+       FROM dividendos WHERE ticker = ? AND (bruto > 0 OR neto > 0)`
     ).bind(ticker).all();
-    if (results?.[0]?.first_year && results?.[0]?.last_year) {
-      const first = parseInt(results[0].first_year);
-      const last = parseInt(results[0].last_year);
-      // This is years of data, not strict streak — but a useful proxy
+    const row = results?.[0];
+    if (row && row.first_year && row.last_year && row.cnt >= 2) {
+      const first = parseInt(row.first_year);
+      const last = parseInt(row.last_year);
+      // Years of dividend history we have observed (lower bound for actual streak)
       return last - first + 1;
     }
   } catch {}
