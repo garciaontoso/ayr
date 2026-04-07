@@ -5270,6 +5270,8 @@ export default {
             insider: runInsiderAgent,
             value: runValueSignalsAgent,
             options: runOptionsIncomeAgent,
+            dividend_cut_warning: runDividendCutWarningAgent,
+            analyst_downgrade: runAnalystDowngradeAgent,
             summary: async (env, fecha) => {
               const { results: all } = await env.DB.prepare(
                 "SELECT agent_name, ticker, severity, title, summary, score, details FROM agent_insights WHERE fecha = ? ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END, score DESC"
@@ -9119,85 +9121,119 @@ async function runOptionsIncomeAgent(env, fecha) {
 // Uses cached fmp_financials (no extra API calls).
 async function runDividendCutWarningAgent(env, fecha) {
   const { results: positions } = await env.DB.prepare(
-    "SELECT ticker, name, last_price, div_ttm FROM positions WHERE shares > 0"
+    "SELECT ticker, name, last_price, div_ttm, sector, category FROM positions WHERE shares > 0"
   ).all();
   if (!positions.length) return { agent: "dividend_cut_warning", skipped: true };
 
-  // Only analyze dividend payers
-  const payers = positions.filter(p => (p.div_ttm || 0) > 0);
+  // Only analyze dividend payers. Skip:
+  //  - ETFs / preferreds (no income statement to analyze)
+  //  - REITs / MLPs (distribute from FFO/AFFO not FCF; FCF coverage is misleading
+  //    because capex includes growth investments. Q+S score handles these via FFO patch.)
+  const SKIP_SECTORS = /real.?estate/i;
+  const SKIP_CATEGORIES = /etf|preferred/i;
+  const payers = positions.filter(p => {
+    if ((p.div_ttm || 0) <= 0) return false;
+    if (p.sector && SKIP_SECTORS.test(p.sector)) return false;
+    if (p.category && SKIP_CATEGORIES.test(p.category)) return false;
+    return true;
+  });
   if (!payers.length) return { agent: "dividend_cut_warning", scanned: 0, alerts: 0 };
 
   const insights = [];
   let scanned = 0;
   let critical = 0;
   let warning = 0;
+  let skippedReits = positions.filter(p => p.sector && SKIP_SECTORS.test(p.sector) && (p.div_ttm || 0) > 0).length;
 
   // Pre-fetch financials for all payers (uses cache, no API spam)
   const tickers = payers.map(p => p.ticker);
   const finMap = await getFmpFinancials(env, tickers);
+
+  // Helper: sum a window [start, start+len) treating null as 0, signing dividends positive
+  const sumWindow = (arr, start, len, abs = false) => {
+    if (!Array.isArray(arr)) return null;
+    let total = 0;
+    let count = 0;
+    for (let i = start; i < start + len && i < arr.length; i++) {
+      if (arr[i] == null) continue;
+      total += abs ? Math.abs(arr[i]) : arr[i];
+      count++;
+    }
+    return count >= len ? total : null; // require full window
+  };
 
   for (const p of payers) {
     const fin = finMap[p.ticker];
     if (!fin) continue;
     const trend = fin.trend || fin || {};
     const periods = trend.periods || [];
-    if (periods.length < 4) continue;
+    // Need at least 8 quarters to compute 4 rolling TTM windows reliably (TTM-now vs TTM-1y-ago)
+    if (periods.length < 8) continue;
     scanned++;
 
-    // Compute FCF payout ratio per quarter (last 4 quarters)
-    // dividendsPaid is reported as negative in cash flow → use abs
-    const fcfArr = (trend.fcf || []).slice(0, 4);
-    const divArr = (trend.dividendsPaid || []).slice(0, 4).map(d => Math.abs(d || 0));
-    if (fcfArr.length < 4 || divArr.length < 4) continue;
-
-    const ratios = [];
-    for (let i = 0; i < 4; i++) {
-      const fcf = fcfArr[i];
-      const div = divArr[i];
-      if (fcf == null || div == null || div === 0) continue;
-      // If FCF is negative, ratio is "infinite" → cap at 5x for sortability
-      if (fcf <= 0) ratios.push({ q: i, ratio: 5.0, fcf, div });
-      else ratios.push({ q: i, ratio: div / fcf, fcf, div });
+    // Build rolling TTM windows for FCF and dividendsPaid.
+    // Windows: TTM (Q0-Q3), TTM-1Q (Q1-Q4), TTM-2Q (Q2-Q5), TTM-3Q (Q3-Q6), TTM-4Q (Q4-Q7).
+    // This smooths out quarterly seasonality (HRB tax season, retailers, etc.) which
+    // single-quarter ratios cannot.
+    const fcfWindows = [];
+    const divWindows = [];
+    for (let w = 0; w < 5; w++) {
+      const fcfSum = sumWindow(trend.fcf, w, 4, false);
+      const divSum = sumWindow(trend.dividendsPaid, w, 4, true);
+      fcfWindows.push(fcfSum);
+      divWindows.push(divSum);
     }
-    if (ratios.length < 4) continue;
 
-    // ratios[0] = most recent quarter
-    const recent = ratios[0].ratio;
-    const oldest = ratios[3].ratio;
-    const fcfRecent = ratios[0].fcf;
-    const fcfOldest = ratios[3].fcf;
+    // Need at least 2 valid windows (TTM-now and TTM-1y-ago)
+    const ttmNowFcf = fcfWindows[0];
+    const ttmNowDiv = divWindows[0];
+    const ttmOldFcf = fcfWindows[4]; // 4 quarters back = 1 year ago
+    const ttmOldDiv = divWindows[4];
+    if (ttmNowFcf == null || ttmNowDiv == null || ttmNowDiv === 0) continue;
+    if (ttmOldFcf == null || ttmOldDiv == null || ttmOldDiv === 0) continue;
 
-    // Trend signals
-    const ratioRising = recent > oldest;
-    const ratioDelta = recent - oldest;
-    const fcfDeclining = fcfRecent < fcfOldest;
-    const fcfDeclinePct = fcfOldest > 0 ? (fcfOldest - fcfRecent) / fcfOldest : 0;
+    // FCF coverage = FCF / Div. Negative if FCF is negative (burning cash).
+    const covNow = ttmNowFcf / ttmNowDiv;
+    const covOld = ttmOldFcf / ttmOldDiv;
 
-    // TTM-based composite check too
-    const fcfTTM = _qs_sum(trend.fcf, 4);
-    const divTTM = _qs_sum(trend.dividendsPaid, 4);
-    const ttmCoverage = (fcfTTM != null && divTTM != null && divTTM !== 0)
-      ? Math.abs(fcfTTM) / Math.abs(divTTM) * (fcfTTM < 0 ? -1 : 1)
-      : null;
+    // Payout ratio = Div / FCF. Only meaningful when FCF > 0.
+    const payoutNow = ttmNowFcf > 0 ? ttmNowDiv / ttmNowFcf : null;
+    const payoutOld = ttmOldFcf > 0 ? ttmOldDiv / ttmOldFcf : null;
 
-    // ── Severity logic ──
-    // CRITICAL: TTM coverage < 1.0 OR (rising payout AND declining FCF AND recent ratio > 0.80)
-    // WARNING:  Rising payout >0.20 OR FCF declining >20% AND recent ratio > 0.60
+    // FCF growth (TTM YoY)
+    const fcfGrowth = ttmOldFcf > 0 ? (ttmNowFcf - ttmOldFcf) / ttmOldFcf : null;
+
+    // Track all 5 window payout ratios for the trend visual
+    const payoutSeries = fcfWindows.map((f, idx) => {
+      const d = divWindows[idx];
+      if (f == null || d == null || d === 0 || f <= 0) return null;
+      return Math.round((d / f) * 100) / 100;
+    });
+
+    // ── Severity logic (TTM-based, conservative) ──
+    // CRITICAL: TTM coverage < 0.85 (truly burning cash to pay div)
+    //        OR  payout > 95% AND payout has been rising YoY AND FCF declining YoY
+    // WARNING:  payout > 80% AND rising AND FCF declining
+    //        OR  FCF down >25% YoY with payout > 60%
+    //        OR  payout > 100% (any cause)
     let severity = null;
     let reason = "";
 
-    if (ttmCoverage != null && ttmCoverage < 1.0 && ttmCoverage > -10) {
+    if (covNow < 0.85) {
       severity = "critical";
-      reason = `Cobertura FCF/Div TTM = ${ttmCoverage.toFixed(2)}x. La empresa no genera caja suficiente para sostener el dividendo.`;
-    } else if (ratioRising && fcfDeclining && recent > 0.80) {
+      reason = `Cobertura FCF/Div TTM = ${covNow.toFixed(2)}x. La empresa no genera caja suficiente para sostener el dividendo.`;
+    } else if (payoutNow != null && payoutNow > 0.95 && payoutOld != null && payoutNow > payoutOld && fcfGrowth != null && fcfGrowth < 0) {
       severity = "critical";
-      reason = `FCF payout subiendo (${(oldest*100).toFixed(0)}% → ${(recent*100).toFixed(0)}%) mientras FCF cae ${(fcfDeclinePct*100).toFixed(0)}%. Riesgo de recorte 4-8 semanas.`;
-    } else if (ratioRising && ratioDelta > 0.20 && recent > 0.60) {
+      reason = `Payout FCF subiendo a ${(payoutNow*100).toFixed(0)}% (vs ${(payoutOld*100).toFixed(0)}% hace 1 año) mientras FCF cae ${Math.round(-fcfGrowth*100)}% YoY. Recorte probable.`;
+    } else if (payoutNow != null && payoutNow > 1.00) {
       severity = "warning";
-      reason = `FCF payout acelerando: ${(oldest*100).toFixed(0)}% → ${(recent*100).toFixed(0)}% (+${(ratioDelta*100).toFixed(0)}pp en 4Q). Vigilar próximos earnings.`;
-    } else if (fcfDeclining && fcfDeclinePct > 0.30 && recent > 0.50) {
+      reason = `Payout FCF TTM ${(payoutNow*100).toFixed(0)}% — sobre 100%. Insostenible si no mejora pronto.`;
+    } else if (payoutNow != null && payoutOld != null && payoutNow > 0.80 && payoutNow > payoutOld && fcfGrowth != null && fcfGrowth < 0) {
       severity = "warning";
-      reason = `FCF cayendo ${(fcfDeclinePct*100).toFixed(0)}% en 4Q con payout ${(recent*100).toFixed(0)}%. Margen de seguridad reduciéndose.`;
+      reason = `Payout FCF subiendo a ${(payoutNow*100).toFixed(0)}% (era ${(payoutOld*100).toFixed(0)}%) y FCF cayendo ${Math.round(-fcfGrowth*100)}% YoY. Vigilar.`;
+    } else if (fcfGrowth != null && fcfGrowth < -0.25 && payoutNow != null && payoutNow > 0.60) {
+      severity = "warning";
+      reason = `FCF TTM cayendo ${Math.round(-fcfGrowth*100)}% YoY con payout ${(payoutNow*100).toFixed(0)}%. Margen de seguridad reduciéndose.`;
     }
 
     if (!severity) continue;
@@ -9210,14 +9246,14 @@ async function runDividendCutWarningAgent(env, fecha) {
       title: `${p.ticker}: ${severity === "critical" ? "RIESGO RECORTE" : "Vigilar dividendo"}`,
       summary: `${p.name || p.ticker}. ${reason}`,
       details: {
-        fcfPayoutRecent: Math.round(recent * 100),
-        fcfPayoutOldest: Math.round(oldest * 100),
-        fcfPayoutDeltaPP: Math.round(ratioDelta * 100),
-        fcfRecent: Math.round((fcfRecent || 0) / 1e6),
-        fcfOldest: Math.round((fcfOldest || 0) / 1e6),
-        fcfDeclinePct: Math.round(fcfDeclinePct * 100),
-        ttmCoverage: ttmCoverage != null ? Math.round(ttmCoverage * 100) / 100 : null,
-        ratiosLast4Q: ratios.map(r => Math.round(r.ratio * 100) / 100),
+        ttmCoverageNow: Math.round(covNow * 100) / 100,
+        ttmCoverageYoY: Math.round(covOld * 100) / 100,
+        fcfPayoutNow: payoutNow != null ? Math.round(payoutNow * 100) : null,
+        fcfPayoutYoY: payoutOld != null ? Math.round(payoutOld * 100) : null,
+        fcfGrowthYoY: fcfGrowth != null ? Math.round(fcfGrowth * 100) : null,
+        ttmFcfNow: Math.round((ttmNowFcf || 0) / 1e6),
+        ttmDivNow: Math.round((ttmNowDiv || 0) / 1e6),
+        payoutSeriesRollingTTM: payoutSeries, // 5 windows: now, -1Q, -2Q, -3Q, -4Q
       },
       score: severity === "critical" ? 9 : 6,
     });
@@ -9229,8 +9265,24 @@ async function runDividendCutWarningAgent(env, fecha) {
     return (b.score || 0) - (a.score || 0);
   });
 
+  // Clear stale rows from previous runs (where this run no longer flags them)
+  // so the API doesn't return outdated alerts.
+  const flaggedTickers = new Set(insights.map(i => i.ticker));
+  try {
+    const { results: existing } = await env.DB.prepare(
+      "SELECT ticker FROM agent_insights WHERE agent_name = 'dividend_cut_warning' AND fecha = ?"
+    ).bind(fecha).all();
+    for (const row of (existing || [])) {
+      if (!flaggedTickers.has(row.ticker)) {
+        await env.DB.prepare(
+          "DELETE FROM agent_insights WHERE agent_name = 'dividend_cut_warning' AND fecha = ? AND ticker = ?"
+        ).bind(fecha, row.ticker).run();
+      }
+    }
+  } catch (e) { /* non-fatal */ }
+
   const stored = await storeInsights(env, "dividend_cut_warning", fecha, insights);
-  return { agent: "dividend_cut_warning", scanned, alerts: insights.length, critical, warning, stored };
+  return { agent: "dividend_cut_warning", scanned, alerts: insights.length, critical, warning, stored, reitsSkipped: skippedReits };
 }
 
 // ─── Agent 12: Analyst Downgrade Tracker (no LLM, FMP-based) ────
