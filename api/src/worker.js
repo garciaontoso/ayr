@@ -5417,14 +5417,14 @@ export default {
           },
           {
             id: "trade", name: "Asesor de Operaciones", icon: "🎯",
-            type: "llm", model: "claude-haiku-4-5 (bull) + claude-haiku-4-5 (bear) + claude-opus-4-20250514 (synth)",
-            description: "Sistema de 3 pasos: (1) Haiku argumenta a favor, (2) Haiku contraargumenta riesgos, (3) Opus sintetiza ambos + insights de los demás agentes.",
-            system_prompt: "── BULL STEP (Haiku) ──\nYou are a BULL analyst. Argue IN FAVOR of each position. Use gfValue vs price, guruBuys13f, insiderBuys3m. Identify top 5 ADD opportunities. JSON array max 15.\n\n── BEAR STEP (Haiku) ──\nYou are a BEAR analyst. Counter-argue with CONCRETE risks. JSON array max 15.\n\n── SYNTH STEP (Opus) ──\nYou are a senior portfolio advisor for a LONG-TERM dividend portfolio ($1.35M).\n\nFUNDAMENTAL PHILOSOPHY:\n- Selling a quality dividend grower during a temporary dip is the WORST mistake. HOLD or ADD.\n- SELL only if: business permanently broken OR dividend eliminated with no recovery path.\n- TRIM only if: position >10% AND fundamentally impaired.\n- ADD if: quality below fair value with intact dividend.\n- Companies restructuring (cutting costs, paying debt) are often BUYS.\n- Conviction reflects debate strength: balanced → LOW, one side dominates → HIGH.\n\nSEVERITY:\n- critical = SELL only if structural decline. Max 1-2 sells.\n- warning = worth reviewing, default HOLD\n- info = position fine\n\nRespond ONLY JSON array. Max 10 actionable. Score 1-10 = conviction.",
-            input_shape: { bull: "{ todayInsights, positions (top 30 with valuation + insider data), regime }", bear: "{ bullArguments, todayInsights critical/warning, regime }", synth: "{ bullArguments, bearArguments, todayInsights, positions (top 20) }" },
+            type: "llm", model: "claude-opus-4-20250514",
+            description: "Síntesis única Opus (simplificado 2026-04-08: antes 3 llamadas bull+bear+synth, ahora 1 sola con el mismo nivel de razonamiento interno). Lee TODOS los insights del día y recomienda acciones concretas.",
+            system_prompt: "You are a senior portfolio advisor for a LONG-TERM dividend income portfolio ($1.35M, buy-and-hold, China fiscal resident).\nRead todayInsights from other agents. For each actionable position, think through both bull and bear cases INTERNALLY, then emit final recommendation. Focus on ADD over SELL.\n\nPHILOSOPHY:\n- Selling quality during temporary dip = WORST mistake. Default HOLD or ADD.\n- SELL only if business permanently broken OR dividend eliminated.\n- TRIM only if position >10% AND impaired.\n- ADD if quality below fair value with intact dividend.\n- Companies restructuring often BUYS not SELLS.\n\nSEVERITY:\n- critical = SELL only if structural decline. Max 1-2 across portfolio.\n- warning = review, default HOLD.\n- info = fine.\n\nRespond ONLY JSON array. Max 10 actionable. Favor ADD > HOLD > TRIM > SELL. Score 1-10 = conviction.",
+            input_shape: { todayInsights: "All non-trade insights for today", positions: "Top 20 with valuation + insider data", regime: "From agent_memory" },
             output_shape: { result: "Array up to 10 of { ticker, severity, title, summary, details: { action: BUY|SELL|HOLD|TRIM|ADD, conviction: low|medium|high, bullSummary, bearSummary, targetPrice, timeHorizon }, score 1-10 }" },
-            cost_per_run_estimate_usd: 0.20,
+            cost_per_run_estimate_usd: 0.12,
             trigger: "Manual o pipeline (último paso LLM)",
-            when_it_fires: "Step 6. Lee TODOS los insights del día. Si Opus synth falla, degrada gracefully.",
+            when_it_fires: "Step 6. Lee TODOS los insights del día. Si Opus falla, degrada gracefully.",
           },
           { id: "postmortem", name: "Historial de Aciertos", icon: "📋", type: "no_llm", model: "—", description: "Cada día revisa señales de hace 7/30 días. BUY/ADD correcto si precio subió >2%, SELL/TRIM si bajó >2%.", system_prompt: "(no LLM — pure calculation)", input_shape: { source: "D1.signal_tracking + D1.positions" }, output_shape: { schema: "agent_insights con accuracy stats" }, cost_per_run_estimate_usd: 0, trigger: "Pipeline completo", when_it_fires: "Step 7" },
           { id: "insider", name: "Radar de Insiders", icon: "🕵️", type: "no_llm", model: "—", description: "Detecta compras/ventas de insiders (Form 4) en posiciones del portfolio.", system_prompt: "(no LLM — FMP API)", input_shape: { source: "FMP /stable/insider-trading/search" }, output_shape: { schema: "agent_insights por ticker con transacciones" }, cost_per_run_estimate_usd: 0, trigger: "Pipeline", when_it_fires: "Step 8" },
@@ -10437,7 +10437,14 @@ Do NOT return an array. Do NOT return per-position rows. Return ONE object descr
   return { agent: "risk", insights: stored };
 }
 
-// ─── Agent 5: Trade Advisor (Bull/Bear Debate — 3 calls) ──────
+// ─── Agent 5: Trade Advisor (single Opus synthesis) ──────────
+// Simplified 2026-04-08 per audit: the previous 3-call pipeline
+// (Haiku bull → Haiku bear → Opus synth) was theatrical duplication.
+// The two Haiku debates just re-derived the same inputs the other agents
+// (dividend, earnings, value, insider) already produced with better focus.
+// Single Opus call reading all todayInsights directly is cleaner and
+// saves ~$0.08/run. Bull/bear reasoning now happens inside the Opus
+// synthesis prompt.
 async function runTradeAgent(env, fecha) {
   // Read today's insights from all other agents
   const { results: todayInsights } = await env.DB.prepare(
@@ -10498,76 +10505,47 @@ async function runTradeAgent(env, fecha) {
     };
   }).slice(0, 30);
 
-  // ── Step 1: Bull Case (Haiku) ──
-  const bullSystem = `You are a BULL analyst. Argue IN FAVOR of each position based on agent insights.
-For each ticker, give 2-3 concrete bullish reasons using data including GuruFocus metrics.
-Use gfValue vs price for valuation, guruBuys13f for smart money signal, insiderBuys3m for conviction.
-Identify top 5 positions worth ADDING to based on undervaluation (priceToGfValue <0.8) and dividends.
-Respond ONLY JSON array: [{"ticker":"XX","bullCase":"...","upside":"...","addOpportunity":true/false}]
-Max 15 tickers.`;
+  // ── Single-step Opus synthesis (replaces 3-call bull/bear/synth) ──
+  const synthSystem = `You are a senior portfolio advisor for a LONG-TERM dividend income portfolio ($1.35M, buy-and-hold, China fiscal resident).
+The owner's goal is GROWING INCOME over decades, not trading for capital gains. The owner does NOT actively trade — default is HOLD.
 
-  let bullResult = [];
-  try {
-    bullResult = await callAgentClaude(env, bullSystem, {
-      todayInsights: todayInsights.filter(i => i.ticker && i.ticker !== '_GLOBAL_' && !i.ticker.startsWith('_')),
-      positions: posData, regime,
-    });
-    if (!Array.isArray(bullResult)) bullResult = [bullResult];
-  } catch (e) { console.error("[Trade] Bull step failed:", e.message); }
+YOUR TASK: Read the attached \`todayInsights\` from other agents (dividend, earnings, value, insider, SEC filings, options, regime). For each position worth action, think through BOTH bull and bear cases internally (no need to output them separately), then emit a final recommendation. Focus on ADD opportunities over SELL.
 
-  // ── Step 2: Bear Case (Haiku) — receives bull output ──
-  const bearSystem = `You are a BEAR analyst. Here are bullish arguments for portfolio positions.
-Counter-argue with CONCRETE risks and data the bulls ignore.
-For each position, identify the biggest risk and downside scenario.
-Respond ONLY JSON array: [{"ticker":"XX","bearCase":"...","downside":"...","keyRisk":"..."}]
-Max 15 tickers.`;
+DATA AVAILABLE per position:
+- Valuation: gfValue, gfScore, priceToGfValue (< 0.8 = undervalued), peterLynchFV, fairValue (DCF), priceTarget
+- Smart money: guruBuys13f, guruSells13f, insiderBuys3m, insiderSells3m
+- Momentum: rsi14, pnlPct, aiScore, aiAction, analystConsensus
+- Fundamentals from other agents' insights (linked by ticker)
 
-  let bearResult = [];
-  try {
-    bearResult = await callAgentClaude(env, bearSystem, {
-      bullArguments: bullResult,
-      todayInsights: todayInsights.filter(i => i.severity !== 'info'),
-      regime,
-    });
-    if (!Array.isArray(bearResult)) bearResult = [bearResult];
-  } catch (e) { console.error("[Trade] Bear step failed:", e.message); }
-
-  // ── Step 3: Synthesis (Sonnet) — receives bull + bear + all insights ──
-  const synthSystem = `You are a senior portfolio advisor for a LONG-TERM dividend income portfolio ($1.35M, buy-and-hold).
-The owner's goal is GROWING INCOME over decades, not trading for capital gains.
-
-FUNDAMENTAL PHILOSOPHY:
+FUNDAMENTAL PHILOSOPHY (CRITICAL):
 - Selling a quality dividend grower during a temporary dip is the WORST mistake. If fundamentals are intact, HOLD or ADD.
 - SELL only if: the business model is permanently broken, or dividend is eliminated with no path to recovery.
 - TRIM only if: position is dangerously overweight (>10% of portfolio) AND fundamentally impaired.
-- ADD if: quality company trading below fair value with intact dividend.
+- ADD if: quality company trading below fair value with intact dividend and favorable smart-money signals.
 - Companies restructuring (cutting costs, paying debt, refocusing) are often BUYS not SELLS.
-- The conviction reflects debate strength: balanced → LOW, one side dominates → HIGH.
 
 Current market: ${regime?.regime || 'unknown'} (${regime?.actionGuidance || 'unknown'})
 
-SEVERITY (very conservative — don't recommend selling quality companies):
-- critical = SELL only if business is in genuine structural decline. Max 1-2 sells.
+SEVERITY (conservative — don't recommend selling quality companies):
+- critical = SELL only if business is in genuine structural decline. Max 1-2 sells across entire portfolio.
 - warning = worth reviewing, but default is HOLD unless you have strong evidence.
 - info = no action needed, position is fine.
 
 Respond ONLY JSON array: [{"ticker":"XX","severity":"info|warning|critical","title":"ACTION: Ticker",
-"summary":"2-3 sentence rationale incorporating both bull and bear views",
+"summary":"2-3 sentence rationale that implicitly weighs bull vs bear",
 "details":{"action":"BUY|SELL|HOLD|TRIM|ADD","conviction":"low|medium|high",
-"bullSummary":"...","bearSummary":"...","targetPrice":null,"timeHorizon":"short|medium|long"},
+"bullSummary":"one-line strongest bull case","bearSummary":"one-line strongest bear case","targetPrice":null,"timeHorizon":"short|medium|long"},
 "score":1-10}]
-Max 10 most actionable recommendations. Score = conviction (1=low, 10=very high).`;
+Max 10 most actionable recommendations. Favor ADD over HOLD over TRIM over SELL. Score = conviction (1=low, 10=very high).`;
 
-  // Wrap the Opus synth in try/catch so a 529 overload (even after retries)
-  // doesn't wipe out the two Haiku calls we already paid for. If the synth
-  // fails, we degrade gracefully with an info-level summary.
+  // Wrap the Opus synth in try/catch so a 529 overload doesn't break the
+  // pipeline. Single-call version — no bull/bear Haiku pre-steps.
   let synthResult;
   try {
     synthResult = await callAgentClaude(env, synthSystem, {
-      bullArguments: bullResult,
-      bearArguments: bearResult,
       todayInsights,
       positions: posData.slice(0, 20),
+      regime,
     }, { model: "claude-opus-4-20250514" });
   } catch (e) {
     console.error(`[trade] Opus synth failed after retries: ${e.message}`);
