@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { API_URL } from '../../constants/index.js';
+import { Button } from '../ui';
 
 const CCY_FLAG = { USD: '🇺🇸', EUR: '🇪🇺', CNY: '🇨🇳', HKD: '🇭🇰', JPY: '🇯🇵', GBP: '🇬🇧', GBX: '🇬🇧', CHF: '🇨🇭', AUD: '🇦🇺', CAD: '🇨🇦', BRL: '🇧🇷', MXN: '🇲🇽', Other: '🌍' };
 const CCY_COLOR = { USD: '#10b981', EUR: '#3b82f6', CNY: '#ef4444', HKD: '#a855f7', JPY: '#ec4899', GBP: '#f59e0b', GBX: '#f59e0b', CHF: '#06b6d4', AUD: '#f97316', CAD: '#8b5cf6', Other: '#6b7280' };
@@ -95,8 +96,11 @@ export default function CurrencyTab() {
   }, [data, positions]);
 
   // ── Quality badge ──
+  // Color semantics: green (>=70% high-quality data), gold (lower coverage,
+  // mostly fallback values). Avoid red — low coverage isn't a danger, just a
+  // data limitation, and rojo confuses with critical alerts elsewhere.
   const hcPct = data?.high_confidence_pct || 0;
-  const hcColor = hcPct >= 70 ? 'var(--green)' : hcPct >= 40 ? 'var(--gold)' : 'var(--red)';
+  const hcColor = hcPct >= 70 ? 'var(--ds-success)' : 'var(--ds-warning)';
   const hcLabel = `${Math.round(hcPct)}% high confidence`;
 
   // ── Render states ──
@@ -161,22 +165,9 @@ export default function CurrencyTab() {
             )}
           </div>
         </div>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          style={{
-            padding: '10px 18px',
-            background: refreshing ? 'var(--subtle-bg)' : 'var(--green)',
-            color: refreshing ? 'var(--text-secondary)' : '#fff',
-            border: '1px solid var(--border)',
-            borderRadius: 8,
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: refreshing ? 'wait' : 'pointer',
-          }}
-        >
+        <Button onClick={handleRefresh} loading={refreshing} variant="primary" size="md">
           {refreshing ? 'Refrescando...' : '🔄 Refrescar'}
-        </button>
+        </Button>
       </div>
 
       {/* ── BARRAS POR MONEDA ── */}

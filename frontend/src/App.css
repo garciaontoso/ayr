@@ -1,5 +1,94 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Playfair+Display:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
+/* ═══════════════════════════════════════════════════════════════
+   A&R Design System Tokens (v1) — added 2026-04-08
+   Namespace: --ds-*. Coexists with legacy --bg/--card/--gold during migration.
+   New components and refactored tabs read from these tokens.
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  /* ── Typography: 8 sizes ── */
+  --ds-text-xs:   10px;
+  --ds-text-sm:   11px;
+  --ds-text-base: 12px;
+  --ds-text-md:   14px;
+  --ds-text-lg:   16px;
+  --ds-text-xl:   20px;
+  --ds-text-2xl:  24px;
+  --ds-text-3xl:  32px;
+
+  /* ── Typography: 3 weights ── */
+  --ds-font-regular: 400;
+  --ds-font-medium:  600;
+  --ds-font-bold:    700;
+
+  /* ── Typography: 3 families ── */
+  --ds-font-body:    'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --ds-font-display: 'Playfair Display', Georgia, serif;
+  --ds-font-mono:    'IBM Plex Mono', monospace;
+
+  /* ── Spacing scale (6) — 4px baseline ── */
+  --ds-space-1:  4px;
+  --ds-space-2:  8px;
+  --ds-space-3: 12px;
+  --ds-space-4: 16px;
+  --ds-space-5: 24px;
+  --ds-space-6: 32px;
+
+  /* ── Border radii (5) ── */
+  --ds-radius-sm:   4px;
+  --ds-radius-md:   8px;
+  --ds-radius-lg:  12px;
+  --ds-radius-xl:  16px;
+  --ds-radius-full: 9999px;
+
+  /* ── Shadows (3) ── */
+  --ds-shadow-sm: 0 1px 2px rgba(0,0,0,.2);
+  --ds-shadow-md: 0 4px 12px rgba(0,0,0,.3);
+  --ds-shadow-lg: 0 12px 40px rgba(0,0,0,.5);
+
+  /* ── Semantic colors (success/warning/danger/info) ── */
+  --ds-success:     #30d158;
+  --ds-success-dim: rgba(48,209,88,.15);
+  --ds-warning:     #ffd60a;
+  --ds-warning-dim: rgba(255,214,10,.15);
+  --ds-danger:      #ff453a;
+  --ds-danger-dim:  rgba(255,69,58,.15);
+  --ds-info:        #64d2ff;
+  --ds-info-dim:    rgba(100,210,255,.15);
+
+  /* ── Accent (gold) — single source of truth ── */
+  --ds-accent:       #c8a44e;
+  --ds-accent-dim:   rgba(200,164,78,.15);
+  --ds-accent-hover: #d6b25c;
+  --ds-accent-glow:  rgba(200,164,78,.08);
+
+  /* ── Motion ── */
+  --ds-transition-fast: .18s ease;
+  --ds-transition-base: .25s ease;
+  --ds-transition-slow: .4s ease;
+}
+
+/* ═══ Light mode overrides for --ds-* tokens ═══ */
+[data-theme="light"] {
+  --ds-success:     #248a3d;
+  --ds-success-dim: rgba(36,138,61,.12);
+  --ds-warning:     #b25000;
+  --ds-warning-dim: rgba(178,80,0,.12);
+  --ds-danger:      #d70015;
+  --ds-danger-dim:  rgba(215,0,21,.12);
+  --ds-info:        #0071e3;
+  --ds-info-dim:    rgba(0,113,227,.1);
+
+  --ds-accent:       #8B6914;
+  --ds-accent-dim:   rgba(139,105,20,.12);
+  --ds-accent-hover: #9e7a17;
+  --ds-accent-glow:  rgba(139,105,20,.06);
+
+  --ds-shadow-sm: 0 1px 2px rgba(0,0,0,.06);
+  --ds-shadow-md: 0 4px 12px rgba(0,0,0,.1);
+  --ds-shadow-lg: 0 12px 40px rgba(0,0,0,.18);
+}
+
 :root {
   --bg: #000000;
   --surface: #111111;
@@ -85,6 +174,7 @@ input[type=number] { -moz-appearance: textfield; }
 
 @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes pulse { 0%, 100% { opacity: .6; } 50% { opacity: 1; } }
+@keyframes ar-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
 .ar-tabs-scroll { scrollbar-width: none; -ms-overflow-style: none; }
 .ar-tabs-scroll::-webkit-scrollbar { display: none; }

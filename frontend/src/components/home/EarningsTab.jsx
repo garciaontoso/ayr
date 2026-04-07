@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { API_URL } from '../../constants/index.js';
+import { Button } from '../ui';
 
 // ── Helpers ──────────────────────────────────────────────────────
 function fmtUSD(n) {
@@ -190,13 +191,14 @@ export default function EarningsTab() {
             )}
           </div>
         </div>
-        <button
+        <Button
           onClick={handleRefresh}
-          disabled={refreshing}
-          style={btnStyle(refreshing)}
+          loading={refreshing}
+          variant="primary"
+          size="md"
         >
           {refreshing ? 'Refrescando...' : '🔄 Refrescar calendar'}
-        </button>
+        </Button>
       </div>
 
       {/* ── SUB-TABS ── */}

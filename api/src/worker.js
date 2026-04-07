@@ -5351,6 +5351,100 @@ export default {
 
       // ─── DESIGN BACKLOG MVPs ───────────────────────────────────
 
+      // ─── AGENTS PROMPTS TRANSPARENCY ────────────────────────────
+      // GET /api/agents/prompts → returns the exact system prompt, input shape,
+      // output shape, model and trigger metadata for every agent. Used by the
+      // Agentes tab "Prompt" drawer so the user can audit/improve prompts.
+      //
+      // IMPORTANT: when you edit a runXxxAgent prompt in worker.js, also edit
+      // the matching `system_prompt` field in AGENTS_METADATA below.
+      if (path === "/api/agents/prompts" && request.method === "GET") {
+        const AGENTS_METADATA = [
+          {
+            id: "regime", name: "Pulso del Mercado", icon: "🧭",
+            type: "llm", model: "claude-haiku-4-5-20251001",
+            description: "Determina si el mercado está en bull/bear/transition analizando 24 ETFs (sectores, factores, crédito, commodities).",
+            system_prompt: "You are a market regime analyst. Determine the current market state.\nAnalyze:\n- Cyclicals (XLF/XLE/XLI) vs defensives (XLU/XLP/XLV): if defensives lead = risk-off\n- Credit (HYG/LQD falling = stress, TLT rising = flight-to-quality)\n- Factors (QUAL+MTUM+VLUE all losing vs SPY = indiscriminate selling)\n- VIX level and trend\nRespond ONLY JSON:\n{\"severity\":\"info|warning|critical\",\"title\":\"short title\",\"summary\":\"3-4 sentence regime assessment\",\n\"details\":{\"regime\":\"bull|bear|transition-down|transition-up\",\"regimeConfidence\":1-10,\n\"breadthSignal\":\"healthy|deteriorating|collapsed|recovering\",\n\"creditStress\":\"none|mild|elevated|severe\",\"factorSignal\":\"rational-rotation|indiscriminate-selling|risk-on|mixed\",\n\"safeHavens\":\"working|failing|mixed\",\"actionGuidance\":\"full-risk|reduce-risk|defensive|cash-priority\",\n\"sectorLeaders\":[],\"sectorLaggards\":[],\"vixRegime\":\"low|normal|elevated|crisis\"},\n\"score\":1-10}\nScore 1=crisis, 10=strong bull.",
+            input_shape: { spy: "{ price, changePct, change5d }", vix: "{ price, changePct }", sectors: "[XLK,XLF,XLE,XLV,XLU,XLP,XLI,XLRE]", factors: "[QUAL,MTUM,VLUE]", credit: "{ HYG, LQD, TLT, SHY }", commodities: "{ GLD, USO, DBC }" },
+            output_shape: { severity: "info|warning|critical", details: { regime: "bull|bear|transition", actionGuidance: "full-risk|reduce-risk|defensive|cash-priority" } },
+            cost_per_run_estimate_usd: 0.01,
+            trigger: "Manual desde botón Ejecutar agentes",
+            when_it_fires: "Step 1. Su salida la consumen Macro, Risk y Trade.",
+          },
+          {
+            id: "earnings", name: "Vigilante de Earnings", icon: "📊",
+            type: "llm", model: "claude-opus-4-20250514",
+            description: "Combina earnings (EPS/revenue surprise) con transcripts de earnings calls. Distingue caídas temporales (one-time charges, restructuring) de declive estructural.",
+            system_prompt: "You are a senior earnings analyst for a LONG-TERM dividend income portfolio ($1.35M, buy-and-hold). NEVER recommend selling quality on temporary dips.\n\nYOU NOW HAVE EARNINGS CALL TRANSCRIPTS. Use them as the PRIMARY source for tone and context. Combine numerical surprise with management explanation.\n\nYOU NOW HAVE 6-QUARTER TREND DATA. ALWAYS check the trend before flagging a quarter as critical:\n- A -8% EPS miss in isolation looks bad. If the prior 5 quarters were +12%, +8%, +5%, +9%, +6%, this is a single-quarter blip → WARNING at most.\n- A -3% miss following -2%, -5%, -7% misses is a real deteriorating trend → WARNING or CRITICAL.\n\nDISTINGUISH TEMPORARY VS STRUCTURAL:\n- Temporary: one-time charges, FX headwinds, restructuring with clear plan → info\n- Structural: secular demand decline, repeated guidance cuts, management evasiveness → warning/critical\n\nSEVERITY (conservative — long-term portfolio):\n- critical = revenue falling 3+ quarters AND margins compressing AND no credible turnaround. Max 2 criticals.\n- warning = operational miss that could affect dividends OR negative forward demand\n- info = normal quarter, beat, minor miss, explained one-time\n\nRespond ONLY JSON array.",
+            input_shape: { positions: "[{ ticker, name, sector, earnings (last 2), estimates, revSegments, geoSegments, analystGrades (3), trends: { revenue, netIncome, fcf, eps } (6q), transcript: { period, date, excerpt } }]" },
+            output_shape: { result: "Array of insights with { ticker, severity, title, summary, details: { epsSurprise, revenueSurprise, marginTrend, context, transcript_insight, keyRisks }, score 1-10 }" },
+            cost_per_run_estimate_usd: 0.40,
+            trigger: "Manual o pipeline completo",
+            when_it_fires: "Step 2. Procesa ~85 posiciones en batches de 12.",
+          },
+          {
+            id: "dividend", name: "Guardian de Dividendos", icon: "🛡️",
+            type: "llm", model: "claude-opus-4-20250514",
+            description: "Evalúa la seguridad del dividendo de cada posición usando TTM authoritative (Q+S inputs_json), trends de 8 quarters y pagos reales IB. Reconoce que cortar para pagar deuda = bullish.",
+            system_prompt: "You are a senior dividend analyst for a LONG-TERM income portfolio ($1.35M).\n\nCRITICAL CONTEXT — DO NOT give false alarms:\n- Dividend CUT to pay down debt is often BULLISH. Mark warning, not critical.\n- High payout ratio in a REIT is NORMAL. Use FFO/AFFO instead.\n- BDCs evaluate NAV coverage, not earnings payout.\n- ETFs/CEFs don't have traditional payout ratios.\n\nCOVERAGE ANALYSIS — USE TTM FIELDS, NOT LEGACY PER-SHARE:\n- fcfTTM, dividendsPaidTTM, fcfCoverageTTM are DOLLAR totals over trailing 4 quarters. Authoritative.\n- payoutRatioWorst = max(payoutRatioEarnings, payoutRatioFCF). Use for cut-risk.\n- IGNORE fcfPerShare/payoutRatio (legacy, ~4x understated) when fcfTTM is present.\n- If fcfCoverageTTM >= 1.5 and payoutRatioWorst <= 0.75 → cutRisk: low.\n- If fcfCoverageTTM < 1.0 OR payoutRatioWorst > 1.0 → cutRisk: high.\n\nSEVERITY (conservative):\n- critical = REAL bankruptcy/elimination risk. Max 2-3 across portfolio.\n- warning = freeze likely or unsustainable WITHOUT strategic reason\n- info = safe, growing, or strategically sound\n\nRespond ONLY JSON array.",
+            input_shape: { positions: "Batches of 15 with { ticker, name, sector, category, divTTM, dividendsPaidTTM, fcfTTM, fcfCoverageTTM, payoutRatioWorst, debtToEbitda, dividendStreakYears, qualityScore, safetyScore, trendRevenue, trendFCF, trendDebt, trendDivPaid }" },
+            output_shape: { result: "Array of { ticker, severity, title, summary, details: { payoutRatio, fcfCoverage, cutRisk: low|medium|high, context: strategic|stressed|stable|growing }, score 1-10 }" },
+            cost_per_run_estimate_usd: 0.50,
+            trigger: "Manual o pipeline completo",
+            when_it_fires: "Step 3. ~75 posiciones con dividendo en batches de 15.",
+          },
+          {
+            id: "macro", name: "Radar Macro", icon: "🌍",
+            type: "llm", model: "claude-opus-4-20250514",
+            description: "Síntesis macro narrativa. Analiza calendario económico, treasury rates, credit, factores y sectores.",
+            system_prompt: "You are a macro strategist analyzing a $1.35M dividend portfolio (China fiscal resident).\n\nReason step by step:\n1. REGIME: risk-on, risk-off or transition?\n2. CREDIT: HYG/LQD spreads stress? TLT flight-to-quality?\n3. FACTORS: QUAL/MTUM/VLUE vs SPY rotation?\n4. SECTORS: Defensives outperforming? Cyclicals weak?\n5. COMMODITIES: GLD/USO inflation/geopolitics?\n6. IMPLICATION for dividend stocks.\n\nSEVERITY:\n- critical = credit blowing out (HYG -3%+ in week) or regime shift to bear\n- warning = sector rotation hurting portfolio\n- info = stable\n\nRespond ONLY JSON narrative (4-5 sentences, NOT bullets).",
+            input_shape: { currentRegime: "From regime agent", marketIndicators: "24 ETFs", economicEvents: "FMP economic-calendar last 7d", treasuryRates: "FMP yields", portfolioSectors: "Sector weights" },
+            output_shape: { severity: "info|warning|critical", summary: "4-5 sentence narrative", details: { regime: "risk-on|risk-off|transition", creditStress: "none|mild|elevated|severe", portfolioImplications: "string[]", keyRisks: "string[]", opportunities: "string[]" } },
+            cost_per_run_estimate_usd: 0.05,
+            trigger: "Manual o pipeline",
+            when_it_fires: "Step 4. Lee agent_memory.regime_current.",
+          },
+          {
+            id: "risk", name: "Control de Riesgo", icon: "⚠️",
+            type: "llm", model: "claude-opus-4-20250514",
+            description: "Análisis a nivel portfolio (concentración, drawdown, beta ponderado). NUNCA recomienda vender en dips.",
+            system_prompt: "You are a portfolio risk analyst for a $1.35M dividend portfolio.\nEvaluate the PORTFOLIO AS A WHOLE (concentration, diversification, drawdown, leverage, regime alignment).\n\nPHILOSOPHY (CRITICAL):\n- LONG-TERM buy-and-hold. NEVER recommend selling quality during temporary drawdowns.\n- A position down 30% is an opportunity to add if dividend is intact and fundamentals sound.\n- The owner does NOT trade. Don't recommend SELL/EXIT/REDUCE unless real bankruptcy risk.\n\nSEVERITY:\n- critical = single >15% AND bankruptcy risk, OR maxDD >15%, OR margin > dividend income, OR beta >1.3\n- warning = top 5 > 40%, OR drawdown >8%, OR single sector >50%, OR beta >1.0\n- info = well-diversified\n\nReturn EXACTLY ONE JSON object (no array). Focus on portfolio-level metrics.",
+            input_shape: { totalNLV: "number", top5: "[{ ticker, weight }]", sectorWeights: "[{ sector, weight }]", maxDrawdown60d: "%", currentRegime: "from agent_memory", weightedBeta: "number", positionRiskMetrics: "Top 15 with beta, vol, sharpe, sortino, maxDD" },
+            output_shape: { severity: "info|warning|critical", summary: "3-4 sentences portfolio-level", details: { concentrationScore: "1-10", portfolioBeta: "number", topRisks: "string[]", recommendations: "string[]" } },
+            cost_per_run_estimate_usd: 0.04,
+            trigger: "Manual o pipeline",
+            when_it_fires: "Step 5. Lee agent_memory.regime_current.",
+          },
+          {
+            id: "trade", name: "Asesor de Operaciones", icon: "🎯",
+            type: "llm", model: "claude-haiku-4-5 (bull) + claude-haiku-4-5 (bear) + claude-opus-4-20250514 (synth)",
+            description: "Sistema de 3 pasos: (1) Haiku argumenta a favor, (2) Haiku contraargumenta riesgos, (3) Opus sintetiza ambos + insights de los demás agentes.",
+            system_prompt: "── BULL STEP (Haiku) ──\nYou are a BULL analyst. Argue IN FAVOR of each position. Use gfValue vs price, guruBuys13f, insiderBuys3m. Identify top 5 ADD opportunities. JSON array max 15.\n\n── BEAR STEP (Haiku) ──\nYou are a BEAR analyst. Counter-argue with CONCRETE risks. JSON array max 15.\n\n── SYNTH STEP (Opus) ──\nYou are a senior portfolio advisor for a LONG-TERM dividend portfolio ($1.35M).\n\nFUNDAMENTAL PHILOSOPHY:\n- Selling a quality dividend grower during a temporary dip is the WORST mistake. HOLD or ADD.\n- SELL only if: business permanently broken OR dividend eliminated with no recovery path.\n- TRIM only if: position >10% AND fundamentally impaired.\n- ADD if: quality below fair value with intact dividend.\n- Companies restructuring (cutting costs, paying debt) are often BUYS.\n- Conviction reflects debate strength: balanced → LOW, one side dominates → HIGH.\n\nSEVERITY:\n- critical = SELL only if structural decline. Max 1-2 sells.\n- warning = worth reviewing, default HOLD\n- info = position fine\n\nRespond ONLY JSON array. Max 10 actionable. Score 1-10 = conviction.",
+            input_shape: { bull: "{ todayInsights, positions (top 30 with valuation + insider data), regime }", bear: "{ bullArguments, todayInsights critical/warning, regime }", synth: "{ bullArguments, bearArguments, todayInsights, positions (top 20) }" },
+            output_shape: { result: "Array up to 10 of { ticker, severity, title, summary, details: { action: BUY|SELL|HOLD|TRIM|ADD, conviction: low|medium|high, bullSummary, bearSummary, targetPrice, timeHorizon }, score 1-10 }" },
+            cost_per_run_estimate_usd: 0.20,
+            trigger: "Manual o pipeline (último paso LLM)",
+            when_it_fires: "Step 6. Lee TODOS los insights del día. Si Opus synth falla, degrada gracefully.",
+          },
+          { id: "postmortem", name: "Historial de Aciertos", icon: "📋", type: "no_llm", model: "—", description: "Cada día revisa señales de hace 7/30 días. BUY/ADD correcto si precio subió >2%, SELL/TRIM si bajó >2%.", system_prompt: "(no LLM — pure calculation)", input_shape: { source: "D1.signal_tracking + D1.positions" }, output_shape: { schema: "agent_insights con accuracy stats" }, cost_per_run_estimate_usd: 0, trigger: "Pipeline completo", when_it_fires: "Step 7" },
+          { id: "insider", name: "Radar de Insiders", icon: "🕵️", type: "no_llm", model: "—", description: "Detecta compras/ventas de insiders (Form 4) en posiciones del portfolio.", system_prompt: "(no LLM — FMP API)", input_shape: { source: "FMP /stable/insider-trading/search" }, output_shape: { schema: "agent_insights por ticker con transacciones" }, cost_per_run_estimate_usd: 0, trigger: "Pipeline", when_it_fires: "Step 8" },
+          { id: "value", name: "Value Signals", icon: "💎", type: "no_llm", model: "—", description: "Escanea portfolio + ~120 Aristocrats/Champions buscando infravaloradas según GF Value. Sugiere Put selling.", system_prompt: "(no LLM — GuruFocus data)", input_shape: { source: "GuruFocus + D1.positions" }, output_shape: { schema: "agent_insights con descuento, Put strike, prima" }, cost_per_run_estimate_usd: 0, trigger: "Pipeline", when_it_fires: "Step 9" },
+          { id: "options", name: "Options Income", icon: "🎰", type: "no_llm", model: "—", description: "Escanea top 20 posiciones buscando Covered Calls, CSPs y Bull Put Spreads en SPY/QQQ.", system_prompt: "(no LLM — Yahoo Finance options)", input_shape: { source: "Yahoo options chain, D1.positions" }, output_shape: { schema: "agent_insights con strike, prima, delta, dte" }, cost_per_run_estimate_usd: 0, trigger: "Pipeline", when_it_fires: "Step 10" },
+          { id: "dividend_cut_warning", name: "Dividend Cut Early Warning", icon: "🚨", type: "no_llm", model: "—", description: "Detecta riesgo de recorte 4-8 semanas antes del anuncio. Rolling TTM windows de FCF coverage. Carve-out REIT/AM/BDC.", system_prompt: "(no LLM — Q+S inputs analysis)", input_shape: { source: "D1.quality_safety_scores + Q+S inputs_json" }, output_shape: { schema: "agent_insights con cutRisk + reason" }, cost_per_run_estimate_usd: 0, trigger: "Pipeline", when_it_fires: "Step 11" },
+          { id: "analyst_downgrade", name: "Analyst Downgrade Tracker", icon: "📉", type: "no_llm", model: "—", description: "Pulla FMP grades-historical y detecta cluster downgrades. Critical si sentimiento cae 4+ pts con 6+ analistas.", system_prompt: "(no LLM — FMP grades)", input_shape: { source: "FMP /stable/grades-historical" }, output_shape: { schema: "agent_insights con sentimentDelta + analysts count" }, cost_per_run_estimate_usd: 0, trigger: "Pipeline", when_it_fires: "Step 12" },
+          { id: "earnings_trend", name: "Earnings Trend Pattern", icon: "📈", type: "no_llm", model: "—", description: "Detecta 2+ trimestres consecutivos de op income miss YoY + compresión de márgenes >100bps.", system_prompt: "(no LLM — FMP financials trend)", input_shape: { source: "FMP financials cached (operatingIncome, revenue 8q)" }, output_shape: { schema: "agent_insights con racha + margen compression" }, cost_per_run_estimate_usd: 0, trigger: "Pipeline", when_it_fires: "Step 13" },
+          { id: "sec_filings", name: "SEC Filings Tracker", icon: "📋", type: "no_llm", model: "—", description: "Track 8-K material events (item 2.05/2.06/3.03/4.01/4.02/5.02) en posiciones del portfolio.", system_prompt: "(no LLM — SEC EDGAR API)", input_shape: { source: "SEC EDGAR /submissions API + CIK lookup cache" }, output_shape: { schema: "agent_insights con item code + filing date + link" }, cost_per_run_estimate_usd: 0, trigger: "Pipeline", when_it_fires: "Step 14" },
+        ];
+        return json({
+          agents: AGENTS_METADATA,
+          total: AGENTS_METADATA.length,
+          llm_count: AGENTS_METADATA.filter(a => a.type === "llm").length,
+          no_llm_count: AGENTS_METADATA.filter(a => a.type === "no_llm").length,
+          estimated_pipeline_cost_usd: AGENTS_METADATA.reduce((s, a) => s + (a.cost_per_run_estimate_usd || 0), 0),
+          note: "Los system_prompt de los agentes no-LLM están vacíos (ejecutan código puro). Para los LLM, los prompts son una COPIA del worker.js — si los editas en runXxxAgent, actualiza también AGENTS_METADATA aquí.",
+        }, corsHeaders);
+      }
+
       // ═══════════════════════════════════════════════════════════
       // ─── EARNINGS INTELLIGENCE MVP ─────────────────────────────
       // ═══════════════════════════════════════════════════════════

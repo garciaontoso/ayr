@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { API_URL } from '../../constants';
+import { Button } from '../ui';
 
 const COUNTRY_FLAG = { US: '🇺🇸', EU: '🇪🇺', CN: '🇨🇳', JP: '🇯🇵', GB: '🇬🇧', DE: '🇩🇪' };
 
+// Spanish labels (consistency: avoid mixing HIGH/ALTA/medium/MEDIA)
 const IMPACT_STYLE = {
-  high:   { label: '📈 HIGH',   color: 'var(--red)' },
-  medium: { label: '📊 MEDIUM', color: 'var(--gold)' },
-  low:    { label: '📉 LOW',    color: 'var(--text-tertiary)' },
+  high:   { label: '📈 ALTA',   color: 'var(--ds-danger)' },
+  medium: { label: '📊 MEDIA',  color: 'var(--ds-warning)' },
+  low:    { label: '📉 BAJA',   color: 'var(--text-tertiary)' },
 };
 
 const EXPOSURE_STYLE = {
@@ -195,9 +197,9 @@ export default function MacroTab() {
               {d} días
             </button>
           ))}
-          <button style={refreshBtn} disabled={refreshing} onClick={handleRefresh}>
-            {refreshing ? '⏳ Refrescando…' : '🔄 Refrescar'}
-          </button>
+          <Button onClick={handleRefresh} loading={refreshing} variant="primary" size="md">
+            {refreshing ? 'Refrescando…' : '🔄 Refrescar'}
+          </Button>
         </div>
       </div>
 

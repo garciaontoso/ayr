@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { API_URL } from '../../constants/index.js';
 import { InlineLoading } from '../ui/EmptyState.jsx';
+import { Button } from '../ui';
 
 /* ═══════════════════════════════════════════
    AI Agents Dashboard — A&R v4.1 (FMP Ultimate)
@@ -56,6 +57,18 @@ const AGENTS = [
   { id: 'summary', name: 'Resumen Ejecutivo', icon: '📌', desc: 'Top acciones del dia',
     info: 'Resumen automatico generado al final del pipeline. Muestra las acciones mas importantes a tomar hoy: operaciones recomendadas, alertas de insiders, oportunidades de opciones, y estado del mercado. Es lo primero que debes mirar.',
     model: 'Sin LLM', dataSources: 'Todos los agentes (compilado)' },
+  { id: 'dividend_cut_warning', name: 'Dividend Cut Early Warning', icon: '🚨', desc: 'FCF payout, coverage trend',
+    info: 'Sin LLM. Detecta riesgo de recorte de dividendo 4-8 semanas antes del anuncio. Computa rolling TTM windows (4 quarters) de FCF coverage y payout ratio. Critical si TTM coverage < 0.85x. Excluye REITs, BDCs, MLPs y asset managers (carve-out por su modelo de distribucion no-FCF).',
+    model: 'Sin LLM', dataSources: 'Q+S inputs cached (fcf, dividendsPaid, payoutRatio TTM)' },
+  { id: 'analyst_downgrade', name: 'Analyst Downgrade Tracker', icon: '📉', desc: 'Cluster downgrades 14d',
+    info: 'Sin LLM. Pulla FMP /stable/grades-historical y compara sentimiento analistas hoy vs hace 14 dias. Critical si sentimiento cae 4+ puntos con >=6 analistas (cluster downgrades real). Historicamente precede recortes de dividendo en 4-8 semanas.',
+    model: 'Sin LLM', dataSources: 'FMP grades-historical' },
+  { id: 'earnings_trend', name: 'Earnings Trend Pattern', icon: '📊', desc: '2+ misses + margin compression',
+    info: 'Sin LLM. Detecta 2+ trimestres consecutivos de operating income miss YoY combinado con compresion de margenes >100bps. Critical si 3+ misses + revenue cayendo. Carve-out: skip REITs y growth companies (revenue +8% YoY).',
+    model: 'Sin LLM', dataSources: 'FMP financials cached (8 quarters operatingIncome, revenue)' },
+  { id: 'sec_filings', name: 'SEC Filings Tracker', icon: '📋', desc: '8-K material events',
+    info: 'Sin LLM. Pulla SEC EDGAR submissions API por CIK para los ultimos 30 dias. Detecta items 8-K criticos: 2.05 (restructuring), 2.06 (impairments), 3.03 (modificacion derechos), 4.01/4.02 (audit issues), 5.02 (CEO/CFO departure). Critical si 2+ items materiales en 30d.',
+    model: 'Sin LLM', dataSources: 'SEC EDGAR /submissions API + CIK lookup cache' },
 ];
 
 const SEV_COLORS = { critical: RED, warning: YELLOW, info: GREEN };
@@ -99,6 +112,11 @@ export default function AgentesTab() {
   // Manual-run status: polled from /api/agent-run/status so the UI knows
   // if there's a run in progress AND when was the last successful run.
   const [runStatus, setRunStatus] = useState(null);
+  // Prompt drawer (transparency feature): when set, opens a side drawer
+  // showing the agent's system prompt + I/O shapes + recent insights.
+  const [promptDrawer, setPromptDrawer] = useState(null); // selected agent id
+  const [drawerTab, setDrawerTab] = useState('prompt');   // prompt | io | insights
+  const [agentsMetadata, setAgentsMetadata] = useState([]);
   const [agentOrder, setAgentOrder] = useState(() => {
     try { return JSON.parse(localStorage.getItem('ayr-agent-order')) || DEFAULT_ORDER; } catch { return DEFAULT_ORDER; }
   });
@@ -117,6 +135,23 @@ export default function AgentesTab() {
   const sortedAgents = agentOrder.map(id => AGENTS.find(a => a.id === id)).filter(Boolean);
   // Add any new agents not in saved order
   for (const a of AGENTS) { if (!agentOrder.includes(a.id)) sortedAgents.push(a); }
+
+  // Fetch agent prompts metadata once on mount (for the transparency drawer)
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_URL}/api/agents/prompts`)
+      .then(r => r.json())
+      .then(d => { if (!cancelled) setAgentsMetadata(d.agents || []); })
+      .catch(e => console.error('agents/prompts fetch:', e));
+    return () => { cancelled = true; };
+  }, []);
+
+  const metadataFor = (id) => agentsMetadata.find(a => a.id === id);
+
+  const openPromptDrawer = (agentId) => {
+    setPromptDrawer(agentId);
+    setDrawerTab('prompt');
+  };
 
   const fetchInsights = useCallback(async () => {
     setLoading(true);
@@ -282,7 +317,7 @@ export default function AgentesTab() {
                 AI Agents — Ejecución manual
               </h2>
               <div style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: FM, margin: '4px 0 10px' }}>
-                12 agentes (sin cron automático). Pulsa cuando quieras refrescar el análisis.
+                {AGENTS.length} agentes (sin cron automático). Pulsa cuando quieras refrescar el análisis.
               </div>
               <div style={{ display: 'flex', gap: 14, fontSize: 10, fontFamily: FM, alignItems: 'center', flexWrap: 'wrap' }}>
                 <div>
@@ -324,24 +359,9 @@ export default function AgentesTab() {
                 </div>
               )}
             </div>
-            <button
-              onClick={runAgents}
-              disabled={isRunning}
-              style={{
-                background: isRunning ? 'var(--border)' : GOLD,
-                color: isRunning ? 'var(--text-tertiary)' : '#000',
-                border: 'none', borderRadius: 12,
-                padding: '14px 28px', fontSize: 14,
-                fontWeight: 800, fontFamily: FB,
-                cursor: isRunning ? 'default' : 'pointer',
-                opacity: isRunning ? .6 : 1,
-                transition: 'all .2s',
-                whiteSpace: 'nowrap',
-                boxShadow: isRunning ? 'none' : `0 4px 14px ${GOLD_DIM}`,
-              }}
-            >
-              {isRunning ? '⏳ Ejecutando agentes...' : '🚀 Ejecutar agentes ahora'}
-            </button>
+            <Button onClick={runAgents} loading={isRunning} variant="primary" size="lg">
+              {isRunning ? 'Ejecutando agentes...' : '🚀 Ejecutar agentes ahora'}
+            </Button>
           </div>
         );
       })()}
@@ -360,7 +380,8 @@ export default function AgentesTab() {
           return (
             <div
               key={agent.id}
-              onClick={() => setFilterAgent(isActive ? null : agent.id)}
+              onClick={() => openPromptDrawer(agent.id)}
+              title="Click para ver el prompt completo + insights de este agente"
               style={{
                 ...card({
                   padding: '16px 18px', cursor: 'pointer', transition: 'all .2s',
@@ -804,6 +825,189 @@ export default function AgentesTab() {
           })}
         </div>
       ) : null}
+
+      {/* Prompt drawer — opens when user clicks an agent card */}
+      {promptDrawer && (
+        <PromptDrawer
+          agent={AGENTS.find(a => a.id === promptDrawer)}
+          meta={metadataFor(promptDrawer)}
+          insights={(byAgent[promptDrawer] || []).slice(0, 30)}
+          activeTab={drawerTab}
+          setActiveTab={setDrawerTab}
+          onClose={() => setPromptDrawer(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Prompt Drawer ────────────────────────────────────────────────
+// Side drawer that exposes the system prompt + I/O shapes + insights
+// for a single agent. Opens when user clicks any agent card.
+function PromptDrawer({ agent, meta, insights, activeTab, setActiveTab, onClose }) {
+  if (!agent) return null;
+
+  const copyPrompt = () => {
+    if (!meta?.system_prompt) return;
+    navigator.clipboard.writeText(meta.system_prompt)
+      .then(() => alert('Prompt copiado al portapapeles'))
+      .catch(() => {});
+  };
+
+  const TabBtn = ({ id, label }) => (
+    <button
+      onClick={() => setActiveTab(id)}
+      style={{
+        background: activeTab === id ? GOLD : 'transparent',
+        color: activeTab === id ? '#000' : 'var(--text-secondary)',
+        border: `1px solid ${activeTab === id ? GOLD : BORDER}`,
+        borderRadius: 8,
+        padding: '6px 14px',
+        fontSize: 11,
+        fontFamily: FB,
+        fontWeight: 700,
+        cursor: 'pointer',
+      }}
+    >{label}</button>
+  );
+
+  const codeBox = {
+    background: 'var(--bg)',
+    border: `1px solid ${BORDER}`,
+    borderRadius: 8,
+    padding: 14,
+    fontSize: 10,
+    lineHeight: 1.5,
+    fontFamily: 'ui-monospace, monospace',
+    color: 'var(--text-secondary)',
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)',
+        zIndex: 9999, display: 'flex', justifyContent: 'flex-end',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 'min(720px, 92vw)', height: '100vh', background: 'var(--card)',
+          borderLeft: `1px solid ${BORDER}`, overflow: 'auto',
+          padding: '24px 28px', boxShadow: '-8px 0 32px rgba(0,0,0,.4)',
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 22, fontFamily: FB, fontWeight: 800, color: 'var(--text-primary)' }}>
+              {agent.icon} {agent.name}
+            </div>
+            <div style={{ fontSize: 10, fontFamily: FM, color: 'var(--text-tertiary)', marginTop: 4 }}>
+              {meta?.model || agent.model || '—'}
+              {meta?.cost_per_run_estimate_usd > 0 && (
+                <> · ~${meta.cost_per_run_estimate_usd.toFixed(2)}/run</>
+              )}
+              {meta?.type === 'no_llm' && <> · Sin LLM</>}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: 'transparent', border: `1px solid ${BORDER}`, borderRadius: 6,
+              color: 'var(--text-secondary)', cursor: 'pointer', padding: '4px 12px',
+              fontSize: 16, fontFamily: FM,
+            }}
+          >×</button>
+        </div>
+
+        {/* Sub-tabs */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
+          <TabBtn id="prompt" label="🧾 Prompt" />
+          <TabBtn id="io" label="📥 Input / 📤 Output" />
+          <TabBtn id="insights" label={`📊 Insights (${insights.length})`} />
+        </div>
+
+        {/* PROMPT TAB */}
+        {activeTab === 'prompt' && (
+          <div>
+            {meta?.description && (
+              <div style={{
+                fontSize: 11, fontFamily: FM, color: 'var(--text-secondary)',
+                marginBottom: 14, padding: 10, background: 'var(--bg)', borderRadius: 8,
+                border: `1px solid ${BORDER}`,
+              }}>
+                {meta.description}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 10, fontFamily: FM, color: 'var(--text-tertiary)' }}>SYSTEM PROMPT</span>
+              {meta?.type === 'llm' && (
+                <button
+                  onClick={copyPrompt}
+                  style={{
+                    background: GOLD_DIM, color: GOLD, border: `1px solid ${GOLD}40`,
+                    borderRadius: 6, padding: '2px 10px', fontSize: 10, fontFamily: FB,
+                    fontWeight: 700, cursor: 'pointer',
+                  }}
+                >Copiar</button>
+              )}
+            </div>
+            <pre style={{ ...codeBox, maxHeight: '60vh', overflow: 'auto', margin: 0 }}>
+              {meta?.system_prompt || '(no metadata cargada — verifica /api/agents/prompts)'}
+            </pre>
+            {meta && (
+              <div style={{ marginTop: 14, fontSize: 10, fontFamily: FM, color: 'var(--text-tertiary)', lineHeight: 1.7 }}>
+                <div><strong style={{ color: 'var(--text-secondary)' }}>Trigger:</strong> {meta.trigger || '—'}</div>
+                <div><strong style={{ color: 'var(--text-secondary)' }}>Cuándo se ejecuta:</strong> {meta.when_it_fires || '—'}</div>
+                <div><strong style={{ color: 'var(--text-secondary)' }}>Tipo:</strong> {meta.type === 'llm' ? `LLM (${meta.model})` : 'Sin LLM (cálculo puro)'}</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* I/O TAB */}
+        {activeTab === 'io' && (
+          <div>
+            <div style={{ fontSize: 10, fontFamily: FM, color: 'var(--text-tertiary)', marginBottom: 4 }}>📥 INPUT SHAPE</div>
+            <pre style={{ ...codeBox, marginBottom: 18 }}>
+              {JSON.stringify(meta?.input_shape || {}, null, 2)}
+            </pre>
+            <div style={{ fontSize: 10, fontFamily: FM, color: 'var(--text-tertiary)', marginBottom: 4 }}>📤 OUTPUT SHAPE</div>
+            <pre style={codeBox}>
+              {JSON.stringify(meta?.output_shape || {}, null, 2)}
+            </pre>
+          </div>
+        )}
+
+        {/* INSIGHTS TAB */}
+        {activeTab === 'insights' && (
+          <div>
+            {insights.length === 0 ? (
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: FM, padding: 20, textAlign: 'center' }}>
+                Sin insights recientes para este agente. Pulsa "🚀 Ejecutar agentes ahora" para generar nuevos.
+              </div>
+            ) : insights.map((i, idx) => (
+              <div key={i.id || `${i.ticker}-${i.fecha}-${idx}`} style={{
+                border: `1px solid ${BORDER}`, borderRadius: 10, padding: 12, marginBottom: 10,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, alignItems: 'center' }}>
+                  <strong style={{ fontSize: 11, fontFamily: FB, color: 'var(--text-primary)' }}>
+                    {i.ticker} · {i.title}
+                  </strong>
+                  <SeverityPill severity={i.severity} />
+                </div>
+                <div style={{ fontSize: 10, fontFamily: FM, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                  {i.summary}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
