@@ -5337,6 +5337,7 @@ export default {
             dividend_cut_warning: runDividendCutWarningAgent,
             analyst_downgrade: runAnalystDowngradeAgent,
             earnings_trend: runEarningsTrendAgent,
+            sec_filings: runSECFilingsAgent,
             summary: async (env, fecha) => {
               const { results: all } = await env.DB.prepare(
                 "SELECT agent_name, ticker, severity, title, summary, score, details FROM agent_insights WHERE fecha = ? ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END, score DESC"
@@ -9368,6 +9369,185 @@ async function runOptionsIncomeAgent(env, fecha) {
   return { agent: "options", insights: Math.min(insights.length, 85), scanned, withOpportunity, noOptions, source: ib ? 'IB+Yahoo' : 'Yahoo' };
 }
 
+// ─── Agent 14: SEC Filings Tracker (no LLM, EDGAR free) ─────────
+// Tracks 8-K filings (material events) for portfolio tickers via SEC EDGAR's
+// submissions API. 8-Ks are filed within 4 business days of: executive departures,
+// going concern warnings, material agreements, M&A, dividend changes, asset
+// impairments. Cluster of multiple 8-Ks in 30 days = significant.
+//
+// Uses companyfacts API: https://data.sec.gov/submissions/CIK{padded}.json
+// Requires CIK lookup which we cache in agent_memory.
+async function runSECFilingsAgent(env, fecha) {
+  const { results: positions } = await env.DB.prepare(
+    "SELECT ticker, name, category, sector FROM positions WHERE shares > 0"
+  ).all();
+  if (!positions.length) return { agent: "sec_filings", skipped: true };
+
+  // Only US-listed companies have SEC filings. Skip foreign tickers + ETFs/preferreds.
+  const eligible = positions.filter(p => {
+    if (/etf|preferred/i.test(p.category || "")) return false;
+    if (/^(BME:|HKG:|LSE:|TSE:)/.test(p.ticker)) return false;
+    if (/\.(AS|BR|MC|DE|PA|L|AX|TO|V|HK)$/i.test(p.ticker)) return false;
+    return true;
+  });
+  if (!eligible.length) return { agent: "sec_filings", scanned: 0, alerts: 0 };
+
+  // CIK cache: ticker -> CIK string. Built lazily, persisted in agent_memory.
+  let cikCache = (await getAgentMemory(env, "sec_cik_cache")) || {};
+  let cikLookups = 0;
+
+  // SEC EDGAR requires a User-Agent header
+  const SEC_HEADERS = { "User-Agent": "AyR Portfolio Tracker / contact@example.com", "Accept": "application/json" };
+
+  // Helper: lookup CIK if not cached. Uses /cgi-bin/browse-edgar (HTML scrape) is slow,
+  // so we use the official tickers map JSON which has all SEC tickers in one fetch.
+  const ensureCikMap = async () => {
+    if (Object.keys(cikCache).length > 100) return; // already populated
+    try {
+      const resp = await fetch("https://www.sec.gov/files/company_tickers.json", { headers: SEC_HEADERS });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      // data is { "0": { cik_str, ticker, title }, "1": {...}, ... }
+      for (const k of Object.keys(data)) {
+        const r = data[k];
+        if (r?.ticker && r?.cik_str != null) {
+          cikCache[r.ticker.toUpperCase()] = String(r.cik_str).padStart(10, "0");
+          cikLookups++;
+        }
+      }
+      await setAgentMemory(env, "sec_cik_cache", cikCache);
+    } catch (e) { console.error("[SEC] CIK map fetch failed:", e.message); }
+  };
+  await ensureCikMap();
+
+  const insights = [];
+  let scanned = 0;
+  let withFilings = 0;
+  const cutoff30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+
+  // Process in batches of 5 with 1.5s delay (SEC rate limit ~10 req/sec)
+  for (let i = 0; i < eligible.length; i += 5) {
+    const batch = eligible.slice(i, i + 5);
+    const results = await Promise.allSettled(batch.map(async (p) => {
+      const cik = cikCache[p.ticker.toUpperCase()];
+      if (!cik) return null;
+      try {
+        const url = `https://data.sec.gov/submissions/CIK${cik}.json`;
+        const resp = await fetch(url, { headers: SEC_HEADERS });
+        if (!resp.ok) return null;
+        const data = await resp.json();
+        // recent.form is array of form types parallel to recent.filingDate
+        const recent = data?.filings?.recent || {};
+        const forms = recent.form || [];
+        const dates = recent.filingDate || [];
+        const items = recent.items || []; // 8-K item codes
+        // Filter to last 30 days
+        const recentFilings = [];
+        for (let k = 0; k < forms.length && k < 50; k++) {
+          if ((dates[k] || "") >= cutoff30) {
+            recentFilings.push({ form: forms[k], date: dates[k], items: items[k] || "" });
+          }
+        }
+        return { ticker: p.ticker, name: p.name, recentFilings };
+      } catch { return null; }
+    }));
+
+    for (const r of results) {
+      if (r.status !== "fulfilled" || !r.value) continue;
+      const { ticker, name, recentFilings } = r.value;
+      scanned++;
+      if (!recentFilings.length) continue;
+
+      // Categorize
+      const eightKs = recentFilings.filter(f => f.form === "8-K");
+      const tenQs = recentFilings.filter(f => /10-Q/.test(f.form));
+      const tenKs = recentFilings.filter(f => /10-K/.test(f.form));
+
+      // 8-K item codes that matter MOST for dividend investors. Excluded 8.01
+      // (other events) because it's dominated by routine dividend declarations.
+      // Excluded 1.01/1.02 (material agreements) because most are routine.
+      //   2.05 = costs associated with exit/disposal (restructuring)
+      //   2.06 = material impairments
+      //   3.03 = material modification to security holders' rights (dividend cut!)
+      //   4.01 = change in registrant's certifying accountant (audit concern)
+      //   4.02 = non-reliance on previously issued financial statements (RESTATEMENT)
+      //   5.02 = departure of directors / officers (CEO/CFO)
+      const RED_FLAG_ITEMS = /\b(2\.05|2\.06|3\.03|4\.01|4\.02|5\.02)\b/;
+      const flaggedItems = eightKs.filter(f => RED_FLAG_ITEMS.test(f.items || ""));
+
+      let severity = null;
+      let title = "";
+      let reason = "";
+
+      if (flaggedItems.length >= 2) {
+        severity = "critical";
+        title = `${ticker}: Múltiples 8-Ks materiales (30d)`;
+        const itemCodes = [...new Set(flaggedItems.flatMap(f => (f.items || "").split(",").map(s => s.trim())).filter(c => RED_FLAG_ITEMS.test(c)))];
+        reason = `${flaggedItems.length} 8-Ks con items críticos en 30 días: ${itemCodes.join(", ")}. Posibles cambios ejecutivos, impairments o restructuración.`;
+      } else if (flaggedItems.length === 1) {
+        const f = flaggedItems[0];
+        const itemMatch = (f.items || "").match(RED_FLAG_ITEMS);
+        const code = itemMatch ? itemMatch[0] : "?";
+        const codeLabel = ({
+          "2.05": "restructuración",
+          "2.06": "impairment material",
+          "3.03": "modificación derechos accionistas",
+          "5.02": "salida ejecutivo",
+          "8.01": "evento material",
+        })[code] || code;
+        severity = "warning";
+        title = `${ticker}: 8-K item ${code} (${codeLabel})`;
+        reason = `8-K filed ${f.date} con item ${code} (${codeLabel}). Revisar contenido en SEC EDGAR.`;
+      } else if (eightKs.length >= 4) {
+        severity = "warning";
+        title = `${ticker}: ${eightKs.length} 8-Ks en 30 días`;
+        reason = `Cluster inusual de ${eightKs.length} 8-Ks (sin items críticos identificados). Posible actividad corporativa.`;
+      }
+
+      if (severity) {
+        withFilings++;
+        insights.push({
+          ticker, severity, title,
+          summary: `${name || ticker}. ${reason}`,
+          details: {
+            eightKs: eightKs.length,
+            tenQs: tenQs.length,
+            tenKs: tenKs.length,
+            flaggedItems: flaggedItems.length,
+            recentFilings: recentFilings.slice(0, 6),
+          },
+          score: severity === "critical" ? 9 : 5,
+        });
+      }
+    }
+
+    if (i + 5 < eligible.length) await new Promise(r => setTimeout(r, 1500));
+  }
+
+  // Cleanup stale rows
+  const flagged = new Set(insights.map(i => i.ticker));
+  try {
+    const { results: existing } = await env.DB.prepare(
+      "SELECT ticker FROM agent_insights WHERE agent_name = 'sec_filings' AND fecha = ?"
+    ).bind(fecha).all();
+    for (const row of (existing || [])) {
+      if (!flagged.has(row.ticker)) {
+        await env.DB.prepare(
+          "DELETE FROM agent_insights WHERE agent_name = 'sec_filings' AND fecha = ? AND ticker = ?"
+        ).bind(fecha, row.ticker).run();
+      }
+    }
+  } catch {}
+
+  insights.sort((a, b) => {
+    if (a.severity !== b.severity) return a.severity === "critical" ? -1 : 1;
+    return (b.score || 0) - (a.score || 0);
+  });
+
+  const stored = await storeInsights(env, "sec_filings", fecha, insights);
+  return { agent: "sec_filings", scanned, alerts: insights.length, withFilings, stored, cikLookups };
+}
+
 // ─── Agent 13: Earnings Trend Pattern (no LLM) ──────────────────
 // Pure-calculation pattern detector that complements the Opus Earnings agent.
 // Flags two specific patterns that humans miss when looking quarter-by-quarter:
@@ -9929,6 +10109,7 @@ async function runAllAgents(env) {
     ['dividend_cut_warning', runDividendCutWarningAgent], // Step 11: No LLM, FCF payout trend (Tier 1)
     ['analyst_downgrade', runAnalystDowngradeAgent],      // Step 12: FMP grades-historical (no LLM, Tier 1)
     ['earnings_trend', runEarningsTrendAgent],            // Step 13: No LLM, op-income/margin pattern (Tier 3)
+    ['sec_filings', runSECFilingsAgent],                  // Step 14: SEC EDGAR 8-K tracker (no LLM, Tier 3)
   ];
 
   for (let i = 0; i < agents.length; i++) {
