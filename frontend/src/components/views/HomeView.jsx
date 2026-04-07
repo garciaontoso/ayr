@@ -20,7 +20,10 @@ import ResearchTab from '../home/ResearchTab';
 import AgentesTab from '../home/AgentesTab';
 import CoveredCallsTab from '../home/CoveredCallsTab';
 import IncomeLabTab from '../home/IncomeLabTab';
-import ProcesoTab from '../home/ProcesoTab';
+// ProcesoTab removed from Home tabs 2026-04-08 — theses now live per-company
+// inside the analysis view (TesisTab). Import kept commented in case we
+// want to resurrect a global theses dashboard later.
+// import ProcesoTab from '../home/ProcesoTab';
 import LibraryTab from '../home/LibraryTab';
 import CurrencyTab from '../home/CurrencyTab';
 import MacroTab from '../home/MacroTab';
@@ -894,7 +897,6 @@ export default function HomeView() {
       {homeTab==="income" && <IncomeTab />}
       {homeTab==="nomina" && <NominaTab />}
       {homeTab==="presupuesto" && <PresupuestoTab />}
-      {homeTab==="proceso" && <ProcesoTab />}
       {homeTab==="library" && <LibraryTab />}
       {homeTab==="currency" && <CurrencyTab />}
       {homeTab==="macro" && <MacroTab />}

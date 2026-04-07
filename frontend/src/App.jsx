@@ -39,6 +39,7 @@ const PaybackTab = lazy(() => import('./components/analysis/PaybackTab'));
 const ReportTab = lazy(() => import('./components/analysis/ReportTab'));
 const TranscriptTab = lazy(() => import('./components/analysis/TranscriptTab'));
 const BusinessModelTab = lazy(() => import('./components/analysis/BusinessModelTab'));
+const TesisTab = lazy(() => import('./components/analysis/TesisTab'));
 const DSTTab = lazy(() => import('./components/analysis/DSTTab'));
 const OptionsChainTab = lazy(() => import('./components/analysis/OptionsChainTab'));
 
@@ -1785,6 +1786,7 @@ function buildPositionsFromCB() {
     options:() => <OptionsChainTab />,
     transcript:() => <TranscriptTab />,
     business:() => <BusinessModelTab />,
+    tesis:() => <TesisTab />,
   };
 
 

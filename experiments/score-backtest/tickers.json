@@ -1,0 +1,211 @@
+{
+  "_comment": "25 tickers para validar Quality + Safety scores. Mix de cuts/disasters conocidos y compounders ganadores. Cada ticker tiene 'category' y 'event_year' si aplica.",
+  "_categories": {
+    "cut": "Recortó dividendo en algún momento — el score debería caer ANTES del recorte",
+    "stress": "Estuvo bajo estrés pero no recortó — el score debería bajar pero recuperarse",
+    "compounder": "Quality compounder histórico — el score debería ser consistentemente alto",
+    "value_trap": "Bajo precio, parecía barato pero deterioró — el score debería detectar la degradación"
+  },
+  "tickers": [
+    {
+      "ticker": "T",
+      "name": "AT&T",
+      "category": "cut",
+      "event_date": "2022-05-01",
+      "event_description": "Recorte dividendo del 47% al spinoff Warner",
+      "expected_score_pre": "low_safety_decreasing"
+    },
+    {
+      "ticker": "KHC",
+      "name": "Kraft Heinz",
+      "category": "cut",
+      "event_date": "2019-02-21",
+      "event_description": "Recorte dividendo 36% + writedown $15B",
+      "expected_score_pre": "very_low_quality_safety"
+    },
+    {
+      "ticker": "WBA",
+      "name": "Walgreens Boots Alliance",
+      "category": "cut",
+      "event_date": "2024-01-04",
+      "event_description": "Recorte 48% tras 47 años de raises (perdió status Aristocrat)",
+      "expected_score_pre": "deteriorating_safety"
+    },
+    {
+      "ticker": "INTC",
+      "name": "Intel",
+      "category": "cut",
+      "event_date": "2023-02-22",
+      "event_description": "Recorte dividendo 66% por capex masivo",
+      "expected_score_pre": "deteriorating_quality_and_safety"
+    },
+    {
+      "ticker": "VFC",
+      "name": "VF Corp",
+      "category": "cut",
+      "event_date": "2023-10-30",
+      "event_description": "Recorte 70%, perdió Aristocrat status",
+      "expected_score_pre": "deteriorating"
+    },
+    {
+      "ticker": "MMM",
+      "name": "3M",
+      "category": "cut",
+      "event_date": "2024-04-30",
+      "event_description": "Recorte tras spinoff Solventum",
+      "expected_score_pre": "low_safety_decreasing"
+    },
+    {
+      "ticker": "DIS",
+      "name": "Disney",
+      "category": "cut",
+      "event_date": "2020-05-05",
+      "event_description": "Suspendió dividendo COVID (luego restaurado parcialmente)",
+      "expected_score_pre": "high_quality_low_safety"
+    },
+    {
+      "ticker": "GE",
+      "name": "General Electric",
+      "category": "cut",
+      "event_date": "2018-12-07",
+      "event_description": "Recorte 92% (a $0.01) tras crisis multidivisional",
+      "expected_score_pre": "very_low_all"
+    },
+    {
+      "ticker": "PYPL",
+      "name": "PayPal",
+      "category": "value_trap",
+      "event_date": "2022-01-01",
+      "event_description": "Pierde 75% de pico, sin dividendo, quality degradación severa",
+      "expected_score_pre": "high_quality_dropping_2022"
+    },
+    {
+      "ticker": "MO",
+      "name": "Altria",
+      "category": "stress",
+      "event_date": null,
+      "event_description": "Bajo presión regulatoria continua pero ha mantenido dividendo (Aristocrat)",
+      "expected_score_pre": "moderate_consistent"
+    },
+    {
+      "ticker": "MSFT",
+      "name": "Microsoft",
+      "category": "compounder",
+      "event_date": null,
+      "event_description": "Quality compounder de referencia, dividend grower consistente",
+      "expected_score_pre": "high_consistent"
+    },
+    {
+      "ticker": "V",
+      "name": "Visa",
+      "category": "compounder",
+      "event_date": null,
+      "event_description": "Dividend growth + ROIC altísimo",
+      "expected_score_pre": "very_high"
+    },
+    {
+      "ticker": "MA",
+      "name": "Mastercard",
+      "category": "compounder",
+      "event_date": null,
+      "event_description": "Akre top holding, three-legged stool perfecto",
+      "expected_score_pre": "very_high"
+    },
+    {
+      "ticker": "AAPL",
+      "name": "Apple",
+      "category": "compounder",
+      "event_date": null,
+      "event_description": "Buybacks + dividend growth, FCF king",
+      "expected_score_pre": "very_high"
+    },
+    {
+      "ticker": "COST",
+      "name": "Costco",
+      "category": "compounder",
+      "event_date": null,
+      "event_description": "Dividend growth + special dividends, quality alta",
+      "expected_score_pre": "high_consistent"
+    },
+    {
+      "ticker": "ZTS",
+      "name": "Zoetis",
+      "category": "compounder",
+      "event_date": null,
+      "event_description": "Quality animal health, beat rate alto, predictable",
+      "expected_score_pre": "high_consistent"
+    },
+    {
+      "ticker": "MCO",
+      "name": "Moody's",
+      "category": "compounder",
+      "event_date": null,
+      "event_description": "Buffett holding, oligopolio rating, ROIC altísimo",
+      "expected_score_pre": "very_high"
+    },
+    {
+      "ticker": "MCD",
+      "name": "McDonald's",
+      "category": "compounder",
+      "event_date": null,
+      "event_description": "Aristocrat 47y, dividend growth consistente",
+      "expected_score_pre": "high_consistent"
+    },
+    {
+      "ticker": "KO",
+      "name": "Coca-Cola",
+      "category": "compounder",
+      "event_date": null,
+      "event_description": "Aristocrat 60+y, Buffett core holding",
+      "expected_score_pre": "high_consistent"
+    },
+    {
+      "ticker": "PG",
+      "name": "Procter & Gamble",
+      "category": "compounder",
+      "event_date": null,
+      "event_description": "Aristocrat 65+y, defensivo de calidad",
+      "expected_score_pre": "high_consistent"
+    },
+    {
+      "ticker": "JNJ",
+      "name": "Johnson & Johnson",
+      "category": "compounder",
+      "event_date": null,
+      "event_description": "Aristocrat 60+y, healthcare diversificado",
+      "expected_score_pre": "high_consistent"
+    },
+    {
+      "ticker": "ABT",
+      "name": "Abbott Labs",
+      "category": "compounder",
+      "event_date": null,
+      "event_description": "Aristocrat 51y (post AbbVie spinoff), healthcare quality",
+      "expected_score_pre": "high_consistent"
+    },
+    {
+      "ticker": "PEP",
+      "name": "PepsiCo",
+      "category": "compounder",
+      "event_date": null,
+      "event_description": "Aristocrat 50+y, dividend growth +5%/año",
+      "expected_score_pre": "high_consistent"
+    },
+    {
+      "ticker": "BRK-B",
+      "name": "Berkshire Hathaway B",
+      "category": "compounder",
+      "event_date": null,
+      "event_description": "Sin dividendo pero quality + safety conceptual altísimas",
+      "expected_score_pre": "high_quality_no_dividend"
+    },
+    {
+      "ticker": "F",
+      "name": "Ford",
+      "category": "cut",
+      "event_date": "2020-03-19",
+      "event_description": "Suspendió dividendo COVID (Ford ya histórico de cuts)",
+      "expected_score_pre": "low_safety_cyclical"
+    }
+  ]
+}

@@ -26,6 +26,7 @@ export const DEFAULT_FX = {USD:1, EUR:0.876, GBP:0.756, CAD:1.44, AUD:1.59, HKD:
 
 export const TABS = [
   {id:"dash",lbl:"Resumen",ico:"◈"},
+  {id:"tesis",lbl:"Tesis",ico:"📝"},
   {id:"transcript",lbl:"Transcript",ico:"📞"},
   {id:"business",lbl:"Cómo gana $",ico:"👶"},
   {id:"chart",lbl:"Chart",ico:"📈"},
@@ -52,7 +53,10 @@ export const API_URL = "https://aar-api.garciaontoso.workers.dev";
 export const HOME_TABS = [
   {id:"portfolio",lbl:"Portfolio",ico:"💼"},
   {id:"agentes",lbl:"Agentes",ico:"🤖"},
-  {id:"proceso",lbl:"Proceso",ico:"📝"},
+  // "proceso" removed 2026-04-08: theses now live as a per-company tab
+  // inside the analysis view (📝 Tesis tab). Component kept in codebase
+  // at components/home/ProcesoTab.jsx in case a global theses dashboard
+  // is needed again in the future.
   {id:"dashboard",lbl:"Dashboard",ico:"📊"},
   {id:"income",lbl:"Income",ico:"🥦"},
   {id:"dividendos",lbl:"Dividendos",ico:"💰"},

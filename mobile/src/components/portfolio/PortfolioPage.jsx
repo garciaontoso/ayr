@@ -69,16 +69,21 @@ function HoldingsTab() {
 
       {sorted.map(p => {
         const val = p.usd_value || p.market_value || 0;
-        const pnl = p.pnl_pct || 0;
+        const pnlPct = p.pnl_pct || 0;
         const pnlAbs = p.pnl_abs || 0;
-        const logoUrl = p.ticker ? `https://logo.clearbit.com/${(p.name || p.ticker).toLowerCase().replace(/[^a-z]/g, '')}.com` : null;
+        const isPos = pnlPct >= 0;
+        const signedAbs = isPos ? Math.abs(pnlAbs) : -Math.abs(pnlAbs);
 
         return (
           <div key={p.ticker} className="holding-row">
             <div className="holding-logo">
-              {logoUrl ? (
-                <img src={logoUrl} alt="" onError={e => { e.target.style.display = 'none'; e.target.parentNode.textContent = p.ticker?.slice(0, 3); }} />
-              ) : p.ticker?.slice(0, 3)}
+              <img
+                src={`https://financialmodelingprep.com/image-stock/${p.ticker}.png`}
+                alt=""
+                loading="lazy"
+                onError={e => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
+              />
+              <span style={{ display: 'none', width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>{p.ticker?.slice(0, 3)}</span>
             </div>
             <div className="holding-info">
               <div className="holding-name">{p.name || p.ticker}</div>
@@ -88,8 +93,8 @@ function HoldingsTab() {
             </div>
             <div className="holding-values">
               <div className="holding-price">{pv(fDol(val))}</div>
-              <div className={`holding-change ${pnl >= 0 ? 'green' : 'red'}`}>
-                {pv(`${fSignK(pnlAbs)} ${pnl >= 0 ? '\u25b2' : '\u25bc'} ${_sf(Math.abs(pnl), 2)}%`)}
+              <div className={`holding-change ${isPos ? 'green' : 'red'}`}>
+                {pv(`${fSignK(signedAbs)} ${isPos ? '\u25b2' : '\u25bc'} ${_sf(Math.abs(pnlPct * 100), 2)}%`)}
               </div>
             </div>
           </div>

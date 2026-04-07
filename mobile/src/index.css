@@ -13,20 +13,23 @@
   --text: #e6edf3;
   --text2: #8b949e;
   --text3: #484f58;
-  --tab-h: 56px;
-  --header-h: 52px;
+  --tab-h: 50px;
+  --header-h: 48px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body, #root {
+html, body {
   height: 100%;
-  background: var(--bg);
+  background: #161b22; /* Matches tab bar — fills iPhone safe area below */
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
+}
+#root {
+  height: 100%;
   overflow: hidden;
 }
 
@@ -35,7 +38,7 @@ button { border: none; background: none; color: inherit; cursor: pointer; font: 
 input, select { font: inherit; color: inherit; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
 
 /* Layout */
-.app-shell { display: flex; flex-direction: column; height: 100%; padding-top: var(--safe-top); }
+.app-shell { display: flex; flex-direction: column; height: 100%; padding-top: var(--safe-top); background: var(--bg); }
 .app-header {
   height: var(--header-h);
   display: flex; align-items: center; justify-content: space-between;
@@ -50,38 +53,47 @@ input, select { font: inherit; color: inherit; background: var(--bg3); border: 1
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: calc(var(--tab-h) + var(--safe-bottom));
+  padding-bottom: 80px; /* Tab bar height + safe area */
 }
 .app-tabbar {
   position: fixed; bottom: 0; left: 0; right: 0;
-  height: calc(var(--tab-h) + var(--safe-bottom));
-  padding-bottom: var(--safe-bottom);
-  background: var(--bg2);
+  background: #161b22;
   border-top: 1px solid var(--border);
   display: flex; align-items: center; justify-content: space-around;
+  padding: 6px 0 34px; /* 34px = iPhone safe area, works for all models */
   z-index: 100;
+}
+/* Non-notch devices: reduce bottom padding */
+@media screen and (max-height: 811px) {
+  .app-tabbar { padding-bottom: 8px; }
+}
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .app-tabbar { padding-bottom: calc(env(safe-area-inset-bottom) + 4px); }
 }
 
 /* Tab items */
 .tab-item {
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 6px 0; flex: 1;
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 2px 0; flex: 1;
   color: var(--text3); transition: color 0.15s;
   position: relative;
 }
 .tab-item.active { color: var(--green); }
-.tab-item svg { width: 22px; height: 22px; }
-.tab-item span { font-size: 10px; font-weight: 500; }
+.tab-item svg { width: 20px; height: 20px; }
+.tab-item span { font-size: 9px; font-weight: 500; }
 
 /* Cards */
 .card {
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 16px;
-  margin: 0 16px 12px;
+  padding: 14px;
+  margin: 0 12px 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  animation: fadeIn 0.3s ease-out;
 }
-.card-compact { padding: 12px; margin: 0 12px 8px; }
+.card-compact { padding: 10px; margin: 0 12px 8px; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
 /* Metrics */
 .metric-label { font-size: 12px; color: var(--text2); margin-bottom: 2px; }
@@ -173,7 +185,7 @@ input, select { font: inherit; color: inherit; background: var(--bg3); border: 1
 }
 
 /* Page padding */
-.page { padding: 8px 0 20px; }
+.page { padding: 4px 0 12px; }
 
 /* Holdings row */
 .holding-row {

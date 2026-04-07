@@ -46,13 +46,23 @@ export default function TabBar() {
   const location = useLocation();
   const navigate = useNavigate();
 
+  const handleTap = (path) => {
+    if (location.pathname === path) {
+      // Re-tap: scroll to top
+      const content = document.querySelector('.app-content');
+      if (content) content.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      navigate(path);
+    }
+  };
+
   return (
     <div className="app-tabbar">
       {tabs.map(t => (
         <button
           key={t.path}
           className={`tab-item ${location.pathname === t.path ? 'active' : ''}`}
-          onClick={() => navigate(t.path)}
+          onClick={() => handleTap(t.path)}
         >
           {icons[t.icon]}
           <span>{t.label}</span>

@@ -1,4 +1,14 @@
-# A&R v3.2 — Dividend Equity Analysis
+# A&R v4.0 — Dividend Equity Analysis + 11 AI Agents
+
+## v4.0 Changes (2026-04-06)
+- **11 AI Agents** in production with daily cron + push notifications. See `AGENTS.md` for full docs.
+- **Tab "Agentes"** moved to position 2 (after Portfolio). Two view modes: Timeline | Por Empresa.
+- **Sectors enriched 100%** (was 0%) using GuruFocus + FMP + manual mappings
+- **Dividend agent uses Opus** with 8-quarter trend data — entiende contexto (KHC debt paydown = INFO not CRITICAL)
+- **Local docs/{ticker}/** with 57 GF financials (30y quarterly) + 63 SEC filing links
+- **GuruFocus integrated**: $1,299/yr Premium Plus, ~4,500 queries/month used
+- **Cost**: ~$1.50/day Claude API ($33/month) — 3 Opus agents + 5 Haiku + 4 No-LLM
+- **Tastytrade**: secrets saved but device challenge blocks Cloudflare Workers (pending)
 
 ## Deploy commands
 - Frontend: `cd frontend && npm run build && npx wrangler pages deploy dist --project-name=ayr --branch=production --commit-dirty=true`

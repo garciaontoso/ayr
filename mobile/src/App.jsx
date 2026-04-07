@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, Component } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Header from './components/layout/Header';
 import TabBar from './components/layout/TabBar';
@@ -18,25 +18,46 @@ const Loading = () => (
   </div>
 );
 
+class ErrorBoundary extends Component {
+  state = { error: null };
+  static getDerivedStateFromError(error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 40, textAlign: 'center', color: 'var(--text2)' }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>!</div>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Something went wrong</div>
+          <button
+            onClick={() => { this.setState({ error: null }); window.location.reload(); }}
+            style={{ background: 'var(--blue)', color: '#fff', padding: '8px 20px', borderRadius: 8, fontSize: 13 }}
+          >Reload</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const offline = useOffline();
-  const { loading } = useApp();
 
   return (
     <div className="app-shell">
       {offline && <div className="offline-banner">Sin conexion - datos en cache</div>}
       <Header />
       <div className="app-content">
-        <Suspense fallback={<Loading />}>
-          <Routes>
-            <Route path="/" element={<DashboardPage />} />
-            <Route path="/analytics" element={<AnalyticsPage />} />
-            <Route path="/calendar" element={<CalendarPage />} />
-            <Route path="/portfolio" element={<PortfolioPage />} />
-            <Route path="/profile" element={<ProfilePage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </Suspense>
+        <ErrorBoundary>
+          <Suspense fallback={<Loading />}>
+            <Routes>
+              <Route path="/" element={<DashboardPage />} />
+              <Route path="/analytics" element={<AnalyticsPage />} />
+              <Route path="/calendar" element={<CalendarPage />} />
+              <Route path="/portfolio" element={<PortfolioPage />} />
+              <Route path="/profile" element={<ProfilePage />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
+        </ErrorBoundary>
       </div>
       <TabBar />
     </div>

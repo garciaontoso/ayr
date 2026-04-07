@@ -1,4 +1,62 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <rect width="100" height="100" rx="20" fill="#0d1117"/>
-  <text x="50" y="65" font-size="50" font-weight="bold" text-anchor="middle" fill="#00d4aa">A&R</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+    <linearGradient id="snow1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e6edf3"/>
+      <stop offset="100%" stop-color="#8b949e"/>
+    </linearGradient>
+    <linearGradient id="snow2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#c9d1d9"/>
+      <stop offset="100%" stop-color="#6e7681"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#00d4aa" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#00d4aa" stop-opacity="0"/>
+    </linearGradient>
+    <!-- Sparkle filter -->
+    <filter id="blur1">
+      <feGaussianBlur stdDeviation="3"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="108" fill="url(#bg)"/>
+
+  <!-- Subtle hill/slope -->
+  <path d="M0 420 Q128 350 256 380 Q384 410 512 360 L512 512 L0 512 Z" fill="#1c2128" opacity="0.6"/>
+
+  <!-- Trail/path showing snowball growth -->
+  <path d="M80 180 Q120 200 160 210 Q200 225 250 250 Q300 280 330 310"
+        stroke="url(#glow)" stroke-width="20" fill="none" stroke-linecap="round" opacity="0.5"/>
+
+  <!-- Small snowball (past - where it started) -->
+  <circle cx="95" cy="175" r="18" fill="url(#snow2)" opacity="0.4"/>
+  <!-- Medium snowball (growing) -->
+  <circle cx="185" cy="215" r="28" fill="url(#snow2)" opacity="0.5"/>
+
+  <!-- Main large snowball -->
+  <circle cx="320" cy="310" r="85" fill="url(#snow1)"/>
+  <!-- Snowball shine -->
+  <ellipse cx="295" cy="275" rx="30" ry="20" fill="white" opacity="0.25" transform="rotate(-30 295 275)"/>
+  <!-- Snowball texture dots -->
+  <circle cx="280" cy="330" r="4" fill="white" opacity="0.15"/>
+  <circle cx="350" cy="290" r="3" fill="white" opacity="0.12"/>
+  <circle cx="340" cy="350" r="5" fill="white" opacity="0.1"/>
+  <circle cx="300" cy="360" r="3" fill="white" opacity="0.12"/>
+
+  <!-- Dollar sign inside snowball -->
+  <text x="320" y="325" text-anchor="middle" font-family="-apple-system, sans-serif" font-size="70" font-weight="800" fill="#00d4aa" opacity="0.9">$</text>
+
+  <!-- Sparkle particles (snow/money growing) -->
+  <circle cx="140" cy="160" r="3" fill="#00d4aa" opacity="0.6"/>
+  <circle cx="110" cy="195" r="2" fill="#58a6ff" opacity="0.5"/>
+  <circle cx="210" cy="190" r="2.5" fill="#00d4aa" opacity="0.4"/>
+  <circle cx="250" cy="230" r="2" fill="#58a6ff" opacity="0.5"/>
+  <circle cx="170" cy="240" r="1.5" fill="#00d4aa" opacity="0.3"/>
+
+  <!-- App name -->
+  <text x="256" y="460" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="48" font-weight="800" fill="#e6edf3" letter-spacing="4">SNOWBALL</text>
 </svg>
