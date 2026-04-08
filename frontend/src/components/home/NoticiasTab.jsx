@@ -8,7 +8,7 @@
 // `offline_youtube_videos_{channel_id}` + `offline_youtube_channels`. Falls
 // back to legacy `offline_youtube_videos` for backward compat. The
 // fetchAllYouTubeForOffline() helper is exported so AirplaneMode can pre-cache.
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { API_URL } from '../../constants/index.js';
 import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
@@ -110,6 +110,9 @@ export default function NoticiasTab() {
   const [addChannelInput, setAddChannelInput] = useState('');
   const [addingChannel, setAddingChannel] = useState(false);
   const [addError, setAddError] = useState(null);
+  // Refs (declared BEFORE any useEffect that uses them — see CLAUDE.md TDZ note)
+  const startCountRef = useRef(0);
+  const statusTimer = useRef(null);
 
   useEffect(() => {
     const onOnline = () => setIsOffline(false);
@@ -157,7 +160,11 @@ export default function NoticiasTab() {
     }
   }, [isOffline]);
 
-  const loadVideos = useCallback(async () => {
+  // Mount: load channels + videos in parallel (videos runs again when channel resolves)
+  useEffect(() => { loadChannels(); }, [loadChannels]);
+  useEffect(() => {
+    setFilter('all');
+    setExpandedVideo(null);
     if (!selectedChannelId) { setVideos([]); return; }
     setLoading(true);
     if (isOffline) {
@@ -173,30 +180,31 @@ export default function NoticiasTab() {
       setLoading(false);
       return;
     }
-    try {
-      const r = await fetch(`${API_URL}/api/youtube/videos?channel_id=${encodeURIComponent(selectedChannelId)}&limit=200`);
-      const data = await r.json();
-      setVideos(data.videos || []);
-      setStatus('');
-    } catch (e) {
-      setStatus(`Error cargando vídeos: ${e.message}`);
-    }
-    setLoading(false);
+    const ac = new AbortController();
+    (async () => {
+      try {
+        const r = await fetch(`${API_URL}/api/youtube/videos?channel_id=${encodeURIComponent(selectedChannelId)}&limit=200`, { signal: ac.signal });
+        if (ac.signal.aborted) return;
+        const data = await r.json();
+        if (ac.signal.aborted) return;
+        setVideos(data.videos || []);
+        setStatus('');
+      } catch (e) {
+        if (e.name === 'AbortError') return;
+        setStatus(`Error cargando vídeos: ${e.message}`);
+      } finally {
+        if (!ac.signal.aborted) setLoading(false);
+      }
+    })();
+    return () => ac.abort();
   }, [isOffline, selectedChannelId]);
-
-  // Mount: load channels + videos in parallel (videos runs again when channel resolves)
-  useEffect(() => { loadChannels(); }, [loadChannels]);
-  useEffect(() => {
-    loadVideos();
-    setFilter('all');
-    setExpandedVideo(null);
-  }, [loadVideos]);
 
   // Pending count (for current channel)
   const pendingCount = videos.filter(v => v.status === 'pending').length;
 
   const handleProcessNow = useCallback(async () => {
     if (pendingCount === 0 || processing) return;
+    startCountRef.current = pendingCount;
     setProcessing(true);
     setProcessingSince(new Date());
     setStatus('🟡 Esperando que tu Mac procese los vídeos pendientes (≤1 min para arrancar, ~1 min por vídeo)…');
@@ -211,18 +219,19 @@ export default function NoticiasTab() {
   // Auto-poll while processing
   useEffect(() => {
     if (!processing) return;
-    const startCount = pendingCount;
     const interval = setInterval(async () => {
       try {
         const r = await fetch(`${API_URL}/api/youtube/videos?channel_id=${encodeURIComponent(selectedChannelId)}&limit=200`);
         const data = await r.json();
         const newVideos = data.videos || [];
         setVideos(newVideos);
+        const startCount = startCountRef.current;
         const newPending = newVideos.filter(v => v.status === 'pending').length;
         if (newPending === 0) {
           setStatus(`✅ ${startCount} vídeo(s) procesados.`);
           setProcessing(false);
-          setTimeout(() => setStatus(''), 8000);
+          if (statusTimer.current) clearTimeout(statusTimer.current);
+          statusTimer.current = setTimeout(() => setStatus(''), 8000);
         } else if (newPending < startCount) {
           setStatus(`🟢 Procesando… ${startCount - newPending}/${startCount} listos`);
         }
@@ -233,7 +242,22 @@ export default function NoticiasTab() {
       }
     }, 8000);
     return () => clearInterval(interval);
-  }, [processing, processingSince, pendingCount, selectedChannelId]);
+  }, [processing, processingSince, selectedChannelId]);
+
+  // Clear status timer on unmount
+  useEffect(() => () => {
+    if (statusTimer.current) clearTimeout(statusTimer.current);
+  }, []);
+
+  // Lightweight refetch used after scan/process — not the primary loader
+  const refetchVideos = useCallback(async () => {
+    if (!selectedChannelId || isOffline) return;
+    try {
+      const r = await fetch(`${API_URL}/api/youtube/videos?channel_id=${encodeURIComponent(selectedChannelId)}&limit=200`);
+      const data = await r.json();
+      setVideos(data.videos || []);
+    } catch {}
+  }, [selectedChannelId, isOffline]);
 
   const handleScan = async () => {
     if (isOffline) {
@@ -260,13 +284,14 @@ export default function NoticiasTab() {
       } else {
         setStatus('✅ Sin vídeos nuevos.');
       }
-      await loadVideos();
+      await refetchVideos();
       await loadChannels();
     } catch (e) {
       setStatus(`❌ Error: ${e.message}`);
     }
     setScanning(false);
-    setTimeout(() => setStatus(''), 10000);
+    if (statusTimer.current) clearTimeout(statusTimer.current);
+    statusTimer.current = setTimeout(() => setStatus(''), 10000);
   };
 
   // Add channel
@@ -712,7 +737,7 @@ function VideoCard({ video, expanded, onToggle, openAnalysis }) {
                       {c.fair_value && <> · 💰 Justo: <span style={{ color: 'var(--text-primary)' }}>{c.fair_value}</span></>}
                     </div>
                   )}
-                  {c.risks && (Array.isArray(c.risks) ? c.risks.length > 0 : c.risks.length > 0) && (
+                  {c.risks && (Array.isArray(c.risks) ? c.risks.length > 0 : !!c.risks) && (
                     <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 4 }}>
                       ⚠️ {Array.isArray(c.risks) ? c.risks.join(' · ') : c.risks}
                     </div>

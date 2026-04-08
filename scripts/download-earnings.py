@@ -28,6 +28,7 @@ import os
 import re
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
@@ -56,7 +57,7 @@ SEC_MAX_RETRIES = 3
 LOG_FILE = Path.home() / "Library" / "Logs" / "ayr-earnings-archive.log"
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-DEFAULT_FORMS = ("10-K", "10-Q")
+DEFAULT_FORMS = ("10-K", "10-Q", "20-F")
 MAX_DOC_BYTES = 20 * 1024 * 1024  # 20 MB cap per doc (R2 body limit)
 
 
@@ -73,7 +74,7 @@ def log(msg):
 
 
 # ─── HTTP helpers (stdlib only) ──────────────────────────────────────
-def http_get(url, headers=None, timeout=60, binary=False, retries=1):
+def http_get(url, headers=None, timeout=60, binary=False, retries=3):
     last_err = None
     for attempt in range(retries):
         try:
@@ -96,16 +97,35 @@ def http_get(url, headers=None, timeout=60, binary=False, retries=1):
             raise last_err
 
 
-def http_post_json(url, payload, headers=None, timeout=120):
+def http_post_json(url, payload, headers=None, timeout=120, retries=3):
     body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=body, method="POST")
-    req.add_header("Content-Type", "application/json")
-    req.add_header("User-Agent", "AyR-earnings-archive/1.0")
-    if headers:
-        for k, v in headers.items():
-            req.add_header(k, v)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    last_err = None
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(url, data=body, method="POST")
+            req.add_header("Content-Type", "application/json")
+            req.add_header("User-Agent", "AyR-earnings-archive/1.0")
+            if headers:
+                for k, v in headers.items():
+                    req.add_header(k, v)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            try:
+                err_body = e.read().decode("utf-8", errors="replace")[:500]
+            except Exception:
+                err_body = ""
+            last_err = Exception(f"HTTP {e.code}: {err_body or e.reason}")
+            if attempt < retries - 1 and e.code >= 500:
+                time.sleep(1.0 + attempt)
+                continue
+            raise last_err
+        except Exception as e:
+            last_err = e
+            if attempt < retries - 1:
+                time.sleep(1.0 + attempt)
+                continue
+            raise last_err
 
 
 # ─── HTML → text ─────────────────────────────────────────────────────
@@ -116,11 +136,11 @@ class _TextExtractor(HTMLParser):
         self.parts = []
 
     def handle_starttag(self, tag, attrs):
-        if tag in ("script", "style", "noscript"):
+        if tag in ("script", "style", "noscript", "iframe", "svg", "head"):
             self._skip_depth += 1
 
     def handle_endtag(self, tag):
-        if tag in ("script", "style", "noscript") and self._skip_depth > 0:
+        if tag in ("script", "style", "noscript", "iframe", "svg", "head") and self._skip_depth > 0:
             self._skip_depth -= 1
         if tag in ("p", "br", "div", "tr", "li", "h1", "h2", "h3", "h4", "h5"):
             self.parts.append("\n")
@@ -152,13 +172,22 @@ def load_cik_map():
     if _CIK_MAP_CACHE is not None:
         return _CIK_MAP_CACHE
     tmp = Path("/tmp/sec-company-tickers.json")
+    data = None
     if tmp.exists() and (time.time() - tmp.stat().st_mtime) < 86400:
-        data = json.loads(tmp.read_text())
-    else:
+        try:
+            data = json.loads(tmp.read_text())
+        except Exception as e:
+            log(f"Corrupt CIK cache, refetching: {e}")
+            try: tmp.unlink()
+            except Exception: pass
+    if data is None:
         log("Fetching SEC ticker→CIK map...")
-        raw = http_get(SEC_COMPANY_TICKERS_URL)
+        raw = http_get(SEC_COMPANY_TICKERS_URL, retries=3)
         data = json.loads(raw)
-        tmp.write_text(raw)
+        try:
+            tmp.write_text(raw)
+        except Exception as e:
+            log(f"Could not cache CIK map: {e}")
     # Format: { "0": {"cik_str":320193,"ticker":"AAPL","title":"Apple Inc."}, ... }
     _CIK_MAP_CACHE = {v["ticker"].upper(): str(v["cik_str"]).zfill(10) for v in data.values()}
     log(f"Loaded CIK map: {len(_CIK_MAP_CACHE)} tickers")
@@ -199,7 +228,7 @@ def list_sec_filings(ticker, years, forms):
         primary = prim_arr[i]
         period = period_arr[i] if i < len(period_arr) else None
         acc_nodash = accession.replace("-", "")
-        doc_url = f"https://www.sec.gov/Archives/edgar/data/{cik_no_zeros}/{acc_nodash}/{primary}"
+        doc_url = f"https://www.sec.gov/Archives/edgar/data/{cik_no_zeros}/{acc_nodash}/{urllib.parse.quote(primary, safe='/')}"
         out.append({
             "type": form,
             "filing_date": filed,
@@ -240,7 +269,7 @@ def download_sec_filing(ticker, filing, dry_run=False):
         log(f"  [{ticker}] skip {filing['type']} — stripped body too small ({len(text)}b)")
         return False
     fy, fq = _infer_fiscal_from_period(filing.get("period_of_report"))
-    if filing["type"] == "10-K":
+    if filing["type"] in ("10-K", "20-F"):
         fq = None  # annual report, no quarter
     payload = {
         "ticker": ticker,
@@ -369,11 +398,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--years", type=int, default=3, help="lookback years (default 3)")
     parser.add_argument("--tickers", type=str, help="comma-separated override")
-    parser.add_argument("--forms", type=str, default="10-K,10-Q", help="SEC form types")
+    parser.add_argument("--forms", type=str, default="10-K,10-Q,20-F", help="SEC form types")
     parser.add_argument("--skip-sec", action="store_true")
     parser.add_argument("--skip-fmp", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--limit-per-ticker", type=int, default=20)
+    parser.add_argument("--only-missing", action="store_true",
+                        help="skip tickers that already have any docs in the archive")
     args = parser.parse_args()
 
     if not WORKER_TOKEN:
@@ -387,6 +418,21 @@ def main():
     if not tickers:
         log("No tickers to process")
         sys.exit(1)
+
+    if args.only_missing:
+        try:
+            raw = http_get(
+                f"{WORKER_URL}/api/earnings/archive/stats",
+                headers={"Authorization": f"Bearer {WORKER_TOKEN}"},
+            )
+            stats = json.loads(raw)
+            have = {row["ticker"].upper() for row in stats.get("by_ticker", []) if row.get("ticker")}
+            before = len(tickers)
+            tickers = [t for t in tickers if t not in have]
+            log(f"--only-missing: {before} → {len(tickers)} tickers (skipped {before - len(tickers)} already archived)")
+        except Exception as e:
+            log(f"--only-missing stats fetch failed: {e}")
+            sys.exit(1)
 
     forms = tuple(f.strip().upper() for f in args.forms.split(",") if f.strip())
     log(f"Starting earnings archive | tickers={len(tickers)} | years={args.years} | "
@@ -436,6 +482,10 @@ def main():
         f"DONE sec_ok={totals['sec_ok']} sec_fail={totals['sec_fail']} "
         f"fmp_ok={totals['fmp_ok']} fmp_fail={totals['fmp_fail']}"
     )
+
+    # Exit non-zero if EVERY upload failed AND none succeeded (cron signal)
+    if (totals["sec_ok"] + totals["fmp_ok"] == 0) and (totals["sec_fail"] + totals["fmp_fail"] > 0):
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -2416,7 +2416,9 @@ export default {
         const fq = b.fiscal_quarter ? Number(b.fiscal_quarter) : null;
         const filingDate = b.filing_date || null;
         const periodOfReport = b.period_of_report || null;
-        const accession = b.accession_number || null;
+        // Use a synthetic accession for docs without one (e.g. FMP transcripts)
+        // so SQLite's NULL-is-distinct-in-UNIQUE doesn't allow duplicates.
+        const accession = b.accession_number || `synthetic-${docType}-${fy || 'NA'}-${fq || 'NA'}`;
         const src = b.source || "sec";
         const sourceUrl = b.source_url || null;
         const title = b.title || null;
@@ -2516,6 +2518,9 @@ export default {
         let key = url.searchParams.get("key");
         const id = url.searchParams.get("id");
         const wantRaw = url.searchParams.get("raw") === "1";
+        if (key && (!/^[A-Z0-9/_.-]+$/i.test(key) || key.includes(".."))) {
+          return json({ error: "invalid key" }, corsHeaders, 400);
+        }
         if (!key && id) {
           const row = await env.DB.prepare(
             `SELECT r2_key, r2_key_raw FROM earnings_documents WHERE id = ?`
@@ -2604,6 +2609,8 @@ export default {
       // JSON. Caches result in app_config keyed by ticker+date.
       if (path === "/api/earnings/archive/analyze" && request.method === "POST") {
         await ensureMigrations(env);
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
         if (!env.EARNINGS_R2) return json({ error: "R2 not configured" }, corsHeaders, 500);
         if (!env.ANTHROPIC_API_KEY) return json({ error: "ANTHROPIC_API_KEY not set" }, corsHeaders, 500);
         let body;
@@ -2622,7 +2629,8 @@ export default {
             `SELECT value, updated_at FROM app_config WHERE key = ?`
           ).bind(cacheKey).first();
           if (cached?.value) {
-            const age = (Date.now() - new Date(cached.updated_at + "Z").getTime()) / 3600000;
+            const isoTs = cached.updated_at.replace(' ', 'T') + 'Z';
+            const age = (Date.now() - new Date(isoTs).getTime()) / 3600000;
             if (age < 24) {
               try {
                 const parsed = JSON.parse(cached.value);
@@ -2740,7 +2748,12 @@ Schema exacto:
           const errText = await claudeResp.text();
           return json({ error: `Claude API ${claudeResp.status}: ${errText}` }, corsHeaders, 502);
         }
-        const claudeJson = await claudeResp.json();
+        let claudeJson;
+        try {
+          claudeJson = await claudeResp.json();
+        } catch (e) {
+          return json({ error: `Claude returned non-JSON: ${String(e)}` }, corsHeaders, 502);
+        }
         const rawText = claudeJson.content?.[0]?.text || "";
         let analysis;
         try {
@@ -2791,6 +2804,8 @@ Schema exacto:
       }
       if (path === "/api/youtube/channels" && request.method === "POST") {
         await ensureMigrations(env);
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
         let body;
         try { body = await request.json(); }
         catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
@@ -2812,6 +2827,8 @@ Schema exacto:
       }
       if (path.startsWith("/api/youtube/channels/") && request.method === "DELETE") {
         await ensureMigrations(env);
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
         const channelId = decodeURIComponent(path.replace("/api/youtube/channels/", ""));
         if (!channelId) return json({ error: "channel_id required" }, corsHeaders, 400);
         await env.DB.prepare(`DELETE FROM youtube_channels WHERE channel_id = ?`).bind(channelId).run();
@@ -2820,6 +2837,8 @@ Schema exacto:
       // POST /api/youtube/scan-all-channels — scrape every tracked channel
       if (path === "/api/youtube/scan-all-channels" && request.method === "POST") {
         await ensureMigrations(env);
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
         const rs = await env.DB.prepare(`SELECT channel_id FROM youtube_channels`).all();
         const results = [];
         for (const row of rs.results || []) {
@@ -14309,11 +14328,17 @@ async function ytResolveChannel(input) {
     }
   }
 
-  // Fallback: if the user pasted any youtube URL, try it directly + an encoded variant
-  if (target.includes('youtube.com')) {
-    candidates.push(target);
-    try { candidates.push(encodeURI(target)); } catch {}
-  }
+  // Fallback: if the user pasted any youtube URL, try it directly + an encoded variant.
+  // Validate hostname properly — substring check would let http://evil.com/?q=youtube.com through.
+  try {
+    const u = new URL(target.startsWith('http') ? target : `https://${target}`);
+    const host = u.hostname.toLowerCase();
+    if (host === 'www.youtube.com' || host === 'youtube.com' || host.endsWith('.youtube.com')) {
+      const safe = u.toString();
+      candidates.push(safe);
+      try { candidates.push(encodeURI(safe)); } catch {}
+    }
+  } catch { /* not a valid URL */ }
 
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',

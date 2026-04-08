@@ -94,8 +94,9 @@ export default function ArchiveTab() {
       else setDocsError(d.error || 'Error cargando documentos');
     } catch (e) {
       setDocsError(e.message);
+    } finally {
+      setDocsLoading(false);
     }
-    setDocsLoading(false);
   }, [ticker]);
 
   const loadAnalysis = useCallback(
@@ -114,7 +115,6 @@ export default function ArchiveTab() {
           setNotFound(true);
           setAnalysis(null);
           setAnalysisMeta(null);
-          setAnalysisLoading(false);
           return;
         }
         const d = await r.json();
@@ -131,8 +131,9 @@ export default function ArchiveTab() {
         }
       } catch (e) {
         setAnalysisError(e.message);
+      } finally {
+        setAnalysisLoading(false);
       }
-      setAnalysisLoading(false);
     },
     [ticker]
   );

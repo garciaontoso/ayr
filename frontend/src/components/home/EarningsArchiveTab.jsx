@@ -8,7 +8,7 @@
 // No extra state is stored beyond component-local state. Results from /analyze
 // are cached per ticker in `analysisByTicker` so that switching tickers doesn't
 // re-trigger the expensive call.
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { API_URL } from '../../constants/index.js';
 
 function formatBytes(n) {
@@ -103,22 +103,35 @@ export default function EarningsArchiveTab() {
     return () => { cancelled = true; };
   }, [selectedTicker]);
 
-  // ── Open modal: lazy-fetch body ───────────────────────────
-  const openDoc = useCallback(async (doc) => {
+  // ── Open modal: just set the doc; fetch happens in effect below ──
+  const openDoc = useCallback((doc) => {
     setViewingDoc(doc);
     setViewingBody('');
-    setLoadingBody(true);
-    try {
-      const r = await fetch(`${API_URL}/api/earnings/archive/get?id=${doc.id}`);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const text = await r.text();
-      setViewingBody(text);
-    } catch (e) {
-      setViewingBody(`Error cargando documento: ${e.message}`);
-    } finally {
-      setLoadingBody(false);
-    }
   }, []);
+
+  // Fetch doc body when viewingDoc changes; abort on cleanup / new doc
+  useEffect(() => {
+    if (!viewingDoc) return;
+    const ac = new AbortController();
+    setLoadingBody(true);
+    setViewingBody('');
+    (async () => {
+      try {
+        const r = await fetch(`${API_URL}/api/earnings/archive/get?id=${viewingDoc.id}`, { signal: ac.signal });
+        if (ac.signal.aborted) return;
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const text = await r.text();
+        if (ac.signal.aborted) return;
+        setViewingBody(text);
+      } catch (e) {
+        if (e.name === 'AbortError') return;
+        setViewingBody(`Error cargando documento: ${e.message}`);
+      } finally {
+        if (!ac.signal.aborted) setLoadingBody(false);
+      }
+    })();
+    return () => ac.abort();
+  }, [viewingDoc?.id]);
 
   const closeDoc = useCallback(() => {
     setViewingDoc(null);
@@ -360,8 +373,8 @@ export default function EarningsArchiveTab() {
                     </thead>
                     <tbody>
                       {Object.keys(docsByType).map(type => (
-                        <>
-                          <tr key={`group-${type}`}>
+                        <React.Fragment key={type}>
+                          <tr>
                             <td
                               colSpan={5}
                               style={{
@@ -412,7 +425,7 @@ export default function EarningsArchiveTab() {
                               </td>
                             </tr>
                           ))}
-                        </>
+                        </React.Fragment>
                       ))}
                     </tbody>
                   </table>
