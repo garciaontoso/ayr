@@ -23,6 +23,7 @@ import IncomeLabTab from '../home/IncomeLabTab';
 // ProcesoTab deleted 2026-04-08: theses now live per-company inside the
 // analysis view (TesisTab). File removed entirely after audit B.
 import LibraryTab from '../home/LibraryTab';
+import SmartMoneyTab from '../home/SmartMoneyTab';
 import CurrencyTab from '../home/CurrencyTab';
 import MacroTab from '../home/MacroTab';
 import EarningsTab from '../home/EarningsTab';
@@ -1052,6 +1053,7 @@ export default function HomeView() {
       {homeTab==="nomina" && <NominaTab />}
       {homeTab==="presupuesto" && <PresupuestoTab />}
       {homeTab==="library" && <LibraryTab />}
+      {homeTab==="smart-money" && <SmartMoneyTab />}
       {homeTab==="currency" && <CurrencyTab />}
       {homeTab==="macro" && <MacroTab />}
       {homeTab==="earnings" && <EarningsTab />}

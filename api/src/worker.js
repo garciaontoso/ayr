@@ -684,6 +684,63 @@ async function ensureMigrations(env) {
       try { await env.DB.prepare(ddl).run(); } catch(e) { /* column already exists */ }
     }
 
+    // ─── Smart Money MVP (2026-04-08) ───
+    // Curated 13F superinvestors. Manual seed below populates the catalog;
+    // /api/funds/refresh fetches their latest 13F holdings from FMP.
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS superinvestors (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      manager TEXT DEFAULT '',
+      cik TEXT,
+      style TEXT DEFAULT '',
+      conviction INTEGER DEFAULT 3,
+      followed INTEGER DEFAULT 1,
+      notes TEXT DEFAULT '',
+      last_quarter TEXT,
+      last_refreshed_at TEXT
+    )`).run();
+
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS fund_holdings (
+      fund_id TEXT NOT NULL,
+      quarter TEXT NOT NULL,
+      ticker TEXT NOT NULL,
+      cusip TEXT DEFAULT '',
+      name TEXT DEFAULT '',
+      shares REAL DEFAULT 0,
+      value_usd REAL DEFAULT 0,
+      weight_pct REAL DEFAULT 0,
+      updated_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (fund_id, quarter, ticker)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_fh_ticker ON fund_holdings(ticker)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_fh_quarter ON fund_holdings(quarter)`).run();
+
+    // Seed the 13 curated superinvestors (idempotent — INSERT OR IGNORE).
+    // CIKs sourced from docs/fondos-tab-design.md. The /refresh endpoint
+    // validates them against the actual FMP filings on first call.
+    const SUPERINVESTORS_SEED = [
+      ['berkshire',   'Berkshire Hathaway',           'Warren Buffett',          '0001067983', 'quality-value-mega', 5],
+      ['pabrai',      'Pabrai Investment Funds',      'Mohnish Pabrai',          '0001549575', 'concentrated-value', 5],
+      ['akre',        'Akre Capital Management',      'Akre / Saler / Yacktman', '0001112520', 'quality-compounders', 5],
+      ['polen',       'Polen Capital',                'Polen team',              '0001034524', 'quality-growth', 4],
+      ['markel',      'Markel Group',                 'Tom Gayner',              '0001096343', 'buffett-style', 5],
+      ['yacktman',    'Yacktman Asset Management',    'Stephen Yacktman',        '0000905567', 'quality-dividend', 4],
+      ['wedgewood',   'Wedgewood Partners',           'David Rolfe',             '0001585391', 'concentrated-quality', 4],
+      ['sequoia',     'Ruane Cunniff (Sequoia)',      'Sequoia team',            '0000350894', 'long-term-quality', 4],
+      ['russo',       'Gardner Russo & Quinn',        'Tom Russo',               '0001067921', 'dividend-consumer-brands', 5],
+      ['baupost',     'Baupost Group',                'Seth Klarman',            '0001061768', 'deep-value', 5],
+      ['pershing',    'Pershing Square Capital',      'Bill Ackman',             '0001336528', 'concentrated-activist', 4],
+      ['appaloosa',   'Appaloosa Management',         'David Tepper',            '0001656456', 'macro-value', 4],
+      ['giverny',     'Giverny Capital',              'François Rochon',         '0001595888', 'quality-compounding-intl', 5],
+    ];
+    for (const [id, name, manager, cik, style, conv] of SUPERINVESTORS_SEED) {
+      try {
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO superinvestors (id, name, manager, cik, style, conviction, followed) VALUES (?, ?, ?, ?, ?, ?, 1)`
+        ).bind(id, name, manager, cik, style, conv).run();
+      } catch(e) { /* already seeded */ }
+    }
+
     _migrated = true;
   } catch(e) {
     console.error("Migration error:", e.message);
@@ -1382,7 +1439,178 @@ export default {
 
     try {
       // ─── RUTAS ─────────────────────────────────
-      
+
+      // ═══ Smart Money MVP — 13F superinvestors ═══════════════════
+      // Curated list of 13 great investors (US 13F filers). Manual seed
+      // is in ensureMigrations(); /api/funds/refresh fetches their latest
+      // 13F holdings from FMP and persists per-quarter into fund_holdings.
+      // Frontend tab: SmartMoneyTab.jsx (Research group).
+
+      // GET /api/funds/list — all followed superinvestors with summary stats
+      if (path === "/api/funds/list" && request.method === "GET") {
+        const { results: funds } = await env.DB.prepare(
+          `SELECT s.id, s.name, s.manager, s.cik, s.style, s.conviction, s.followed,
+                  s.last_quarter, s.last_refreshed_at,
+                  (SELECT COUNT(*) FROM fund_holdings fh WHERE fh.fund_id = s.id AND fh.quarter = s.last_quarter) AS holdings_count,
+                  (SELECT SUM(value_usd) FROM fund_holdings fh WHERE fh.fund_id = s.id AND fh.quarter = s.last_quarter) AS portfolio_value
+           FROM superinvestors s
+           WHERE s.followed = 1
+           ORDER BY s.conviction DESC, s.name ASC`
+        ).all();
+        return json({ funds: funds || [] }, corsHeaders);
+      }
+
+      // GET /api/funds/:id — fund detail with current quarter top holdings
+      const fundDetailMatch = path.match(/^\/api\/funds\/([a-z0-9_-]+)$/);
+      if (fundDetailMatch && request.method === "GET" && fundDetailMatch[1] !== 'list' && fundDetailMatch[1] !== 'consensus' && fundDetailMatch[1] !== 'refresh' && fundDetailMatch[1] !== 'by-ticker') {
+        const fundId = fundDetailMatch[1];
+        const fund = await env.DB.prepare(`SELECT * FROM superinvestors WHERE id = ?`).bind(fundId).first();
+        if (!fund) return json({ error: "Fund not found" }, corsHeaders, 404);
+        const quarter = url.searchParams.get('quarter') || fund.last_quarter;
+        const { results: holdings } = await env.DB.prepare(
+          `SELECT ticker, name, shares, value_usd, weight_pct
+           FROM fund_holdings WHERE fund_id = ? AND quarter = ?
+           ORDER BY weight_pct DESC LIMIT 50`
+        ).bind(fundId, quarter).all();
+        return json({ fund, quarter, holdings: holdings || [] }, corsHeaders);
+      }
+
+      // GET /api/funds/by-ticker/:ticker — which superinvestors hold this ticker
+      const byTickerMatch = path.match(/^\/api\/funds\/by-ticker\/([^/]+)$/);
+      if (byTickerMatch && request.method === "GET") {
+        const ticker = decodeURIComponent(byTickerMatch[1]).toUpperCase();
+        const { results } = await env.DB.prepare(
+          `SELECT fh.fund_id, s.name AS fund_name, s.manager, s.style, s.conviction,
+                  fh.quarter, fh.shares, fh.value_usd, fh.weight_pct
+           FROM fund_holdings fh
+           JOIN superinvestors s ON s.id = fh.fund_id
+           WHERE fh.ticker = ? AND s.followed = 1 AND fh.quarter = s.last_quarter
+           ORDER BY fh.weight_pct DESC`
+        ).bind(ticker).all();
+        return json({ ticker, holders: results || [] }, corsHeaders);
+      }
+
+      // GET /api/funds/consensus?min=3 — tickers held by ≥N superinvestors
+      if (path === "/api/funds/consensus" && request.method === "GET") {
+        const minHolders = Math.max(2, parseInt(url.searchParams.get('min') || '3', 10));
+        const { results } = await env.DB.prepare(
+          `SELECT fh.ticker, fh.name, COUNT(DISTINCT fh.fund_id) AS holders_count,
+                  SUM(fh.value_usd) AS total_value_usd,
+                  AVG(fh.weight_pct) AS avg_weight_pct,
+                  GROUP_CONCAT(s.name, ' | ') AS holder_names
+           FROM fund_holdings fh
+           JOIN superinvestors s ON s.id = fh.fund_id
+           WHERE s.followed = 1 AND fh.quarter = s.last_quarter
+           GROUP BY fh.ticker
+           HAVING holders_count >= ?
+           ORDER BY holders_count DESC, total_value_usd DESC
+           LIMIT 100`
+        ).bind(minHolders).all();
+        return json({ minHolders, picks: results || [] }, corsHeaders);
+      }
+
+      // POST /api/funds/refresh?fund_id=... — fetch latest 13F from FMP
+      // Without fund_id: refreshes ALL followed funds (slower).
+      // FMP Ultimate exposes 13F under /stable/institutional-ownership/extract.
+      // Falls back to /api/v3/form-thirteen for older accounts.
+      if (path === "/api/funds/refresh" && request.method === "POST") {
+        const FMP_KEY = env.FMP_KEY;
+        if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
+        const onlyFundId = url.searchParams.get('fund_id');
+
+        const fundsRows = onlyFundId
+          ? await env.DB.prepare(`SELECT id, cik, name FROM superinvestors WHERE id = ? AND followed = 1`).bind(onlyFundId).all()
+          : await env.DB.prepare(`SELECT id, cik, name FROM superinvestors WHERE followed = 1 AND cik IS NOT NULL`).all();
+        const funds = fundsRows.results || [];
+
+        // Compute prior quarter (filings have ~45-day delay).
+        // Today April 8 → most recent filed quarter is Q4 2025 (filed Feb 14).
+        const now = new Date();
+        const m = now.getMonth() + 1; // 1-12
+        let qYear = now.getFullYear();
+        let qNum;
+        if (m <= 2)       { qYear -= 1; qNum = 3; }   // Jan-Feb → Q3 prev year
+        else if (m <= 5)  { qYear -= 1; qNum = 4; }   // Mar-May → Q4 prev year
+        else if (m <= 8)  { qNum = 1; }               // Jun-Aug → Q1 this year
+        else if (m <= 11) { qNum = 2; }               // Sep-Nov → Q2 this year
+        else              { qNum = 3; }               // Dec     → Q3 this year
+        const targetQuarter = `${qYear}-Q${qNum}`;
+
+        const fetchHoldings = async (cik) => {
+          // Try FMP Ultimate /stable/institutional-ownership/extract first
+          const stableUrl = `https://financialmodelingprep.com/stable/institutional-ownership/extract?cik=${cik}&year=${qYear}&quarter=${qNum}&apikey=${FMP_KEY}`;
+          let r = await fetch(stableUrl);
+          if (r.ok) {
+            const data = await r.json();
+            if (Array.isArray(data) && data.length > 0) {
+              return { source: 'stable', rows: data, quarter: targetQuarter };
+            }
+          }
+          // Fallback: legacy v3 endpoint
+          const v3Url = `https://financialmodelingprep.com/api/v3/form-thirteen/${cik}?apikey=${FMP_KEY}`;
+          r = await fetch(v3Url);
+          if (!r.ok) return { source: null, error: `v3 status ${r.status}` };
+          const rows = await r.json();
+          if (!Array.isArray(rows) || rows.length === 0) return { source: null, error: 'empty' };
+          const latestDate = rows[0]?.date || '';
+          const latestRows = rows.filter(row => row.date === latestDate);
+          const d = new Date(latestDate || Date.now());
+          const q = Math.floor(d.getMonth() / 3) + 1;
+          return { source: 'v3', rows: latestRows, quarter: `${d.getFullYear()}-Q${q}` };
+        };
+
+        const summary = [];
+        for (const fund of funds) {
+          try {
+            const { source, rows, error, quarter } = await fetchHoldings(fund.cik);
+            if (!source || !rows) {
+              summary.push({ fund: fund.id, ok: false, reason: error || 'no data' });
+              continue;
+            }
+            const totalValue = rows.reduce((s, row) => s + (Number(row.value || row.marketValue) || 0), 0);
+
+            // Build a single D1 batch: delete + all inserts + update.
+            // Cloudflare Workers cap subrequests at 50 per invocation, so
+            // looping individual prepare().run() blows past the limit on
+            // large 13Fs (Polen has 234 holdings). batch() runs in 1 call.
+            const stmts = [];
+            stmts.push(env.DB.prepare(
+              `DELETE FROM fund_holdings WHERE fund_id = ? AND quarter = ?`
+            ).bind(fund.id, quarter));
+
+            const insertStmt = env.DB.prepare(
+              `INSERT OR REPLACE INTO fund_holdings (fund_id, quarter, ticker, cusip, name, shares, value_usd, weight_pct, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+            );
+
+            let inserted = 0;
+            for (const row of rows) {
+              const ticker = String(row.symbol || row.tickercusip || row.ticker || '').toUpperCase();
+              if (!ticker || ticker.length > 12) continue;
+              const value = Number(row.value || row.marketValue) || 0;
+              const shares = Number(row.shares || row.sharesNumber) || 0;
+              const weight = totalValue > 0 ? (value / totalValue) * 100 : 0;
+              stmts.push(insertStmt.bind(
+                fund.id, quarter, ticker,
+                row.cusip || '', row.securityName || row.nameOfIssuer || '',
+                shares, value, weight
+              ));
+              inserted++;
+            }
+
+            stmts.push(env.DB.prepare(
+              `UPDATE superinvestors SET last_quarter = ?, last_refreshed_at = datetime('now') WHERE id = ?`
+            ).bind(quarter, fund.id));
+
+            await env.DB.batch(stmts);
+            summary.push({ fund: fund.id, ok: true, source, quarter, inserted, totalValue });
+          } catch(e) {
+            summary.push({ fund: fund.id, ok: false, error: e.message });
+          }
+        }
+        return json({ refreshed: summary.length, summary }, corsHeaders);
+      }
+
       // GET /api/patrimonio — todos los snapshots
       if (path === "/api/patrimonio" && request.method === "GET") {
         const { results } = await env.DB.prepare(
