@@ -1665,7 +1665,7 @@ export default {
 
       // GET /api/funds/:id — fund detail with current quarter top holdings
       const fundDetailMatch = path.match(/^\/api\/funds\/([a-z0-9_-]+)$/);
-      const RESERVED_FUND_PATHS = new Set(['list', 'consensus', 'refresh', 'by-ticker', 'by-tickers', 'seed-spanish', 'cik-search', 'resolve-isins']);
+      const RESERVED_FUND_PATHS = new Set(['list', 'consensus', 'refresh', 'by-ticker', 'by-tickers', 'seed-spanish', 'cik-search', 'resolve-isins', 'alerts']);
       if (fundDetailMatch && request.method === "GET" && !RESERVED_FUND_PATHS.has(fundDetailMatch[1])) {
         const fundId = fundDetailMatch[1];
         const fund = await env.DB.prepare(`SELECT * FROM superinvestors WHERE id = ?`).bind(fundId).first();
@@ -1713,10 +1713,120 @@ export default {
         return json({ minHolders, picks: results || [] }, corsHeaders);
       }
 
-      // POST /api/funds/refresh?fund_id=... — fetch latest 13F from FMP
+      // GET /api/funds/alerts — material changes across all followed funds
+      // between their last_quarter and the quarter immediately before.
+      // Returns grouped by tier: CRITICAL (ticker in portfolio), WATCH
+      // (ticker in holdings of the 'watchlist' list), INFO (ticker in any
+      // other fund too). Applies materiality filters from the design doc:
+      //   NEW   : w_prev == 0 && w_now >= 3%
+      //   SOLD  : w_prev >= 3% && w_now == 0
+      //   ADDED : w_now >= 2% && w_now >= w_prev * 2 (doubled)
+      //   REDUCED: w_prev >= 2% && w_now <= w_prev * 0.5 (halved)
+      if (path === "/api/funds/alerts" && request.method === "GET") {
+        // Load followed funds with both current and prior quarter labels.
+        const { results: funds } = await env.DB.prepare(
+          `SELECT id, name, manager, conviction, source, last_quarter FROM superinvestors WHERE followed = 1 AND last_quarter IS NOT NULL`
+        ).all();
+        if (!funds?.length) return json({ alerts: [], stats: {} }, corsHeaders);
+
+        // Find prior quarter for each fund (the one just before last_quarter)
+        const priorForFund = {};
+        for (const f of funds) {
+          // Parse YYYY-QN
+          const m = String(f.last_quarter || '').match(/^(\d{4})-Q([1-4])$/);
+          if (!m) continue;
+          let y = parseInt(m[1], 10), q = parseInt(m[2], 10) - 1;
+          if (q === 0) { q = 4; y -= 1; }
+          priorForFund[f.id] = `${y}-Q${q}`;
+        }
+
+        // Load user's portfolio + watchlist tickers for relevance scoring
+        const { results: posRows } = await env.DB.prepare(
+          `SELECT ticker, list FROM positions WHERE shares > 0`
+        ).all();
+        const inPortfolio = new Set((posRows || []).filter(r => r.list === 'portfolio' || !r.list).map(r => r.ticker.toUpperCase()));
+        const inWatchlist = new Set((posRows || []).filter(r => r.list === 'watchlist').map(r => r.ticker.toUpperCase()));
+
+        const alerts = [];
+        for (const fund of funds) {
+          const prevQ = priorForFund[fund.id];
+          if (!prevQ) continue;
+          const [a, b] = await Promise.all([
+            env.DB.prepare(`SELECT ticker, name, weight_pct AS w, value_usd AS v FROM fund_holdings WHERE fund_id = ? AND quarter = ?`).bind(fund.id, prevQ).all(),
+            env.DB.prepare(`SELECT ticker, name, weight_pct AS w, value_usd AS v FROM fund_holdings WHERE fund_id = ? AND quarter = ?`).bind(fund.id, fund.last_quarter).all(),
+          ]);
+          const map = {};
+          (a.results || []).forEach(r => { map[r.ticker] = { ticker: r.ticker, name: r.name, w_prev: r.w || 0, w_now: 0, v_prev: r.v || 0, v_now: 0 }; });
+          (b.results || []).forEach(r => {
+            if (!map[r.ticker]) map[r.ticker] = { ticker: r.ticker, name: r.name, w_prev: 0, w_now: 0, v_prev: 0, v_now: 0 };
+            map[r.ticker].w_now = r.w || 0;
+            map[r.ticker].v_now = r.v || 0;
+            if (r.name) map[r.ticker].name = r.name;
+          });
+          for (const r of Object.values(map)) {
+            let status = null;
+            if (r.w_prev === 0 && r.w_now >= 3)            status = 'NEW';
+            else if (r.w_prev >= 3 && r.w_now === 0)       status = 'SOLD';
+            else if (r.w_now >= 2 && r.w_now >= r.w_prev * 2 && r.w_prev > 0) status = 'ADDED';
+            else if (r.w_prev >= 2 && r.w_now > 0 && r.w_now <= r.w_prev * 0.5) status = 'REDUCED';
+            if (!status) continue;
+
+            const tickerUpper = (r.ticker || '').toUpperCase();
+            // ES: prefix tickers are unresolved Spanish ISINs — strip for matching
+            const tickerMatch = tickerUpper.startsWith('ES:') ? tickerUpper.slice(3) : tickerUpper;
+            let tier = 'INFO';
+            if (inPortfolio.has(tickerMatch) || inPortfolio.has(tickerUpper)) tier = 'CRITICAL';
+            else if (inWatchlist.has(tickerMatch) || inWatchlist.has(tickerUpper)) tier = 'WATCH';
+
+            alerts.push({
+              fund_id: fund.id,
+              fund_name: fund.name,
+              manager: fund.manager,
+              source: fund.source,
+              conviction: fund.conviction,
+              quarter: fund.last_quarter,
+              prev_quarter: prevQ,
+              ticker: r.ticker,
+              name: r.name,
+              status,
+              tier,
+              w_now: r.w_now,
+              w_prev: r.w_prev,
+              delta_pct: r.w_now - r.w_prev,
+              value_now_usd: r.v_now,
+            });
+          }
+        }
+
+        // Sort: CRITICAL first, then WATCH, then INFO; within each, by delta magnitude × conviction
+        const tierOrder = { CRITICAL: 3, WATCH: 2, INFO: 1 };
+        alerts.sort((x, y) => {
+          const t = (tierOrder[y.tier] || 0) - (tierOrder[x.tier] || 0);
+          if (t) return t;
+          return Math.abs(y.delta_pct) * (y.conviction || 3) - Math.abs(x.delta_pct) * (x.conviction || 3);
+        });
+
+        const stats = {
+          total: alerts.length,
+          critical: alerts.filter(a => a.tier === 'CRITICAL').length,
+          watch: alerts.filter(a => a.tier === 'WATCH').length,
+          info: alerts.filter(a => a.tier === 'INFO').length,
+          byStatus: {
+            NEW: alerts.filter(a => a.status === 'NEW').length,
+            SOLD: alerts.filter(a => a.status === 'SOLD').length,
+            ADDED: alerts.filter(a => a.status === 'ADDED').length,
+            REDUCED: alerts.filter(a => a.status === 'REDUCED').length,
+          },
+        };
+
+        return json({ alerts, stats }, corsHeaders);
+      }
+
+      // POST /api/funds/refresh?fund_id=... — fetch latest 13F from FMP.
       // Without fund_id: refreshes ALL followed funds (slower).
+      // Fetches BOTH the current target quarter AND the prior one so the
+      // /api/funds/changes and alerts endpoints have diff data available.
       // FMP Ultimate exposes 13F under /stable/institutional-ownership/extract.
-      // Falls back to /api/v3/form-thirteen for older accounts.
       if (path === "/api/funds/refresh" && request.method === "POST") {
         const FMP_KEY = env.FMP_KEY;
         if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
@@ -1727,92 +1837,93 @@ export default {
           : await env.DB.prepare(`SELECT id, cik, name FROM superinvestors WHERE followed = 1 AND cik IS NOT NULL`).all();
         const funds = fundsRows.results || [];
 
-        // Compute prior quarter (filings have ~45-day delay).
-        // Today April 8 → most recent filed quarter is Q4 2025 (filed Feb 14).
+        // Compute target (most recently filed) and prior quarter.
+        // Filings have ~45-day delay: Q4 2025 filed mid-Feb 2026.
         const now = new Date();
         const m = now.getMonth() + 1; // 1-12
-        let qYear = now.getFullYear();
-        let qNum;
-        if (m <= 2)       { qYear -= 1; qNum = 3; }   // Jan-Feb → Q3 prev year
-        else if (m <= 5)  { qYear -= 1; qNum = 4; }   // Mar-May → Q4 prev year
-        else if (m <= 8)  { qNum = 1; }               // Jun-Aug → Q1 this year
-        else if (m <= 11) { qNum = 2; }               // Sep-Nov → Q2 this year
-        else              { qNum = 3; }               // Dec     → Q3 this year
-        const targetQuarter = `${qYear}-Q${qNum}`;
+        let curYear = now.getFullYear();
+        let curQ;
+        if (m <= 2)       { curYear -= 1; curQ = 3; }   // Jan-Feb → Q3 prev year
+        else if (m <= 5)  { curYear -= 1; curQ = 4; }   // Mar-May → Q4 prev year
+        else if (m <= 8)  { curQ = 1; }                 // Jun-Aug → Q1 this year
+        else if (m <= 11) { curQ = 2; }                 // Sep-Nov → Q2 this year
+        else              { curQ = 3; }                 // Dec     → Q3 this year
+        let prevYear = curYear, prevQ = curQ - 1;
+        if (prevQ === 0) { prevQ = 4; prevYear -= 1; }
+        const curQuarter = `${curYear}-Q${curQ}`;
+        const prevQuarter = `${prevYear}-Q${prevQ}`;
 
-        const fetchHoldings = async (cik) => {
-          // Try FMP Ultimate /stable/institutional-ownership/extract first
-          const stableUrl = `https://financialmodelingprep.com/stable/institutional-ownership/extract?cik=${cik}&year=${qYear}&quarter=${qNum}&apikey=${FMP_KEY}`;
-          let r = await fetch(stableUrl);
-          if (r.ok) {
-            const data = await r.json();
-            if (Array.isArray(data) && data.length > 0) {
-              return { source: 'stable', rows: data, quarter: targetQuarter };
-            }
+        const fetchHoldingsForQuarter = async (cik, year, quarter) => {
+          const stableUrl = `https://financialmodelingprep.com/stable/institutional-ownership/extract?cik=${cik}&year=${year}&quarter=${quarter}&apikey=${FMP_KEY}`;
+          const r = await fetch(stableUrl);
+          if (!r.ok) return { rows: [], error: `status ${r.status}` };
+          const data = await r.json();
+          if (!Array.isArray(data)) return { rows: [], error: 'not array' };
+          return { rows: data };
+        };
+
+        const buildInsertStatements = (fundId, quarter, rows) => {
+          const totalValue = rows.reduce((s, row) => s + (Number(row.value || row.marketValue) || 0), 0);
+          const stmts = [];
+          stmts.push(env.DB.prepare(`DELETE FROM fund_holdings WHERE fund_id = ? AND quarter = ?`).bind(fundId, quarter));
+          const insertStmt = env.DB.prepare(
+            `INSERT OR REPLACE INTO fund_holdings (fund_id, quarter, ticker, cusip, name, shares, value_usd, weight_pct, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+          );
+          let inserted = 0;
+          for (const row of rows) {
+            const ticker = String(row.symbol || row.tickercusip || row.ticker || '').toUpperCase();
+            if (!ticker || ticker.length > 12) continue;
+            const value = Number(row.value || row.marketValue) || 0;
+            const shares = Number(row.shares || row.sharesNumber) || 0;
+            const weight = totalValue > 0 ? (value / totalValue) * 100 : 0;
+            stmts.push(insertStmt.bind(
+              fundId, quarter, ticker,
+              row.cusip || '', row.securityName || row.nameOfIssuer || '',
+              shares, value, weight
+            ));
+            inserted++;
           }
-          // Fallback: legacy v3 endpoint
-          const v3Url = `https://financialmodelingprep.com/api/v3/form-thirteen/${cik}?apikey=${FMP_KEY}`;
-          r = await fetch(v3Url);
-          if (!r.ok) return { source: null, error: `v3 status ${r.status}` };
-          const rows = await r.json();
-          if (!Array.isArray(rows) || rows.length === 0) return { source: null, error: 'empty' };
-          const latestDate = rows[0]?.date || '';
-          const latestRows = rows.filter(row => row.date === latestDate);
-          const d = new Date(latestDate || Date.now());
-          const q = Math.floor(d.getMonth() / 3) + 1;
-          return { source: 'v3', rows: latestRows, quarter: `${d.getFullYear()}-Q${q}` };
+          return { stmts, inserted, totalValue };
         };
 
         const summary = [];
         for (const fund of funds) {
           try {
-            const { source, rows, error, quarter } = await fetchHoldings(fund.cik);
-            if (!source || !rows) {
-              summary.push({ fund: fund.id, ok: false, reason: error || 'no data' });
+            // Fetch both quarters in parallel
+            const [curRes, prevRes] = await Promise.all([
+              fetchHoldingsForQuarter(fund.cik, curYear, curQ),
+              fetchHoldingsForQuarter(fund.cik, prevYear, prevQ),
+            ]);
+            if (!curRes.rows.length) {
+              summary.push({ fund: fund.id, ok: false, reason: curRes.error || 'empty' });
               continue;
             }
-            const totalValue = rows.reduce((s, row) => s + (Number(row.value || row.marketValue) || 0), 0);
-
-            // Build a single D1 batch: delete + all inserts + update.
-            // Cloudflare Workers cap subrequests at 50 per invocation, so
-            // looping individual prepare().run() blows past the limit on
-            // large 13Fs (Polen has 234 holdings). batch() runs in 1 call.
-            const stmts = [];
-            stmts.push(env.DB.prepare(
-              `DELETE FROM fund_holdings WHERE fund_id = ? AND quarter = ?`
-            ).bind(fund.id, quarter));
-
-            const insertStmt = env.DB.prepare(
-              `INSERT OR REPLACE INTO fund_holdings (fund_id, quarter, ticker, cusip, name, shares, value_usd, weight_pct, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
-            );
-
-            let inserted = 0;
-            for (const row of rows) {
-              const ticker = String(row.symbol || row.tickercusip || row.ticker || '').toUpperCase();
-              if (!ticker || ticker.length > 12) continue;
-              const value = Number(row.value || row.marketValue) || 0;
-              const shares = Number(row.shares || row.sharesNumber) || 0;
-              const weight = totalValue > 0 ? (value / totalValue) * 100 : 0;
-              stmts.push(insertStmt.bind(
-                fund.id, quarter, ticker,
-                row.cusip || '', row.securityName || row.nameOfIssuer || '',
-                shares, value, weight
-              ));
-              inserted++;
+            // Combine all writes for both quarters into one batch
+            const curBuild = buildInsertStatements(fund.id, curQuarter, curRes.rows);
+            const allStmts = [...curBuild.stmts];
+            let prevInserted = 0;
+            if (prevRes.rows.length > 0) {
+              const prevBuild = buildInsertStatements(fund.id, prevQuarter, prevRes.rows);
+              allStmts.push(...prevBuild.stmts);
+              prevInserted = prevBuild.inserted;
             }
-
-            stmts.push(env.DB.prepare(
+            allStmts.push(env.DB.prepare(
               `UPDATE superinvestors SET last_quarter = ?, last_refreshed_at = datetime('now') WHERE id = ?`
-            ).bind(quarter, fund.id));
-
-            await env.DB.batch(stmts);
-            summary.push({ fund: fund.id, ok: true, source, quarter, inserted, totalValue });
+            ).bind(curQuarter, fund.id));
+            await env.DB.batch(allStmts);
+            summary.push({
+              fund: fund.id, ok: true,
+              curQuarter, prevQuarter,
+              curInserted: curBuild.inserted,
+              prevInserted,
+              totalValue: curBuild.totalValue,
+            });
           } catch(e) {
             summary.push({ fund: fund.id, ok: false, error: e.message });
           }
         }
-        return json({ refreshed: summary.length, summary }, corsHeaders);
+        return json({ refreshed: summary.length, curQuarter, prevQuarter, summary }, corsHeaders);
       }
 
       // GET /api/patrimonio — todos los snapshots

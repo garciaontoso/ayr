@@ -20,11 +20,35 @@ import { API_URL } from '../../constants/index.js';
 import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
 
 const SUB_VIEWS = [
+  { id: 'alerts', lbl: '🔔 Alerts', desc: 'Cambios materiales último Q' },
   { id: 'funds', lbl: '🏛️ US Superinvestors', desc: '13F filers' },
   { id: 'spanish', lbl: '🇪🇸 Fondos España', desc: 'Cobas / Magallanes / azValor' },
   { id: 'mine',  lbl: '🎯 Mi cartera',     desc: 'Quién tiene tus tickers' },
   { id: 'consensus', lbl: '⭐ Consensus',  desc: 'Tickers en ≥3 fondos' },
 ];
+
+const ALERT_STATUS_COLOR = {
+  NEW: 'var(--green)',
+  ADDED: '#64d2ff',
+  REDUCED: 'var(--gold)',
+  SOLD: 'var(--red)',
+};
+const ALERT_STATUS_LBL = {
+  NEW: '🆕 Nueva',
+  ADDED: '➕ Aumentada',
+  REDUCED: '➖ Reducida',
+  SOLD: '❌ Vendida',
+};
+const TIER_COLOR = {
+  CRITICAL: 'var(--red)',
+  WATCH: 'var(--gold)',
+  INFO: 'var(--text-tertiary)',
+};
+const TIER_LBL = {
+  CRITICAL: '🔴 Tu cartera',
+  WATCH: '🟡 Watchlist',
+  INFO: '⚪ Info',
+};
 
 const ES_STATUS_COLOR = {
   NEW: 'var(--green)',
@@ -74,7 +98,7 @@ export default function SmartMoneyTab() {
   // portfolioTotals.positions has the weight field; portfolioList doesn't.
   const positionsWithWeight = portfolioTotals?.positions || portfolioList || [];
 
-  const [view, setView] = useState('funds');
+  const [view, setView] = useState('alerts');
   const [funds, setFunds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -91,6 +115,11 @@ export default function SmartMoneyTab() {
   const [spanishDiff, setSpanishDiff] = useState(null);         // { diff: [...], q1, q2 }
   const [spanishFilter, setSpanishFilter] = useState('ALL');    // ALL|NEW|ADDED|HELD|REDUCED|SOLD
   const [spanishLoading, setSpanishLoading] = useState(false);
+  // ── Alerts state ──
+  const [alertsData, setAlertsData] = useState(null); // { alerts, stats }
+  const [alertsLoading, setAlertsLoading] = useState(false);
+  const [tierFilter, setTierFilter] = useState('ALL');         // ALL|CRITICAL|WATCH|INFO
+  const [statusFilter, setStatusFilter] = useState('ALL');     // ALL|NEW|ADDED|REDUCED|SOLD
 
   // ── Load funds list (US only) ──
   const loadFunds = useCallback(async () => {
@@ -140,6 +169,32 @@ export default function SmartMoneyTab() {
   useEffect(() => {
     if (view === 'spanish' && selectedSpanish) loadSpanishDiff(selectedSpanish);
   }, [view, selectedSpanish, loadSpanishDiff]);
+
+  // ── Load alerts ──
+  const loadAlerts = useCallback(async () => {
+    setAlertsLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/funds/alerts`);
+      const d = await r.json();
+      setAlertsData(d);
+    } catch { setAlertsData({ alerts: [], stats: {} }); }
+    setAlertsLoading(false);
+  }, []);
+
+  useEffect(() => {
+    // Load alerts on initial mount so the badge count shows even before user clicks
+    loadAlerts();
+  }, [loadAlerts]);
+
+  // Filtered alerts based on tier + status filters
+  const filteredAlerts = useMemo(() => {
+    if (!alertsData?.alerts) return [];
+    return alertsData.alerts.filter(a => {
+      if (tierFilter !== 'ALL' && a.tier !== tierFilter) return false;
+      if (statusFilter !== 'ALL' && a.status !== statusFilter) return false;
+      return true;
+    });
+  }, [alertsData, tierFilter, statusFilter]);
 
   // ── Refresh button ──
   const doRefresh = useCallback(async () => {
@@ -287,12 +342,146 @@ export default function SmartMoneyTab() {
 
       {/* ─── Sub-view pills ─── */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-        {SUB_VIEWS.map(sv => (
-          <button key={sv.id} onClick={() => setView(sv.id)} style={pill(view === sv.id)}>
-            {sv.lbl}
-          </button>
-        ))}
+        {SUB_VIEWS.map(sv => {
+          // Badge count on the Alerts pill
+          const alertCount = sv.id === 'alerts' ? (alertsData?.stats?.critical || 0) : 0;
+          return (
+            <button key={sv.id} onClick={() => setView(sv.id)} style={pill(view === sv.id)}>
+              {sv.lbl}
+              {alertCount > 0 && (
+                <span style={{
+                  marginLeft: 6, padding: '1px 6px', borderRadius: 10,
+                  background: 'var(--red)', color: '#fff',
+                  fontSize: 9, fontWeight: 800, fontFamily: 'var(--fm)',
+                }}>{alertCount}</span>
+              )}
+            </button>
+          );
+        })}
       </div>
+
+      {/* ─── View: 🔔 Alerts ─── */}
+      {view === 'alerts' && (
+        <>
+          {alertsLoading ? <InlineLoading label="Computando alertas..." /> : !alertsData ? null : (
+            <>
+              {/* Stats header */}
+              <div style={{ ...card, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Total</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--gold)', fontFamily: 'var(--fd)' }}>{alertsData.stats.total || 0}</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 10, color: 'var(--red)', textTransform: 'uppercase', letterSpacing: 0.5 }}>🔴 Tu cartera</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--red)', fontFamily: 'var(--fd)' }}>{alertsData.stats.critical || 0}</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 10, color: 'var(--gold)', textTransform: 'uppercase', letterSpacing: 0.5 }}>🟡 Watchlist</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--gold)', fontFamily: 'var(--fd)' }}>{alertsData.stats.watch || 0}</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>⚪ Info</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-secondary)', fontFamily: 'var(--fd)' }}>{alertsData.stats.info || 0}</div>
+                </div>
+              </div>
+
+              {/* Filter pills */}
+              <div style={{ ...card, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Relevancia</span>
+                {['ALL', 'CRITICAL', 'WATCH', 'INFO'].map(t => {
+                  const n = t === 'ALL' ? alertsData.stats.total : (alertsData.stats[t.toLowerCase()] || 0);
+                  return (
+                    <button key={t} onClick={() => setTierFilter(t)} style={{
+                      ...pill(tierFilter === t),
+                      color: tierFilter === t ? (TIER_COLOR[t] || 'var(--gold)') : 'var(--text-tertiary)',
+                      borderColor: tierFilter === t ? (TIER_COLOR[t] || 'var(--gold)') : 'var(--border)',
+                    }}>
+                      {t === 'ALL' ? 'Todas' : TIER_LBL[t]} ({n})
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ ...card, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Tipo</span>
+                {['ALL', 'NEW', 'ADDED', 'REDUCED', 'SOLD'].map(s => {
+                  const n = s === 'ALL' ? alertsData.stats.total : (alertsData.stats.byStatus?.[s] || 0);
+                  return (
+                    <button key={s} onClick={() => setStatusFilter(s)} style={{
+                      ...pill(statusFilter === s),
+                      color: statusFilter === s ? (ALERT_STATUS_COLOR[s] || 'var(--gold)') : 'var(--text-tertiary)',
+                      borderColor: statusFilter === s ? (ALERT_STATUS_COLOR[s] || 'var(--gold)') : 'var(--border)',
+                    }}>
+                      {s === 'ALL' ? 'Todos' : ALERT_STATUS_LBL[s]} ({n})
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Alerts table */}
+              {filteredAlerts.length === 0 ? (
+                <EmptyState
+                  icon="🔔"
+                  title="Sin alertas con estos filtros"
+                  description={alertsData.stats.total > 0 ? "Cambia los filtros para ver otras." : "Refresca los 13F para generar alertas."}
+                />
+              ) : (
+                <div style={card}>
+                  <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 8 }}>
+                    Cambios materiales: NEW ≥3%, SOLD (de ≥3%), ADDED (peso doblado ≥2%), REDUCED (peso a la mitad de ≥2%).
+                    Ordenados por relevancia × convicción × magnitud del cambio.
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr>
+                        <th style={th}>Ticker · Empresa</th>
+                        <th style={th}>Fondo · Gestor</th>
+                        <th style={{ ...th, textAlign: 'center' }}>Tier</th>
+                        <th style={{ ...th, textAlign: 'center' }}>Cambio</th>
+                        <th style={{ ...th, textAlign: 'right' }}>Peso prev</th>
+                        <th style={{ ...th, textAlign: 'right' }}>Peso ahora</th>
+                        <th style={{ ...th, textAlign: 'right' }}>Δ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredAlerts.slice(0, 100).map((a, i) => (
+                        <tr key={`${a.fund_id}-${a.ticker}-${i}`}>
+                          <td style={td}>
+                            <span style={tickerLink(a.ticker)} onClick={() => openAnalysis?.(a.ticker)}>
+                              {a.ticker?.startsWith('ES:') ? a.ticker.slice(3) : a.ticker}
+                            </span>
+                            <span style={{ fontSize: 10, color: 'var(--text-tertiary)', marginLeft: 8 }}>{(a.name || '').slice(0, 32)}</span>
+                          </td>
+                          <td style={{ ...td, fontSize: 11 }}>
+                            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{a.fund_name}</div>
+                            <div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>{a.manager}</div>
+                          </td>
+                          <td style={{ ...td, textAlign: 'center' }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: TIER_COLOR[a.tier] }}>{TIER_LBL[a.tier]}</span>
+                          </td>
+                          <td style={{ ...td, textAlign: 'center' }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: ALERT_STATUS_COLOR[a.status] }}>
+                              {ALERT_STATUS_LBL[a.status]}
+                            </span>
+                          </td>
+                          <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', color: 'var(--text-tertiary)' }}>
+                            {a.w_prev > 0 ? `${a.w_prev.toFixed(2)}%` : '—'}
+                          </td>
+                          <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', fontWeight: 700, color: a.w_now >= 5 ? 'var(--gold)' : 'var(--text-primary)' }}>
+                            {a.w_now > 0 ? `${a.w_now.toFixed(2)}%` : '—'}
+                          </td>
+                          <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', fontWeight: 600, color: a.delta_pct > 0 ? 'var(--green)' : 'var(--red)' }}>
+                            {a.delta_pct > 0 ? '+' : ''}{a.delta_pct.toFixed(2)}%
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </>
+      )}
 
       {/* ─── View 1: Superinvestors ─── */}
       {view === 'funds' && (
