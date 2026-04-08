@@ -610,7 +610,7 @@ export default function PortfolioTab() {
             <div style={{display:"flex",gap:3,marginLeft:"auto"}}>
               {orderedSortOptions.map(s=>{
                 const active = listSort===s.id && !colSort.id;
-                const { isDragOver, extraStyle } = sortDragVisuals(s.id);
+                const { extraStyle } = sortDragVisuals(s.id);
                 return (
                   <button
                     key={s.id}
@@ -619,8 +619,8 @@ export default function PortfolioTab() {
                     title="Arrastra para reordenar"
                     style={{
                       padding:"3px 7px",borderRadius:5,
-                      border:"1px solid "+(isDragOver?"var(--gold)":active?"var(--gold)":"var(--border)"),
-                      background:isDragOver?"rgba(200,164,78,.25)":active?"var(--gold-dim)":"transparent",
+                      border:"1px solid "+(active?"var(--gold)":"var(--border)"),
+                      background:active?"var(--gold-dim)":"transparent",
                       color:active?"var(--gold)":"var(--text-tertiary)",
                       fontSize:9,fontWeight:active?700:500,
                       fontFamily:"var(--fm)",

@@ -175,7 +175,7 @@ export default function WatchlistTab() {
         <div style={{ marginLeft: "auto", display: "flex", gap: 3 }}>
           {orderedSortOptions.map(s => {
             const active = sortBy === s.id;
-            const { isDragOver, extraStyle } = sortDragVisuals(s.id);
+            const { extraStyle } = sortDragVisuals(s.id);
             return (
               <button
                 key={s.id}
@@ -184,8 +184,8 @@ export default function WatchlistTab() {
                 title="Arrastra para reordenar"
                 style={{
                   padding: "4px 8px", borderRadius: 6,
-                  border: `1px solid ${isDragOver ? "var(--gold)" : active ? "var(--gold)" : "var(--border)"}`,
-                  background: isDragOver ? "rgba(200,164,78,.25)" : active ? "var(--gold-dim)" : "transparent",
+                  border: `1px solid ${active ? "var(--gold)" : "var(--border)"}`,
+                  background: active ? "var(--gold-dim)" : "transparent",
                   color: active ? "var(--gold)" : "var(--text-tertiary)",
                   fontSize: 9, fontWeight: active ? 700 : 500,
                   fontFamily: "var(--fm)",

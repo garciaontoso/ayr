@@ -1,6 +1,16 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { API_URL } from '../../constants';
 import { Modal } from '../ui';
+import { useDraggableOrder } from '../../hooks/useDraggableOrder.js';
+
+// Content type pills with drag-reorder (persisted per user via cloud)
+const LIBRARY_TYPE_PILLS = [
+  { id: 'all',     lbl: 'Todos' },
+  { id: 'book',    lbl: '📘 Libros' },
+  { id: 'paper',   lbl: '📄 Papers' },
+  { id: 'podcast', lbl: '🎙️ Podcasts' },
+  { id: 'article', lbl: '🔗 Artículos' },
+];
 
 const TYPE_ICONS = { book: '📘', paper: '📄', podcast: '🎙️', article: '🔗' };
 const TYPE_LABELS = { book: 'Libro', paper: 'Paper', podcast: 'Podcast', article: 'Artículo' };
@@ -31,6 +41,13 @@ export default function LibraryTab() {
   const [filterType, setFilterType] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterTier, setFilterTier] = useState('all');
+
+  // Drag-reorder the type pills
+  const {
+    orderedItems: orderedTypePills,
+    dragHandlers: typeDragHandlers,
+    getDragVisuals: typeDragVisuals,
+  } = useDraggableOrder(LIBRARY_TYPE_PILLS, 'ui_library_type_pills');
 
   // Add modal
   const [showAdd, setShowAdd] = useState(false);
@@ -324,27 +341,21 @@ export default function LibraryTab() {
           >
             TIPO:
           </span>
-          <button style={chipStyle(filterType === 'all')} onClick={() => setFilterType('all')}>
-            Todos
-          </button>
-          <button style={chipStyle(filterType === 'book')} onClick={() => setFilterType('book')}>
-            📘 Libros
-          </button>
-          <button style={chipStyle(filterType === 'paper')} onClick={() => setFilterType('paper')}>
-            📄 Papers
-          </button>
-          <button
-            style={chipStyle(filterType === 'podcast')}
-            onClick={() => setFilterType('podcast')}
-          >
-            🎙️ Podcasts
-          </button>
-          <button
-            style={chipStyle(filterType === 'article')}
-            onClick={() => setFilterType('article')}
-          >
-            🔗 Artículos
-          </button>
+          {orderedTypePills.map(p => {
+            const active = filterType === p.id;
+            const { extraStyle } = typeDragVisuals(p.id);
+            return (
+              <button
+                key={p.id}
+                {...typeDragHandlers(p.id)}
+                onClick={() => setFilterType(p.id)}
+                title="Arrastra para reordenar"
+                style={{ ...chipStyle(active), ...extraStyle }}
+              >
+                {p.lbl}
+              </button>
+            );
+          })}
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
           <span

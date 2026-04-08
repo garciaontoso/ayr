@@ -518,8 +518,6 @@ export default function SmartMoneyTab() {
               style={{
                 ...pill(active),
                 ...extraStyle,
-                borderColor: isDragOver ? 'var(--gold)' : (active ? 'var(--gold)' : 'var(--border)'),
-                background: isDragOver ? 'rgba(200,164,78,.25)' : (active ? 'rgba(200,164,78,.12)' : 'transparent'),
               }}
             >
               {sv.lbl}

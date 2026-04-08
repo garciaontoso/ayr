@@ -139,7 +139,11 @@ export function useDraggableOrder(items, orderKey) {
     },
   }), [dragId, dragOverId, orderedItems, persist]);
 
-  // Visual state + style fragment to merge into the element's style prop
+  // Visual state + style fragment to merge into the element's style prop.
+  // Feedback matches the original PresupuestoTab pattern that the user likes:
+  // a 3px gold border on the LEFT side of the pill you're hovering over
+  // (plus a dim of the pill being dragged). No scale, no background change —
+  // just the narrow vertical gold stripe that tells you where the drop will land.
   const getDragVisuals = useCallback((id) => {
     const isDragging = dragId === id;
     const isDragOver = dragOverId === id && dragId && dragId !== id;
@@ -149,8 +153,8 @@ export function useDraggableOrder(items, orderKey) {
       extraStyle: {
         cursor: isDragging ? 'grabbing' : 'grab',
         opacity: isDragging ? 0.4 : 1,
-        transform: isDragOver ? 'scale(1.05)' : 'none',
-        transition: 'transform .12s ease, opacity .12s ease, background .12s ease, border-color .12s ease',
+        borderLeft: isDragOver ? '3px solid var(--gold)' : undefined,
+        transition: 'opacity .12s ease, border-left-color .12s ease',
         userSelect: 'none',
       },
     };

@@ -7,6 +7,7 @@ import { useFireMetrics } from '../../hooks/useFireMetrics.js';
 import { useFxRates } from '../../hooks/useFxRates.js';
 import { useNetLiquidationValue } from '../../hooks/useNetLiquidationValue.js';
 import { useMonthlyExpenses } from '../../hooks/useMonthlyExpenses.js';
+import { useDraggableOrder } from '../../hooks/useDraggableOrder.js';
 
 /* Charts removed — integrated inline in dashboard */
 /* ═══════════════════════════════════════════════════════════════
@@ -439,6 +440,53 @@ function CalendarioSection({ divLog, POS_STATIC, ownedTickers, soloActuales }) {
         </div>
         <div style={{ marginTop: 8, fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)", opacity: .6, wordBreak: "break-all" }}>{icsUrl}</div>
       </div>
+    </div>
+  );
+}
+
+// Country filter pills with drag-reorder (persisted per user via cloud).
+// Default order is by total gross descending (highest-earning country first),
+// but the user can drag to rearrange and the choice is remembered.
+function DividendosCountryPills({ countrySet, filtered, getCountry, countryFilter, setDivFilter }) {
+  // Build stable items with id = country code, sorted by default amount desc
+  const items = useMemo(() => {
+    return Object.entries(countrySet)
+      .map(([cc, fl]) => {
+        const cnt = filtered.filter(d => (getCountry?.(d.ticker, d.currency) || "US") === cc).length;
+        const gross = filtered.filter(d => (getCountry?.(d.ticker, d.currency) || "US") === cc).reduce((s,d)=>s+(d.gross||0),0);
+        return { id: cc, flag: fl, count: cnt, gross };
+      })
+      .sort((a,b) => b.gross - a.gross);
+  }, [countrySet, filtered, getCountry]);
+
+  const { orderedItems, dragHandlers, getDragVisuals } =
+    useDraggableOrder(items, 'ui_dividendos_country_filter');
+
+  return (
+    <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
+      <button onClick={()=>setDivFilter(p=>({...p,country:"all"}))} style={{padding:"3px 8px",borderRadius:5,border:`1px solid ${countryFilter==="all"?"var(--gold)":"var(--border)"}`,background:countryFilter==="all"?"var(--gold-dim)":"transparent",color:countryFilter==="all"?"var(--gold)":"var(--text-tertiary)",fontSize:9,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>Todos</button>
+      {orderedItems.map(item => {
+        const active = countryFilter === item.id;
+        const { extraStyle } = getDragVisuals(item.id);
+        return (
+          <button
+            key={item.id}
+            {...dragHandlers(item.id)}
+            onClick={()=>setDivFilter(p=>({...p,country:p.country===item.id?"all":item.id}))}
+            title="Arrastra para reordenar"
+            style={{
+              padding:"3px 8px",borderRadius:5,
+              border:`1px solid ${active?"var(--gold)":"var(--border)"}`,
+              background:active?"var(--gold-dim)":"transparent",
+              color:active?"var(--gold)":"var(--text-tertiary)",
+              fontSize:10,fontFamily:"var(--fm)",
+              ...extraStyle,
+            }}
+          >
+            {item.flag} {item.count}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -1005,17 +1053,13 @@ export default function DividendosTab() {
                 {" · "}Ret <b style={{color:"var(--red)"}}>${fDol(sorted.reduce((s,d)=>s+((d.whtAmount||0)>0?d.whtAmount:(d.gross||0)-(d.net||0)),0))}</b>
               </span>
             </div>
-            <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
-              <button onClick={()=>setDivFilter(p=>({...p,country:"all"}))} style={{padding:"3px 8px",borderRadius:5,border:`1px solid ${countryFilter==="all"?"var(--gold)":"var(--border)"}`,background:countryFilter==="all"?"var(--gold-dim)":"transparent",color:countryFilter==="all"?"var(--gold)":"var(--text-tertiary)",fontSize:9,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>Todos</button>
-              {Object.entries(countrySet).sort((a,b)=>{
-                const ca = filtered.filter(d=>(getCountry?.(d.ticker,d.currency)||"US")===a[0]).reduce((s,d)=>s+(d.gross||0),0);
-                const cb = filtered.filter(d=>(getCountry?.(d.ticker,d.currency)||"US")===b[0]).reduce((s,d)=>s+(d.gross||0),0);
-                return cb-ca;
-              }).map(([cc,fl])=>{
-                const cnt = filtered.filter(d=>(getCountry?.(d.ticker,d.currency)||"US")===cc).length;
-                return <button key={cc} onClick={()=>setDivFilter(p=>({...p,country:p.country===cc?"all":cc}))} style={{padding:"3px 8px",borderRadius:5,border:`1px solid ${countryFilter===cc?"var(--gold)":"var(--border)"}`,background:countryFilter===cc?"var(--gold-dim)":"transparent",color:countryFilter===cc?"var(--gold)":"var(--text-tertiary)",fontSize:10,cursor:"pointer",fontFamily:"var(--fm)"}}>{fl} {cnt}</button>;
-              })}
-            </div>
+            <DividendosCountryPills
+              countrySet={countrySet}
+              filtered={filtered}
+              getCountry={getCountry}
+              countryFilter={countryFilter}
+              setDivFilter={setDivFilter}
+            />
           </div>
           <div style={{overflowX:"auto",maxHeight:500}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,minWidth:700}}>
