@@ -40,6 +40,13 @@ export default function WatchlistTab() {
     getDragVisuals: sortDragVisuals,
   } = useDraggableOrder(WATCHLIST_SORT_OPTIONS, 'ui_watchlist_sort_options');
 
+  // Drag-reorder watchlist custom tabs
+  const {
+    orderedItems: orderedTabs,
+    dragHandlers: tabDragHandlers,
+    getDragVisuals: tabDragVisuals,
+  } = useDraggableOrder(tabs, 'ui_watchlist_tabs_order');
+
   const saveTabs = useCallback((t) => { setTabs(t); localStorage.setItem(WL_KEY, JSON.stringify(t)); }, []);
 
   const addTab = () => {
@@ -115,15 +122,22 @@ export default function WatchlistTab() {
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {/* Tab bar */}
       <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
-        {tabs.map(t => (
+        {orderedTabs.map(t => {
+          const { extraStyle } = tabDragVisuals(t.id);
+          return (
           <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 0 }}>
             {editingTab === t.id ? (
               <input autoFocus value={t.name} onChange={e => saveTabs(tabs.map(x => x.id === t.id ? { ...x, name: e.target.value } : x))}
                 onBlur={() => setEditingTab(null)} onKeyDown={e => e.key === "Enter" && setEditingTab(null)}
                 style={{ padding: "5px 10px", borderRadius: 8, border: "1px solid var(--gold)", background: "var(--gold-dim)", color: "var(--gold)", fontSize: 11, fontWeight: 700, fontFamily: "var(--fm)", outline: "none", width: 100 }} />
             ) : (
-              <button onClick={() => setActiveTab(t.id)} onDoubleClick={() => t.id !== "all" && setEditingTab(t.id)}
-                style={pill(activeTab === t.id)}>
+              <button
+                {...tabDragHandlers(t.id)}
+                onClick={() => setActiveTab(t.id)}
+                onDoubleClick={() => t.id !== "all" && setEditingTab(t.id)}
+                title="Arrastra para reordenar · Doble-click para renombrar"
+                style={{ ...pill(activeTab === t.id), ...extraStyle }}
+              >
                 {t.name}{t.tickers ? ` (${t.tickers.length})` : ` (${allItems.length})`}
               </button>
             )}
@@ -132,7 +146,8 @@ export default function WatchlistTab() {
                 style={{ padding: "2px 6px", border: "none", background: "transparent", color: "var(--text-tertiary)", fontSize: 11, cursor: "pointer", opacity: .5 }}>✕</button>
             )}
           </div>
-        ))}
+          );
+        })}
         {showAddTab ? (
           <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
             <input autoFocus value={newTabName} onChange={e => setNewTabName(e.target.value)}

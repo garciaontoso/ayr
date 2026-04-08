@@ -123,6 +123,38 @@ const COL_DEFS = [
 ];
 
 const DEFAULT_COLS = COL_DEFS.filter(c=>c.defaultOn).map(c=>c.id);
+
+// Country filter pills with drag-reorder (persisted per user via cloud)
+function PortfolioCountryPills({ countrySorted, countryFilter, setCountryFilter, FLAGS }) {
+  const items = useMemo(() => countrySorted.map(([cc, count]) => ({ id: cc, count, flag: FLAGS[cc] || cc })), [countrySorted, FLAGS]);
+  const { orderedItems, dragHandlers, getDragVisuals } = useDraggableOrder(items, 'ui_portfolio_country_filter');
+  return (
+    <>
+      {orderedItems.map(item => {
+        const active = countryFilter === item.id;
+        const { extraStyle } = getDragVisuals(item.id);
+        return (
+          <button
+            key={item.id}
+            {...dragHandlers(item.id)}
+            onClick={()=>setCountryFilter(countryFilter===item.id?"":item.id)}
+            title="Arrastra para reordenar"
+            style={{
+              padding:"2px 5px",borderRadius:5,
+              border:active?"1.5px solid var(--gold)":"1px solid var(--border)",
+              background:active?"var(--gold-dim)":"transparent",
+              color:active?"var(--gold)":"var(--text-tertiary)",
+              fontSize:10,fontFamily:"var(--fm)",
+              ...extraStyle,
+            }}
+          >
+            {item.flag}{item.count}
+          </button>
+        );
+      })}
+    </>
+  );
+}
 const COL_GROUPS = [...new Set(COL_DEFS.map(c=>c.group))];
 
 const SORT_OPTIONS = [
@@ -188,6 +220,14 @@ export default function PortfolioTab() {
     dragHandlers: sortDragHandlers,
     getDragVisuals: sortDragVisuals,
   } = useDraggableOrder(SORT_OPTIONS, 'ui_portfolio_sort_options');
+
+  // Drag-reorder column-group section headers in the Columns picker
+  const colGroupItems = useMemo(() => COL_GROUPS.map(g => ({ id: g, label: g })), []);
+  const {
+    orderedItems: orderedColGroups,
+    dragHandlers: colGroupDragHandlers,
+    getDragVisuals: colGroupDragVisuals,
+  } = useDraggableOrder(colGroupItems, 'ui_portfolio_col_groups');
 
   // Quality + Safety scores (local state — cached in sessionStorage with 4h TTL).
   // Previous implementation keyed by date YYYY-MM-DD which made the boundary at
@@ -529,9 +569,12 @@ export default function PortfolioTab() {
           return (
           <div style={{display:"flex",gap:4,alignItems:"center",marginBottom:3,flexWrap:"wrap"}}>
             <button onClick={()=>setCountryFilter("")} style={{padding:"2px 6px",borderRadius:5,border:countryFilter===""?"1.5px solid var(--gold)":"1px solid var(--border)",background:countryFilter===""?"var(--gold-dim)":"transparent",color:countryFilter===""?"var(--gold)":"var(--text-tertiary)",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>{pos.length}</button>
-            {countrySorted.map(([cc, count]) => (
-              <button key={cc} onClick={()=>setCountryFilter(countryFilter===cc?"":cc)} style={{padding:"2px 5px",borderRadius:5,border:countryFilter===cc?"1.5px solid var(--gold)":"1px solid var(--border)",background:countryFilter===cc?"var(--gold-dim)":"transparent",color:countryFilter===cc?"var(--gold)":"var(--text-tertiary)",fontSize:10,cursor:"pointer",fontFamily:"var(--fm)"}}>{FLAGS[cc]||cc}{count}</button>
-            ))}
+            <PortfolioCountryPills
+              countrySorted={countrySorted}
+              countryFilter={countryFilter}
+              setCountryFilter={setCountryFilter}
+              FLAGS={FLAGS}
+            />
             <span style={{fontSize:9,fontFamily:"var(--fm)",color:"var(--text-tertiary)",marginLeft:4}}>Yield <b style={{color:"var(--gold)"}}>{_sf(portfolioTotals.yieldUSD*100,1)}%</b></span>
             <span style={{fontSize:9,fontFamily:"var(--fm)",color:"var(--green)"}}>{greenCount}{"\u2713"}</span>
             <div style={{marginLeft:"auto",display:"flex",gap:3,alignItems:"center"}}>
@@ -563,19 +606,27 @@ export default function PortfolioTab() {
                     <button onClick={()=>setVisibleCols(COL_DEFS.filter(c=>c.locked).map(c=>c.id))} style={{padding:"3px 8px",borderRadius:5,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)"}}>Minimo</button>
                     <button onClick={resetColOrder} style={{padding:"3px 8px",borderRadius:5,border:"1px solid var(--gold)",background:"var(--gold-dim)",color:"var(--gold)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)",fontWeight:600}}>Reset orden</button>
                   </div>
-                  {COL_GROUPS.map(group => (
-                    <div key={group} style={{marginBottom:6}}>
-                      <div style={{fontSize:8,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:3,textTransform:"uppercase"}}>{group}</div>
-                      <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
-                        {COL_DEFS.filter(c=>c.group===group).map(c => (
-                          <label key={c.id} style={{display:"flex",alignItems:"center",gap:3,fontSize:9,fontFamily:"var(--fm)",color:visibleCols.includes(c.id)?"var(--text-primary)":"var(--text-tertiary)",cursor:c.locked?"default":"pointer",opacity:c.locked?.6:1,padding:"2px 4px",borderRadius:4,background:visibleCols.includes(c.id)?"rgba(200,164,78,.08)":"transparent"}}>
-                            <input type="checkbox" checked={visibleCols.includes(c.id)} onChange={()=>toggleCol(c.id)} disabled={c.locked} style={{width:12,height:12,accentColor:"var(--gold)"}}/>
-                            {c.label}
-                          </label>
-                        ))}
+                  {orderedColGroups.map(({id: group}) => {
+                    const { extraStyle } = colGroupDragVisuals(group);
+                    return (
+                      <div
+                        key={group}
+                        {...colGroupDragHandlers(group)}
+                        title="Arrastra para reordenar grupos"
+                        style={{marginBottom:6, padding:"2px 0", ...extraStyle}}
+                      >
+                        <div style={{fontSize:8,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:3,textTransform:"uppercase"}}>{group}</div>
+                        <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
+                          {COL_DEFS.filter(c=>c.group===group).map(c => (
+                            <label key={c.id} style={{display:"flex",alignItems:"center",gap:3,fontSize:9,fontFamily:"var(--fm)",color:visibleCols.includes(c.id)?"var(--text-primary)":"var(--text-tertiary)",cursor:c.locked?"default":"pointer",opacity:c.locked?.6:1,padding:"2px 4px",borderRadius:4,background:visibleCols.includes(c.id)?"rgba(200,164,78,.08)":"transparent"}}>
+                              <input type="checkbox" checked={visibleCols.includes(c.id)} onChange={()=>toggleCol(c.id)} disabled={c.locked} style={{width:12,height:12,accentColor:"var(--gold)"}}/>
+                              {c.label}
+                            </label>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {/* Column order - numbered list with up/down arrows (iPad friendly) */}
                   <div style={{borderTop:"1px solid var(--border)",paddingTop:6,marginTop:4,marginBottom:6}}>
                     <div style={{fontSize:8,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:4,textTransform:"uppercase"}}>Orden de columnas</div>

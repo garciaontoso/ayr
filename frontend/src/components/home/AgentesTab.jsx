@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { API_URL } from '../../constants/index.js';
 import { InlineLoading } from '../ui/EmptyState.jsx';
 import { Button, Toast } from '../ui';
+import { useDraggableOrder } from '../../hooks/useDraggableOrder.js';
 
 /* ═══════════════════════════════════════════
    AI Agents Dashboard — A&R v4.1 (FMP Ultimate)
@@ -117,24 +118,15 @@ export default function AgentesTab() {
   const [promptDrawer, setPromptDrawer] = useState(null); // selected agent id
   const [drawerTab, setDrawerTab] = useState('prompt');   // prompt | io | insights
   const [agentsMetadata, setAgentsMetadata] = useState([]);
-  const [agentOrder, setAgentOrder] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('ayr-agent-order')) || DEFAULT_ORDER; } catch { return DEFAULT_ORDER; }
-  });
-
-  const moveAgent = (id, dir) => {
-    const idx = agentOrder.indexOf(id);
-    if (idx < 0) return;
-    const newIdx = idx + dir;
-    if (newIdx < 0 || newIdx >= agentOrder.length) return;
-    const newOrder = [...agentOrder];
-    [newOrder[idx], newOrder[newIdx]] = [newOrder[newIdx], newOrder[idx]];
-    setAgentOrder(newOrder);
-    localStorage.setItem('ayr-agent-order', JSON.stringify(newOrder));
-  };
-
-  const sortedAgents = agentOrder.map(id => AGENTS.find(a => a.id === id)).filter(Boolean);
-  // Add any new agents not in saved order
-  for (const a of AGENTS) { if (!agentOrder.includes(a.id)) sortedAgents.push(a); }
+  // Drag-reorder agent cards (persisted per user via cloud).
+  // Replaces the previous arrow-button approach (moveAgent) with the
+  // shared useDraggableOrder hook. localStorage 'ayr-agent-order' is
+  // still read as a fallback seed via the hook's localStorage path.
+  const {
+    orderedItems: sortedAgents,
+    dragHandlers: agentDragHandlers,
+    getDragVisuals: agentDragVisuals,
+  } = useDraggableOrder(AGENTS, 'ui_agents_order');
 
   // Fetch agent prompts metadata once on mount (for the transparency drawer)
   useEffect(() => {
@@ -377,17 +369,20 @@ export default function AgentesTab() {
           const topSev = critCount ? 'critical' : warnCount ? 'warning' : 'info';
           const topColor = SEV_COLORS[topSev];
 
+          const { extraStyle: agentExtraStyle } = agentDragVisuals(agent.id);
           return (
             <div
               key={agent.id}
+              {...agentDragHandlers(agent.id)}
               onClick={() => openPromptDrawer(agent.id)}
-              title="Click para ver el prompt completo + insights de este agente"
+              title="Arrastra para reordenar · Click para ver prompt completo"
               style={{
                 ...card({
                   padding: '16px 18px', cursor: 'pointer', transition: 'all .2s',
                   borderColor: isActive ? GOLD : BORDER,
                   boxShadow: isActive ? `0 0 0 1px ${GOLD}` : 'none',
                 }),
+                ...agentExtraStyle,
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -397,8 +392,6 @@ export default function AgentesTab() {
                   <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: FM }}>{agent.desc}</div>
                 </div>
                 <div style={{ display: 'flex', gap: 2 }}>
-                  {agentIdx > 0 && <button onClick={(e) => { e.stopPropagation(); moveAgent(agent.id, -1); }} style={{ width: 16, height: 16, borderRadius: 4, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-tertiary)', fontSize: 8, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Mover izquierda">&#9664;</button>}
-                  {agentIdx < sortedAgents.length - 1 && <button onClick={(e) => { e.stopPropagation(); moveAgent(agent.id, 1); }} style={{ width: 16, height: 16, borderRadius: 4, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-tertiary)', fontSize: 8, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Mover derecha">&#9654;</button>}
                   <button onClick={(e) => { e.stopPropagation(); setShowAllInfo(!showAllInfo); }} style={{
                     width: 16, height: 16, borderRadius: '50%', border: `1px solid ${showAllInfo ? GOLD : 'var(--border)'}`,
                     background: showAllInfo ? GOLD_DIM : 'transparent', color: showAllInfo ? GOLD : 'var(--text-tertiary)',
