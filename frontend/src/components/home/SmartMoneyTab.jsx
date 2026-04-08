@@ -18,6 +18,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { API_URL } from '../../constants/index.js';
 import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
+import { useDraggableOrder } from '../../hooks/useDraggableOrder.js';
 
 const SUB_VIEWS = [
   { id: 'alerts', lbl: '🔔 Alerts', desc: 'Cambios materiales último Q' },
@@ -97,6 +98,13 @@ export default function SmartMoneyTab() {
   const { portfolioList, portfolioTotals, openAnalysis } = useHome();
   // portfolioTotals.positions has the weight field; portfolioList doesn't.
   const positionsWithWeight = portfolioTotals?.positions || portfolioList || [];
+
+  // Drag-reorder the sub-view pills — order persisted per user via cloud.
+  const {
+    orderedItems: orderedSubViews,
+    dragHandlers: subViewDragHandlers,
+    getDragVisuals: subViewDragVisuals,
+  } = useDraggableOrder(SUB_VIEWS, 'ui_smart_money_sub_views');
 
   const [view, setView] = useState('alerts');
   const [funds, setFunds] = useState([]);
@@ -423,13 +431,26 @@ export default function SmartMoneyTab() {
         </div>
       )}
 
-      {/* ─── Sub-view pills ─── */}
+      {/* ─── Sub-view pills (drag to reorder, persisted per user) ─── */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-        {SUB_VIEWS.map(sv => {
+        {orderedSubViews.map(sv => {
           // Badge count on the Alerts pill
           const alertCount = sv.id === 'alerts' ? (alertsData?.stats?.critical || 0) : 0;
+          const active = view === sv.id;
+          const { isDragOver, extraStyle } = subViewDragVisuals(sv.id);
           return (
-            <button key={sv.id} onClick={() => setView(sv.id)} style={pill(view === sv.id)}>
+            <button
+              key={sv.id}
+              {...subViewDragHandlers(sv.id)}
+              onClick={() => setView(sv.id)}
+              title="Arrastra para reordenar"
+              style={{
+                ...pill(active),
+                ...extraStyle,
+                borderColor: isDragOver ? 'var(--gold)' : (active ? 'var(--gold)' : 'var(--border)'),
+                background: isDragOver ? 'rgba(200,164,78,.25)' : (active ? 'rgba(200,164,78,.12)' : 'transparent'),
+              }}
+            >
               {sv.lbl}
               {alertCount > 0 && (
                 <span style={{

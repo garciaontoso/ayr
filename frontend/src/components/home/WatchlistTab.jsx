@@ -2,8 +2,16 @@ import { useState, useCallback, useEffect } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf } from '../../utils/formatters.js';
 import { EmptyState } from '../ui/EmptyState.jsx';
+import { useDraggableOrder } from '../../hooks/useDraggableOrder.js';
 
 const WL_KEY = "ayr_wl_tabs";
+
+// Sort pill definitions (id stable for persistence)
+const WATCHLIST_SORT_OPTIONS = [
+  { id: "name",   lbl: "A-Z" },
+  { id: "price",  lbl: "Precio" },
+  { id: "change", lbl: "Cambio" },
+];
 
 export default function WatchlistTab() {
   const {
@@ -24,6 +32,13 @@ export default function WatchlistTab() {
   const [newTabName, setNewTabName] = useState("");
   const [editingTab, setEditingTab] = useState(null);
   const [sortBy, setSortBy] = useState("name");
+
+  // Drag-reorder the sort pills — persisted per user via cloud
+  const {
+    orderedItems: orderedSortOptions,
+    dragHandlers: sortDragHandlers,
+    getDragVisuals: sortDragVisuals,
+  } = useDraggableOrder(WATCHLIST_SORT_OPTIONS, 'ui_watchlist_sort_options');
 
   const saveTabs = useCallback((t) => { setTabs(t); localStorage.setItem(WL_KEY, JSON.stringify(t)); }, []);
 
@@ -158,12 +173,29 @@ export default function WatchlistTab() {
         )}
 
         <div style={{ marginLeft: "auto", display: "flex", gap: 3 }}>
-          {[{ id: "name", l: "A-Z" }, { id: "price", l: "Precio" }, { id: "change", l: "Cambio" }].map(s => (
-            <button key={s.id} onClick={() => setSortBy(s.id)}
-              style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${sortBy === s.id ? "var(--gold)" : "var(--border)"}`, background: sortBy === s.id ? "var(--gold-dim)" : "transparent", color: sortBy === s.id ? "var(--gold)" : "var(--text-tertiary)", fontSize: 9, fontWeight: sortBy === s.id ? 700 : 500, cursor: "pointer", fontFamily: "var(--fm)" }}>
-              {s.l}
-            </button>
-          ))}
+          {orderedSortOptions.map(s => {
+            const active = sortBy === s.id;
+            const { isDragOver, extraStyle } = sortDragVisuals(s.id);
+            return (
+              <button
+                key={s.id}
+                {...sortDragHandlers(s.id)}
+                onClick={() => setSortBy(s.id)}
+                title="Arrastra para reordenar"
+                style={{
+                  padding: "4px 8px", borderRadius: 6,
+                  border: `1px solid ${isDragOver ? "var(--gold)" : active ? "var(--gold)" : "var(--border)"}`,
+                  background: isDragOver ? "rgba(200,164,78,.25)" : active ? "var(--gold-dim)" : "transparent",
+                  color: active ? "var(--gold)" : "var(--text-tertiary)",
+                  fontSize: 9, fontWeight: active ? 700 : 500,
+                  fontFamily: "var(--fm)",
+                  ...extraStyle,
+                }}
+              >
+                {s.lbl}
+              </button>
+            );
+          })}
         </div>
       </div>
 

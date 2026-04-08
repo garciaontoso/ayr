@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useHome } from '../../context/HomeContext';
+import { useDraggableOrder } from '../../hooks/useDraggableOrder.js';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { EmptyState, LoadingSkeleton } from '../ui/EmptyState.jsx';
 import { API_URL } from '../../constants/index.js';
@@ -180,6 +181,13 @@ export default function PortfolioTab() {
   const [quickFilter, setQuickFilter] = useState("");
   const [listSort, setListSort] = useState("value");
   const searchRef = useRef(null);
+
+  // Drag-reorder the sort pills — persisted per user via cloud
+  const {
+    orderedItems: orderedSortOptions,
+    dragHandlers: sortDragHandlers,
+    getDragVisuals: sortDragVisuals,
+  } = useDraggableOrder(SORT_OPTIONS, 'ui_portfolio_sort_options');
 
   // Quality + Safety scores (local state — cached in sessionStorage with 4h TTL).
   // Previous implementation keyed by date YYYY-MM-DD which made the boundary at
@@ -600,11 +608,29 @@ export default function PortfolioTab() {
               )}
             </div>
             <div style={{display:"flex",gap:3,marginLeft:"auto"}}>
-              {SORT_OPTIONS.map(s=>(
-                <button key={s.id} onClick={()=>{setListSort(s.id);setColSort({id:null,asc:false});}} style={{padding:"3px 7px",borderRadius:5,border:"1px solid "+(listSort===s.id&&!colSort.id?"var(--gold)":"var(--border)"),background:listSort===s.id&&!colSort.id?"var(--gold-dim)":"transparent",color:listSort===s.id&&!colSort.id?"var(--gold)":"var(--text-tertiary)",fontSize:9,fontWeight:listSort===s.id&&!colSort.id?700:500,cursor:"pointer",fontFamily:"var(--fm)"}}>
-                  {s.lbl}
-                </button>
-              ))}
+              {orderedSortOptions.map(s=>{
+                const active = listSort===s.id && !colSort.id;
+                const { isDragOver, extraStyle } = sortDragVisuals(s.id);
+                return (
+                  <button
+                    key={s.id}
+                    {...sortDragHandlers(s.id)}
+                    onClick={()=>{setListSort(s.id);setColSort({id:null,asc:false});}}
+                    title="Arrastra para reordenar"
+                    style={{
+                      padding:"3px 7px",borderRadius:5,
+                      border:"1px solid "+(isDragOver?"var(--gold)":active?"var(--gold)":"var(--border)"),
+                      background:isDragOver?"rgba(200,164,78,.25)":active?"var(--gold-dim)":"transparent",
+                      color:active?"var(--gold)":"var(--text-tertiary)",
+                      fontSize:9,fontWeight:active?700:500,
+                      fontFamily:"var(--fm)",
+                      ...extraStyle,
+                    }}
+                  >
+                    {s.lbl}
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
