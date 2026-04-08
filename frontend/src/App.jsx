@@ -333,6 +333,9 @@ export default function ARApp() {
   const [alertsUnread, setAlertsUnread] = useState(0);
   const [showAlertPanel, setShowAlertPanel] = useState(false);
   const [divStreaks, setDivStreaks] = useState({});
+  // smartMoneyHolders: { [ticker]: [{ fund_id, fund_name, manager, source, weight_pct, ... }, ...] }
+  // Loaded once per day, cached in sessionStorage. Powers the CompanyRow "⭐N" badge.
+  const [smartMoneyHolders, setSmartMoneyHolders] = useState({});
   const [scoresModalTicker, setScoresModalTicker] = useState(null);
   const [scoresModalData, setScoresModalData] = useState(null);
 
@@ -1412,6 +1415,30 @@ function buildPositionsFromCB() {
     // H4 fix: a swap (e.g. SELL one, BUY another) keeps length but changes tickers.
   }, [portfolioList.map(p => p.ticker).join(',')]);
 
+  // Smart Money holders — bulk fetch for every portfolio ticker once per day.
+  // The /api/funds/by-tickers endpoint returns a map { ticker: [holders] },
+  // so one request covers the whole 84-position portfolio.
+  useEffect(() => {
+    if (!portfolioList.length) return;
+    const smKey = 'smart-money-' + new Date().toISOString().slice(0, 10);
+    if (sessionStorage.getItem(smKey)) {
+      try { setSmartMoneyHolders(JSON.parse(sessionStorage.getItem(smKey + '-data')) || {}); } catch {}
+      return;
+    }
+    const tickers = portfolioList.map(p => p.ticker).filter(Boolean);
+    if (!tickers.length) return;
+    (async () => {
+      try {
+        const r = await fetch(`${API_URL}/api/funds/by-tickers?symbols=${encodeURIComponent(tickers.join(','))}`);
+        const d = await r.json();
+        const holders = d?.holders || {};
+        setSmartMoneyHolders(holders);
+        sessionStorage.setItem(smKey, '1');
+        try { sessionStorage.setItem(smKey + '-data', JSON.stringify(holders)); } catch {}
+      } catch {}
+    })();
+  }, [portfolioList.map(p => p.ticker).join(',')]);
+
   // Open Q/S drill-down modal — fetch detailed history
   const openScoresModal = useCallback(async (ticker) => {
     setScoresModalTicker(ticker);
@@ -1846,6 +1873,15 @@ function buildPositionsFromCB() {
           {badge}
           {p.dataSource==="IB" && <span style={{fontSize:6,fontWeight:700,padding:"1px 3px",borderRadius:3,background:"rgba(100,210,255,.1)",color:"#64d2ff",flexShrink:0}}>IB</span>}
           {divStreaks[p.ticker]?.streak >= 5 && <span style={{fontSize:6,fontWeight:700,padding:"1px 3px",borderRadius:3,background:divStreaks[p.ticker].streak>=25?"rgba(200,164,78,.15)":divStreaks[p.ticker].streak>=10?"rgba(48,209,88,.1)":"rgba(255,214,10,.08)",color:divStreaks[p.ticker].streak>=25?"var(--gold)":divStreaks[p.ticker].streak>=10?"var(--green)":"#ffd60a",flexShrink:0}} title={`${divStreaks[p.ticker].streak} años subiendo dividendo`}>{divStreaks[p.ticker].streak}y</span>}
+          {/* Smart Money holders badge — click handled by row, shows count + managers on hover */}
+          {smartMoneyHolders[p.ticker]?.length > 0 && (() => {
+            const holders = smartMoneyHolders[p.ticker];
+            const n = holders.length;
+            const list = holders.slice(0, 8).map(h => `${h.fund_name} (${h.weight_pct?.toFixed(1)}%)`).join('\n');
+            const bg = n >= 4 ? 'rgba(200,164,78,.18)' : n >= 2 ? 'rgba(48,209,88,.12)' : 'rgba(100,210,255,.1)';
+            const col = n >= 4 ? 'var(--gold)' : n >= 2 ? 'var(--green)' : '#64d2ff';
+            return <span style={{fontSize:6,fontWeight:700,padding:"1px 3px",borderRadius:3,background:bg,color:col,flexShrink:0}} title={`Smart Money: ${n} fondo${n>1?'s':''}\n${list}`}>⭐{n}</span>;
+          })()}
           {p.notes && <span style={{fontSize:7,flexShrink:0,opacity:.5}} title={p.notes.length > 80 ? p.notes.slice(0,80)+'...' : p.notes}>📝</span>}
           {/* Sparkline inline — gradient fill + hover tooltip */}
           {(p.spark||[]).length >= 2 && (() => {
@@ -2009,7 +2045,7 @@ function buildPositionsFromCB() {
     GASTOS_CAT, CASH_DATA, MARGIN_INTEREST_DATA, LIVE_DPS, FORWARD_DIV, CACHED_PNL,
     // IB Integration
     ibData, ibDiscrepancies, loadIBData, ibSyncMsg,
-    alerts, alertsUnread, showAlertPanel, setShowAlertPanel, divStreaks, theme, toggleTheme,
+    alerts, alertsUnread, showAlertPanel, setShowAlertPanel, divStreaks, smartMoneyHolders, theme, toggleTheme,
     openScoresModal,
     markAlertsRead: () => { fetch(`${API_URL}/api/alerts/read`, { method: "POST" }).catch(() => {}); setAlertsUnread(0); setAlerts(a => a.map(x => ({ ...x, leida: 1 }))); },
   }), [homeTab, portfolioList, watchlistList, historialList, portfolioTotals, portfolioComputed,

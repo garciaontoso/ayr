@@ -1479,6 +1479,111 @@ export default {
         return json({ funds: funds || [] }, corsHeaders);
       }
 
+      // GET /api/funds/by-tickers?symbols=AAPL,KO,... — bulk lookup for
+      // multiple tickers. Returns { [ticker]: [{ fund_id, fund_name, ... }] }.
+      // Used by CompanyRow badge so we don't fire 84 individual requests.
+      if (path === "/api/funds/by-tickers" && request.method === "GET") {
+        const symbolsRaw = url.searchParams.get('symbols') || '';
+        const symbols = symbolsRaw.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+        if (!symbols.length) return json({ holders: {} }, corsHeaders);
+        // Also search for Spanish-prefixed ISINs that resolve to this ticker
+        // once isin_ticker_map is populated. For now, direct ticker match only.
+        const placeholders = symbols.map(() => '?').join(',');
+        const { results } = await env.DB.prepare(
+          `SELECT fh.ticker, fh.fund_id, s.name AS fund_name, s.manager, s.style, s.conviction, s.source,
+                  fh.weight_pct, fh.value_usd
+           FROM fund_holdings fh
+           JOIN superinvestors s ON s.id = fh.fund_id
+           WHERE s.followed = 1 AND fh.quarter = s.last_quarter AND fh.ticker IN (${placeholders})
+           ORDER BY fh.weight_pct DESC`
+        ).bind(...symbols).all();
+        const holders = {};
+        for (const row of results || []) {
+          if (!holders[row.ticker]) holders[row.ticker] = [];
+          holders[row.ticker].push({
+            fund_id: row.fund_id, fund_name: row.fund_name, manager: row.manager,
+            style: row.style, conviction: row.conviction, source: row.source,
+            weight_pct: row.weight_pct, value_usd: row.value_usd,
+          });
+        }
+        return json({ holders }, corsHeaders);
+      }
+
+      // GET /api/funds/cik-search?q=name — proxy to FMP's CIK search so we
+      // can resolve the 4 broken CIKs (Wedgewood/Sequoia/Russo/Giverny).
+      // FMP has many slightly different endpoints for this — we try several.
+      if (path === "/api/funds/cik-search" && request.method === "GET") {
+        const q = url.searchParams.get('q') || '';
+        if (!q) return json({ error: "q required" }, corsHeaders, 400);
+        const FMP_KEY = env.FMP_KEY;
+        if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
+        const tries = [
+          `https://financialmodelingprep.com/stable/institutional-ownership/list?page=0&limit=50&name=${encodeURIComponent(q)}&apikey=${FMP_KEY}`,
+          `https://financialmodelingprep.com/api/v4/institutional-ownership/name?name=${encodeURIComponent(q)}&apikey=${FMP_KEY}`,
+          `https://financialmodelingprep.com/stable/institutional-ownership/search?name=${encodeURIComponent(q)}&apikey=${FMP_KEY}`,
+          `https://financialmodelingprep.com/stable/institutional-ownership/holder-search?name=${encodeURIComponent(q)}&apikey=${FMP_KEY}`,
+          `https://financialmodelingprep.com/api/v3/cik-search/${encodeURIComponent(q)}?apikey=${FMP_KEY}`,
+        ];
+        const debug = [];
+        for (const u of tries) {
+          try {
+            const r = await fetch(u);
+            const label = u.split('?')[0].replace('https://financialmodelingprep.com', '');
+            debug.push({ url: label, status: r.status });
+            if (r.ok) {
+              const data = await r.json();
+              if (Array.isArray(data) && data.length > 0) {
+                return json({ source: label, results: data.slice(0, 20), debug }, corsHeaders);
+              }
+            }
+          } catch (e) { debug.push({ err: e.message }); }
+        }
+        return json({ results: [], debug }, corsHeaders);
+      }
+
+      // POST /api/funds/resolve-isins — for each Spanish holding with a
+      // ES:ISIN ticker, call FMP to resolve the actual trading symbol and
+      // update fund_holdings.cusip (which currently stores the raw ISIN).
+      // This unlocks cross-reference: if a Spanish fund holds Glencore via
+      // ISIN JE00B4T3BW64, we can show GLEN.L in the US-side consensus too.
+      if (path === "/api/funds/resolve-isins" && request.method === "POST") {
+        const FMP_KEY = env.FMP_KEY;
+        if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
+        // Collect distinct Spanish ISINs (stored in cusip field)
+        const { results: rows } = await env.DB.prepare(
+          `SELECT DISTINCT cusip FROM fund_holdings fh
+           JOIN superinvestors s ON s.id = fh.fund_id
+           WHERE s.source = 'es-cnmv' AND fh.cusip IS NOT NULL AND fh.cusip != ''`
+        ).all();
+        const isins = (rows || []).map(r => r.cusip).filter(i => i && i.length === 12);
+        const resolved = {};
+        const unresolved = [];
+        for (const isin of isins) {
+          try {
+            // FMP Ultimate: /stable/search-isin?isin=XX...
+            const r = await fetch(`https://financialmodelingprep.com/stable/search-isin?isin=${isin}&apikey=${FMP_KEY}`);
+            if (r.ok) {
+              const data = await r.json();
+              if (Array.isArray(data) && data.length > 0 && data[0]?.symbol) {
+                resolved[isin] = data[0].symbol;
+                continue;
+              }
+            }
+            unresolved.push(isin);
+          } catch { unresolved.push(isin); }
+        }
+        // Batch update fund_holdings.ticker to the resolved symbol
+        // (keep the old ES:ISIN as a fallback in `cusip` so UI can still show it)
+        const updates = [];
+        for (const [isin, symbol] of Object.entries(resolved)) {
+          updates.push(
+            env.DB.prepare(`UPDATE fund_holdings SET ticker = ? WHERE cusip = ? AND ticker LIKE 'ES:%'`).bind(symbol, isin)
+          );
+        }
+        if (updates.length > 0) await env.DB.batch(updates);
+        return json({ resolvedCount: Object.keys(resolved).length, unresolvedCount: unresolved.length, resolved, unresolved }, corsHeaders);
+      }
+
       // POST /api/funds/seed-spanish — seeds fund_holdings from the bundled
       // SPANISH_FUNDS_1S2025 constant (parsed from Cobas/Magallanes/azValor
       // CNMV-filed semestral PDFs). Idempotent. Inserts BOTH quarters
@@ -1560,7 +1665,7 @@ export default {
 
       // GET /api/funds/:id — fund detail with current quarter top holdings
       const fundDetailMatch = path.match(/^\/api\/funds\/([a-z0-9_-]+)$/);
-      const RESERVED_FUND_PATHS = new Set(['list', 'consensus', 'refresh', 'by-ticker', 'seed-spanish']);
+      const RESERVED_FUND_PATHS = new Set(['list', 'consensus', 'refresh', 'by-ticker', 'by-tickers', 'seed-spanish', 'cik-search', 'resolve-isins']);
       if (fundDetailMatch && request.method === "GET" && !RESERVED_FUND_PATHS.has(fundDetailMatch[1])) {
         const fundId = fundDetailMatch[1];
         const fund = await env.DB.prepare(`SELECT * FROM superinvestors WHERE id = ?`).bind(fundId).first();

@@ -112,6 +112,13 @@ const COL_DEFS = [
     val:p=>p._qs?.safety_score, fmt:v=>v!=null?v.toFixed(0):"\u2014",
     color:v=>v==null?"var(--text-tertiary)":v>=80?"var(--gold)":v>=65?"var(--green)":v>=50?"#ffd60a":"#ff6b6b",
     sortV:p=>p._qs?.safety_score||0 },
+  // Smart Money — # of superinvestors (US 13F + ES CNMV) holding this ticker.
+  // Data is injected as p._sm (array of holders) in enrichedPositions.
+  { id:"smartMoney", label:"SM", group:"Smart Money", w:"40px", defaultOn:true, isSM:true,
+    val:p=>p._sm?.length||0,
+    fmt:v=>v>0?`⭐${v}`:"\u2014",
+    color:v=>v==null||v===0?"var(--text-tertiary)":v>=4?"var(--gold)":v>=2?"var(--green)":"#64d2ff",
+    sortV:p=>p._sm?.length||0 },
 ];
 
 const DEFAULT_COLS = COL_DEFS.filter(c=>c.defaultOn).map(c=>c.id);
@@ -165,7 +172,7 @@ export default function PortfolioTab() {
     displayCcy, privacyMode, hide,
     openAnalysis, openCostBasis, removePosition,
     getCountry, FLAGS, POS_STATIC, CompanyRow,
-    ibData, divStreaks, openScoresModal,
+    ibData, divStreaks, smartMoneyHolders, openScoresModal,
     setHomeTab,
     CACHED_PNL,
   } = useHome();
@@ -218,10 +225,11 @@ export default function PortfolioTab() {
     try {
       const s = JSON.parse(localStorage.getItem(COLS_KEY));
       if (s && Array.isArray(s) && s.length > 0) {
-        // Migration: append Q/S columns if user has older saved list (one-time)
+        // Migration: append newer columns if user has an older saved list.
         let migrated = [...s];
-        if (!s.includes('quality')) migrated.push('quality');
-        if (!s.includes('safety')) migrated.push('safety');
+        if (!s.includes('quality'))     migrated.push('quality');
+        if (!s.includes('safety'))      migrated.push('safety');
+        if (!s.includes('smartMoney'))  migrated.push('smartMoney');
         return migrated;
       }
     } catch {}
@@ -404,8 +412,13 @@ export default function PortfolioTab() {
   }, [portfolioTotals?.positions]);
 
   const enrichedPositions = useMemo(() => {
-    return (portfolioTotals?.positions || []).map(p => ({ ...p, _fund: fundData[p.ticker] || null, _dgr: dgrData[p.ticker] || null }));
-  }, [portfolioTotals?.positions, fundData, dgrData]);
+    return (portfolioTotals?.positions || []).map(p => ({
+      ...p,
+      _fund: fundData[p.ticker] || null,
+      _dgr: dgrData[p.ticker] || null,
+      _sm: smartMoneyHolders?.[p.ticker] || null,
+    }));
+  }, [portfolioTotals?.positions, fundData, dgrData, smartMoneyHolders]);
 
   const activeCols = useMemo(() => visibleCols.map(id => COL_DEFS.find(c => c.id === id)).filter(Boolean), [visibleCols]);
 
@@ -693,6 +706,22 @@ export default function PortfolioTab() {
                           const tooltip = isClickable ? `${c.id === 'quality' ? 'Quality' : 'Dividend Safety'}: ${val.toFixed(0)}/100 (click para detalles)` : (c.id === 'safety' ? 'Safety N/A — no dividend payer o sin datos' : 'Sin datos');
                           return (<td key={c.id} title={tooltip} onClick={isClickable ? (e)=>{e.stopPropagation();openScoresModal && openScoresModal(p.ticker);} : undefined}
                             style={{padding:"3px 3px",textAlign:"center",verticalAlign:"middle",fontFamily:"var(--fm)",fontSize:11,fontWeight:800,color:cellColor,whiteSpace:"nowrap",cursor:isClickable?"pointer":"default"}}>
+                            {formatted}
+                          </td>);
+                        }
+                        // Smart Money column: tooltip listing fund holders + weights
+                        if (c.isSM) {
+                          const holders = p._sm || [];
+                          const n = holders.length;
+                          const val = n;
+                          const formatted = c.fmt(val, p);
+                          const cellColor = c.color ? c.color(val) : "var(--text-tertiary)";
+                          const tooltip = n > 0
+                            ? `${n} fondo${n>1?'s':''} lo tiene${n>1?'n':''}:\n` + holders.slice(0, 10).map(h => `· ${h.fund_name} (${h.weight_pct?.toFixed(1)}%) — ${h.manager}`).join('\n')
+                            : 'Ningún superinvestor seguido lo tiene';
+                          return (<td key={c.id} title={tooltip}
+                            onClick={n > 0 ? (e)=>{e.stopPropagation();setHomeTab&&setHomeTab("smart-money");} : undefined}
+                            style={{padding:"3px 3px",textAlign:"center",verticalAlign:"middle",fontFamily:"var(--fm)",fontSize:10,fontWeight:700,color:cellColor,whiteSpace:"nowrap",cursor:n>0?"pointer":"help"}}>
                             {formatted}
                           </td>);
                         }
