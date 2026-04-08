@@ -720,6 +720,42 @@ async function ensureMigrations(env) {
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_fh_ticker ON fund_holdings(ticker)`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_fh_quarter ON fund_holdings(quarter)`).run();
 
+    // ─── Smart Money Alerts persistence (2026-04-08 ronda 6) ───
+    // Stores the materiality-filtered changes so read/muted state
+    // survives refreshes and the badge count goes down as the user
+    // processes them. Composite PK ensures idempotency: re-running
+    // /api/funds/alerts on the same quarter pair won't duplicate rows.
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS fund_alerts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      fund_id TEXT NOT NULL,
+      ticker TEXT NOT NULL,
+      quarter TEXT NOT NULL,
+      prev_quarter TEXT NOT NULL,
+      status TEXT NOT NULL,
+      tier TEXT NOT NULL,
+      name TEXT DEFAULT '',
+      w_prev REAL DEFAULT 0,
+      w_now REAL DEFAULT 0,
+      delta_pct REAL DEFAULT 0,
+      value_usd REAL DEFAULT 0,
+      detected_at TEXT DEFAULT (datetime('now')),
+      read_at TEXT DEFAULT NULL,
+      UNIQUE(fund_id, ticker, quarter, status)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_fa_unread ON fund_alerts(read_at) WHERE read_at IS NULL`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_fa_ticker ON fund_alerts(ticker)`).run();
+
+    // Muted subjects (ticker globally, or ticker×fund, or whole fund).
+    // Either ticker or fund_id can be NULL to mean "all".
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS fund_alert_mutes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT DEFAULT NULL,
+      fund_id TEXT DEFAULT NULL,
+      muted_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_fam_ticker ON fund_alert_mutes(ticker)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_fam_fund ON fund_alert_mutes(fund_id)`).run();
+
     // Seed the curated superinvestors (idempotent — INSERT OR IGNORE).
     // CIKs sourced from docs/fondos-tab-design.md.
     const SUPERINVESTORS_SEED = [
@@ -1713,26 +1749,32 @@ export default {
         return json({ minHolders, picks: results || [] }, corsHeaders);
       }
 
-      // GET /api/funds/alerts — material changes across all followed funds
-      // between their last_quarter and the quarter immediately before.
-      // Returns grouped by tier: CRITICAL (ticker in portfolio), WATCH
-      // (ticker in holdings of the 'watchlist' list), INFO (ticker in any
-      // other fund too). Applies materiality filters from the design doc:
+      // GET /api/funds/alerts — material changes across all followed funds.
+      // 2026-04-08 ronda 6: now persists to D1.fund_alerts so read/muted
+      // state survives refreshes. Endpoint flow:
+      //   1. Compute current diffs (same materiality rules as before)
+      //   2. INSERT OR IGNORE each row into fund_alerts (preserves read_at)
+      //   3. Query fund_alerts back with joins + user filters
+      // Query params:
+      //   ?includeRead=1  — include already-read alerts
+      //   ?includeMuted=1 — include muted ticker/fund alerts
+      // Materiality rules (unchanged):
       //   NEW   : w_prev == 0 && w_now >= 3%
       //   SOLD  : w_prev >= 3% && w_now == 0
-      //   ADDED : w_now >= 2% && w_now >= w_prev * 2 (doubled)
-      //   REDUCED: w_prev >= 2% && w_now <= w_prev * 0.5 (halved)
+      //   ADDED : w_now >= 2% && w_now >= w_prev * 2
+      //   REDUCED: w_prev >= 2% && w_now <= w_prev * 0.5
       if (path === "/api/funds/alerts" && request.method === "GET") {
-        // Load followed funds with both current and prior quarter labels.
+        const includeRead = url.searchParams.get('includeRead') === '1';
+        const includeMuted = url.searchParams.get('includeMuted') === '1';
+
+        // Load followed funds with both current and prior quarter labels
         const { results: funds } = await env.DB.prepare(
           `SELECT id, name, manager, conviction, source, last_quarter FROM superinvestors WHERE followed = 1 AND last_quarter IS NOT NULL`
         ).all();
         if (!funds?.length) return json({ alerts: [], stats: {} }, corsHeaders);
 
-        // Find prior quarter for each fund (the one just before last_quarter)
         const priorForFund = {};
         for (const f of funds) {
-          // Parse YYYY-QN
           const m = String(f.last_quarter || '').match(/^(\d{4})-Q([1-4])$/);
           if (!m) continue;
           let y = parseInt(m[1], 10), q = parseInt(m[2], 10) - 1;
@@ -1740,14 +1782,20 @@ export default {
           priorForFund[f.id] = `${y}-Q${q}`;
         }
 
-        // Load user's portfolio + watchlist tickers for relevance scoring
+        // Load user's portfolio + watchlist tickers for tier assignment
         const { results: posRows } = await env.DB.prepare(
           `SELECT ticker, list FROM positions WHERE shares > 0`
         ).all();
         const inPortfolio = new Set((posRows || []).filter(r => r.list === 'portfolio' || !r.list).map(r => r.ticker.toUpperCase()));
         const inWatchlist = new Set((posRows || []).filter(r => r.list === 'watchlist').map(r => r.ticker.toUpperCase()));
 
-        const alerts = [];
+        // Collect UPSERT statements for detected alerts
+        const upserts = [];
+        const insertStmt = env.DB.prepare(
+          `INSERT OR IGNORE INTO fund_alerts (fund_id, ticker, quarter, prev_quarter, status, tier, name, w_prev, w_now, delta_pct, value_usd)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        );
+
         for (const fund of funds) {
           const prevQ = priorForFund[fund.id];
           if (!prevQ) continue;
@@ -1772,54 +1820,129 @@ export default {
             if (!status) continue;
 
             const tickerUpper = (r.ticker || '').toUpperCase();
-            // ES: prefix tickers are unresolved Spanish ISINs — strip for matching
             const tickerMatch = tickerUpper.startsWith('ES:') ? tickerUpper.slice(3) : tickerUpper;
             let tier = 'INFO';
             if (inPortfolio.has(tickerMatch) || inPortfolio.has(tickerUpper)) tier = 'CRITICAL';
             else if (inWatchlist.has(tickerMatch) || inWatchlist.has(tickerUpper)) tier = 'WATCH';
 
-            alerts.push({
-              fund_id: fund.id,
-              fund_name: fund.name,
-              manager: fund.manager,
-              source: fund.source,
-              conviction: fund.conviction,
-              quarter: fund.last_quarter,
-              prev_quarter: prevQ,
-              ticker: r.ticker,
-              name: r.name,
-              status,
-              tier,
-              w_now: r.w_now,
-              w_prev: r.w_prev,
-              delta_pct: r.w_now - r.w_prev,
-              value_now_usd: r.v_now,
-            });
+            upserts.push(insertStmt.bind(
+              fund.id, r.ticker, fund.last_quarter, prevQ, status, tier,
+              r.name || '', r.w_prev || 0, r.w_now || 0,
+              (r.w_now || 0) - (r.w_prev || 0), r.v_now || 0
+            ));
           }
         }
+        if (upserts.length > 0) await env.DB.batch(upserts);
 
-        // Sort: CRITICAL first, then WATCH, then INFO; within each, by delta magnitude × conviction
+        // Read back from fund_alerts with join + filters
+        const whereClauses = ['1=1'];
+        if (!includeRead) whereClauses.push('fa.read_at IS NULL');
+        if (!includeMuted) whereClauses.push(
+          `NOT EXISTS (SELECT 1 FROM fund_alert_mutes fam WHERE
+             (fam.ticker = fa.ticker AND fam.fund_id IS NULL)
+             OR (fam.fund_id = fa.fund_id AND fam.ticker IS NULL)
+             OR (fam.ticker = fa.ticker AND fam.fund_id = fa.fund_id))`
+        );
+        const sql = `
+          SELECT fa.id, fa.fund_id, fa.ticker, fa.quarter, fa.prev_quarter,
+                 fa.status, fa.tier, fa.name, fa.w_prev, fa.w_now, fa.delta_pct,
+                 fa.value_usd AS value_now_usd, fa.detected_at, fa.read_at,
+                 s.name AS fund_name, s.manager, s.conviction, s.source
+          FROM fund_alerts fa
+          JOIN superinvestors s ON s.id = fa.fund_id
+          WHERE ${whereClauses.join(' AND ')}
+            AND s.followed = 1
+            AND fa.quarter = s.last_quarter
+        `;
+        const { results: rows } = await env.DB.prepare(sql).all();
+        const alerts = rows || [];
+
+        // Sort: CRITICAL > WATCH > INFO, then by |delta| × conviction
         const tierOrder = { CRITICAL: 3, WATCH: 2, INFO: 1 };
         alerts.sort((x, y) => {
           const t = (tierOrder[y.tier] || 0) - (tierOrder[x.tier] || 0);
           if (t) return t;
-          return Math.abs(y.delta_pct) * (y.conviction || 3) - Math.abs(x.delta_pct) * (x.conviction || 3);
+          return Math.abs(y.delta_pct || 0) * (y.conviction || 3)
+               - Math.abs(x.delta_pct || 0) * (x.conviction || 3);
         });
 
         const stats = {
           total: alerts.length,
           critical: alerts.filter(a => a.tier === 'CRITICAL').length,
-          watch: alerts.filter(a => a.tier === 'WATCH').length,
-          info: alerts.filter(a => a.tier === 'INFO').length,
+          watch:    alerts.filter(a => a.tier === 'WATCH').length,
+          info:     alerts.filter(a => a.tier === 'INFO').length,
           byStatus: {
-            NEW: alerts.filter(a => a.status === 'NEW').length,
-            SOLD: alerts.filter(a => a.status === 'SOLD').length,
-            ADDED: alerts.filter(a => a.status === 'ADDED').length,
+            NEW:     alerts.filter(a => a.status === 'NEW').length,
+            SOLD:    alerts.filter(a => a.status === 'SOLD').length,
+            ADDED:   alerts.filter(a => a.status === 'ADDED').length,
             REDUCED: alerts.filter(a => a.status === 'REDUCED').length,
           },
         };
 
         return json({ alerts, stats }, corsHeaders);
+      }
+
+      // POST /api/funds/alerts/:id/read — mark single alert as read
+      const alertReadMatch = path.match(/^\/api\/funds\/alerts\/(\d+)\/read$/);
+      if (alertReadMatch && request.method === "POST") {
+        const id = parseInt(alertReadMatch[1], 10);
+        await env.DB.prepare(`UPDATE fund_alerts SET read_at = datetime('now') WHERE id = ?`).bind(id).run();
+        return json({ ok: true, id }, corsHeaders);
+      }
+
+      // POST /api/funds/alerts/:id/unread — undo read (in case user taps by mistake)
+      const alertUnreadMatch = path.match(/^\/api\/funds\/alerts\/(\d+)\/unread$/);
+      if (alertUnreadMatch && request.method === "POST") {
+        const id = parseInt(alertUnreadMatch[1], 10);
+        await env.DB.prepare(`UPDATE fund_alerts SET read_at = NULL WHERE id = ?`).bind(id).run();
+        return json({ ok: true, id }, corsHeaders);
+      }
+
+      // POST /api/funds/alerts/read-all?tier=CRITICAL|WATCH|INFO|ALL
+      if (path === "/api/funds/alerts/read-all" && request.method === "POST") {
+        const tier = (url.searchParams.get('tier') || 'ALL').toUpperCase();
+        if (tier === 'ALL') {
+          await env.DB.prepare(`UPDATE fund_alerts SET read_at = datetime('now') WHERE read_at IS NULL`).run();
+        } else {
+          await env.DB.prepare(`UPDATE fund_alerts SET read_at = datetime('now') WHERE read_at IS NULL AND tier = ?`).bind(tier).run();
+        }
+        return json({ ok: true, tier }, corsHeaders);
+      }
+
+      // POST /api/funds/alerts/mute — body: { ticker?, fund_id? }
+      // Either one or both. Ticker-only mutes the ticker across all funds.
+      // Fund-only mutes the whole fund. Both together mutes just that pair.
+      if (path === "/api/funds/alerts/mute" && request.method === "POST") {
+        const body = await parseBody(request);
+        const ticker = body?.ticker || null;
+        const fund_id = body?.fund_id || null;
+        if (!ticker && !fund_id) return json({ error: "ticker or fund_id required" }, corsHeaders, 400);
+        // Avoid duplicates by checking first
+        const existing = await env.DB.prepare(
+          `SELECT id FROM fund_alert_mutes WHERE COALESCE(ticker,'') = ? AND COALESCE(fund_id,'') = ?`
+        ).bind(ticker || '', fund_id || '').first();
+        if (existing) return json({ ok: true, id: existing.id, duplicate: true }, corsHeaders);
+        const res = await env.DB.prepare(
+          `INSERT INTO fund_alert_mutes (ticker, fund_id) VALUES (?, ?)`
+        ).bind(ticker, fund_id).run();
+        return json({ ok: true, id: res.meta?.last_row_id }, corsHeaders);
+      }
+
+      // POST /api/funds/alerts/unmute — body: { ticker?, fund_id? }
+      if (path === "/api/funds/alerts/unmute" && request.method === "POST") {
+        const body = await parseBody(request);
+        const ticker = body?.ticker || null;
+        const fund_id = body?.fund_id || null;
+        await env.DB.prepare(
+          `DELETE FROM fund_alert_mutes WHERE COALESCE(ticker,'') = ? AND COALESCE(fund_id,'') = ?`
+        ).bind(ticker || '', fund_id || '').run();
+        return json({ ok: true }, corsHeaders);
+      }
+
+      // GET /api/funds/alerts/mutes — list active mutes
+      if (path === "/api/funds/alerts/mutes" && request.method === "GET") {
+        const { results } = await env.DB.prepare(`SELECT id, ticker, fund_id, muted_at FROM fund_alert_mutes ORDER BY muted_at DESC`).all();
+        return json({ mutes: results || [] }, corsHeaders);
       }
 
       // POST /api/funds/refresh?fund_id=... — fetch latest 13F from FMP.

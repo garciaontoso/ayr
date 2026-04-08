@@ -120,6 +120,8 @@ export default function SmartMoneyTab() {
   const [alertsLoading, setAlertsLoading] = useState(false);
   const [tierFilter, setTierFilter] = useState('ALL');         // ALL|CRITICAL|WATCH|INFO
   const [statusFilter, setStatusFilter] = useState('ALL');     // ALL|NEW|ADDED|REDUCED|SOLD
+  const [showRead, setShowRead] = useState(false);             // toggle "Mostrar leídas"
+  const [pendingAction, setPendingAction] = useState(null);    // id of row being processed (UI lock)
 
   // ── Load funds list (US only) ──
   const loadFunds = useCallback(async () => {
@@ -174,17 +176,98 @@ export default function SmartMoneyTab() {
   const loadAlerts = useCallback(async () => {
     setAlertsLoading(true);
     try {
-      const r = await fetch(`${API_URL}/api/funds/alerts`);
+      const q = showRead ? '?includeRead=1' : '';
+      const r = await fetch(`${API_URL}/api/funds/alerts${q}`);
       const d = await r.json();
       setAlertsData(d);
     } catch { setAlertsData({ alerts: [], stats: {} }); }
     setAlertsLoading(false);
-  }, []);
+  }, [showRead]);
 
   useEffect(() => {
     // Load alerts on initial mount so the badge count shows even before user clicks
     loadAlerts();
   }, [loadAlerts]);
+
+  // ── Mark-as-read (optimistic: remove row immediately) ──
+  const markAsRead = useCallback(async (alertId) => {
+    if (!alertsData) return;
+    setPendingAction(alertId);
+    // Optimistic: remove from list + decrement stats
+    setAlertsData(prev => {
+      if (!prev) return prev;
+      const removed = prev.alerts.find(a => a.id === alertId);
+      const newAlerts = showRead
+        ? prev.alerts.map(a => a.id === alertId ? { ...a, read_at: new Date().toISOString() } : a)
+        : prev.alerts.filter(a => a.id !== alertId);
+      const newStats = { ...prev.stats };
+      if (removed && !showRead) {
+        newStats.total = (newStats.total || 0) - 1;
+        if (removed.tier === 'CRITICAL') newStats.critical = (newStats.critical || 0) - 1;
+        else if (removed.tier === 'WATCH') newStats.watch = (newStats.watch || 0) - 1;
+        else newStats.info = (newStats.info || 0) - 1;
+        newStats.byStatus = { ...newStats.byStatus };
+        newStats.byStatus[removed.status] = (newStats.byStatus[removed.status] || 0) - 1;
+      }
+      return { ...prev, alerts: newAlerts, stats: newStats };
+    });
+    try {
+      await fetch(`${API_URL}/api/funds/alerts/${alertId}/read`, { method: 'POST' });
+    } catch {}
+    setPendingAction(null);
+  }, [alertsData, showRead]);
+
+  // ── Mute (optimistic: remove all rows matching subject) ──
+  const muteSubject = useCallback(async ({ ticker, fund_id }) => {
+    if (!alertsData) return;
+    setAlertsData(prev => {
+      if (!prev) return prev;
+      const newAlerts = prev.alerts.filter(a => {
+        if (ticker && fund_id) return !(a.ticker === ticker && a.fund_id === fund_id);
+        if (ticker) return a.ticker !== ticker;
+        if (fund_id) return a.fund_id !== fund_id;
+        return true;
+      });
+      // Recompute stats from newAlerts
+      const newStats = {
+        total: newAlerts.length,
+        critical: newAlerts.filter(a => a.tier === 'CRITICAL').length,
+        watch:    newAlerts.filter(a => a.tier === 'WATCH').length,
+        info:     newAlerts.filter(a => a.tier === 'INFO').length,
+        byStatus: {
+          NEW:     newAlerts.filter(a => a.status === 'NEW').length,
+          ADDED:   newAlerts.filter(a => a.status === 'ADDED').length,
+          REDUCED: newAlerts.filter(a => a.status === 'REDUCED').length,
+          SOLD:    newAlerts.filter(a => a.status === 'SOLD').length,
+        },
+      };
+      return { ...prev, alerts: newAlerts, stats: newStats };
+    });
+    try {
+      await fetch(`${API_URL}/api/funds/alerts/mute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticker: ticker || null, fund_id: fund_id || null }),
+      });
+    } catch {}
+  }, [alertsData]);
+
+  // ── Mark all CRITICAL as read ──
+  const markAllCriticalAsRead = useCallback(async () => {
+    if (!alertsData) return;
+    setAlertsData(prev => {
+      if (!prev) return prev;
+      const newAlerts = showRead
+        ? prev.alerts.map(a => a.tier === 'CRITICAL' ? { ...a, read_at: new Date().toISOString() } : a)
+        : prev.alerts.filter(a => a.tier !== 'CRITICAL');
+      const newStats = { ...prev.stats, critical: 0 };
+      if (!showRead) newStats.total = (newStats.total || 0) - (prev.stats.critical || 0);
+      return { ...prev, alerts: newAlerts, stats: newStats };
+    });
+    try {
+      await fetch(`${API_URL}/api/funds/alerts/read-all?tier=CRITICAL`, { method: 'POST' });
+    } catch {}
+  }, [alertsData, showRead]);
 
   // Filtered alerts based on tier + status filters
   const filteredAlerts = useMemo(() => {
@@ -385,6 +468,28 @@ export default function SmartMoneyTab() {
                 </div>
               </div>
 
+              {/* Action bar: show-read toggle + mark-critical-read shortcut */}
+              <div style={{ ...card, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button onClick={() => setShowRead(v => !v)} style={pill(showRead)}>
+                    {showRead ? '👁 Incluyendo leídas' : '👁 Solo no leídas'}
+                  </button>
+                </div>
+                {alertsData.stats.critical > 0 && (
+                  <button
+                    onClick={markAllCriticalAsRead}
+                    style={{
+                      padding: '7px 12px', borderRadius: 8,
+                      border: '1px solid var(--red)', background: 'rgba(255,69,58,.08)',
+                      color: 'var(--red)', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                      fontFamily: 'var(--fm)',
+                    }}
+                  >
+                    ✓ Marcar {alertsData.stats.critical} críticas como leídas
+                  </button>
+                )}
+              </div>
+
               {/* Filter pills */}
               <div style={{ ...card, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 <span style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Relevancia</span>
@@ -440,40 +545,72 @@ export default function SmartMoneyTab() {
                         <th style={{ ...th, textAlign: 'right' }}>Peso prev</th>
                         <th style={{ ...th, textAlign: 'right' }}>Peso ahora</th>
                         <th style={{ ...th, textAlign: 'right' }}>Δ</th>
+                        <th style={{ ...th, textAlign: 'center', width: 90 }}>Acciones</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredAlerts.slice(0, 100).map((a, i) => (
-                        <tr key={`${a.fund_id}-${a.ticker}-${i}`}>
-                          <td style={td}>
-                            <span style={tickerLink(a.ticker)} onClick={() => openAnalysis?.(a.ticker)}>
-                              {a.ticker?.startsWith('ES:') ? a.ticker.slice(3) : a.ticker}
-                            </span>
-                            <span style={{ fontSize: 10, color: 'var(--text-tertiary)', marginLeft: 8 }}>{(a.name || '').slice(0, 32)}</span>
-                          </td>
-                          <td style={{ ...td, fontSize: 11 }}>
-                            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{a.fund_name}</div>
-                            <div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>{a.manager}</div>
-                          </td>
-                          <td style={{ ...td, textAlign: 'center' }}>
-                            <span style={{ fontSize: 10, fontWeight: 700, color: TIER_COLOR[a.tier] }}>{TIER_LBL[a.tier]}</span>
-                          </td>
-                          <td style={{ ...td, textAlign: 'center' }}>
-                            <span style={{ fontSize: 10, fontWeight: 700, color: ALERT_STATUS_COLOR[a.status] }}>
-                              {ALERT_STATUS_LBL[a.status]}
-                            </span>
-                          </td>
-                          <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', color: 'var(--text-tertiary)' }}>
-                            {a.w_prev > 0 ? `${a.w_prev.toFixed(2)}%` : '—'}
-                          </td>
-                          <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', fontWeight: 700, color: a.w_now >= 5 ? 'var(--gold)' : 'var(--text-primary)' }}>
-                            {a.w_now > 0 ? `${a.w_now.toFixed(2)}%` : '—'}
-                          </td>
-                          <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', fontWeight: 600, color: a.delta_pct > 0 ? 'var(--green)' : 'var(--red)' }}>
-                            {a.delta_pct > 0 ? '+' : ''}{a.delta_pct.toFixed(2)}%
-                          </td>
-                        </tr>
-                      ))}
+                      {filteredAlerts.slice(0, 100).map((a) => {
+                        const isRead = !!a.read_at;
+                        const isPending = pendingAction === a.id;
+                        return (
+                          <tr key={a.id} style={{ opacity: isRead ? 0.55 : 1 }}>
+                            <td style={td}>
+                              <span style={tickerLink(a.ticker)} onClick={() => openAnalysis?.(a.ticker)}>
+                                {a.ticker?.startsWith('ES:') ? a.ticker.slice(3) : a.ticker}
+                              </span>
+                              <span style={{ fontSize: 10, color: 'var(--text-tertiary)', marginLeft: 8 }}>{(a.name || '').slice(0, 32)}</span>
+                            </td>
+                            <td style={{ ...td, fontSize: 11 }}>
+                              <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{a.fund_name}</div>
+                              <div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>{a.manager}</div>
+                            </td>
+                            <td style={{ ...td, textAlign: 'center' }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, color: TIER_COLOR[a.tier] }}>{TIER_LBL[a.tier]}</span>
+                            </td>
+                            <td style={{ ...td, textAlign: 'center' }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, color: ALERT_STATUS_COLOR[a.status] }}>
+                                {ALERT_STATUS_LBL[a.status]}
+                              </span>
+                            </td>
+                            <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', color: 'var(--text-tertiary)' }}>
+                              {a.w_prev > 0 ? `${a.w_prev.toFixed(2)}%` : '—'}
+                            </td>
+                            <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', fontWeight: 700, color: a.w_now >= 5 ? 'var(--gold)' : 'var(--text-primary)' }}>
+                              {a.w_now > 0 ? `${a.w_now.toFixed(2)}%` : '—'}
+                            </td>
+                            <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', fontWeight: 600, color: a.delta_pct > 0 ? 'var(--green)' : 'var(--red)' }}>
+                              {a.delta_pct > 0 ? '+' : ''}{a.delta_pct.toFixed(2)}%
+                            </td>
+                            <td style={{ ...td, textAlign: 'center' }}>
+                              {!isRead && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); markAsRead(a.id); }}
+                                  disabled={isPending}
+                                  title="Marcar como leída"
+                                  style={{
+                                    padding: '3px 7px', marginRight: 4,
+                                    borderRadius: 5, border: '1px solid var(--border)',
+                                    background: 'transparent', color: 'var(--green)',
+                                    fontSize: 11, cursor: isPending ? 'wait' : 'pointer',
+                                    fontFamily: 'var(--fm)',
+                                  }}
+                                >✓</button>
+                              )}
+                              <button
+                                onClick={(e) => { e.stopPropagation(); muteSubject({ ticker: a.ticker }); }}
+                                title={`Silenciar ${a.ticker} en todos los fondos`}
+                                style={{
+                                  padding: '3px 7px',
+                                  borderRadius: 5, border: '1px solid var(--border)',
+                                  background: 'transparent', color: 'var(--text-tertiary)',
+                                  fontSize: 11, cursor: 'pointer',
+                                  fontFamily: 'var(--fm)',
+                                }}
+                              >🔇</button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
