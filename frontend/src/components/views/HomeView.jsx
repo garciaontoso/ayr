@@ -25,6 +25,7 @@ import IncomeLabTab from '../home/IncomeLabTab';
 import LibraryTab from '../home/LibraryTab';
 import SmartMoneyTab from '../home/SmartMoneyTab';
 import NoticiasTab, { fetchAllYouTubeForOffline } from '../home/NoticiasTab';
+import EarningsArchiveTab from '../home/EarningsArchiveTab';
 import CurrencyTab from '../home/CurrencyTab';
 import MacroTab from '../home/MacroTab';
 import EarningsTab from '../home/EarningsTab';
@@ -478,6 +479,24 @@ function AirplaneMode({ portfolioList }) {
       setDlCurrent(1);
       // Also cache the API response for backwards compat
       await cacheFetch(`${API}/api/youtube/videos?limit=200`);
+    } catch { /* non-critical */ }
+
+    // ── Phase 6.6: Earnings archive metadata + per-ticker doc lists ──
+    // We do NOT cache the full R2 bodies (too big, 100s of MB). The viewer
+    // lazy-fetches bodies when the user actually opens a doc. Caching
+    // /stats + /list for each ticker is ~5 KB per ticker → ~400 KB total.
+    setDlPhase("Archivo earnings (metadata)");
+    setDlTotal(usTickers.length + 1); setDlCurrent(0);
+    try {
+      await cacheFetch(`${API}/api/earnings/archive/stats`);
+      setDlCurrent(1);
+      for (let i = 0; i < usTickers.length; i += 8) {
+        const batch = usTickers.slice(i, i + 8);
+        await Promise.all(batch.map(async (t) => {
+          await cacheFetch(`${API}/api/earnings/archive/list?ticker=${encodeURIComponent(t)}&limit=50`);
+        }));
+        setDlCurrent(Math.min(i + 8 + 1, usTickers.length + 1));
+      }
     } catch { /* non-critical */ }
 
     // ── Phase 7: Per-ticker theses + scores drill-downs ──
@@ -1067,7 +1086,8 @@ export default function HomeView() {
       {homeTab==="presupuesto" && <PresupuestoTab />}
       {homeTab==="library" && <LibraryTab />}
       {homeTab==="smart-money" && <SmartMoneyTab />}
-      {homeTab==="noticias" && <NoticiasTab />}
+      {homeTab==="el-dividendo" && <NoticiasTab />}
+      {homeTab==="earnings-archive" && <EarningsArchiveTab />}
       {homeTab==="currency" && <CurrencyTab />}
       {homeTab==="macro" && <MacroTab />}
       {homeTab==="earnings" && <EarningsTab />}

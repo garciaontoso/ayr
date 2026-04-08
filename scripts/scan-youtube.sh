@@ -126,7 +126,7 @@ Te paso la transcripción de un vídeo. Tu tarea:
 
 3. Devuelve también "summary_general" con 2-3 frases resumiendo el vídeo entero.
 
-Formato de salida: JSON VÁLIDO, sin markdown, sin texto extra, sin ```.
+Formato de salida: JSON VÁLIDO, sin markdown, sin texto extra, sin code fences.
 {
   "summary_general": "...",
   "companies": [...]

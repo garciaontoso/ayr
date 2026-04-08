@@ -1,15 +1,13 @@
-// NoticiasTab — YouTube Dividendo Agent view
-// Reads /api/youtube/videos (populated by the Mac scan-youtube.sh script
-// after the user clicks "🔄 Escanear canal"). Shows per-video cards with
-// expandable per-company analysis extracted by Opus from the transcript.
+// NoticiasTab — YouTube multi-channel view with dynamic sub-tabs
+// Reads /api/youtube/channels and /api/youtube/videos?channel_id=... (populated
+// by the Mac scan-youtube.sh script after the user clicks "🔄 Escanear canal").
+// Shows per-video cards with expandable per-company analysis extracted by
+// Opus from the transcript.
 //
-// Adapted from docs/youtube-dividendo-ready/NoticiasTab.jsx to use the
-// existing A&R style system (CSS vars, var(--gold), var(--card)) instead
-// of the hardcoded #2563eb palette the template originally used.
-//
-// Offline support: reads from localStorage key `offline_youtube_videos`
-// when !navigator.onLine. The fetchAllYouTubeForOffline() helper is
-// exported so the existing Airplane Mode panel can pre-cache videos.
+// Offline support: per-channel cache in localStorage key
+// `offline_youtube_videos_{channel_id}` + `offline_youtube_channels`. Falls
+// back to legacy `offline_youtube_videos` for backward compat. The
+// fetchAllYouTubeForOffline() helper is exported so AirplaneMode can pre-cache.
 import { useState, useEffect, useCallback } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { API_URL } from '../../constants/index.js';
@@ -18,25 +16,56 @@ import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
 // Offline helpers (exported for AirplaneMode panel integration)
 export async function fetchAllYouTubeForOffline() {
   try {
-    const r = await fetch(`${API_URL}/api/youtube/videos?limit=200`);
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const data = await r.json();
-    localStorage.setItem('offline_youtube_videos', JSON.stringify({
+    const rc = await fetch(`${API_URL}/api/youtube/channels`);
+    if (!rc.ok) throw new Error(`HTTP ${rc.status}`);
+    const cdata = await rc.json();
+    const channels = cdata.channels || [];
+    localStorage.setItem('offline_youtube_channels', JSON.stringify({
       fetched_at: new Date().toISOString(),
-      videos: data.videos || [],
+      channels,
     }));
-    return data.videos?.length || 0;
+    let total = 0;
+    for (const ch of channels) {
+      try {
+        const r = await fetch(`${API_URL}/api/youtube/videos?channel_id=${encodeURIComponent(ch.channel_id)}&limit=200`);
+        if (!r.ok) continue;
+        const data = await r.json();
+        const videos = data.videos || [];
+        localStorage.setItem(`offline_youtube_videos_${ch.channel_id}`, JSON.stringify({
+          fetched_at: new Date().toISOString(),
+          videos,
+        }));
+        total += videos.length;
+      } catch {}
+    }
+    // Legacy key — keep populated with a flat union for older AirplaneMode code paths
+    return total;
   } catch (e) {
     console.warn('YouTube offline fetch failed', e);
     return 0;
   }
 }
 
-function loadOfflineYouTube() {
+function loadOfflineChannels() {
   try {
-    const raw = localStorage.getItem('offline_youtube_videos');
+    const raw = localStorage.getItem('offline_youtube_channels');
     if (!raw) return null;
     return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function loadOfflineYouTube(channelId) {
+  try {
+    if (channelId) {
+      const raw = localStorage.getItem(`offline_youtube_videos_${channelId}`);
+      if (raw) return JSON.parse(raw);
+    }
+    // Backward-compat: legacy single-channel key
+    const legacy = localStorage.getItem('offline_youtube_videos');
+    if (!legacy) return null;
+    return JSON.parse(legacy);
   } catch {
     return null;
   }
@@ -57,8 +86,14 @@ const VERDICT_LBL = {
   vender: '❌ Vender',
 };
 
+const LS_SELECTED = 'yt_selected_channel';
+
 export default function NoticiasTab() {
   const { openAnalysis } = useHome();
+  const [channels, setChannels] = useState([]);
+  const [selectedChannelId, setSelectedChannelId] = useState(() => {
+    try { return localStorage.getItem(LS_SELECTED) || ''; } catch { return ''; }
+  });
   const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -67,6 +102,14 @@ export default function NoticiasTab() {
   const [offlineInfo, setOfflineInfo] = useState(null);
   const [filter, setFilter] = useState('all'); // all | portfolio | compra | observar | evitar
   const [expandedVideo, setExpandedVideo] = useState(null);
+  // Process-request flow
+  const [processing, setProcessing] = useState(false);
+  const [processingSince, setProcessingSince] = useState(null);
+  // Add-channel modal
+  const [showAddChannel, setShowAddChannel] = useState(false);
+  const [addChannelInput, setAddChannelInput] = useState('');
+  const [addingChannel, setAddingChannel] = useState(false);
+  const [addError, setAddError] = useState(null);
 
   useEffect(() => {
     const onOnline = () => setIsOffline(false);
@@ -79,22 +122,59 @@ export default function NoticiasTab() {
     };
   }, []);
 
+  // Persist selected channel
+  useEffect(() => {
+    try {
+      if (selectedChannelId) localStorage.setItem(LS_SELECTED, selectedChannelId);
+    } catch {}
+  }, [selectedChannelId]);
+
+  // Load channels list
+  const loadChannels = useCallback(async () => {
+    if (isOffline) {
+      const cached = loadOfflineChannels();
+      if (cached) {
+        setChannels(cached.channels || []);
+        setSelectedChannelId(prev => {
+          const list = cached.channels || [];
+          if (prev && list.some(c => c.channel_id === prev)) return prev;
+          return list[0]?.channel_id || '';
+        });
+      }
+      return;
+    }
+    try {
+      const r = await fetch(`${API_URL}/api/youtube/channels`);
+      const data = await r.json();
+      const list = data.channels || [];
+      setChannels(list);
+      setSelectedChannelId(prev => {
+        if (prev && list.some(c => c.channel_id === prev)) return prev;
+        return list[0]?.channel_id || '';
+      });
+    } catch (e) {
+      setStatus(`Error cargando canales: ${e.message}`);
+    }
+  }, [isOffline]);
+
   const loadVideos = useCallback(async () => {
+    if (!selectedChannelId) { setVideos([]); return; }
     setLoading(true);
     if (isOffline) {
-      const cached = loadOfflineYouTube();
+      const cached = loadOfflineYouTube(selectedChannelId);
       if (cached) {
         setVideos(cached.videos);
         setOfflineInfo(cached);
         setStatus(`✈️ Modo offline — datos del ${new Date(cached.fetched_at).toLocaleString('es')}`);
       } else {
-        setStatus('✈️ Sin conexión y sin datos cacheados. Pulsa ✈️ antes de volar.');
+        setVideos([]);
+        setStatus('✈️ Sin conexión y sin datos cacheados para este canal. Pulsa ✈️ antes de volar.');
       }
       setLoading(false);
       return;
     }
     try {
-      const r = await fetch(`${API_URL}/api/youtube/videos?limit=50`);
+      const r = await fetch(`${API_URL}/api/youtube/videos?channel_id=${encodeURIComponent(selectedChannelId)}&limit=200`);
       const data = await r.json();
       setVideos(data.videos || []);
       setStatus('');
@@ -102,13 +182,66 @@ export default function NoticiasTab() {
       setStatus(`Error cargando vídeos: ${e.message}`);
     }
     setLoading(false);
-  }, [isOffline]);
+  }, [isOffline, selectedChannelId]);
 
-  useEffect(() => { loadVideos(); }, [loadVideos]);
+  // Mount: load channels + videos in parallel (videos runs again when channel resolves)
+  useEffect(() => { loadChannels(); }, [loadChannels]);
+  useEffect(() => {
+    loadVideos();
+    setFilter('all');
+    setExpandedVideo(null);
+  }, [loadVideos]);
+
+  // Pending count (for current channel)
+  const pendingCount = videos.filter(v => v.status === 'pending').length;
+
+  const handleProcessNow = useCallback(async () => {
+    if (pendingCount === 0 || processing) return;
+    setProcessing(true);
+    setProcessingSince(new Date());
+    setStatus('🟡 Esperando que tu Mac procese los vídeos pendientes (≤1 min para arrancar, ~1 min por vídeo)…');
+    try {
+      await fetch(`${API_URL}/api/youtube/request-processing`, { method: 'POST' });
+    } catch (e) {
+      setStatus(`❌ Error: ${e.message}`);
+      setProcessing(false);
+    }
+  }, [pendingCount, processing]);
+
+  // Auto-poll while processing
+  useEffect(() => {
+    if (!processing) return;
+    const startCount = pendingCount;
+    const interval = setInterval(async () => {
+      try {
+        const r = await fetch(`${API_URL}/api/youtube/videos?channel_id=${encodeURIComponent(selectedChannelId)}&limit=200`);
+        const data = await r.json();
+        const newVideos = data.videos || [];
+        setVideos(newVideos);
+        const newPending = newVideos.filter(v => v.status === 'pending').length;
+        if (newPending === 0) {
+          setStatus(`✅ ${startCount} vídeo(s) procesados.`);
+          setProcessing(false);
+          setTimeout(() => setStatus(''), 8000);
+        } else if (newPending < startCount) {
+          setStatus(`🟢 Procesando… ${startCount - newPending}/${startCount} listos`);
+        }
+      } catch {}
+      if (processingSince && Date.now() - processingSince.getTime() > 30 * 60 * 1000) {
+        setStatus('⏱ Timeout: ¿está tu Mac encendido y con el agente activo? Pulsa "Procesar ahora" otra vez.');
+        setProcessing(false);
+      }
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [processing, processingSince, pendingCount, selectedChannelId]);
 
   const handleScan = async () => {
     if (isOffline) {
       setStatus('No puedes escanear sin conexión.');
+      return;
+    }
+    if (!selectedChannelId) {
+      setStatus('Selecciona un canal primero.');
       return;
     }
     setScanning(true);
@@ -117,7 +250,7 @@ export default function NoticiasTab() {
       const r = await fetch(`${API_URL}/api/youtube/scan-channel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ channel_id: selectedChannelId }),
       });
       const data = await r.json();
       if (data.new_videos > 0) {
@@ -128,12 +261,69 @@ export default function NoticiasTab() {
         setStatus('✅ Sin vídeos nuevos.');
       }
       await loadVideos();
+      await loadChannels();
     } catch (e) {
       setStatus(`❌ Error: ${e.message}`);
     }
     setScanning(false);
     setTimeout(() => setStatus(''), 10000);
   };
+
+  // Add channel
+  const handleAddChannel = async () => {
+    const input = addChannelInput.trim();
+    if (!input || addingChannel) return;
+    setAddingChannel(true);
+    setAddError(null);
+    try {
+      const r = await fetch(`${API_URL}/api/youtube/channels`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url_or_handle: input }),
+      });
+      const data = await r.json();
+      if (!r.ok || !data.ok) {
+        throw new Error(data.error || `HTTP ${r.status}`);
+      }
+      setShowAddChannel(false);
+      setAddChannelInput('');
+      // Refresh channels list, select the new one
+      const newId = data.channel?.channel_id;
+      const rc = await fetch(`${API_URL}/api/youtube/channels`);
+      const cdata = await rc.json();
+      const list = cdata.channels || [];
+      setChannels(list);
+      if (newId) setSelectedChannelId(newId);
+    } catch (e) {
+      setAddError(e.message || 'Error añadiendo el canal');
+    }
+    setAddingChannel(false);
+  };
+
+  const handleDeleteChannel = async (ch, e) => {
+    e.stopPropagation();
+    if (!confirm(`¿Eliminar canal ${ch.name}? Los vídeos quedan en la BD`)) return;
+    try {
+      const r = await fetch(`${API_URL}/api/youtube/channels/${encodeURIComponent(ch.channel_id)}`, { method: 'DELETE' });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      const remaining = channels.filter(c => c.channel_id !== ch.channel_id);
+      setChannels(remaining);
+      if (selectedChannelId === ch.channel_id) {
+        setSelectedChannelId(remaining[0]?.channel_id || '');
+      }
+    } catch (err) {
+      setStatus(`❌ Error eliminando canal: ${err.message}`);
+    }
+  };
+
+  // Escape closes modal
+  useEffect(() => {
+    if (!showAddChannel) return;
+    const onKey = (e) => { if (e.key === 'Escape') { setShowAddChannel(false); setAddError(null); } };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showAddChannel]);
 
   const filtered = videos.filter(v => {
     if (filter === 'all') return true;
@@ -154,6 +344,29 @@ export default function NoticiasTab() {
     fontSize: 11, fontWeight: active ? 700 : 500,
     cursor: 'pointer', fontFamily: 'var(--fm)',
   });
+  const channelPill = (active) => ({
+    position: 'relative',
+    display: 'inline-flex', alignItems: 'center', gap: 6,
+    padding: '7px 14px', borderRadius: 8,
+    border: `1px solid ${active ? 'var(--gold)' : 'var(--border)'}`,
+    background: active ? 'rgba(200,164,78,.12)' : 'transparent',
+    color: active ? 'var(--gold)' : 'var(--text-secondary)',
+    fontSize: 12, fontWeight: active ? 700 : 500,
+    cursor: 'pointer', fontFamily: 'var(--fm)',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
+  });
+  const addChannelBtn = {
+    display: 'inline-flex', alignItems: 'center', gap: 6,
+    padding: '7px 14px', borderRadius: 8,
+    border: '1px dashed var(--border)',
+    background: 'transparent',
+    color: 'var(--text-tertiary)',
+    fontSize: 12, fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'var(--fm)',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
+  };
 
   return (
     <div style={{ padding: '4px 8px' }}>
@@ -161,29 +374,96 @@ export default function NoticiasTab() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--gold)', fontFamily: 'var(--fd)' }}>
-            📰 Noticias &amp; Research — El Dividendo
+            📺 Canales YouTube — Análisis per-empresa
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
-            Análisis per-empresa extraído por Opus de los vídeos del canal.
-            Pulsa "🔄 Escanear canal" para detectar vídeos nuevos. Luego ejecuta
-            <code style={{ padding: '0 4px', background: 'var(--subtle-bg)', borderRadius: 3, fontSize: 10 }}>scripts/scan-youtube.sh</code>
-            en tu Mac para transcribirlos y resumirlos.
+            Vídeos de canales analizados por Claude Opus. Cada vídeo se descompone en
+            tickers individuales con tesis, veredicto, precio objetivo y minuto exacto.
+            Pulsa "🔄 Escanear canal" para detectar nuevos, "🔔 Procesar pendientes" para descargarlos vía tu Mac.
           </div>
         </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {pendingCount > 0 && (
+            <button
+              onClick={handleProcessNow}
+              disabled={processing || isOffline}
+              title="Pide a tu Mac que descargue las transcripciones y las analice con Claude Opus. Tu Mac debe estar encendido y con el agente activo."
+              style={{
+                padding: '8px 14px', borderRadius: 8,
+                border: '1px solid #64d2ff',
+                background: processing ? 'rgba(100,210,255,.05)' : 'rgba(100,210,255,.12)',
+                color: '#64d2ff', fontSize: 11, fontWeight: 700,
+                cursor: processing ? 'wait' : 'pointer',
+                fontFamily: 'var(--fm)',
+                opacity: isOffline ? 0.5 : 1,
+              }}
+            >
+              {processing ? `⏳ Procesando…` : `🔔 Procesar ${pendingCount} vídeo${pendingCount > 1 ? 's' : ''} pendiente${pendingCount > 1 ? 's' : ''}`}
+            </button>
+          )}
+          <button
+            onClick={handleScan}
+            disabled={scanning || isOffline || !selectedChannelId}
+            style={{
+              padding: '8px 14px', borderRadius: 8,
+              border: '1px solid var(--gold)',
+              background: scanning || isOffline ? 'transparent' : 'rgba(200,164,78,.1)',
+              color: 'var(--gold)', fontSize: 11, fontWeight: 700,
+              cursor: (scanning || isOffline) ? 'wait' : 'pointer',
+              fontFamily: 'var(--fm)',
+              opacity: (isOffline || !selectedChannelId) ? 0.5 : 1,
+            }}
+          >
+            {scanning ? '⏳ Escaneando…' : '🔄 Escanear canal'}
+          </button>
+        </div>
+      </div>
+
+      {/* Channel sub-tabs row */}
+      <div
+        style={{
+          display: 'flex', gap: 8, alignItems: 'center',
+          overflowX: 'auto', paddingBottom: 6, marginBottom: 12,
+        }}
+      >
+        {channels.map(ch => {
+          const active = ch.channel_id === selectedChannelId;
+          return (
+            <div
+              key={ch.channel_id}
+              onClick={() => { setSelectedChannelId(ch.channel_id); }}
+              style={channelPill(active)}
+            >
+              <span>{ch.name || ch.handle || ch.channel_id}</span>
+              <span style={{
+                fontSize: 10, fontWeight: 600,
+                padding: '1px 6px', borderRadius: 10,
+                background: active ? 'rgba(200,164,78,.2)' : 'var(--subtle-bg)',
+                color: active ? 'var(--gold)' : 'var(--text-tertiary)',
+              }}>
+                {ch.video_count ?? 0}
+              </span>
+              <span
+                onClick={(e) => handleDeleteChannel(ch, e)}
+                title="Eliminar canal"
+                style={{
+                  marginLeft: 2, fontSize: 12, lineHeight: 1,
+                  color: 'var(--text-tertiary)', cursor: 'pointer',
+                  padding: '0 2px',
+                }}
+              >
+                ×
+              </span>
+            </div>
+          );
+        })}
         <button
-          onClick={handleScan}
-          disabled={scanning || isOffline}
-          style={{
-            padding: '8px 14px', borderRadius: 8,
-            border: '1px solid var(--gold)',
-            background: scanning || isOffline ? 'transparent' : 'rgba(200,164,78,.1)',
-            color: 'var(--gold)', fontSize: 11, fontWeight: 700,
-            cursor: (scanning || isOffline) ? 'wait' : 'pointer',
-            fontFamily: 'var(--fm)',
-            opacity: isOffline ? 0.5 : 1,
-          }}
+          type="button"
+          onClick={() => { setAddError(null); setAddChannelInput(''); setShowAddChannel(true); }}
+          style={addChannelBtn}
+          disabled={isOffline}
         >
-          {scanning ? '⏳ Escaneando…' : '🔄 Escanear canal'}
+          + Añadir canal
         </button>
       </div>
 
@@ -219,7 +499,9 @@ export default function NoticiasTab() {
           description={isOffline
             ? 'Pulsa ✈️ antes de volar para descargar los vídeos en modo offline.'
             : videos.length === 0
-              ? 'Pulsa "🔄 Escanear canal" para detectar los vídeos de El Dividendo. Luego ejecuta scripts/scan-youtube.sh en el Mac.'
+              ? (channels.length === 0
+                  ? 'Añade un canal con "+ Añadir canal" para empezar.'
+                  : 'Pulsa "🔄 Escanear canal" para detectar los vídeos. Luego ejecuta scripts/scan-youtube.sh en el Mac.')
               : 'Cambia el filtro para ver otros vídeos.'}
         />
       ) : (
@@ -239,6 +521,88 @@ export default function NoticiasTab() {
       {offlineInfo && (
         <div style={{ marginTop: 14, fontSize: 10, color: 'var(--text-tertiary)', textAlign: 'center', fontFamily: 'var(--fm)' }}>
           ✈️ Datos offline: {offlineInfo.videos.length} vídeos cacheados
+        </div>
+      )}
+
+      {/* Add channel modal */}
+      {showAddChannel && (
+        <div
+          onClick={() => { setShowAddChannel(false); setAddError(null); }}
+          style={{
+            position: 'fixed', inset: 0,
+            background: 'rgba(0,0,0,0.6)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 1000,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 480, maxWidth: '90vw',
+              background: 'var(--card)',
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              padding: 20,
+              fontFamily: 'var(--fm)',
+            }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--gold)', marginBottom: 12, fontFamily: 'var(--fd)' }}>
+              Añadir canal de YouTube
+            </div>
+            <input
+              type="text"
+              value={addChannelInput}
+              onChange={(e) => setAddChannelInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleAddChannel(); }}
+              placeholder="URL del canal o @handle"
+              autoFocus
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                padding: '10px 12px', borderRadius: 8,
+                border: `1px solid ${addError ? 'var(--red)' : 'var(--border)'}`,
+                background: 'var(--subtle-bg)',
+                color: 'var(--text-primary)',
+                fontSize: 13, fontFamily: 'var(--fm)',
+                outline: 'none',
+              }}
+            />
+            <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 6 }}>
+              Ejemplos: @eldividendo3101, https://youtube.com/@foo, https://www.youtube.com/channel/UCxxx
+            </div>
+            {addError && (
+              <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 8 }}>
+                {addError}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+              <button
+                onClick={() => { setShowAddChannel(false); setAddError(null); }}
+                style={{
+                  padding: '8px 14px', borderRadius: 8,
+                  border: '1px solid var(--border)', background: 'transparent',
+                  color: 'var(--text-secondary)', fontSize: 11, fontWeight: 600,
+                  cursor: 'pointer', fontFamily: 'var(--fm)',
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleAddChannel}
+                disabled={!addChannelInput.trim() || addingChannel}
+                style={{
+                  padding: '8px 14px', borderRadius: 8,
+                  border: '1px solid var(--gold)',
+                  background: (!addChannelInput.trim() || addingChannel) ? 'transparent' : 'rgba(200,164,78,.12)',
+                  color: 'var(--gold)', fontSize: 11, fontWeight: 700,
+                  cursor: (!addChannelInput.trim() || addingChannel) ? 'not-allowed' : 'pointer',
+                  fontFamily: 'var(--fm)',
+                  opacity: (!addChannelInput.trim() || addingChannel) ? 0.5 : 1,
+                }}
+              >
+                {addingChannel ? '⏳ Añadiendo…' : 'Añadir'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

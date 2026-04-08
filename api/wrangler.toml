@@ -8,6 +8,10 @@ binding = "DB"
 database_name = "aar-finanzas"
 database_id = "d9dc97c1-1ea5-4e05-b637-89e52229d099"
 
+[[r2_buckets]]
+binding = "EARNINGS_R2"
+bucket_name = "ayr-earnings-archive"
+
 # Cron DISABLED 2026-04-08 — AI agents now triggered manually by user from
 # the "Ejecutar agentes" button in the AgentesTab. Saves ~$33/month when
 # user doesn't open the app. To re-enable, uncomment the block below.

@@ -62,6 +62,7 @@ export const TABS = [
   {id:"dash",lbl:"Resumen",ico:"◈"},
   {id:"tesis",lbl:"Tesis",ico:"📝"},
   {id:"transcript",lbl:"Transcript",ico:"📞"},
+  {id:"archive",lbl:"Archivo",ico:"🗄"},
   {id:"business",lbl:"Cómo gana $",ico:"👶"},
   {id:"chart",lbl:"Chart",ico:"📈"},
   {id:"claude",lbl:"Claude",ico:"🧠"},
@@ -159,7 +160,8 @@ export const HOME_TAB_GROUPS = [
     tabs: [
       {id:"research",lbl:"Research",ico:"🔍"},
       {id:"smart-money",lbl:"Smart Money",ico:"🏛️"},
-      {id:"noticias",lbl:"Noticias",ico:"📰"},
+      {id:"el-dividendo",lbl:"El Dividendo",ico:"▶️"},
+      {id:"earnings-archive",lbl:"Archive",ico:"📊"},
       {id:"library",lbl:"Library",ico:"📚"},
     ],
   },

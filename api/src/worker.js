@@ -779,6 +779,34 @@ async function ensureMigrations(env) {
     )`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_ao_computed ON alert_outcomes(computed_at)`).run();
 
+    // ─── Earnings documents archive (R2-backed) ───
+    // Metadata index for SEC filings (10-K, 10-Q, 8-K) and FMP earnings call
+    // transcripts. The actual document bodies live in R2 bucket
+    // `ayr-earnings-archive` (binding EARNINGS_R2). r2_key is the object key
+    // e.g. "AAPL/2025/Q3/10-Q.txt" or "AAPL/2025/Q3/transcript.txt".
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS earnings_documents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      doc_type TEXT NOT NULL,
+      fiscal_year INTEGER,
+      fiscal_quarter INTEGER,
+      filing_date TEXT,
+      period_of_report TEXT,
+      accession_number TEXT,
+      source TEXT,
+      source_url TEXT,
+      r2_key TEXT NOT NULL,
+      r2_key_raw TEXT,
+      size_bytes INTEGER,
+      size_bytes_raw INTEGER,
+      title TEXT,
+      downloaded_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(ticker, doc_type, fiscal_year, fiscal_quarter, accession_number)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_ed_ticker ON earnings_documents(ticker)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_ed_type ON earnings_documents(ticker, doc_type)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_ed_filed ON earnings_documents(filing_date)`).run();
+
     // Seed the curated superinvestors (idempotent — INSERT OR IGNORE).
     // CIKs sourced from docs/fondos-tab-design.md.
     const SUPERINVESTORS_SEED = [
@@ -2319,6 +2347,428 @@ export default {
       // Fetches BOTH the current target quarter AND the prior one so the
       // /api/funds/changes and alerts endpoints have diff data available.
       // FMP Ultimate exposes 13F under /stable/institutional-ownership/extract.
+      // ═══ YouTube Dividendo Agent — process-request flag ════════
+      // The frontend button "Procesar N vídeos" sets a flag here. The
+      // local Mac launchd agent polls /should-process every 60s and
+      // when it sees the flag, runs scan-youtube.sh and clears it.
+      // Stored in app_config under key 'youtube_process_request' as
+      // JSON { requested_at, requested_by_user_at_iso }.
+      if (path === "/api/youtube/request-processing" && request.method === "POST") {
+        const now = new Date().toISOString();
+        await env.DB.prepare(
+          `INSERT INTO app_config (key, value, updated_at)
+           VALUES ('youtube_process_request', ?, datetime('now'))
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`
+        ).bind(JSON.stringify({ requested_at: now })).run();
+        return json({ ok: true, requested_at: now }, corsHeaders);
+      }
+
+      if (path === "/api/youtube/should-process" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        const row = await env.DB.prepare(
+          `SELECT value FROM app_config WHERE key = 'youtube_process_request'`
+        ).first();
+        if (!row?.value) return json({ should: false }, corsHeaders);
+        try {
+          const parsed = JSON.parse(row.value);
+          // Stale check: ignore requests older than 30 minutes
+          const ageMin = (Date.now() - new Date(parsed.requested_at).getTime()) / 60000;
+          if (ageMin > 30) return json({ should: false, stale: true }, corsHeaders);
+          return json({ should: true, requested_at: parsed.requested_at }, corsHeaders);
+        } catch { return json({ should: false }, corsHeaders); }
+      }
+
+      if (path === "/api/youtube/clear-process-request" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        await env.DB.prepare(`DELETE FROM app_config WHERE key = 'youtube_process_request'`).run();
+        return json({ ok: true }, corsHeaders);
+      }
+
+      // ═══ Earnings Archive (R2-backed 10-K/10-Q/8-K + transcripts) ══════
+      // The Mac script scripts/download-earnings.sh uses these endpoints to
+      // upload SEC filings and FMP transcripts for multi-year analysis.
+      // Auth: Bearer AYR_WORKER_TOKEN. Bodies up to ~25 MB.
+
+      // POST /api/earnings/archive/upload
+      // Body JSON: { ticker, doc_type, fiscal_year, fiscal_quarter,
+      //              filing_date, period_of_report, accession_number,
+      //              source, source_url, title, body_text, body_raw? }
+      // Stores body_text (and optional body_raw) in R2, inserts/updates D1 row.
+      if (path === "/api/earnings/archive/upload" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        if (!env.EARNINGS_R2) {
+          return json({ error: "R2 binding EARNINGS_R2 not configured" }, corsHeaders, 500);
+        }
+        await ensureMigrations(env);
+        let b;
+        try { b = await request.json(); }
+        catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+
+        const ticker = String(b.ticker || "").trim().toUpperCase();
+        const docType = String(b.doc_type || "").trim().toUpperCase();
+        if (!ticker || !docType || !b.body_text) {
+          return json({ error: "ticker, doc_type and body_text are required" }, corsHeaders, 400);
+        }
+        const fy = Number(b.fiscal_year) || null;
+        const fq = b.fiscal_quarter ? Number(b.fiscal_quarter) : null;
+        const filingDate = b.filing_date || null;
+        const periodOfReport = b.period_of_report || null;
+        const accession = b.accession_number || null;
+        const src = b.source || "sec";
+        const sourceUrl = b.source_url || null;
+        const title = b.title || null;
+
+        // R2 key: {TICKER}/{YEAR}/{QTR_or_FY}/{DOC_TYPE}[_accession].txt
+        const qSeg = fq ? `Q${fq}` : (fy ? "FY" : "misc");
+        const yrSeg = fy ? String(fy) : "unknown";
+        const suffix = accession ? `_${accession.replace(/[^A-Za-z0-9-]/g, "")}` : "";
+        const baseKey = `${ticker}/${yrSeg}/${qSeg}/${docType}${suffix}`;
+        const textKey = `${baseKey}.txt`;
+        const textBytes = new TextEncoder().encode(b.body_text).length;
+
+        await env.EARNINGS_R2.put(textKey, b.body_text, {
+          httpMetadata: { contentType: "text/plain; charset=utf-8" },
+          customMetadata: {
+            ticker, docType,
+            fiscalYear: String(fy || ""),
+            fiscalQuarter: String(fq || ""),
+            source: src,
+          },
+        });
+
+        let rawKey = null;
+        let rawBytes = null;
+        if (b.body_raw && typeof b.body_raw === "string") {
+          rawKey = `${baseKey}.raw.html`;
+          rawBytes = new TextEncoder().encode(b.body_raw).length;
+          await env.EARNINGS_R2.put(rawKey, b.body_raw, {
+            httpMetadata: { contentType: "text/html; charset=utf-8" },
+            customMetadata: { ticker, docType, source: src },
+          });
+        }
+
+        // Upsert D1 row (UNIQUE on ticker/doc_type/fy/fq/accession)
+        await env.DB.prepare(`
+          INSERT INTO earnings_documents
+            (ticker, doc_type, fiscal_year, fiscal_quarter, filing_date,
+             period_of_report, accession_number, source, source_url,
+             r2_key, r2_key_raw, size_bytes, size_bytes_raw, title, downloaded_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          ON CONFLICT(ticker, doc_type, fiscal_year, fiscal_quarter, accession_number)
+          DO UPDATE SET
+            filing_date = excluded.filing_date,
+            period_of_report = excluded.period_of_report,
+            source_url = excluded.source_url,
+            r2_key = excluded.r2_key,
+            r2_key_raw = excluded.r2_key_raw,
+            size_bytes = excluded.size_bytes,
+            size_bytes_raw = excluded.size_bytes_raw,
+            title = excluded.title,
+            downloaded_at = datetime('now')
+        `).bind(
+          ticker, docType, fy, fq, filingDate, periodOfReport, accession,
+          src, sourceUrl, textKey, rawKey, textBytes, rawBytes, title
+        ).run();
+
+        return json({
+          ok: true, ticker, doc_type: docType,
+          r2_key: textKey, r2_key_raw: rawKey,
+          size_bytes: textBytes, size_bytes_raw: rawBytes,
+        }, corsHeaders);
+      }
+
+      // GET /api/earnings/archive/list?ticker=X&doc_type=10-K&limit=50
+      // No auth required for list (metadata only, no bodies).
+      if (path === "/api/earnings/archive/list" && request.method === "GET") {
+        await ensureMigrations(env);
+        const ticker = (url.searchParams.get("ticker") || "").trim().toUpperCase();
+        const docType = (url.searchParams.get("doc_type") || "").trim().toUpperCase();
+        const limit = Math.min(Number(url.searchParams.get("limit")) || 200, 1000);
+        const where = [];
+        const binds = [];
+        if (ticker) { where.push("ticker = ?"); binds.push(ticker); }
+        if (docType) { where.push("doc_type = ?"); binds.push(docType); }
+        const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+        const rs = await env.DB.prepare(`
+          SELECT id, ticker, doc_type, fiscal_year, fiscal_quarter,
+                 filing_date, period_of_report, accession_number, source,
+                 source_url, r2_key, r2_key_raw, size_bytes, size_bytes_raw,
+                 title, downloaded_at
+          FROM earnings_documents
+          ${whereSql}
+          ORDER BY (filing_date IS NULL), filing_date DESC, id DESC
+          LIMIT ?
+        `).bind(...binds, limit).all();
+        return json({ ok: true, count: rs.results?.length || 0, rows: rs.results || [] }, corsHeaders);
+      }
+
+      // GET /api/earnings/archive/get?key=TICKER/2025/Q3/10-Q.txt
+      // Or:  GET /api/earnings/archive/get?id=123&raw=1
+      // Returns the R2 object body as text/plain (or text/html for raw).
+      if (path === "/api/earnings/archive/get" && request.method === "GET") {
+        if (!env.EARNINGS_R2) {
+          return json({ error: "R2 binding EARNINGS_R2 not configured" }, corsHeaders, 500);
+        }
+        await ensureMigrations(env);
+        let key = url.searchParams.get("key");
+        const id = url.searchParams.get("id");
+        const wantRaw = url.searchParams.get("raw") === "1";
+        if (!key && id) {
+          const row = await env.DB.prepare(
+            `SELECT r2_key, r2_key_raw FROM earnings_documents WHERE id = ?`
+          ).bind(Number(id)).first();
+          if (!row) return json({ error: "Not found" }, corsHeaders, 404);
+          key = wantRaw ? row.r2_key_raw : row.r2_key;
+        }
+        if (!key) return json({ error: "key or id required" }, corsHeaders, 400);
+        const obj = await env.EARNINGS_R2.get(key);
+        if (!obj) return json({ error: "Object not found" }, corsHeaders, 404);
+        const headers = new Headers(corsHeaders);
+        headers.set("Content-Type", obj.httpMetadata?.contentType || "text/plain; charset=utf-8");
+        headers.set("Cache-Control", "public, max-age=3600");
+        return new Response(obj.body, { headers });
+      }
+
+      // ─── FMP proxies (so download-earnings.py doesn't need FMP_KEY locally) ───
+      // GET /api/earnings/archive/fmp-transcript-list?symbol=AAPL
+      if (path === "/api/earnings/archive/fmp-transcript-list" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        const symbol = (url.searchParams.get("symbol") || "").trim().toUpperCase();
+        if (!symbol) return json({ error: "symbol required" }, corsHeaders, 400);
+        if (!env.FMP_KEY) return json({ error: "FMP_KEY not set" }, corsHeaders, 500);
+        try {
+          const r = await fetch(
+            `https://financialmodelingprep.com/stable/earning-call-transcript-list?symbol=${encodeURIComponent(symbol)}&apikey=${env.FMP_KEY}`,
+            { cf: { cacheTtl: 300 } }
+          );
+          if (!r.ok) return json({ error: `FMP ${r.status}` }, corsHeaders, 502);
+          const data = await r.json();
+          return json(Array.isArray(data) ? data : [], corsHeaders);
+        } catch (e) {
+          return json({ error: String(e) }, corsHeaders, 502);
+        }
+      }
+
+      // GET /api/earnings/archive/fmp-transcript?symbol=AAPL&year=2025&quarter=3
+      if (path === "/api/earnings/archive/fmp-transcript" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        const symbol = (url.searchParams.get("symbol") || "").trim().toUpperCase();
+        const year = url.searchParams.get("year");
+        const quarter = url.searchParams.get("quarter");
+        if (!symbol || !year || !quarter) {
+          return json({ error: "symbol, year, quarter required" }, corsHeaders, 400);
+        }
+        if (!env.FMP_KEY) return json({ error: "FMP_KEY not set" }, corsHeaders, 500);
+        try {
+          const r = await fetch(
+            `https://financialmodelingprep.com/stable/earning-call-transcript?symbol=${encodeURIComponent(symbol)}&year=${encodeURIComponent(year)}&quarter=${encodeURIComponent(quarter)}&apikey=${env.FMP_KEY}`
+          );
+          if (!r.ok) return json({ error: `FMP ${r.status}` }, corsHeaders, 502);
+          const data = await r.json();
+          return json(Array.isArray(data) ? data : [], corsHeaders);
+        } catch (e) {
+          return json({ error: String(e) }, corsHeaders, 502);
+        }
+      }
+
+      // GET /api/earnings/archive/stats — summary counts for dashboards.
+      if (path === "/api/earnings/archive/stats" && request.method === "GET") {
+        await ensureMigrations(env);
+        const total = await env.DB.prepare(
+          `SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes),0) AS bytes FROM earnings_documents`
+        ).first();
+        const byType = await env.DB.prepare(
+          `SELECT doc_type, COUNT(*) AS n FROM earnings_documents GROUP BY doc_type ORDER BY n DESC`
+        ).all();
+        const byTicker = await env.DB.prepare(
+          `SELECT ticker, COUNT(*) AS n FROM earnings_documents GROUP BY ticker ORDER BY n DESC LIMIT 100`
+        ).all();
+        return json({
+          ok: true,
+          total_docs: total?.n || 0,
+          total_bytes: total?.bytes || 0,
+          by_doc_type: byType.results || [],
+          by_ticker: byTicker.results || [],
+        }, corsHeaders);
+      }
+
+      // ─── Opus trend analysis over multi-year earnings archive ─────
+      // POST /api/earnings/archive/analyze  { ticker, force? }
+      // Loads up to N most recent docs from R2 (10-K + 10-Q + transcripts),
+      // truncates each, concatenates, calls Claude Opus and returns structured
+      // JSON. Caches result in app_config keyed by ticker+date.
+      if (path === "/api/earnings/archive/analyze" && request.method === "POST") {
+        await ensureMigrations(env);
+        if (!env.EARNINGS_R2) return json({ error: "R2 not configured" }, corsHeaders, 500);
+        if (!env.ANTHROPIC_API_KEY) return json({ error: "ANTHROPIC_API_KEY not set" }, corsHeaders, 500);
+        let body;
+        try { body = await request.json(); }
+        catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const ticker = String(body.ticker || "").trim().toUpperCase();
+        const force = !!body.force;
+        if (!ticker) return json({ error: "ticker required" }, corsHeaders, 400);
+
+        const cacheKey = `earnings_archive_analysis:${ticker}`;
+        const today = new Date().toISOString().slice(0, 10);
+
+        // Check cache (24h TTL)
+        if (!force) {
+          const cached = await env.DB.prepare(
+            `SELECT value, updated_at FROM app_config WHERE key = ?`
+          ).bind(cacheKey).first();
+          if (cached?.value) {
+            const age = (Date.now() - new Date(cached.updated_at + "Z").getTime()) / 3600000;
+            if (age < 24) {
+              try {
+                const parsed = JSON.parse(cached.value);
+                return json({ ok: true, ticker, cached: true, cached_at: cached.updated_at, analysis: parsed }, corsHeaders);
+              } catch {}
+            }
+          }
+        }
+
+        // Load docs list (most recent 18: roughly 3 10-K + 9 10-Q + 6 transcripts)
+        const rs = await env.DB.prepare(`
+          SELECT id, doc_type, fiscal_year, fiscal_quarter, filing_date, r2_key, title
+          FROM earnings_documents
+          WHERE ticker = ?
+          ORDER BY (filing_date IS NULL), filing_date DESC, id DESC
+          LIMIT 18
+        `).bind(ticker).all();
+        const rows = rs.results || [];
+        if (rows.length === 0) {
+          return json({ error: `No documents archived for ${ticker}` }, corsHeaders, 404);
+        }
+
+        // Truncation strategy: 10-K → 30k chars, 10-Q → 15k, TRANSCRIPT → full (≤60k)
+        const truncLimit = {
+          "10-K": 30000,
+          "10-Q": 15000,
+          "TRANSCRIPT": 60000,
+        };
+        const segments = [];
+        let totalChars = 0;
+        const MAX_TOTAL = 380000; // ~95k tokens, safe for Opus 200k context
+        for (const row of rows) {
+          if (totalChars >= MAX_TOTAL) break;
+          try {
+            const obj = await env.EARNINGS_R2.get(row.r2_key);
+            if (!obj) continue;
+            const text = await obj.text();
+            const limit = truncLimit[row.doc_type] || 20000;
+            const clipped = text.slice(0, limit);
+            const header = `\n=== ${row.doc_type} · FY${row.fiscal_year || "?"}${row.fiscal_quarter ? " Q" + row.fiscal_quarter : ""} · filed ${row.filing_date || "?"} ===\n`;
+            if (totalChars + clipped.length + header.length > MAX_TOTAL) {
+              const remaining = MAX_TOTAL - totalChars - header.length;
+              if (remaining > 2000) {
+                segments.push(header + clipped.slice(0, remaining));
+                totalChars = MAX_TOTAL;
+              }
+              break;
+            }
+            segments.push(header + clipped);
+            totalChars += header.length + clipped.length;
+          } catch (e) {
+            // skip broken rows
+          }
+        }
+        if (segments.length === 0) {
+          return json({ error: "Could not load any R2 bodies" }, corsHeaders, 500);
+        }
+
+        const systemPrompt = `Eres un analista senior de renta variable especializado en dividendos sostenibles a largo plazo. Tu objetivo es ayudar a un inversor dividendero a decidir si una empresa debe mantenerse en cartera, acumularse o venderse.
+
+Analiza los documentos financieros proporcionados (10-K, 10-Q y transcripts de earnings calls) de una misma empresa a lo largo de varios años y produce un informe multianual con veredicto claro.
+
+Céntrate en:
+- Trayectoria de ingresos (crecimiento, desaceleración, segmentos, pricing power)
+- Evolución de márgenes (gross, operating, net) y free cash flow
+- Capital allocation: dividendo, recompras, capex, M&A, deuda
+- Foso competitivo: ¿es ancho, estable o erosionándose?
+- Salud y seguridad del dividendo (payout ratio, FCF cover, track record)
+- Riesgos emergentes nuevos respecto a años anteriores
+- Veredicto final: ¿es una buena posición para un dividendero a largo plazo?
+
+Sé crítico y honesto. No esquives los problemas. Si la tesis se está deteriorando, dilo claramente.
+
+Formato de salida: JSON VÁLIDO, sin markdown, sin code fences, sin texto extra fuera del JSON.
+Schema exacto:
+{
+  "summary": "resumen ejecutivo en 2-3 frases",
+  "revenue_trend": "una frase describiendo la tendencia de ingresos",
+  "margin_trend": "una frase describiendo la tendencia de márgenes y FCF",
+  "moat": "una frase sobre el foso competitivo y si se mantiene",
+  "capital_allocation": "una frase sobre cómo asigna capital (div/buybacks/capex/M&A)",
+  "guidance_changes": ["cambio 1", "cambio 2", "..."],
+  "emerging_risks": ["riesgo 1", "riesgo 2", "..."],
+  "dividend_health": "frase sobre seguridad del dividendo con payout ratio si está disponible",
+  "dividend_safety_score": 1-10,
+  "why_yes": ["razón para mantenerla 1", "razón 2", "razón 3"],
+  "why_no": ["contra 1", "contra 2", "contra 3"],
+  "long_term_verdict": "BUY" | "ACCUMULATE" | "HOLD" | "TRIM" | "SELL",
+  "thesis_update": "conclusión sobre si la tesis dividendera sigue siendo válida",
+  "confidence": "high" | "medium" | "low"
+}`;
+
+        const userPrompt = `Ticker: ${ticker}\nDocumentos analizados: ${segments.length}\n\n${segments.join("\n\n")}`;
+
+        let claudeResp;
+        try {
+          claudeResp = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": env.ANTHROPIC_API_KEY,
+              "anthropic-version": "2023-06-01",
+            },
+            body: JSON.stringify({
+              model: "claude-opus-4-20250514",
+              max_tokens: 2000,
+              system: systemPrompt,
+              messages: [{ role: "user", content: userPrompt }],
+            }),
+          });
+        } catch (e) {
+          return json({ error: `Claude API fetch failed: ${String(e)}` }, corsHeaders, 502);
+        }
+        if (!claudeResp.ok) {
+          const errText = await claudeResp.text();
+          return json({ error: `Claude API ${claudeResp.status}: ${errText}` }, corsHeaders, 502);
+        }
+        const claudeJson = await claudeResp.json();
+        const rawText = claudeJson.content?.[0]?.text || "";
+        let analysis;
+        try {
+          const cleaned = rawText.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+          analysis = JSON.parse(cleaned);
+        } catch (e) {
+          return json({ error: "Failed to parse Claude response", raw: rawText.slice(0, 500) }, corsHeaders, 500);
+        }
+
+        // Cache
+        await env.DB.prepare(`
+          INSERT INTO app_config (key, value, updated_at)
+          VALUES (?, ?, datetime('now'))
+          ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+        `).bind(cacheKey, JSON.stringify(analysis)).run();
+
+        return json({
+          ok: true,
+          ticker,
+          cached: false,
+          docs_used: segments.length,
+          total_chars: totalChars,
+          tokens_in: claudeJson.usage?.input_tokens,
+          tokens_out: claudeJson.usage?.output_tokens,
+          analysis,
+        }, corsHeaders);
+      }
+
       // ═══ YouTube Dividendo Agent ══════════════════════════════
       // Scans the El Dividendo YouTube channel via RSS, stores pending
       // videos, serves a pending list to the Mac script which transcribes
@@ -2327,6 +2777,67 @@ export default {
       // Routes with auth (Bearer AYR_WORKER_TOKEN) are used by the Mac script.
       if (path === "/api/youtube/scan-channel" && request.method === "POST") {
         return await handleYouTubeScanChannel(request, env, corsHeaders);
+      }
+      // Channels CRUD (no auth — user managing own feeds)
+      if (path === "/api/youtube/channels" && request.method === "GET") {
+        await ensureMigrations(env);
+        const rs = await env.DB.prepare(`
+          SELECT c.channel_id, c.handle, c.name, c.last_scan_at,
+                 (SELECT COUNT(*) FROM youtube_videos v WHERE v.channel_id = c.channel_id) AS video_count
+          FROM youtube_channels c
+          ORDER BY c.name ASC
+        `).all();
+        return json({ ok: true, channels: rs.results || [] }, corsHeaders);
+      }
+      if (path === "/api/youtube/channels" && request.method === "POST") {
+        await ensureMigrations(env);
+        let body;
+        try { body = await request.json(); }
+        catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const input = String(body.url_or_handle || "").trim();
+        if (!input) return json({ error: "url_or_handle required" }, corsHeaders, 400);
+        const resolved = await ytResolveChannel(input);
+        if (!resolved || !resolved.channel_id) {
+          return json({ error: "Could not resolve channel", detail: resolved?.error || null }, corsHeaders, 422);
+        }
+        await env.DB.prepare(`
+          INSERT INTO youtube_channels (channel_id, handle, name, enabled)
+          VALUES (?, ?, ?, 1)
+          ON CONFLICT(channel_id) DO UPDATE SET
+            handle = excluded.handle,
+            name = COALESCE(excluded.name, youtube_channels.name),
+            enabled = 1
+        `).bind(resolved.channel_id, resolved.handle, resolved.name).run();
+        return json({ ok: true, channel: resolved }, corsHeaders);
+      }
+      if (path.startsWith("/api/youtube/channels/") && request.method === "DELETE") {
+        await ensureMigrations(env);
+        const channelId = decodeURIComponent(path.replace("/api/youtube/channels/", ""));
+        if (!channelId) return json({ error: "channel_id required" }, corsHeaders, 400);
+        await env.DB.prepare(`DELETE FROM youtube_channels WHERE channel_id = ?`).bind(channelId).run();
+        return json({ ok: true, channel_id: channelId }, corsHeaders);
+      }
+      // POST /api/youtube/scan-all-channels — scrape every tracked channel
+      if (path === "/api/youtube/scan-all-channels" && request.method === "POST") {
+        await ensureMigrations(env);
+        const rs = await env.DB.prepare(`SELECT channel_id FROM youtube_channels`).all();
+        const results = [];
+        for (const row of rs.results || []) {
+          try {
+            const fakeReq = new Request("https://x/", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ channel_id: row.channel_id }),
+            });
+            const r = await handleYouTubeScanChannel(fakeReq, env, corsHeaders);
+            const data = await r.clone().json();
+            results.push({ channel_id: row.channel_id, new_videos: data.new_videos, ok: !!data.ok });
+          } catch (e) {
+            results.push({ channel_id: row.channel_id, error: String(e) });
+          }
+        }
+        const totalNew = results.reduce((n, r) => n + (r.new_videos || 0), 0);
+        return json({ ok: true, total_new: totalNew, per_channel: results }, corsHeaders);
       }
       if (path === "/api/youtube/pending" && request.method === "GET") {
         return await handleYouTubePending(request, env, corsHeaders);
@@ -13768,6 +14279,92 @@ async function ytFetchChannelVideos(handle, channelId) {
     }
   }
   return Array.from(byId.values());
+}
+
+// Resolve a user-provided URL or @handle into { channel_id, handle, name }.
+// Accepts: "@foo", "foo", full channel URL, watch URL, or /channel/UCxxx URL.
+async function ytResolveChannel(input) {
+  if (!input) return { error: "empty" };
+  let target = input.trim();
+
+  // If it's already a UCxxx id → fetch that directly
+  const ucMatch = target.match(/UC[A-Za-z0-9_-]{22}/);
+  const candidates = [];
+  if (ucMatch) candidates.push(`https://www.youtube.com/channel/${ucMatch[0]}`);
+
+  // Extract @handle from URL or bare text (supports unicode like é, á)
+  let handle = null;
+  const handleMatch = target.match(/@([\p{L}\p{N}._-]+)/u);
+  if (handleMatch) handle = '@' + handleMatch[1];
+  else if (!target.includes('/') && !target.includes('://') && !target.startsWith('http')) {
+    handle = '@' + target.replace(/^@/, '');
+  }
+  // Build URL-encoded variants — YouTube needs %XX for non-ASCII handles
+  if (handle) {
+    const encoded = '@' + encodeURIComponent(handle.slice(1));
+    candidates.push(`https://www.youtube.com/${encoded}`);
+    candidates.push(`https://www.youtube.com/${encoded}/videos`);
+    if (encoded !== handle) {
+      candidates.push(`https://www.youtube.com/${handle}`);
+    }
+  }
+
+  // Fallback: if the user pasted any youtube URL, try it directly + an encoded variant
+  if (target.includes('youtube.com')) {
+    candidates.push(target);
+    try { candidates.push(encodeURI(target)); } catch {}
+  }
+
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+  };
+
+  let html = null;
+  for (const u of candidates) {
+    try {
+      const r = await fetch(u, { headers, redirect: 'follow' });
+      if (r.ok) {
+        const text = await r.text();
+        if (text.includes('"channelId"') || text.includes('externalId')) {
+          html = text;
+          break;
+        }
+      }
+    } catch {}
+  }
+  if (!html) return { error: "fetch failed for all candidates" };
+
+  // channel_id: prefer canonical externalId, fallback to any UC* reference
+  let channelId = null;
+  const extMatch = html.match(/"externalId":"(UC[A-Za-z0-9_-]{22})"/);
+  if (extMatch) channelId = extMatch[1];
+  if (!channelId) {
+    const chMatch = html.match(/"channelId":"(UC[A-Za-z0-9_-]{22})"/);
+    if (chMatch) channelId = chMatch[1];
+  }
+  if (!channelId) {
+    const urlMatch = html.match(/\/channel\/(UC[A-Za-z0-9_-]{22})/);
+    if (urlMatch) channelId = urlMatch[1];
+  }
+  if (!channelId) return { error: "channel_id not found in page" };
+
+  // name: prefer og:title (free of "- YouTube" suffix), fallback to <title>
+  let name = null;
+  const ogTitle = html.match(/<meta property="og:title" content="([^"]+)"/);
+  if (ogTitle) name = ogTitle[1];
+  if (!name) {
+    const titleTag = html.match(/<title>([^<]+)<\/title>/);
+    if (titleTag) name = titleTag[1].replace(/ - YouTube$/, '').trim();
+  }
+
+  // Resolved handle: prefer canonical from page if available
+  let resolvedHandle = handle;
+  const canonicalHandle = html.match(/"vanityChannelUrl":"http[^"]*\/(@[A-Za-z0-9._-]+)"/);
+  if (canonicalHandle) resolvedHandle = canonicalHandle[1];
+
+  return { channel_id: channelId, handle: resolvedHandle, name: name || channelId };
 }
 
 // Tolerant JSON extractor — Opus sometimes wraps in ```json despite instructions
