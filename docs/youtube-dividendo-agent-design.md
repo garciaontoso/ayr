@@ -152,6 +152,30 @@ yt-dlp \
 
 ---
 
+## Integración con modo avión (offline en iPad)
+
+La app ya tiene `Airplane Mode: ✈️ downloads all data for offline use on iPad` (ver CLAUDE.md). Este agente encaja sin fricción:
+
+1. **Los resúmenes ya son texto plano en D1** — no hay dependencia de YouTube en tiempo real
+2. El endpoint existente de descarga offline (ver `HomeView.jsx` → panel ✈️) debe incluir `GET /api/youtube/videos` y `GET /api/youtube/video/:id` en el fetch masivo
+3. En `localStorage` se guarda bajo la clave `offline_youtube_videos` (patrón idéntico al resto de datos offline)
+4. La tab "Noticias" lee primero de `localStorage` si `navigator.onLine === false`, y solo si no hay datos offline muestra "Sin cobertura y sin datos cacheados"
+5. **Thumbnails**: no se descargan en modo avión (pesan). Se sustituyen por un placeholder con el título del vídeo
+
+**Flujo típico del usuario:**
+- En casa / con WiFi: pulsa "🔄 Escanear canal" → script del Mac procesa nuevos vídeos → D1
+- Antes de volar: pulsa "✈️ Descargar todo" → todos los resúmenes youtube quedan en localStorage
+- En el avión: abre tab "Noticias" → ve lista completa de qué ha dicho Gorka de cada empresa
+- Puede buscar por ticker: "¿qué dijo de Técnicas Reunidas?" → ve las últimas menciones con tesis y veredicto
+- Si su cartera tiene una empresa mencionada, badge verde "📊 En tu cartera"
+
+**Tamaño estimado** del payload offline:
+- Cada resumen: ~2 KB (JSON comprimido, sin transcripción completa)
+- 50 vídeos × 2 KB = ~100 KB añadidos al bundle offline
+- La transcripción completa (28k tokens ≈ 150 KB) **NO** se descarga offline por defecto. Opcional: checkbox "incluir transcripciones completas"
+
+---
+
 ## Schema D1 propuesto
 
 ```sql

@@ -24,6 +24,7 @@ import IncomeLabTab from '../home/IncomeLabTab';
 // analysis view (TesisTab). File removed entirely after audit B.
 import LibraryTab from '../home/LibraryTab';
 import SmartMoneyTab from '../home/SmartMoneyTab';
+import NoticiasTab, { fetchAllYouTubeForOffline } from '../home/NoticiasTab';
 import CurrencyTab from '../home/CurrencyTab';
 import MacroTab from '../home/MacroTab';
 import EarningsTab from '../home/EarningsTab';
@@ -466,6 +467,18 @@ function AirplaneMode({ portfolioList }) {
     setDlCurrent(1);
     await cacheFetch(`${API}/api/tax-report?year=${yr - 1}`);
     setDlCurrent(2);
+
+    // ── Phase 6.5: YouTube Dividendo videos for Noticias tab offline ──
+    // fetchAllYouTubeForOffline writes to localStorage 'offline_youtube_videos'
+    // (separate from the SW cache because the NoticiasTab reads JSON, not Response).
+    setDlPhase("Vídeos YouTube Dividendo");
+    setDlTotal(1); setDlCurrent(0);
+    try {
+      const ytCount = await fetchAllYouTubeForOffline();
+      setDlCurrent(1);
+      // Also cache the API response for backwards compat
+      await cacheFetch(`${API}/api/youtube/videos?limit=200`);
+    } catch { /* non-critical */ }
 
     // ── Phase 7: Per-ticker theses + scores drill-downs ──
     // The user opens these from the Portfolio drill-down modal and the
@@ -1054,6 +1067,7 @@ export default function HomeView() {
       {homeTab==="presupuesto" && <PresupuestoTab />}
       {homeTab==="library" && <LibraryTab />}
       {homeTab==="smart-money" && <SmartMoneyTab />}
+      {homeTab==="noticias" && <NoticiasTab />}
       {homeTab==="currency" && <CurrencyTab />}
       {homeTab==="macro" && <MacroTab />}
       {homeTab==="earnings" && <EarningsTab />}

@@ -2319,6 +2319,35 @@ export default {
       // Fetches BOTH the current target quarter AND the prior one so the
       // /api/funds/changes and alerts endpoints have diff data available.
       // FMP Ultimate exposes 13F under /stable/institutional-ownership/extract.
+      // ═══ YouTube Dividendo Agent ══════════════════════════════
+      // Scans the El Dividendo YouTube channel via RSS, stores pending
+      // videos, serves a pending list to the Mac script which transcribes
+      // via yt-dlp and summarizes via Opus, then posts back the structured
+      // analysis. Frontend NoticiasTab renders the list.
+      // Routes with auth (Bearer AYR_WORKER_TOKEN) are used by the Mac script.
+      if (path === "/api/youtube/scan-channel" && request.method === "POST") {
+        return await handleYouTubeScanChannel(request, env, corsHeaders);
+      }
+      if (path === "/api/youtube/pending" && request.method === "GET") {
+        return await handleYouTubePending(request, env, corsHeaders);
+      }
+      if (path === "/api/youtube/upload-summary" && request.method === "POST") {
+        return await handleYouTubeUploadSummary(request, env, corsHeaders);
+      }
+      if (path === "/api/youtube/mark-error" && request.method === "POST") {
+        return await handleYouTubeMarkError(request, env, corsHeaders);
+      }
+      if (path === "/api/youtube/videos" && request.method === "GET") {
+        return await handleYouTubeListVideos(request, env, corsHeaders, url);
+      }
+      if (path.startsWith("/api/youtube/video/") && request.method === "GET") {
+        const videoId = path.split('/').pop();
+        return await handleYouTubeVideoDetail(request, env, corsHeaders, videoId);
+      }
+      if (path === "/api/youtube/portfolio-mentions" && request.method === "GET") {
+        return await handleYouTubePortfolioMentions(request, env, corsHeaders);
+      }
+
       if (path === "/api/funds/refresh" && request.method === "POST") {
         const FMP_KEY = env.FMP_KEY;
         if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
@@ -13679,4 +13708,302 @@ async function sendWebPush(env, subscription, payloadText) {
   });
 
   return response;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// YouTube Dividendo Agent — handlers (ronda 12)
+// See docs/youtube-dividendo-agent-design.md for the full design.
+// ═══════════════════════════════════════════════════════════════
+
+function ytRequireToken(request, env) {
+  const auth = request.headers.get('Authorization') || '';
+  const token = auth.replace(/^Bearer\s+/i, '');
+  if (!token || token !== env.AYR_WORKER_TOKEN) {
+    return new Response('Unauthorized', { status: 401 });
+  }
+  return null;
+}
+
+// Extract recent videos from a channel page's embedded ytInitialData.
+// YouTube deprecated the public RSS feed (returns 404 on all channel_ids as
+// of early 2026) so we scrape the /@handle/videos page HTML instead. The
+// page embeds a JSON payload with videoRenderer entries we regex out.
+async function ytFetchChannelVideos(handle, channelId) {
+  const candidates = [
+    `https://www.youtube.com/channel/${channelId}/videos`,
+    handle ? `https://www.youtube.com/${handle.startsWith('@') ? handle : '@' + handle}/videos` : null,
+  ].filter(Boolean);
+
+  let html = null;
+  for (const u of candidates) {
+    try {
+      const r = await fetch(u, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+        },
+      });
+      if (r.ok) { html = await r.text(); break; }
+    } catch {}
+  }
+  if (!html) return [];
+
+  // YouTube renders relative dates client-side ("hace 3 días") so we can't
+  // easily extract absolute dates from HTML. We use scan-time as a proxy
+  // for published_at and rely on the page ordering (newest first).
+  const byId = new Map();
+  const rendererRe = /"videoRenderer":\{"videoId":"([A-Za-z0-9_-]{11})","thumbnail":\{"thumbnails":\[\{"url":"([^"]+)"[^\]]*\][^}]*\},"title":\{"runs":\[\{"text":"([^"]+)"/g;
+  let m;
+  while ((m = rendererRe.exec(html)) !== null) {
+    const [, videoId, thumbUrl, title] = m;
+    if (!byId.has(videoId)) {
+      byId.set(videoId, {
+        video_id: videoId,
+        title: title.replace(/\\u0026/g, '&').replace(/\\"/g, '"'),
+        published_at: new Date().toISOString(),
+        thumbnail_url: thumbUrl.replace(/\\u0026/g, '&'),
+        url: `https://www.youtube.com/watch?v=${videoId}`,
+      });
+    }
+  }
+  return Array.from(byId.values());
+}
+
+// Tolerant JSON extractor — Opus sometimes wraps in ```json despite instructions
+function ytExtractJSON(text) {
+  if (!text) return null;
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const candidate = fenced ? fenced[1] : text;
+  try {
+    return JSON.parse(candidate.trim());
+  } catch {
+    const first = candidate.indexOf('{');
+    const last = candidate.lastIndexOf('}');
+    if (first !== -1 && last > first) {
+      try { return JSON.parse(candidate.slice(first, last + 1)); } catch {}
+    }
+    return null;
+  }
+}
+
+// POST /api/youtube/scan-channel — scrape channel page, diff vs D1, insert new as pending
+async function handleYouTubeScanChannel(request, env, corsHeaders) {
+  let body = {};
+  try { body = await request.json(); } catch {}
+  const channelId = body.channel_id || 'UCM-udvxv3eBO0LcCmnJjNbw';
+
+  // Look up handle for nicer URL fallback
+  const channelRow = await env.DB.prepare(
+    `SELECT handle FROM youtube_channels WHERE channel_id = ?`
+  ).bind(channelId).first();
+  const handle = channelRow?.handle || null;
+
+  const videos = await ytFetchChannelVideos(handle, channelId);
+  if (!videos.length) {
+    return json({ error: 'no videos found (page parse failed or channel empty)' }, corsHeaders, 502);
+  }
+
+  const existing = await env.DB.prepare(
+    `SELECT video_id FROM youtube_videos WHERE channel_id = ?`
+  ).bind(channelId).all();
+  const existingIds = new Set((existing.results || []).map(r => r.video_id));
+
+  const newVideos = videos.filter(v => !existingIds.has(v.video_id));
+
+  const now = new Date().toISOString();
+  for (const v of newVideos) {
+    await env.DB.prepare(
+      `INSERT INTO youtube_videos (video_id, channel_id, title, published_at, url, thumbnail_url, scanned_at, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`
+    ).bind(v.video_id, channelId, v.title, v.published_at, v.url, v.thumbnail_url || null, now).run();
+  }
+
+  await env.DB.prepare(
+    `UPDATE youtube_channels SET last_scan_at = ? WHERE channel_id = ?`
+  ).bind(now, channelId).run();
+
+  return json({
+    ok: true,
+    channel_id: channelId,
+    new_videos: newVideos.length,
+    total_in_feed: videos.length,
+    pending_transcription: newVideos.length,
+    message: newVideos.length > 0
+      ? `${newVideos.length} vídeo(s) nuevos. Ejecuta scan-youtube.sh en el Mac para transcribir y resumir.`
+      : 'No hay vídeos nuevos.',
+  }, corsHeaders);
+}
+
+// GET /api/youtube/pending — list pending video_ids (auth required)
+async function handleYouTubePending(request, env, corsHeaders) {
+  const unauth = ytRequireToken(request, env);
+  if (unauth) return unauth;
+  const rows = await env.DB.prepare(
+    `SELECT video_id, title, url FROM youtube_videos WHERE status = 'pending' ORDER BY published_at DESC LIMIT 20`
+  ).all();
+  return json({ pending: rows.results || [] }, corsHeaders);
+}
+
+// POST /api/youtube/upload-summary — Mac script uploads Opus JSON
+async function handleYouTubeUploadSummary(request, env, corsHeaders) {
+  const unauth = ytRequireToken(request, env);
+  if (unauth) return unauth;
+
+  const body = await request.json();
+  const { video_id, transcript_source, processing_cost_usd, raw_summary } = body;
+  if (!video_id || !raw_summary) {
+    return json({ error: 'missing fields' }, corsHeaders, 400);
+  }
+
+  const parsed = ytExtractJSON(raw_summary);
+  if (!parsed || !parsed.companies) {
+    await env.DB.prepare(
+      `UPDATE youtube_videos SET status = 'error' WHERE video_id = ?`
+    ).bind(video_id).run();
+    return json({ error: 'could not parse summary JSON', raw: raw_summary.slice(0, 500) }, corsHeaders, 422);
+  }
+
+  await env.DB.prepare(
+    `UPDATE youtube_videos
+     SET summary_general = ?, processing_cost_usd = ?, transcript_source = ?, status = 'summarized'
+     WHERE video_id = ?`
+  ).bind(
+    parsed.summary_general || null,
+    processing_cost_usd || 0,
+    transcript_source || null,
+    video_id
+  ).run();
+
+  // Wipe and re-insert companies (idempotent if re-run)
+  await env.DB.prepare(`DELETE FROM youtube_video_companies WHERE video_id = ?`).bind(video_id).run();
+
+  for (const c of parsed.companies || []) {
+    await env.DB.prepare(
+      `INSERT INTO youtube_video_companies
+        (video_id, ticker, company_name, thesis, verdict, target_price, fair_value, risks, catalyst, timestamp_seconds)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      video_id,
+      c.ticker || null,
+      c.company_name || 'Unknown',
+      c.thesis || null,
+      c.verdict || null,
+      c.target_price || null,
+      c.fair_value || null,
+      Array.isArray(c.risks) ? JSON.stringify(c.risks) : (c.risks || null),
+      c.catalyst || null,
+      c.timestamp_seconds || null
+    ).run();
+  }
+
+  return json({ ok: true, video_id, companies_inserted: (parsed.companies || []).length }, corsHeaders);
+}
+
+// POST /api/youtube/mark-error — Mac script marks a failed video
+async function handleYouTubeMarkError(request, env, corsHeaders) {
+  const unauth = ytRequireToken(request, env);
+  if (unauth) return unauth;
+  const { video_id, error } = await request.json();
+  await env.DB.prepare(
+    `UPDATE youtube_videos SET status = 'error', summary_general = ? WHERE video_id = ?`
+  ).bind(`ERROR: ${error || 'unknown'}`, video_id).run();
+  return json({ ok: true }, corsHeaders);
+}
+
+// GET /api/youtube/videos — frontend list with embedded companies
+async function handleYouTubeListVideos(request, env, corsHeaders, url) {
+  const limit = parseInt(url.searchParams.get('limit') || '20', 10);
+  const channelId = url.searchParams.get('channel_id');
+
+  let query = `SELECT * FROM youtube_videos WHERE status IN ('summarized', 'pending')`;
+  const bindings = [];
+  if (channelId) {
+    query += ` AND channel_id = ?`;
+    bindings.push(channelId);
+  }
+  query += ` ORDER BY published_at DESC LIMIT ?`;
+  bindings.push(limit);
+
+  const videos = await env.DB.prepare(query).bind(...bindings).all();
+
+  // Batch-load companies for all videos
+  const videoIds = (videos.results || []).map(v => v.video_id);
+  let companiesByVideo = {};
+  if (videoIds.length > 0) {
+    const placeholders = videoIds.map(() => '?').join(',');
+    const comps = await env.DB.prepare(
+      `SELECT * FROM youtube_video_companies WHERE video_id IN (${placeholders})`
+    ).bind(...videoIds).all();
+    for (const c of comps.results || []) {
+      (companiesByVideo[c.video_id] ||= []).push({
+        ...c,
+        risks: c.risks ? (() => { try { return JSON.parse(c.risks); } catch { return []; } })() : [],
+      });
+    }
+  }
+
+  // Mark in_portfolio for each ticker that matches a user position
+  const portfolio = await env.DB.prepare(`SELECT DISTINCT ticker FROM positions`).all();
+  const portfolioSet = new Set((portfolio.results || []).map(r => r.ticker));
+
+  const enriched = (videos.results || []).map(v => ({
+    ...v,
+    companies: (companiesByVideo[v.video_id] || []).map(c => ({
+      ...c,
+      in_portfolio: c.ticker ? portfolioSet.has(c.ticker) : false,
+    })),
+  }));
+
+  return json({ videos: enriched }, corsHeaders);
+}
+
+// GET /api/youtube/video/:video_id — frontend detail
+async function handleYouTubeVideoDetail(request, env, corsHeaders, videoId) {
+  const video = await env.DB.prepare(
+    `SELECT * FROM youtube_videos WHERE video_id = ?`
+  ).bind(videoId).first();
+  if (!video) return json({ error: 'not found' }, corsHeaders, 404);
+
+  const comps = await env.DB.prepare(
+    `SELECT * FROM youtube_video_companies WHERE video_id = ? ORDER BY id ASC`
+  ).bind(videoId).all();
+
+  return json({
+    video,
+    companies: (comps.results || []).map(c => ({
+      ...c,
+      risks: c.risks ? (() => { try { return JSON.parse(c.risks); } catch { return []; } })() : [],
+    })),
+  }, corsHeaders);
+}
+
+// GET /api/youtube/portfolio-mentions — which of my positions were mentioned
+async function handleYouTubePortfolioMentions(request, env, corsHeaders) {
+  const portfolio = await env.DB.prepare(`SELECT DISTINCT ticker FROM positions`).all();
+  const tickers = (portfolio.results || []).map(r => r.ticker).filter(Boolean);
+  if (tickers.length === 0) return json({ mentions: [] }, corsHeaders);
+
+  const placeholders = tickers.map(() => '?').join(',');
+  const rows = await env.DB.prepare(
+    `SELECT c.*, v.title, v.published_at, v.video_id as vid
+     FROM youtube_video_companies c
+     JOIN youtube_videos v ON v.video_id = c.video_id
+     WHERE c.ticker IN (${placeholders}) AND v.status = 'summarized'
+     ORDER BY v.published_at DESC`
+  ).bind(...tickers).all();
+
+  const byTicker = {};
+  for (const r of rows.results || []) {
+    (byTicker[r.ticker] ||= []).push(r);
+  }
+
+  const mentions = Object.entries(byTicker).map(([ticker, items]) => ({
+    ticker,
+    video_count: items.length,
+    latest: items[0],
+    all: items,
+  }));
+
+  return json({ mentions }, corsHeaders);
 }

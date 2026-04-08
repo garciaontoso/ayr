@@ -159,6 +159,7 @@ export const HOME_TAB_GROUPS = [
     tabs: [
       {id:"research",lbl:"Research",ico:"🔍"},
       {id:"smart-money",lbl:"Smart Money",ico:"🏛️"},
+      {id:"noticias",lbl:"Noticias",ico:"📰"},
       {id:"library",lbl:"Library",ico:"📚"},
     ],
   },
