@@ -744,6 +744,8 @@ async function ensureMigrations(env) {
     )`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_fa_unread ON fund_alerts(read_at) WHERE read_at IS NULL`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_fa_ticker ON fund_alerts(ticker)`).run();
+    // Ronda 7 — push notification state per alert (idempotent ALTER)
+    try { await env.DB.prepare(`ALTER TABLE fund_alerts ADD COLUMN notified_at TEXT DEFAULT NULL`).run(); } catch(e) {}
 
     // Muted subjects (ticker globally, or ticker×fund, or whole fund).
     // Either ticker or fund_id can be NULL to mean "all".
@@ -1701,7 +1703,7 @@ export default {
 
       // GET /api/funds/:id — fund detail with current quarter top holdings
       const fundDetailMatch = path.match(/^\/api\/funds\/([a-z0-9_-]+)$/);
-      const RESERVED_FUND_PATHS = new Set(['list', 'consensus', 'refresh', 'by-ticker', 'by-tickers', 'seed-spanish', 'cik-search', 'resolve-isins', 'alerts']);
+      const RESERVED_FUND_PATHS = new Set(['list', 'consensus', 'refresh', 'by-ticker', 'by-tickers', 'seed-spanish', 'cik-search', 'resolve-isins', 'alerts', 'notify']);
       if (fundDetailMatch && request.method === "GET" && !RESERVED_FUND_PATHS.has(fundDetailMatch[1])) {
         const fundId = fundDetailMatch[1];
         const fund = await env.DB.prepare(`SELECT * FROM superinvestors WHERE id = ?`).bind(fundId).first();
@@ -1943,6 +1945,137 @@ export default {
       if (path === "/api/funds/alerts/mutes" && request.method === "GET") {
         const { results } = await env.DB.prepare(`SELECT id, ticker, fund_id, muted_at FROM fund_alert_mutes ORDER BY muted_at DESC`).all();
         return json({ mutes: results || [] }, corsHeaders);
+      }
+
+      // POST /api/funds/alerts/notify — Smart Money push dispatcher.
+      // Implements the 4-layer cooldown from docs/fondos-tab-design.md so
+      // the user gets at most a trickle of truly actionable notifications:
+      //   1. Materiality: only alerts already persisted (read_at IS NULL)
+      //   2. Relevance:   only CRITICAL tier (ticker in user's portfolio)
+      //   3. Conviction:  only fund conviction >= 4 (top-tier investors)
+      //   4. Cooldown:    no push during quiet hours 22:00-08:00 local,
+      //                   no weekends (Sat/Sun), max 2/week rolling window.
+      // Optional ?force=1 bypasses all cooldowns for manual testing from
+      // the UI "Enviar prueba" button. Alerts that fire a push are marked
+      // notified_at so subsequent calls don't re-push the same signal.
+      if (path === "/api/funds/alerts/notify" && request.method === "POST") {
+        const force = url.searchParams.get('force') === '1';
+        const now = new Date();
+        const tz = 'Asia/Shanghai'; // user's actual local (China resident per CLAUDE.md)
+        // Convert now to the user's local time for quiet-hours check
+        const localStr = now.toLocaleString('en-US', { timeZone: tz, hour12: false });
+        const localDate = new Date(localStr);
+        const hour = localDate.getHours();
+        const dayOfWeek = localDate.getDay(); // 0 Sun, 6 Sat
+        const isQuietHours = hour < 8 || hour >= 22;
+        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+        // Layer 4a: time-of-day + weekend gates
+        if (!force && (isQuietHours || isWeekend)) {
+          return json({
+            sent: 0,
+            skipped: true,
+            reason: isQuietHours ? `quiet hours (local ${hour}:00 ${tz})` : 'weekend',
+          }, corsHeaders);
+        }
+
+        // Layer 4b: rolling weekly cap of 2 push
+        // Count notified_at within the last 7 days across all alerts
+        const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
+        const { results: recent } = await env.DB.prepare(
+          `SELECT COUNT(*) AS n FROM fund_alerts WHERE notified_at IS NOT NULL AND notified_at >= ?`
+        ).bind(weekAgo).all();
+        const weekCount = recent?.[0]?.n || 0;
+        if (!force && weekCount >= 2) {
+          return json({
+            sent: 0,
+            skipped: true,
+            reason: `weekly cap reached (${weekCount}/2 in last 7d)`,
+          }, corsHeaders);
+        }
+
+        // Layer 1+2+3: pick eligible alerts.
+        // CRITICAL + unread + unnotified + conviction>=4 + fund still followed.
+        // Honors mutes (excludes muted ticker/fund pairs).
+        const { results: eligible } = await env.DB.prepare(
+          `SELECT fa.id, fa.fund_id, fa.ticker, fa.name, fa.status, fa.tier,
+                  fa.w_prev, fa.w_now, fa.delta_pct,
+                  s.name AS fund_name, s.manager, s.conviction
+           FROM fund_alerts fa
+           JOIN superinvestors s ON s.id = fa.fund_id
+           WHERE fa.tier = 'CRITICAL'
+             AND fa.read_at IS NULL
+             AND fa.notified_at IS NULL
+             AND s.followed = 1
+             AND s.conviction >= 4
+             AND fa.quarter = s.last_quarter
+             AND NOT EXISTS (
+               SELECT 1 FROM fund_alert_mutes fam WHERE
+                 (fam.ticker = fa.ticker AND fam.fund_id IS NULL)
+                 OR (fam.fund_id = fa.fund_id AND fam.ticker IS NULL)
+                 OR (fam.ticker = fa.ticker AND fam.fund_id = fa.fund_id)
+             )
+           ORDER BY ABS(fa.delta_pct) * s.conviction DESC
+           LIMIT 5`
+        ).all();
+
+        if (!eligible || eligible.length === 0) {
+          return json({ sent: 0, reason: 'no eligible alerts' }, corsHeaders);
+        }
+
+        // How many can we send this run: the weekly cap slot left.
+        const slotsLeft = force ? eligible.length : Math.max(0, 2 - weekCount);
+        const toSend = eligible.slice(0, slotsLeft);
+
+        // Build payloads: one notification per alert so each is individually
+        // tappable. Deep-link back to the Smart Money tab via ?tab=smart-money.
+        const { results: subs } = await env.DB.prepare("SELECT * FROM push_subscriptions LIMIT 100").all();
+        if (!subs || !subs.length) return json({ sent: 0, reason: 'no push subscribers' }, corsHeaders);
+
+        const statusIcon = { NEW: '🆕', ADDED: '➕', REDUCED: '➖', SOLD: '❌' };
+        const statusVerb = { NEW: 'nueva posición en', ADDED: 'dobló', REDUCED: 'redujo a la mitad', SOLD: 'vendió' };
+
+        let sent = 0, failed = 0;
+        for (const alert of toSend) {
+          const icon = statusIcon[alert.status] || '📊';
+          const verb = statusVerb[alert.status] || 'movió';
+          const title = `${icon} ${alert.fund_name} ${verb} ${alert.ticker}`;
+          const deltaStr = alert.delta_pct > 0 ? `+${alert.delta_pct.toFixed(2)}%` : `${alert.delta_pct.toFixed(2)}%`;
+          const body = `${alert.w_prev.toFixed(1)}% → ${alert.w_now.toFixed(1)}% (${deltaStr}) · ${alert.manager}`;
+          const payload = JSON.stringify({
+            title, body,
+            url: '/?tab=smart-money',
+            tag: `sm-alert-${alert.id}`,
+          });
+
+          let pushedAny = false;
+          for (const sub of subs) {
+            try {
+              const res = await sendWebPush(env, sub, payload);
+              if (res.ok) { pushedAny = true; }
+              else if (res.status === 410 || res.status === 404) {
+                await env.DB.prepare("DELETE FROM push_subscriptions WHERE id = ?").bind(sub.id).run();
+              } else { failed++; }
+            } catch { failed++; }
+          }
+
+          if (pushedAny) {
+            await env.DB.prepare(`UPDATE fund_alerts SET notified_at = datetime('now') WHERE id = ?`).bind(alert.id).run();
+            sent++;
+          }
+        }
+
+        return json({
+          sent,
+          failed,
+          eligibleCount: eligible.length,
+          slotsLeft,
+          weekCount,
+          quietHours: isQuietHours,
+          weekend: isWeekend,
+          forced: force,
+          alerts: toSend.map(a => ({ id: a.id, ticker: a.ticker, fund: a.fund_id, status: a.status })),
+        }, corsHeaders);
       }
 
       // POST /api/funds/refresh?fund_id=... — fetch latest 13F from FMP.

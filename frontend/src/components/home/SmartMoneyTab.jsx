@@ -298,6 +298,21 @@ export default function SmartMoneyTab() {
       const fail = (d.summary || []).filter(s => !s.ok).length;
       setRefreshMsg(`✅ ${ok}/${d.refreshed} fondos actualizados${fail > 0 ? ` · ${fail} fallaron` : ''}`);
       await loadFunds();
+      // Reload alerts (new quarter data might reveal new ones)
+      await loadAlerts();
+      // Auto-fire push for any new CRITICAL alert. The /notify endpoint
+      // honors the 4-layer cooldown server-side, so it's safe to call
+      // unconditionally — it'll just skip if quiet hours / weekly cap /
+      // no eligible alerts.
+      try {
+        const pushResp = await fetch(`${API_URL}/api/funds/alerts/notify`, { method: 'POST' });
+        const pushD = await pushResp.json();
+        if (pushD.sent > 0) {
+          setRefreshMsg(prev => `${prev} · 🔔 ${pushD.sent} push enviada${pushD.sent > 1 ? 's' : ''}`);
+        } else if (pushD.skipped) {
+          setRefreshMsg(prev => `${prev} · 🔕 push omitida (${pushD.reason})`);
+        }
+      } catch {}
       // Also refresh current sub-view data
       if (view === 'consensus') loadConsensus();
       if (view === 'mine') loadByPortfolio();
@@ -306,9 +321,26 @@ export default function SmartMoneyTab() {
       setRefreshMsg(`❌ Error: ${e.message}`);
     }
     setRefreshing(false);
-    setTimeout(() => setRefreshMsg(''), 8000);
+    setTimeout(() => setRefreshMsg(''), 10000);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadFunds, view, selectedFund]);
+  }, [loadFunds, view, selectedFund, loadAlerts]);
+
+  // ── Test push notification button ──
+  const testPushNotify = useCallback(async () => {
+    setRefreshMsg('Probando push notification…');
+    try {
+      const r = await fetch(`${API_URL}/api/funds/alerts/notify?force=1`, { method: 'POST' });
+      const d = await r.json();
+      if (d.sent > 0) {
+        setRefreshMsg(`✅ ${d.sent} push enviada${d.sent > 1 ? 's' : ''} (force=1, bypasseando cooldown)`);
+      } else {
+        setRefreshMsg(`ℹ️ 0 push enviadas — ${d.reason || 'sin suscriptores'}. Reabre alertas desde el ✓ para volver a testear.`);
+      }
+    } catch (e) {
+      setRefreshMsg(`❌ Error: ${e.message}`);
+    }
+    setTimeout(() => setRefreshMsg(''), 10000);
+  }, []);
 
   // ── Fund detail (top holdings) ──
   const loadFundDetail = useCallback(async (fundId) => {
@@ -489,11 +521,23 @@ export default function SmartMoneyTab() {
                 </div>
               </div>
 
-              {/* Action bar: show-read toggle + mark-critical-read shortcut */}
+              {/* Action bar: show-read toggle + mark-critical-read shortcut + push test */}
               <div style={{ ...card, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <button onClick={() => setShowRead(v => !v)} style={pill(showRead)}>
                     {showRead ? '👁 Incluyendo leídas' : '👁 Solo no leídas'}
+                  </button>
+                  <button
+                    onClick={testPushNotify}
+                    title="Enviar push con las alertas CRITICAL de mayor convicción (bypassea cooldown)"
+                    style={{
+                      padding: '7px 12px', borderRadius: 8,
+                      border: '1px solid #64d2ff', background: 'rgba(100,210,255,.08)',
+                      color: '#64d2ff', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                      fontFamily: 'var(--fm)',
+                    }}
+                  >
+                    🔔 Probar push
                   </button>
                 </div>
                 {alertsData.stats.critical > 0 && (
