@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ayr-v3.3';
+const CACHE_NAME = 'ayr-v3.4';
 const OFFLINE_CACHE = 'ayr-offline-data';
 const STATIC_ASSETS = ['/', '/index.html', '/favicon.svg', '/apple-touch-icon.png'];
 
@@ -84,20 +84,71 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // Static assets: stale-while-revalidate
-  e.respondWith(
-    caches.match(e.request).then(cached => {
-      const fetched = fetch(e.request).then(response => {
-        if (response.ok) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
-        }
-        return response;
-      }).catch(() => cached);
-      return cached || fetched;
-    })
-  );
+  // JS/CSS chunks: cache-first when offline so React.lazy never sees a
+  // failed dynamic import. Falls back to network if not cached.
+  // Reason for change: previously the handler returned `cached || fetched`
+  // where fetched.catch(()=>cached) could resolve to undefined when both
+  // failed. respondWith(undefined) crashes the page.
+  const isAsset = url.pathname.startsWith('/assets/') || url.pathname === '/' || url.pathname === '/index.html';
+  if (isAsset) {
+    e.respondWith(handleStaticAsset(e.request));
+    return;
+  }
+
+  // Other static (favicon, manifest, etc.): cache-first too
+  e.respondWith(handleStaticAsset(e.request));
 });
+
+// Static asset handler — cache-first with network fallback. Always returns
+// a Response (never undefined) so respondWith never crashes.
+async function handleStaticAsset(request) {
+  // Try both caches (offline-data first, then app shell)
+  try {
+    const offlineHit = await caches.match(request);
+    if (offlineHit) {
+      // Background revalidate (don't await — stale-while-revalidate)
+      fetch(request).then(r => {
+        if (r && r.ok) {
+          caches.open(CACHE_NAME).then(c => c.put(request, r.clone())).catch(() => {});
+        }
+      }).catch(() => {});
+      return offlineHit;
+    }
+  } catch {}
+
+  // Cache miss — try network
+  try {
+    const response = await fetch(request);
+    if (response && response.ok) {
+      const clone = response.clone();
+      caches.open(CACHE_NAME).then(c => c.put(request, clone)).catch(() => {});
+      return response;
+    }
+    return response || offlineErrorResponse(request);
+  } catch {
+    return offlineErrorResponse(request);
+  }
+}
+
+// Build a graceful "offline" response that won't crash the browser
+function offlineErrorResponse(request) {
+  const url = new URL(request.url);
+  // For JS chunks: return an empty module so the dynamic import resolves
+  // to a no-op object instead of throwing. The lazy component renders
+  // null and the user sees an empty tab body, but the app stays alive.
+  if (url.pathname.endsWith('.js')) {
+    return new Response(
+      'export default function OfflineFallback(){return null}',
+      { status: 200, headers: { 'Content-Type': 'application/javascript' } }
+    );
+  }
+  if (url.pathname.endsWith('.css')) {
+    return new Response('/* offline */', {
+      status: 200, headers: { 'Content-Type': 'text/css' }
+    });
+  }
+  return new Response('offline', { status: 503 });
+}
 
 // ─── API request handler: network-first + normalized cache fallback ───
 async function handleApiRequest(request) {

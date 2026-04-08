@@ -231,23 +231,27 @@ function AirplaneMode({ portfolioList }) {
     const cache = await caches.open("ayr-offline-data");
     let errors = 0;
 
-    // ── Phase 0: Pre-cache all JS/CSS chunks for offline tab loading ──
+    // ── Phase 0: Pre-cache ALL JS/CSS chunks for offline tab loading ──
+    // Critical: lazy-loaded tabs are dynamic imports embedded inside the
+    // entry chunk's source code as plain string literals. We must crawl
+    // the bundle text (not just the HTML) to discover them, otherwise
+    // switching to an unvisited tab while offline crashes React.lazy.
     setDlPhase("Assets de la app");
     try {
-      const staticCache = await caches.open("ayr-v3.3");
-      // Get all JS/CSS asset URLs from the current page
+      const staticCache = await caches.open("ayr-v3.4");
       const assetUrls = new Set();
-      // Scripts and modulepreload links already in the page
+
+      // Seed 1: scripts + stylesheets currently in the document
       document.querySelectorAll('script[src], link[rel="modulepreload"], link[rel="stylesheet"]').forEach(el => {
         const href = el.src || el.href;
         if (href) assetUrls.add(href);
       });
-      // Also fetch index.html to discover all chunk references
+
+      // Seed 2: parse index.html for any /assets/ references
       try {
-        const htmlResp = await fetch('/');
+        const htmlResp = await fetch('/', { cache: 'reload' });
         const html = await htmlResp.text();
-        // Extract all /assets/*.js and /assets/*.css references
-        const assetRx = /\/assets\/[^"'\s)]+\.(js|css)/g;
+        const assetRx = /\/assets\/[A-Za-z0-9._-]+\.(?:js|css)/g;
         let m;
         while ((m = assetRx.exec(html)) !== null) {
           assetUrls.add(new URL(m[0], location.origin).href);
@@ -255,13 +259,65 @@ function AirplaneMode({ portfolioList }) {
         await staticCache.put(new Request('/'), new Response(html, { headers: { 'Content-Type': 'text/html' } }));
         await staticCache.put(new Request('/index.html'), new Response(html, { headers: { 'Content-Type': 'text/html' } }));
       } catch {}
+
+      // Seed 3: CRITICAL — crawl every JS chunk text we already know about
+      // looking for further chunk references. This catches dynamic imports
+      // (lazy tabs) that are NOT in the HTML.
+      //
+      // Vite emits dynamic imports in three flavours inside the entry bundle:
+      //   "./formatters-HASH.js"          (relative, sibling chunk)
+      //   "assets/QualityTab-HASH.js"     (relative to dist root)
+      //   "/assets/Foo-HASH.js"           (absolute)
+      // The previous regex only matched the absolute form, which is why
+      // every lazy tab was missing from the offline cache (the cache only
+      // contained the entry, jsx-runtime and formatters chunks).
+      const crawled = new Set();
+      const crawl = async (url) => {
+        if (crawled.has(url)) return;
+        crawled.add(url);
+        try {
+          const r = await fetch(url, { cache: 'reload' });
+          if (!r.ok) return;
+          const txt = await r.clone().text();
+          await staticCache.put(url, r);
+          // Match any string literal that ends in .js or .css and looks
+          // like a hashed chunk name. Resolve relative paths against the
+          // CURRENT chunk URL so "assets/Foo.js" → "/assets/Foo.js".
+          const rx = /["'`](?:\.\/|\/|assets\/)?([A-Za-z0-9._/-]+\.(?:js|css))["'`]/g;
+          let m;
+          while ((m = rx.exec(txt)) !== null) {
+            const raw = m[0].slice(1, -1); // strip quotes
+            // Skip irrelevant matches (CSS keywords, comments, etc.)
+            if (!raw.match(/-[A-Za-z0-9_-]{6,}\.(js|css)$/)) continue;
+            try {
+              const resolved = new URL(raw, url).href;
+              // Only cache same-origin /assets/ entries
+              const u = new URL(resolved);
+              if (u.origin !== location.origin) continue;
+              if (!u.pathname.startsWith('/assets/')) continue;
+              if (!assetUrls.has(resolved)) assetUrls.add(resolved);
+            } catch {}
+          }
+        } catch {}
+      };
+      // First pass: crawl initial seeds (this expands assetUrls in-place)
+      for (const url of Array.from(assetUrls)) {
+        if (url.endsWith('.js')) await crawl(url);
+      }
+      // Second pass: crawl any newly-discovered chunks
+      for (const url of Array.from(assetUrls)) {
+        if (url.endsWith('.js') && !crawled.has(url)) await crawl(url);
+      }
+      // Final pass: ensure CSS + any remaining assets are cached
       setDlTotal(assetUrls.size); setDlCurrent(0);
       let assetDone = 0;
       for (const url of assetUrls) {
-        try {
-          const r = await fetch(url);
-          if (r.ok) await staticCache.put(url, r.clone());
-        } catch {}
+        if (!crawled.has(url)) {
+          try {
+            const r = await fetch(url, { cache: 'reload' });
+            if (r.ok) await staticCache.put(url, r.clone());
+          } catch {}
+        }
         assetDone++;
         setDlCurrent(assetDone);
       }
@@ -287,6 +343,12 @@ function AirplaneMode({ portfolioList }) {
       "/api/costbasis/all?limit=9999", "/api/trades",
       "/api/screener", "/api/presupuesto", "/api/presupuesto/alerts",
       "/api/data-status",
+      // 2026-04-08: research artefacts so theses, scores and agent insights
+      // load offline. Per-ticker drill-downs are cached in a later phase.
+      "/api/ai-analysis", "/api/scores",
+      "/api/agent-insights?days=14",
+      "/api/dividend-dps-live", "/api/dividend-forward",
+      "/api/cached-pnl",
     ];
     setDlTotal(mainUrls.length); setDlCurrent(0);
     setDlPhase("Datos generales");
@@ -403,6 +465,22 @@ function AirplaneMode({ portfolioList }) {
     setDlCurrent(1);
     await cacheFetch(`${API}/api/tax-report?year=${yr - 1}`);
     setDlCurrent(2);
+
+    // ── Phase 7: Per-ticker theses + scores drill-downs ──
+    // The user opens these from the Portfolio drill-down modal and the
+    // analysis Tesis tab. Cache them all so research keeps working offline.
+    setDlPhase("Tesis y scores por empresa");
+    setDlTotal(usTickers.length); setDlCurrent(0);
+    for (let i = 0; i < usTickers.length; i += 8) {
+      const batch = usTickers.slice(i, i + 8);
+      await Promise.all(batch.map(async (t) => {
+        const enc = encodeURIComponent(t);
+        await cacheFetch(`${API}/api/theses/${enc}`);
+        await cacheFetch(`${API}/api/scores/${enc}`);
+        await cacheFetch(`${API}/api/agent-insights?ticker=${enc}&days=30`);
+      }));
+      setDlCurrent(Math.min(i + 8, usTickers.length));
+    }
 
     // Verify cache was populated
     let cacheCount = 0;

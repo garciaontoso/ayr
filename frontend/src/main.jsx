@@ -16,7 +16,7 @@ createRoot(document.getElementById('root')).render(
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-      const reg = await navigator.serviceWorker.register('/sw.js?v=3.3');
+      const reg = await navigator.serviceWorker.register('/sw.js?v=3.4');
       // If a new SW is waiting, tell it to skip waiting and take over
       if (reg.waiting) {
         reg.waiting.postMessage({ type: 'SKIP_WAITING' });
