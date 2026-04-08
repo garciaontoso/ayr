@@ -3,6 +3,8 @@ import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { EmptyState } from '../ui/EmptyState.jsx';
 import { useFireMetrics, FIRE_SWR } from '../../hooks/useFireMetrics.js';
+import { useFxRates } from '../../hooks/useFxRates.js';
+import { useNetLiquidationValue } from '../../hooks/useNetLiquidationValue.js';
 
 // ─── Your Number Calculator ───
 function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA, fxEurUsd, fireCcy }) {
@@ -490,10 +492,10 @@ export default function FireTab() {
     FI_TRACK, DIV_BY_YEAR, portfolioTotals,
   } = useHome();
 
-  // === FX RATES ===
-const latest = CTRL_DATA.filter(c => c.pu > 0).sort((a,b) => (a.d||"").localeCompare(b.d||"")).slice(-1)[0] || {};
-const fxEurUsd = fxRates?.EUR ? 1/fxRates.EUR : latest?.fx || 1.18;
-const fxCnyUsd = fxRates?.CNY ? 1/fxRates.CNY : 1/7.25;
+  // === FX RATES (centralized via useFxRates hook) ===
+const fxFire = useFxRates(fxRates);
+const fxEurUsd = fxFire.usdEur;   // USD per EUR (~1.14)
+const fxCnyUsd = fxFire.usdCny;   // USD per CNY (~0.138)
 const fxCnyEur = fxCnyUsd / fxEurUsd; // CNY → EUR
 const isUSD = fireCcy === "USD";
 const sym = isUSD ? "$" : "€";
@@ -570,10 +572,8 @@ const divNetMUSD = divNet12mUSD / 12;
 const divNetM = isUSD ? divNetMUSD : divNetMUSD / fxEurUsd;
 const divNetA = divNetM * 12;
 
-// === PATRIMONIO (use IB NLV if available, fallback to CTRL snapshot) ===
-const latestCtrl = CTRL_DATA.filter(c => c.pu>0).sort((a,b) => (a.d||"").localeCompare(b.d||"")).slice(-1)[0] || {};
-const ibNlv = ibData?.summary?.nlv?.amount || 0;
-const patUSD = ibNlv > 0 ? ibNlv : (latestCtrl.pu || 0);
+// === PATRIMONIO (canonical via useNetLiquidationValue: IB live → CTRL fallback) ===
+const patUSD = useNetLiquidationValue({ ibData, ctrlData: CTRL_DATA });
 const pat = isUSD ? patUSD : patUSD / fxEurUsd;
 
 // === SUELDO ===

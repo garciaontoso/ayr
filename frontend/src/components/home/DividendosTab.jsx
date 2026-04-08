@@ -4,6 +4,9 @@ import { _sf, fDol } from '../../utils/formatters.js';
 import { API_URL } from '../../constants/index.js';
 import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
 import { useFireMetrics } from '../../hooks/useFireMetrics.js';
+import { useFxRates } from '../../hooks/useFxRates.js';
+import { useNetLiquidationValue } from '../../hooks/useNetLiquidationValue.js';
+import { useMonthlyExpenses } from '../../hooks/useMonthlyExpenses.js';
 
 /* Charts removed — integrated inline in dashboard */
 /* ═══════════════════════════════════════════════════════════════
@@ -449,23 +452,13 @@ export default function DividendosTab() {
     POS_STATIC, getCountry, FLAGS,
     DIV_BY_YEAR, DIV_BY_MONTH,
     portfolioTotals, FORWARD_DIV,
-    GASTOS_MONTH, ibData, fxRates,
+    GASTOS_MONTH, ibData, fxRates, CTRL_DATA,
   } = useHome();
 
-  // ── Canonical FIRE metrics (single source of truth) ────────────────
-  // Compute annual expenses in USD from last 12m of GASTOS_MONTH (multi-currency)
-  const fxEurUsdDiv = fxRates?.EUR ? 1/fxRates.EUR : 1.18;
-  const fxCnyUsdDiv = fxRates?.CNY ? 1/fxRates.CNY : 1/7.25;
-  const annualExpensesUSD = useMemo(() => {
-    const months = Object.keys(GASTOS_MONTH || {}).sort().slice(-12);
-    if (!months.length) return 0;
-    const sum = months.reduce((s, m) => {
-      const d = GASTOS_MONTH[m] || {};
-      return s + (d.eur||0) * fxEurUsdDiv + (d.cny||0) * fxCnyUsdDiv + (d.usd||0);
-    }, 0);
-    return (sum / months.length) * 12;
-  }, [GASTOS_MONTH, fxEurUsdDiv, fxCnyUsdDiv]);
-  const nlvUSD = ibData?.summary?.nlv?.amount || 0;
+  // ── Canonical FIRE metrics (single source of truth via hooks) ──────
+  const fxDiv = useFxRates(fxRates);
+  const { annualUSD: annualExpensesUSD } = useMonthlyExpenses({ gastosMonth: GASTOS_MONTH, fx: fxDiv });
+  const nlvUSD = useNetLiquidationValue({ ibData, ctrlData: CTRL_DATA });
   // Annual net dividends from divLog (last 12 months by date)
   const annualDivNetUSD = useMemo(() => {
     const cutoff = new Date(); cutoff.setMonth(cutoff.getMonth()-12);

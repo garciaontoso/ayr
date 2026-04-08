@@ -4,6 +4,9 @@ import { _sf, fDol } from '../../utils/formatters.js';
 import { _CURRENT_YEAR, API_URL } from '../../constants/index.js';
 import { EmptyState } from '../ui/EmptyState.jsx';
 import { useFireMetrics } from '../../hooks/useFireMetrics.js';
+import { useFxRates } from '../../hooks/useFxRates.js';
+import { useNetLiquidationValue } from '../../hooks/useNetLiquidationValue.js';
+import { useMonthlyExpenses } from '../../hooks/useMonthlyExpenses.js';
 
 export default function DashboardTab() {
   const [nlvHistory, setNlvHistory] = useState([]);
@@ -34,18 +37,9 @@ export default function DashboardTab() {
   } = useHome();
 
   // ── Canonical FIRE metrics (single source of truth via useFireMetrics) ──
-  const fxEurUsdDash = fxRates?.EUR ? 1/fxRates.EUR : 1.18;
-  const fxCnyUsdDash = fxRates?.CNY ? 1/fxRates.CNY : 1/7.25;
-  const annualGastosUSDDash = useMemo(() => {
-    const months = Object.keys(GASTOS_MONTH || {}).sort().slice(-12);
-    if (!months.length) return 0;
-    const sum = months.reduce((s, m) => {
-      const d = GASTOS_MONTH[m] || {};
-      return s + (d.eur||0) * fxEurUsdDash + (d.cny||0) * fxCnyUsdDash + (d.usd||0);
-    }, 0);
-    return (sum / months.length) * 12;
-  }, [GASTOS_MONTH, fxEurUsdDash, fxCnyUsdDash]);
-  const nlvDash = ibData?.summary?.nlv?.amount || 0;
+  const fx = useFxRates(fxRates);
+  const { annualUSD: annualGastosUSDDash } = useMonthlyExpenses({ gastosMonth: GASTOS_MONTH, fx });
+  const nlvDash = useNetLiquidationValue({ ibData, ctrlData: CTRL_DATA });
   const annualDivDash = useMemo(() => {
     const yrs = Object.keys(DIV_BY_YEAR || {}).sort();
     const last = yrs[yrs.length-1];

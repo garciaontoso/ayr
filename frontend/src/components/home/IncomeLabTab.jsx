@@ -3,6 +3,7 @@ import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { API_URL } from '../../constants/index.js';
 import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
+import { useNetLiquidationValue } from '../../hooks/useNetLiquidationValue.js';
 
 function TaxReportSection({ hide, openAnalysis, pill, card, hd }) {
   const [taxYear, setTaxYear] = useState(String(new Date().getFullYear()));
@@ -97,7 +98,10 @@ const SECTOR_FALLBACK = {
 };
 
 export default function IncomeLabTab() {
-  const { portfolioTotals, portfolioList, positions, displayCcy, privacyMode, hide, openAnalysis, getCountry, FLAGS, POS_STATIC } = useHome();
+  const { portfolioTotals, portfolioList, positions, displayCcy, privacyMode, hide, openAnalysis, getCountry, FLAGS, POS_STATIC, ibData, CTRL_DATA } = useHome();
+  // Canonical NLV (live IB cash+margin+positions, fallback CTRL snapshot).
+  // Was using portfolioTotals.totalValueUSD which omits cash/margin → DRIP underestimated.
+  const canonicalNlv = useNetLiquidationValue({ ibData, ctrlData: CTRL_DATA });
   const [section, setSection] = useState("stacking");
   const [projYears, setProjYears] = useState(10);
   const [dripRate, setDripRate] = useState(5); // DPS growth %
@@ -243,7 +247,7 @@ export default function IncomeLabTab() {
 
   // ── DRIP PROJECTION ──
   const dripProjection = useMemo(() => {
-    const currentValue = portfolioTotals.totalValueUSD || 0;
+    const currentValue = canonicalNlv || portfolioTotals.totalValueUSD || 0;
     const currentDiv = totalAnnualDiv;
     const growthRate = dripRate / 100;
     const years = [];
@@ -262,7 +266,7 @@ export default function IncomeLabTab() {
       cumDiv = cumDiv * (1 + growthRate);
     }
     return years;
-  }, [projYears, dripRate, totalAnnualDiv, portfolioTotals.totalValueUSD]);
+  }, [projYears, dripRate, totalAnnualDiv, canonicalNlv, portfolioTotals.totalValueUSD]);
 
   const hd = {fontSize:13,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:10,paddingBottom:6,borderBottom:"2px solid rgba(200,164,78,.2)"};
   const card = {background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:16,marginBottom:14};
@@ -531,7 +535,7 @@ export default function IncomeLabTab() {
           {[
             {l:`EN ${projYears} AÑOS`,v:"$"+fDol(dripProjection[dripProjection.length-1]?.value||0),c:"var(--text-primary)"},
             {l:"DIV MENSUAL",v:"$"+_sf((dripProjection[dripProjection.length-1]?.divMonthly||0),0),c:"var(--gold)"},
-            {l:"MULTIPLICADOR",v:_sf((dripProjection[dripProjection.length-1]?.value||1)/(portfolioTotals.totalValueUSD||1),1)+"x",c:"var(--green)"},
+            {l:"MULTIPLICADOR",v:_sf((dripProjection[dripProjection.length-1]?.value||1)/(canonicalNlv||portfolioTotals.totalValueUSD||1),1)+"x",c:"var(--green)"},
           ].map((s,i)=>(
             <div key={i} style={{textAlign:"center",padding:12,background:"var(--card)",borderRadius:12,border:"1px solid var(--border)",minWidth:120}}>
               <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5}}>{s.l}</div>
