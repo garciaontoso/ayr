@@ -1,0 +1,1080 @@
+{
+  "quarter_current": "2025-Q2",
+  "quarter_prior": "2024-Q4",
+  "funds": {
+    "cobas-int": {
+      "name": "Cobas Internacional FI",
+      "manager": "Francisco García Paramés",
+      "holdings": [
+        {
+          "isin": "BMG9456A1009",
+          "name": "Golar LNG LTD",
+          "currency": "USD",
+          "value_kEUR_now": 43723.0,
+          "weight_now": 4.72,
+          "value_kEUR_prev": 38834.0,
+          "weight_prev": 5.13
+        },
+        {
+          "isin": "KYG217651051",
+          "name": "CK Hutchison Holding",
+          "currency": "USD",
+          "value_kEUR_now": 39695.0,
+          "weight_now": 4.29,
+          "value_kEUR_prev": 32755.0,
+          "weight_prev": 4.33
+        },
+        {
+          "isin": "CY0106002112",
+          "name": "Atalaya Mining PLC",
+          "currency": "GBP",
+          "value_kEUR_now": 37905.0,
+          "weight_now": 4.09,
+          "value_kEUR_prev": 35774.0,
+          "weight_prev": 4.73
+        },
+        {
+          "isin": "IT0000076486",
+          "name": "DanieCo",
+          "currency": "USD",
+          "value_kEUR_now": 33712.0,
+          "weight_now": 3.64,
+          "value_kEUR_prev": 32632.0,
+          "weight_prev": 4.31
+        },
+        {
+          "isin": "BMG1738J1247",
+          "name": "Bw Offshore LTD",
+          "currency": "EUR",
+          "value_kEUR_now": 31847.0,
+          "weight_now": 3.44,
+          "value_kEUR_prev": 21594.0,
+          "weight_prev": 2.85
+        },
+        {
+          "isin": "BMG0702P1086",
+          "name": "BW Energy LTD",
+          "currency": "NOK",
+          "value_kEUR_now": 30235.0,
+          "weight_now": 3.26,
+          "value_kEUR_prev": 22569.0,
+          "weight_prev": 2.98
+        },
+        {
+          "isin": "JE00BN574F90",
+          "name": "Wizz Air Holdings",
+          "currency": "GBP",
+          "value_kEUR_now": 27025.0,
+          "weight_now": 2.92,
+          "value_kEUR_prev": 13817.0,
+          "weight_prev": 1.83
+        },
+        {
+          "isin": "BRBRAVACNOR3",
+          "name": "Brava Energía SA",
+          "currency": "BRL",
+          "value_kEUR_now": 26605.0,
+          "weight_now": 2.87,
+          "value_kEUR_prev": 15025.0,
+          "weight_prev": 1.99
+        },
+        {
+          "isin": "NO0003078800",
+          "name": "TGS ASA",
+          "currency": "NOK",
+          "value_kEUR_now": 25901.0,
+          "weight_now": 2.8,
+          "value_kEUR_prev": 18027.0,
+          "weight_prev": 2.38
+        },
+        {
+          "isin": "FR0000053381",
+          "name": "Derichebourg SA",
+          "currency": "EUR",
+          "value_kEUR_now": 23422.0,
+          "weight_now": 2.53,
+          "value_kEUR_prev": 19100.0,
+          "weight_prev": 2.52
+        },
+        {
+          "isin": "US36237H1014",
+          "name": "GIIIApp",
+          "currency": "USD",
+          "value_kEUR_now": 22551.0,
+          "weight_now": 2.43,
+          "value_kEUR_prev": 10597.0,
+          "weight_prev": 1.4
+        },
+        {
+          "isin": "US92556V1061",
+          "name": "Viatris INC",
+          "currency": "EUR",
+          "value_kEUR_now": 21989.0,
+          "weight_now": 2.37,
+          "value_kEUR_prev": 15591.0,
+          "weight_prev": 2.06
+        },
+        {
+          "isin": "DE000BAY0017",
+          "name": "Bayer AG-REG",
+          "currency": "NOK",
+          "value_kEUR_now": 21900.0,
+          "weight_now": 2.36,
+          "value_kEUR_prev": 21576.0,
+          "weight_prev": 2.85
+        },
+        {
+          "isin": "BMG1466R1732",
+          "name": "Borr Drilling Limit",
+          "currency": "USD",
+          "value_kEUR_now": 19856.0,
+          "weight_now": 2.14,
+          "value_kEUR_prev": 0.0,
+          "weight_prev": 0.0
+        },
+        {
+          "isin": "FR0000051807",
+          "name": "Teleperformance SE",
+          "currency": "EUR",
+          "value_kEUR_now": 19444.0,
+          "weight_now": 2.1,
+          "value_kEUR_prev": 10513.0,
+          "weight_prev": 1.39
+        },
+        {
+          "isin": "FR0011476928",
+          "name": "FNAC",
+          "currency": "HKD",
+          "value_kEUR_now": 19347.0,
+          "weight_now": 2.09,
+          "value_kEUR_prev": 16472.0,
+          "weight_prev": 2.18
+        },
+        {
+          "isin": "GB00B4Y7R145",
+          "name": "Currys Plc",
+          "currency": "GBP",
+          "value_kEUR_now": 19337.0,
+          "weight_now": 2.09,
+          "value_kEUR_prev": 25688.0,
+          "weight_prev": 3.4
+        },
+        {
+          "isin": "FR0000131906",
+          "name": "Renault",
+          "currency": "EUR",
+          "value_kEUR_now": 18176.0,
+          "weight_now": 1.96,
+          "value_kEUR_prev": 9621.0,
+          "weight_prev": 1.27
+        },
+        {
+          "isin": "KYG2177B1014",
+          "name": "CK Asset Holdings",
+          "currency": "HKD",
+          "value_kEUR_now": 17945.0,
+          "weight_now": 1.94,
+          "value_kEUR_prev": 12256.0,
+          "weight_prev": 1.62
+        },
+        {
+          "isin": "DE000SAFH001",
+          "name": "SAF-HOLLAND SE",
+          "currency": "EUR",
+          "value_kEUR_now": 16728.0,
+          "weight_now": 1.81,
+          "value_kEUR_prev": 0.0,
+          "weight_prev": 0.0
+        },
+        {
+          "isin": "IT0005495657",
+          "name": "Saipem SPA",
+          "currency": "EUR",
+          "value_kEUR_now": 16593.0,
+          "weight_now": 1.79,
+          "value_kEUR_prev": 11293.0,
+          "weight_prev": 1.49
+        },
+        {
+          "isin": "IT0005241762",
+          "name": "Cofide",
+          "currency": "NOK",
+          "value_kEUR_now": 16173.0,
+          "weight_now": 1.75,
+          "value_kEUR_prev": 16851.0,
+          "weight_prev": 2.23
+        },
+        {
+          "isin": "US8816242098",
+          "name": "Teva Pharmaceutical",
+          "currency": "USD",
+          "value_kEUR_now": 15891.0,
+          "weight_now": 1.72,
+          "value_kEUR_prev": 22187.0,
+          "weight_prev": 2.93
+        },
+        {
+          "isin": "BRRECVACNOR3",
+          "name": "Petroreconcavo, S.A.",
+          "currency": "BRL",
+          "value_kEUR_now": 15373.0,
+          "weight_now": 1.66,
+          "value_kEUR_prev": 0.0,
+          "weight_prev": 0.0
+        },
+        {
+          "isin": "CA5889141019",
+          "name": "Meren Energy Inc",
+          "currency": "SEK",
+          "value_kEUR_now": 13603.0,
+          "weight_now": 1.47,
+          "value_kEUR_prev": 0.0,
+          "weight_prev": 0.0
+        },
+        {
+          "isin": "DE000BEAU1Y4",
+          "name": "DOUGLAS AG",
+          "currency": "EUR",
+          "value_kEUR_now": 13311.0,
+          "weight_now": 1.44,
+          "value_kEUR_prev": 0.0,
+          "weight_prev": 0.0
+        }
+      ],
+      "count": 26
+    },
+    "magallanes": {
+      "name": "Magallanes European Equity FI",
+      "manager": "Iván Martín",
+      "holdings": [
+        {
+          "isin": null,
+          "name": "TELECOM ITALIA SPA",
+          "currency": "EUR",
+          "value_kEUR_now": 67738.0,
+          "weight_now": 4.67,
+          "value_kEUR_prev": 51433.0,
+          "weight_prev": 4.18
+        },
+        {
+          "isin": null,
+          "name": "SKF AB",
+          "currency": "SEK",
+          "value_kEUR_now": 63255.0,
+          "weight_now": 4.36,
+          "value_kEUR_prev": 54666.0,
+          "weight_prev": 4.44
+        },
+        {
+          "isin": null,
+          "name": "REXEL SA",
+          "currency": "EUR",
+          "value_kEUR_now": 62450.0,
+          "weight_now": 4.31,
+          "value_kEUR_prev": 45462.0,
+          "weight_prev": 3.7
+        },
+        {
+          "isin": null,
+          "name": "ARCELORMITTAL",
+          "currency": "EUR",
+          "value_kEUR_now": 56848.0,
+          "weight_now": 3.92,
+          "value_kEUR_prev": 46788.0,
+          "weight_prev": 3.8
+        },
+        {
+          "isin": null,
+          "name": "DUFRY AG",
+          "currency": "CHF",
+          "value_kEUR_now": 56159.0,
+          "weight_now": 3.88,
+          "value_kEUR_prev": 51671.0,
+          "weight_prev": 4.2
+        },
+        {
+          "isin": null,
+          "name": "ANGLO AMERICAN PLC",
+          "currency": "GBP",
+          "value_kEUR_now": 54236.0,
+          "weight_now": 3.74,
+          "value_kEUR_prev": 36404.0,
+          "weight_prev": 2.96
+        },
+        {
+          "isin": null,
+          "name": "SYENSQO SA",
+          "currency": "EUR",
+          "value_kEUR_now": 53679.0,
+          "weight_now": 3.7,
+          "value_kEUR_prev": 41369.0,
+          "weight_prev": 3.36
+        },
+        {
+          "isin": null,
+          "name": "AKER BP ASA",
+          "currency": "NOK",
+          "value_kEUR_now": 51626.0,
+          "weight_now": 3.56,
+          "value_kEUR_prev": 46583.0,
+          "weight_prev": 3.79
+        },
+        {
+          "isin": null,
+          "name": "KION GROUP AG",
+          "currency": "EUR",
+          "value_kEUR_now": 50337.0,
+          "weight_now": 3.47,
+          "value_kEUR_prev": 50811.0,
+          "weight_prev": 4.13
+        },
+        {
+          "isin": null,
+          "name": "BOUYGUES",
+          "currency": "EUR",
+          "value_kEUR_now": 47465.0,
+          "weight_now": 3.28,
+          "value_kEUR_prev": 33762.0,
+          "weight_prev": 2.75
+        },
+        {
+          "isin": null,
+          "name": "EASYJET PLC",
+          "currency": "GBP",
+          "value_kEUR_now": 47167.0,
+          "weight_now": 3.25,
+          "value_kEUR_prev": 46122.0,
+          "weight_prev": 3.75
+        },
+        {
+          "isin": null,
+          "name": "SANDVIK AB",
+          "currency": "SEK",
+          "value_kEUR_now": 46405.0,
+          "weight_now": 3.2,
+          "value_kEUR_prev": 29797.0,
+          "weight_prev": 2.42
+        },
+        {
+          "isin": null,
+          "name": "VOLKSWAGEN",
+          "currency": "EUR",
+          "value_kEUR_now": 45667.0,
+          "weight_now": 3.15,
+          "value_kEUR_prev": 30292.0,
+          "weight_prev": 2.46
+        },
+        {
+          "isin": null,
+          "name": "FAURECIA",
+          "currency": "EUR",
+          "value_kEUR_now": 45495.0,
+          "weight_now": 3.14,
+          "value_kEUR_prev": 27295.0,
+          "weight_prev": 2.22
+        },
+        {
+          "isin": null,
+          "name": "BRENNTAG AG",
+          "currency": "EUR",
+          "value_kEUR_now": 45550.0,
+          "weight_now": 3.14,
+          "value_kEUR_prev": 40042.0,
+          "weight_prev": 3.26
+        },
+        {
+          "isin": null,
+          "name": "EVONIK INDUSTRIES AG",
+          "currency": "EUR",
+          "value_kEUR_now": 43625.0,
+          "weight_now": 3.01,
+          "value_kEUR_prev": 43494.0,
+          "weight_prev": 3.54
+        },
+        {
+          "isin": null,
+          "name": "ELECTROCOMPONENTS PLC",
+          "currency": "GBP",
+          "value_kEUR_now": 40668.0,
+          "weight_now": 2.81,
+          "value_kEUR_prev": 0,
+          "weight_prev": 0
+        },
+        {
+          "isin": null,
+          "name": "CARREFOUR",
+          "currency": "EUR",
+          "value_kEUR_now": 40204.0,
+          "weight_now": 2.77,
+          "value_kEUR_prev": 31963.0,
+          "weight_prev": 2.6
+        },
+        {
+          "isin": null,
+          "name": "NOBLE CORP PLC",
+          "currency": "USD",
+          "value_kEUR_now": 39353.0,
+          "weight_now": 2.72,
+          "value_kEUR_prev": 19983.0,
+          "weight_prev": 1.62
+        },
+        {
+          "isin": null,
+          "name": "SIGNIFY NV",
+          "currency": "EUR",
+          "value_kEUR_now": 37898.0,
+          "weight_now": 2.62,
+          "value_kEUR_prev": 39137.0,
+          "weight_prev": 3.18
+        },
+        {
+          "isin": null,
+          "name": "PERSIMMON PLC",
+          "currency": "GBP",
+          "value_kEUR_now": 37572.0,
+          "weight_now": 2.59,
+          "value_kEUR_prev": 0,
+          "weight_prev": 0
+        },
+        {
+          "isin": null,
+          "name": "RENAULT",
+          "currency": "EUR",
+          "value_kEUR_now": 36642.0,
+          "weight_now": 2.53,
+          "value_kEUR_prev": 39698.0,
+          "weight_prev": 3.23
+        },
+        {
+          "isin": null,
+          "name": "ANTOFAGASTA PLC",
+          "currency": "GBP",
+          "value_kEUR_now": 35870.0,
+          "weight_now": 2.48,
+          "value_kEUR_prev": 28379.0,
+          "weight_prev": 2.31
+        },
+        {
+          "isin": null,
+          "name": "PORSCHE AG",
+          "currency": "EUR",
+          "value_kEUR_now": 33660.0,
+          "weight_now": 2.32,
+          "value_kEUR_prev": 27283.0,
+          "weight_prev": 2.22
+        },
+        {
+          "isin": null,
+          "name": "VIENNA INSURANCE GROUP",
+          "currency": "EUR",
+          "value_kEUR_now": 33104.0,
+          "weight_now": 2.28,
+          "value_kEUR_prev": 24444.0,
+          "weight_prev": 1.99
+        },
+        {
+          "isin": null,
+          "name": "HUSQVARNA AB",
+          "currency": "SEK",
+          "value_kEUR_now": 32752.0,
+          "weight_now": 2.26,
+          "value_kEUR_prev": 17478.0,
+          "weight_prev": 1.42
+        },
+        {
+          "isin": null,
+          "name": "ORANGE POLSKA SA",
+          "currency": "PLN",
+          "value_kEUR_now": 32387.0,
+          "weight_now": 2.23,
+          "value_kEUR_prev": 28918.0,
+          "weight_prev": 2.35
+        },
+        {
+          "isin": null,
+          "name": "VALTERRA PLATINUM LIMITED",
+          "currency": "GBP",
+          "value_kEUR_now": 31255.0,
+          "weight_now": 2.16,
+          "value_kEUR_prev": 6270.0,
+          "weight_prev": 0.51
+        },
+        {
+          "isin": null,
+          "name": "STELLANTIS NV",
+          "currency": "EUR",
+          "value_kEUR_now": 30333.0,
+          "weight_now": 2.09,
+          "value_kEUR_prev": 25493.0,
+          "weight_prev": 2.07
+        },
+        {
+          "isin": null,
+          "name": "HEIDELBERGCEMENT AG",
+          "currency": "EUR",
+          "value_kEUR_now": 27852.0,
+          "weight_now": 1.92,
+          "value_kEUR_prev": 25509.0,
+          "weight_prev": 2.07
+        },
+        {
+          "isin": null,
+          "name": "WIZZ AIR HOLDINGS",
+          "currency": "GBP",
+          "value_kEUR_now": 26277.0,
+          "weight_now": 1.81,
+          "value_kEUR_prev": 19096.0,
+          "weight_prev": 1.55
+        },
+        {
+          "isin": null,
+          "name": "ING GROEP NV",
+          "currency": "EUR",
+          "value_kEUR_now": 18458.0,
+          "weight_now": 1.5,
+          "value_kEUR_prev": 0,
+          "weight_prev": 0
+        },
+        {
+          "isin": null,
+          "name": "SAVENCIA SA",
+          "currency": "EUR",
+          "value_kEUR_now": 20884.0,
+          "weight_now": 1.44,
+          "value_kEUR_prev": 21554.0,
+          "weight_prev": 1.75
+        },
+        {
+          "isin": null,
+          "name": "UNICREDITO ITALIANO",
+          "currency": "EUR",
+          "value_kEUR_now": 16324.0,
+          "weight_now": 1.33,
+          "value_kEUR_prev": 0,
+          "weight_prev": 0
+        },
+        {
+          "isin": null,
+          "name": "COMMERZBANK AG",
+          "currency": "EUR",
+          "value_kEUR_now": 14716.0,
+          "weight_now": 1.02,
+          "value_kEUR_prev": 31269.0,
+          "weight_prev": 2.54
+        },
+        {
+          "isin": null,
+          "name": "C AND C GROUP PLC",
+          "currency": "GBP",
+          "value_kEUR_now": 14298.0,
+          "weight_now": 0.99,
+          "value_kEUR_prev": 17338.0,
+          "weight_prev": 1.41
+        },
+        {
+          "isin": null,
+          "name": "EUROBANK ERGASIAS",
+          "currency": "EUR",
+          "value_kEUR_now": 11765.0,
+          "weight_now": 0.96,
+          "value_kEUR_prev": 0,
+          "weight_prev": 0
+        },
+        {
+          "isin": null,
+          "name": "SHELF DRILLING LTD",
+          "currency": "NOK",
+          "value_kEUR_now": 3624.0,
+          "weight_now": 0.29,
+          "value_kEUR_prev": 0,
+          "weight_prev": 0
+        },
+        {
+          "isin": null,
+          "name": "KAPSCH TRAFFIC",
+          "currency": "EUR",
+          "value_kEUR_now": 693.0,
+          "weight_now": 0.05,
+          "value_kEUR_prev": 806.0,
+          "weight_prev": 0.07
+        }
+      ],
+      "count": 39
+    },
+    "azvalor-int": {
+      "name": "Azvalor Internacional FI",
+      "manager": "Álvaro Guzmán + Fernando Bernad",
+      "holdings": [
+        {
+          "isin": "CA06849F1080",
+          "name": "BARRICK MINING CORP",
+          "currency": "USD",
+          "value_kEUR_now": 127168.0,
+          "weight_now": 6.35,
+          "value_kEUR_prev": 0.0,
+          "weight_prev": 0.0
+        },
+        {
+          "isin": "AN8068571086",
+          "name": "SCHLUMBERGER NV",
+          "currency": "USD",
+          "value_kEUR_now": 105499.0,
+          "weight_now": 5.26,
+          "value_kEUR_prev": 89173.0,
+          "weight_prev": 4.46
+        },
+        {
+          "isin": "JE00B4T3BW64",
+          "name": "GLENCORE PLC",
+          "currency": "GBP",
+          "value_kEUR_now": 86852.0,
+          "weight_now": 4.33,
+          "value_kEUR_prev": 22391.0,
+          "weight_prev": 1.12
+        },
+        {
+          "isin": "CA7397211086",
+          "name": "PRAIRIESKY ROYALTY LTD",
+          "currency": "CAD",
+          "value_kEUR_now": 76747.0,
+          "weight_now": 3.83,
+          "value_kEUR_prev": 83839.0,
+          "weight_prev": 4.19
+        },
+        {
+          "isin": "CA1363851017",
+          "name": "CANADIAN NATURAL RESOURCES",
+          "currency": "USD",
+          "value_kEUR_now": 63568.0,
+          "weight_now": 3.17,
+          "value_kEUR_prev": 15442.0,
+          "weight_prev": 0.77
+        },
+        {
+          "isin": "AU000000WHC8",
+          "name": "WHITEHAVEN COAL LTD",
+          "currency": "AUD",
+          "value_kEUR_now": 61930.0,
+          "weight_now": 3.09,
+          "value_kEUR_prev": 50720.0,
+          "weight_prev": 2.54
+        },
+        {
+          "isin": "US62955J1034",
+          "name": "NOV INC",
+          "currency": "USD",
+          "value_kEUR_now": 60225.0,
+          "weight_now": 3.01,
+          "value_kEUR_prev": 71760.0,
+          "weight_prev": 3.59
+        },
+        {
+          "isin": "US91912E1055",
+          "name": "VALE SA",
+          "currency": "USD",
+          "value_kEUR_now": 55574.0,
+          "weight_now": 2.77,
+          "value_kEUR_prev": 34804.0,
+          "weight_prev": 1.74
+        },
+        {
+          "isin": "GB00B132NW22",
+          "name": "ASHMORE",
+          "currency": "GBP",
+          "value_kEUR_now": 39636.0,
+          "weight_now": 1.98,
+          "value_kEUR_prev": 31618.0,
+          "weight_prev": 1.58
+        },
+        {
+          "isin": "CH0048265513",
+          "name": "TRANSOCEAN LTD",
+          "currency": "USD",
+          "value_kEUR_now": 33918.0,
+          "weight_now": 1.69,
+          "value_kEUR_prev": 24851.0,
+          "weight_prev": 1.24
+        },
+        {
+          "isin": "US88642R1095",
+          "name": "TIDEWATER INC",
+          "currency": "USD",
+          "value_kEUR_now": 31598.0,
+          "weight_now": 1.58,
+          "value_kEUR_prev": 0.0,
+          "weight_prev": 0.0
+        },
+        {
+          "isin": "GB0001500809",
+          "name": "TULLOW OIL",
+          "currency": "GBP",
+          "value_kEUR_now": 29475.0,
+          "weight_now": 1.47,
+          "value_kEUR_prev": 41134.0,
+          "weight_prev": 2.06
+        },
+        {
+          "isin": "BMG9460G1015",
+          "name": "VALARIS LTD",
+          "currency": "USD",
+          "value_kEUR_now": 27733.0,
+          "weight_now": 1.38,
+          "value_kEUR_prev": 0.0,
+          "weight_prev": 0.0
+        },
+        {
+          "isin": "BMG1466R1732",
+          "name": "BORR DRILLING LTD",
+          "currency": "USD",
+          "value_kEUR_now": 25986.0,
+          "weight_now": 1.3,
+          "value_kEUR_prev": 43821.0,
+          "weight_prev": 2.19
+        },
+        {
+          "isin": "GB0001638955",
+          "name": "J D WETHERSPOON PLC",
+          "currency": "GBP",
+          "value_kEUR_now": 24847.0,
+          "weight_now": 1.24,
+          "value_kEUR_prev": 13845.0,
+          "weight_prev": 0.69
+        },
+        {
+          "isin": "ES0105229001",
+          "name": "PROSEGUR CASH SA",
+          "currency": "EUR",
+          "value_kEUR_now": 23371.0,
+          "weight_now": 1.17,
+          "value_kEUR_prev": 15794.0,
+          "weight_prev": 0.79
+        },
+        {
+          "isin": "BRSUZBACNOR0",
+          "name": "SUZANO PAPEL E CELULOSE SA",
+          "currency": "BRL",
+          "value_kEUR_now": 22007.0,
+          "weight_now": 1.1,
+          "value_kEUR_prev": 23618.0,
+          "weight_prev": 1.18
+        },
+        {
+          "isin": "CA6979001089",
+          "name": "PAN AMERICAN SILVER CORP",
+          "currency": "USD",
+          "value_kEUR_now": 20170.0,
+          "weight_now": 1.01,
+          "value_kEUR_prev": 19548.0,
+          "weight_prev": 0.98
+        },
+        {
+          "isin": "GB00B2QPKJ12",
+          "name": "FRESNILLO PLC",
+          "currency": "GBP",
+          "value_kEUR_now": 19590.0,
+          "weight_now": 0.98,
+          "value_kEUR_prev": 29676.0,
+          "weight_prev": 1.48
+        },
+        {
+          "isin": "BRELETACNOR6",
+          "name": "ELETROBRÁS",
+          "currency": "BRL",
+          "value_kEUR_now": 19107.0,
+          "weight_now": 0.95,
+          "value_kEUR_prev": 15119.0,
+          "weight_prev": 0.76
+        },
+        {
+          "isin": "GB00BCKFY513",
+          "name": "FOXTONS GROUP PL",
+          "currency": "GBP",
+          "value_kEUR_now": 15434.0,
+          "weight_now": 0.77,
+          "value_kEUR_prev": 13308.0,
+          "weight_prev": 0.67
+        },
+        {
+          "isin": "GB00BNTJ3546",
+          "name": "ALLFUNDS GROUP PLC",
+          "currency": "EUR",
+          "value_kEUR_now": 15061.0,
+          "weight_now": 0.75,
+          "value_kEUR_prev": 6339.0,
+          "weight_prev": 0.32
+        },
+        {
+          "isin": "GB0008025412",
+          "name": "SIG",
+          "currency": "GBP",
+          "value_kEUR_now": 14918.0,
+          "weight_now": 0.74,
+          "value_kEUR_prev": 15474.0,
+          "weight_prev": 0.77
+        },
+        {
+          "isin": "DE000BAY0017",
+          "name": "BAYER AG",
+          "currency": "EUR",
+          "value_kEUR_now": 13738.0,
+          "weight_now": 0.69,
+          "value_kEUR_prev": 16146.0,
+          "weight_prev": 0.81
+        },
+        {
+          "isin": "ES0164180012",
+          "name": "MIQUEL Y COSTAS",
+          "currency": "EUR",
+          "value_kEUR_now": 12583.0,
+          "weight_now": 0.63,
+          "value_kEUR_prev": 11175.0,
+          "weight_prev": 0.56
+        },
+        {
+          "isin": "GB0004544929",
+          "name": "IMPERIAL BRANDS FIN PLC",
+          "currency": "GBP",
+          "value_kEUR_now": 12521.0,
+          "weight_now": 0.62,
+          "value_kEUR_prev": 63579.0,
+          "weight_prev": 3.18
+        },
+        {
+          "isin": "NO0010345853",
+          "name": "AKER BP ASA",
+          "currency": "NOK",
+          "value_kEUR_now": 12468.0,
+          "weight_now": 0.62,
+          "value_kEUR_prev": 0.0,
+          "weight_prev": 0.0
+        },
+        {
+          "isin": "LU2598331598",
+          "name": "TENARIS SA",
+          "currency": "EUR",
+          "value_kEUR_now": 10346.0,
+          "weight_now": 0.52,
+          "value_kEUR_prev": 54310.0,
+          "weight_prev": 2.71
+        },
+        {
+          "isin": "BRB3SAACNOR6",
+          "name": "BM&FBOVESPA SA",
+          "currency": "BRL",
+          "value_kEUR_now": 9265.0,
+          "weight_now": 0.46,
+          "value_kEUR_prev": 0.0,
+          "weight_prev": 0.0
+        },
+        {
+          "isin": "NL0000379121",
+          "name": "RANDSTAD",
+          "currency": "EUR",
+          "value_kEUR_now": 8143.0,
+          "weight_now": 0.41,
+          "value_kEUR_prev": 4.0,
+          "weight_prev": 0.0
+        },
+        {
+          "isin": "US86959K1051",
+          "name": "SUZANO PAPEL E CELULOSE SA",
+          "currency": "USD",
+          "value_kEUR_now": 7951.0,
+          "weight_now": 0.4,
+          "value_kEUR_prev": 5549.0,
+          "weight_prev": 0.28
+        },
+        {
+          "isin": "CA2943752097",
+          "name": "EPSILON ENERGY",
+          "currency": "USD",
+          "value_kEUR_now": 7916.0,
+          "weight_now": 0.39,
+          "value_kEUR_prev": 7089.0,
+          "weight_prev": 0.35
+        },
+        {
+          "isin": "GB00BTK05J60",
+          "name": "ANGLO AMERICAN PLC",
+          "currency": "GBP",
+          "value_kEUR_now": 7060.0,
+          "weight_now": 0.35,
+          "value_kEUR_prev": 0.0,
+          "weight_prev": 0.0
+        },
+        {
+          "isin": "ES0176252718",
+          "name": "MELIA HOTELS INTERNATIONAL SA",
+          "currency": "EUR",
+          "value_kEUR_now": 6298.0,
+          "weight_now": 0.31,
+          "value_kEUR_prev": 1.0,
+          "weight_prev": 0.0
+        },
+        {
+          "isin": "GB0002875804",
+          "name": "BRITISH AMERICAN TOBACCO PLC",
+          "currency": "GBP",
+          "value_kEUR_now": 5883.0,
+          "weight_now": 0.29,
+          "value_kEUR_prev": 50499.0,
+          "weight_prev": 2.52
+        },
+        {
+          "isin": "ES0171996095",
+          "name": "GRIFOLS SA",
+          "currency": "EUR",
+          "value_kEUR_now": 5059.0,
+          "weight_now": 0.25,
+          "value_kEUR_prev": 4662.0,
+          "weight_prev": 0.23
+        },
+        {
+          "isin": "PTSNC0AM0006",
+          "name": "SONAE CAPITAL",
+          "currency": "EUR",
+          "value_kEUR_now": 4826.0,
+          "weight_now": 0.24,
+          "value_kEUR_prev": 4398.0,
+          "weight_prev": 0.22
+        },
+        {
+          "isin": "DE0005190037",
+          "name": "BAYERISCHE MOTOREN WERKE AG",
+          "currency": "EUR",
+          "value_kEUR_now": 4493.0,
+          "weight_now": 0.22,
+          "value_kEUR_prev": 3403.0,
+          "weight_prev": 0.17
+        },
+        {
+          "isin": "PLEURCH00011",
+          "name": "EUROCASH SA",
+          "currency": "PLN",
+          "value_kEUR_now": 4281.0,
+          "weight_now": 0.21,
+          "value_kEUR_prev": 3515.0,
+          "weight_prev": 0.18
+        },
+        {
+          "isin": "DE0005190003",
+          "name": "BAYERISCHE MOTOREN WERKE AG",
+          "currency": "EUR",
+          "value_kEUR_now": 4060.0,
+          "weight_now": 0.2,
+          "value_kEUR_prev": 0.0,
+          "weight_prev": 0.0
+        },
+        {
+          "isin": "CA00900Q1037",
+          "name": "AIMIA INC",
+          "currency": "CAD",
+          "value_kEUR_now": 3626.0,
+          "weight_now": 0.18,
+          "value_kEUR_prev": 3392.0,
+          "weight_prev": 0.17
+        },
+        {
+          "isin": "ES0171996087",
+          "name": "GRIFOLS SA",
+          "currency": "EUR",
+          "value_kEUR_now": 3104.0,
+          "weight_now": 0.15,
+          "value_kEUR_prev": 0.0,
+          "weight_prev": 0.0
+        },
+        {
+          "isin": "US5006881065",
+          "name": "KOSMOS ENERGY LT",
+          "currency": "USD",
+          "value_kEUR_now": 3050.0,
+          "weight_now": 0.15,
+          "value_kEUR_prev": 0.0,
+          "weight_prev": 0.0
+        },
+        {
+          "isin": "ES0175438003",
+          "name": "PROSEGUR COMPAÑIA DE SEGURIDAD",
+          "currency": "EUR",
+          "value_kEUR_now": 2409.0,
+          "weight_now": 0.12,
+          "value_kEUR_prev": 2088.0,
+          "weight_prev": 0.1
+        },
+        {
+          "isin": "FR0013506730",
+          "name": "VALLOUREC SA",
+          "currency": "EUR",
+          "value_kEUR_now": 2440.0,
+          "weight_now": 0.12,
+          "value_kEUR_prev": 34004.0,
+          "weight_prev": 1.7
+        },
+        {
+          "isin": "GB00B0H2K534",
+          "name": "PETROFAC LTD",
+          "currency": "GBP",
+          "value_kEUR_now": 2181.0,
+          "weight_now": 0.11,
+          "value_kEUR_prev": 5602.0,
+          "weight_prev": 0.28
+        },
+        {
+          "isin": "US3984384087",
+          "name": "GRIFOLS SA",
+          "currency": "USD",
+          "value_kEUR_now": 2011.0,
+          "weight_now": 0.1,
+          "value_kEUR_prev": 0.0,
+          "weight_prev": 0.0
+        },
+        {
+          "isin": "GB0002374006",
+          "name": "DIAGEO PLC",
+          "currency": "GBP",
+          "value_kEUR_now": 1287.0,
+          "weight_now": 0.06,
+          "value_kEUR_prev": 0.0,
+          "weight_prev": 0.0
+        },
+        {
+          "isin": "NO0010564701",
+          "name": "PANORO ENERGY ASA",
+          "currency": "NOK",
+          "value_kEUR_now": 889.0,
+          "weight_now": 0.04,
+          "value_kEUR_prev": 0.0,
+          "weight_prev": 0.0
+        },
+        {
+          "isin": "ES0116920333",
+          "name": "CATALANA OCCIDENTE",
+          "currency": "EUR",
+          "value_kEUR_now": 390.0,
+          "weight_now": 0.02,
+          "value_kEUR_prev": 40128.0,
+          "weight_prev": 2.01
+        },
+        {
+          "isin": "ES0139140174",
+          "name": "INMOBILIARIA COLONIAL SA",
+          "currency": "EUR",
+          "value_kEUR_now": 240.0,
+          "weight_now": 0.01,
+          "value_kEUR_prev": 155.0,
+          "weight_prev": 0.01
+        },
+        {
+          "isin": "DE0007100000",
+          "name": "MERCEDES-BENZ GROUP AG",
+          "currency": "EUR",
+          "value_kEUR_now": 248.0,
+          "weight_now": 0.01,
+          "value_kEUR_prev": 0.0,
+          "weight_prev": 0.0
+        }
+      ],
+      "count": 52
+    }
+  }
+}

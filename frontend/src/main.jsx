@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 import AuthGate from './AuthGate.jsx'
+// bundle-bust 2026-04-08 Smart Money ES v2 — force new hash to break stale CF cache
+console.debug('A&R bundle', 'smart-money-es-v2');
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

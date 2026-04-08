@@ -4,6 +4,8 @@
 // Endpoints REST para la app financiera
 // ═══════════════════════════════════════════════════════════════
 
+import { SPANISH_FUNDS_1S2025 } from './data/spanish_funds.js';
+
 // Mapping from our tickers to FMP symbols (foreign tickers need exchange suffix)
 // CRITICAL: bare "ENG" on FMP = ENGlobal Corp (wrong!), "RAND" = Rand Capital (wrong!)
 const FMP_MAP = {
@@ -685,8 +687,8 @@ async function ensureMigrations(env) {
     }
 
     // ─── Smart Money MVP (2026-04-08) ───
-    // Curated 13F superinvestors. Manual seed below populates the catalog;
-    // /api/funds/refresh fetches their latest 13F holdings from FMP.
+    // Curated superinvestors. US funds use CIK + FMP 13F endpoint;
+    // Spanish funds use ISIN + seed from CNMV-filed PDFs (1S2025).
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS superinvestors (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -699,6 +701,9 @@ async function ensureMigrations(env) {
       last_quarter TEXT,
       last_refreshed_at TEXT
     )`).run();
+    // Idempotent ALTERs for Spanish fund support
+    try { await env.DB.prepare(`ALTER TABLE superinvestors ADD COLUMN source TEXT DEFAULT 'us-13f'`).run(); } catch(e) {}
+    try { await env.DB.prepare(`ALTER TABLE superinvestors ADD COLUMN isin TEXT`).run(); } catch(e) {}
 
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS fund_holdings (
       fund_id TEXT NOT NULL,
@@ -715,30 +720,40 @@ async function ensureMigrations(env) {
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_fh_ticker ON fund_holdings(ticker)`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_fh_quarter ON fund_holdings(quarter)`).run();
 
-    // Seed the 13 curated superinvestors (idempotent — INSERT OR IGNORE).
-    // CIKs sourced from docs/fondos-tab-design.md. The /refresh endpoint
-    // validates them against the actual FMP filings on first call.
+    // Seed the curated superinvestors (idempotent — INSERT OR IGNORE).
+    // CIKs sourced from docs/fondos-tab-design.md.
     const SUPERINVESTORS_SEED = [
-      ['berkshire',   'Berkshire Hathaway',           'Warren Buffett',          '0001067983', 'quality-value-mega', 5],
-      ['pabrai',      'Pabrai Investment Funds',      'Mohnish Pabrai',          '0001549575', 'concentrated-value', 5],
-      ['akre',        'Akre Capital Management',      'Akre / Saler / Yacktman', '0001112520', 'quality-compounders', 5],
-      ['polen',       'Polen Capital',                'Polen team',              '0001034524', 'quality-growth', 4],
-      ['markel',      'Markel Group',                 'Tom Gayner',              '0001096343', 'buffett-style', 5],
-      ['yacktman',    'Yacktman Asset Management',    'Stephen Yacktman',        '0000905567', 'quality-dividend', 4],
-      ['wedgewood',   'Wedgewood Partners',           'David Rolfe',             '0001585391', 'concentrated-quality', 4],
-      ['sequoia',     'Ruane Cunniff (Sequoia)',      'Sequoia team',            '0000350894', 'long-term-quality', 4],
-      ['russo',       'Gardner Russo & Quinn',        'Tom Russo',               '0001067921', 'dividend-consumer-brands', 5],
-      ['baupost',     'Baupost Group',                'Seth Klarman',            '0001061768', 'deep-value', 5],
-      ['pershing',    'Pershing Square Capital',      'Bill Ackman',             '0001336528', 'concentrated-activist', 4],
-      ['appaloosa',   'Appaloosa Management',         'David Tepper',            '0001656456', 'macro-value', 4],
-      ['giverny',     'Giverny Capital',              'François Rochon',         '0001595888', 'quality-compounding-intl', 5],
+      // id, name, manager, cik, style, conviction, source, isin
+      ['berkshire',   'Berkshire Hathaway',           'Warren Buffett',          '0001067983', 'quality-value-mega', 5, 'us-13f', null],
+      ['pabrai',      'Pabrai Investment Funds',      'Mohnish Pabrai',          '0001549575', 'concentrated-value', 5, 'us-13f', null],
+      ['akre',        'Akre Capital Management',      'Akre / Saler / Yacktman', '0001112520', 'quality-compounders', 5, 'us-13f', null],
+      ['polen',       'Polen Capital',                'Polen team',              '0001034524', 'quality-growth', 4, 'us-13f', null],
+      ['markel',      'Markel Group',                 'Tom Gayner',              '0001096343', 'buffett-style', 5, 'us-13f', null],
+      ['yacktman',    'Yacktman Asset Management',    'Stephen Yacktman',        '0000905567', 'quality-dividend', 4, 'us-13f', null],
+      ['wedgewood',   'Wedgewood Partners',           'David Rolfe',             '0001585391', 'concentrated-quality', 4, 'us-13f', null],
+      ['sequoia',     'Ruane Cunniff (Sequoia)',      'Sequoia team',            '0000350894', 'long-term-quality', 4, 'us-13f', null],
+      ['russo',       'Gardner Russo & Quinn',        'Tom Russo',               '0001067921', 'dividend-consumer-brands', 5, 'us-13f', null],
+      ['baupost',     'Baupost Group',                'Seth Klarman',            '0001061768', 'deep-value', 5, 'us-13f', null],
+      ['pershing',    'Pershing Square Capital',      'Bill Ackman',             '0001336528', 'concentrated-activist', 4, 'us-13f', null],
+      ['appaloosa',   'Appaloosa Management',         'David Tepper',            '0001656456', 'macro-value', 4, 'us-13f', null],
+      ['giverny',     'Giverny Capital',              'François Rochon',         '0001595888', 'quality-compounding-intl', 5, 'us-13f', null],
+      // ─── Spanish value funds (source: CNMV semestral PDFs) ───
+      ['cobas-int',   'Cobas Internacional FI',       'Francisco García Paramés',null, 'deep-value-contrarian-es', 5, 'es-cnmv', 'ES0119199000'],
+      ['magallanes',  'Magallanes European Equity FI','Iván Martín',             null, 'quality-value-europe', 5, 'es-cnmv', 'ES0159259031'],
+      ['azvalor-int', 'Azvalor Internacional FI',     'Álvaro Guzmán + Fernando Bernad', null, 'value-commodities-es', 5, 'es-cnmv', 'ES0112611001'],
     ];
-    for (const [id, name, manager, cik, style, conv] of SUPERINVESTORS_SEED) {
+    for (const [id, name, manager, cik, style, conv, source, isin] of SUPERINVESTORS_SEED) {
       try {
         await env.DB.prepare(
-          `INSERT OR IGNORE INTO superinvestors (id, name, manager, cik, style, conviction, followed) VALUES (?, ?, ?, ?, ?, ?, 1)`
-        ).bind(id, name, manager, cik, style, conv).run();
+          `INSERT OR IGNORE INTO superinvestors (id, name, manager, cik, style, conviction, followed, source, isin) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`
+        ).bind(id, name, manager, cik, style, conv, source, isin).run();
       } catch(e) { /* already seeded */ }
+      // Backfill source/isin for existing rows (first deploy after ALTER)
+      try {
+        await env.DB.prepare(
+          `UPDATE superinvestors SET source = COALESCE(source, ?), isin = COALESCE(isin, ?) WHERE id = ?`
+        ).bind(source, isin, id).run();
+      } catch(e) {}
     }
 
     _migrated = true;
@@ -1447,22 +1462,106 @@ export default {
       // Frontend tab: SmartMoneyTab.jsx (Research group).
 
       // GET /api/funds/list — all followed superinvestors with summary stats
+      // Optional ?source=us-13f|es-cnmv to filter by source
       if (path === "/api/funds/list" && request.method === "GET") {
-        const { results: funds } = await env.DB.prepare(
-          `SELECT s.id, s.name, s.manager, s.cik, s.style, s.conviction, s.followed,
+        const sourceFilter = url.searchParams.get('source');
+        const whereClause = sourceFilter ? `WHERE s.followed = 1 AND s.source = ?` : `WHERE s.followed = 1`;
+        const stmt = env.DB.prepare(
+          `SELECT s.id, s.name, s.manager, s.cik, s.isin, s.source, s.style, s.conviction, s.followed,
                   s.last_quarter, s.last_refreshed_at,
                   (SELECT COUNT(*) FROM fund_holdings fh WHERE fh.fund_id = s.id AND fh.quarter = s.last_quarter) AS holdings_count,
                   (SELECT SUM(value_usd) FROM fund_holdings fh WHERE fh.fund_id = s.id AND fh.quarter = s.last_quarter) AS portfolio_value
            FROM superinvestors s
-           WHERE s.followed = 1
+           ${whereClause}
            ORDER BY s.conviction DESC, s.name ASC`
-        ).all();
+        );
+        const { results: funds } = await (sourceFilter ? stmt.bind(sourceFilter).all() : stmt.all());
         return json({ funds: funds || [] }, corsHeaders);
+      }
+
+      // POST /api/funds/seed-spanish — seeds fund_holdings from the bundled
+      // SPANISH_FUNDS_1S2025 constant (parsed from Cobas/Magallanes/azValor
+      // CNMV-filed semestral PDFs). Idempotent. Inserts BOTH quarters
+      // (2025-Q2 current and 2024-Q4 prior) so we can show "NEW this
+      // quarter" badges in the UI.
+      if (path === "/api/funds/seed-spanish" && request.method === "POST") {
+        const data = SPANISH_FUNDS_1S2025;
+        const qCur = data.quarter_current;
+        const qPrev = data.quarter_prior;
+        const summary = [];
+        for (const [fundId, fund] of Object.entries(data.funds)) {
+          const stmts = [];
+          stmts.push(env.DB.prepare(`DELETE FROM fund_holdings WHERE fund_id = ? AND quarter IN (?, ?)`).bind(fundId, qCur, qPrev));
+          const insertStmt = env.DB.prepare(
+            `INSERT OR REPLACE INTO fund_holdings (fund_id, quarter, ticker, cusip, name, shares, value_usd, weight_pct, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+          );
+          let insertedCur = 0, insertedPrev = 0;
+          for (const h of fund.holdings) {
+            // Spanish funds don't have standardized tickers. Store ISIN in ticker field
+            // (prefixed with 'ES:' to avoid colliding with US tickers), name fully.
+            const tickerKey = h.isin ? `ES:${h.isin}` : `ES:${(h.name || '').slice(0, 20).replace(/\s+/g, '_')}`;
+            if (h.w_now > 0) {
+              stmts.push(insertStmt.bind(
+                fundId, qCur, tickerKey, h.isin || '', h.name || '',
+                0, Math.round((h.v_now || 0) * 1000), h.w_now || 0
+              ));
+              insertedCur++;
+            }
+            if (h.w_prev > 0) {
+              stmts.push(insertStmt.bind(
+                fundId, qPrev, tickerKey, h.isin || '', h.name || '',
+                0, Math.round((h.v_prev || 0) * 1000), h.w_prev || 0
+              ));
+              insertedPrev++;
+            }
+          }
+          stmts.push(env.DB.prepare(
+            `UPDATE superinvestors SET last_quarter = ?, last_refreshed_at = datetime('now') WHERE id = ?`
+          ).bind(qCur, fundId));
+          await env.DB.batch(stmts);
+          summary.push({ fund: fundId, qCur, qPrev, insertedCur, insertedPrev });
+        }
+        return json({ seeded: summary.length, summary }, corsHeaders);
+      }
+
+      // GET /api/funds/:id/diff?q1=...&q2=... — diff between two quarters
+      // for a single fund. Returns per-ticker: was in q1, is in q2, new/removed/changed.
+      const fundDiffMatch = path.match(/^\/api\/funds\/([a-z0-9_-]+)\/diff$/);
+      if (fundDiffMatch && request.method === "GET") {
+        const fundId = fundDiffMatch[1];
+        const q1 = url.searchParams.get('q1'); // prior quarter
+        const q2 = url.searchParams.get('q2'); // current quarter
+        if (!q1 || !q2) return json({ error: "q1 and q2 required" }, corsHeaders, 400);
+        // D1/SQLite doesn't support FULL OUTER JOIN — union two queries in JS
+        const a = (await env.DB.prepare(`SELECT ticker, name, weight_pct AS w, value_usd AS v FROM fund_holdings WHERE fund_id = ? AND quarter = ?`).bind(fundId, q1).all()).results || [];
+        const b = (await env.DB.prepare(`SELECT ticker, name, weight_pct AS w, value_usd AS v FROM fund_holdings WHERE fund_id = ? AND quarter = ?`).bind(fundId, q2).all()).results || [];
+        const map = {};
+        a.forEach(r => { map[r.ticker] = { ticker: r.ticker, name: r.name, w_prev: r.w || 0, v_prev: r.v || 0, w_now: 0, v_now: 0 }; });
+        b.forEach(r => {
+          if (!map[r.ticker]) map[r.ticker] = { ticker: r.ticker, name: r.name, w_prev: 0, v_prev: 0, w_now: 0, v_now: 0 };
+          map[r.ticker].w_now = r.w || 0;
+          map[r.ticker].v_now = r.v || 0;
+          if (r.name) map[r.ticker].name = r.name;
+        });
+        const diff = Object.values(map)
+          .map(r => {
+            let status;
+            if (r.w_prev === 0 && r.w_now > 0) status = 'NEW';
+            else if (r.w_now === 0 && r.w_prev > 0) status = 'SOLD';
+            else if (r.w_now > r.w_prev * 1.5) status = 'ADDED';
+            else if (r.w_now < r.w_prev * 0.5) status = 'REDUCED';
+            else status = 'HELD';
+            return { ...r, delta_pct: r.w_now - r.w_prev, status };
+          })
+          .sort((x, y) => (y.w_now || 0) - (x.w_now || 0));
+        return json({ fundId, q1, q2, diff }, corsHeaders);
       }
 
       // GET /api/funds/:id — fund detail with current quarter top holdings
       const fundDetailMatch = path.match(/^\/api\/funds\/([a-z0-9_-]+)$/);
-      if (fundDetailMatch && request.method === "GET" && fundDetailMatch[1] !== 'list' && fundDetailMatch[1] !== 'consensus' && fundDetailMatch[1] !== 'refresh' && fundDetailMatch[1] !== 'by-ticker') {
+      const RESERVED_FUND_PATHS = new Set(['list', 'consensus', 'refresh', 'by-ticker', 'seed-spanish']);
+      if (fundDetailMatch && request.method === "GET" && !RESERVED_FUND_PATHS.has(fundDetailMatch[1])) {
         const fundId = fundDetailMatch[1];
         const fund = await env.DB.prepare(`SELECT * FROM superinvestors WHERE id = ?`).bind(fundId).first();
         if (!fund) return json({ error: "Fund not found" }, corsHeaders, 404);

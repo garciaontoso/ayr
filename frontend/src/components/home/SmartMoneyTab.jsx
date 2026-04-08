@@ -20,10 +20,26 @@ import { API_URL } from '../../constants/index.js';
 import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
 
 const SUB_VIEWS = [
-  { id: 'funds', lbl: '🏛️ Superinvestors', desc: '13 fondos seguidos' },
+  { id: 'funds', lbl: '🏛️ US Superinvestors', desc: '13F filers' },
+  { id: 'spanish', lbl: '🇪🇸 Fondos España', desc: 'Cobas / Magallanes / azValor' },
   { id: 'mine',  lbl: '🎯 Mi cartera',     desc: 'Quién tiene tus tickers' },
   { id: 'consensus', lbl: '⭐ Consensus',  desc: 'Tickers en ≥3 fondos' },
 ];
+
+const ES_STATUS_COLOR = {
+  NEW: 'var(--green)',
+  ADDED: '#64d2ff',
+  HELD: 'var(--text-tertiary)',
+  REDUCED: 'var(--gold)',
+  SOLD: 'var(--red)',
+};
+const ES_STATUS_LBL = {
+  NEW: '🆕 Nueva',
+  ADDED: '➕ Aumentada',
+  HELD: '○ Mantenida',
+  REDUCED: '➖ Reducida',
+  SOLD: '❌ Vendida',
+};
 
 const STYLE_LABEL = {
   'quality-value-mega': 'Quality value mega',
@@ -69,12 +85,18 @@ export default function SmartMoneyTab() {
   const [consensus, setConsensus] = useState([]);
   const [holdersByTicker, setHoldersByTicker] = useState({});
   const [byTickerLoading, setByTickerLoading] = useState(false);
+  // ── Spanish funds state ──
+  const [spanishFunds, setSpanishFunds] = useState([]);
+  const [selectedSpanish, setSelectedSpanish] = useState(null); // fund id
+  const [spanishDiff, setSpanishDiff] = useState(null);         // { diff: [...], q1, q2 }
+  const [spanishFilter, setSpanishFilter] = useState('ALL');    // ALL|NEW|ADDED|HELD|REDUCED|SOLD
+  const [spanishLoading, setSpanishLoading] = useState(false);
 
-  // ── Load funds list ──
+  // ── Load funds list (US only) ──
   const loadFunds = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch(`${API_URL}/api/funds/list`);
+      const r = await fetch(`${API_URL}/api/funds/list?source=us-13f`);
       const d = await r.json();
       setFunds(d.funds || []);
     } catch { setFunds([]); }
@@ -82,6 +104,42 @@ export default function SmartMoneyTab() {
   }, []);
 
   useEffect(() => { loadFunds(); }, [loadFunds]);
+
+  // ── Load Spanish funds list ──
+  const loadSpanishFunds = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_URL}/api/funds/list?source=es-cnmv`);
+      const d = await r.json();
+      setSpanishFunds(d.funds || []);
+      // Auto-select first fund on load
+      if (!selectedSpanish && d.funds?.length) {
+        setSelectedSpanish(d.funds[0].id);
+      }
+    } catch { setSpanishFunds([]); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (view === 'spanish') loadSpanishFunds();
+  }, [view, loadSpanishFunds]);
+
+  // ── Load Spanish fund diff (current vs prior quarter) ──
+  const loadSpanishDiff = useCallback(async (fundId) => {
+    if (!fundId) return;
+    setSpanishLoading(true);
+    setSpanishDiff(null);
+    try {
+      // Hardcoded quarters matching the seed. In future, read from fund.last_quarter.
+      const r = await fetch(`${API_URL}/api/funds/${fundId}/diff?q1=2024-Q4&q2=2025-Q2`);
+      const d = await r.json();
+      setSpanishDiff(d);
+    } catch { setSpanishDiff({ diff: [] }); }
+    setSpanishLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (view === 'spanish' && selectedSpanish) loadSpanishDiff(selectedSpanish);
+  }, [view, selectedSpanish, loadSpanishDiff]);
 
   // ── Refresh button ──
   const doRefresh = useCallback(async () => {
@@ -301,6 +359,118 @@ export default function SmartMoneyTab() {
                   )}
                 </div>
               ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ─── View: 🇪🇸 Fondos España ─── */}
+      {view === 'spanish' && (
+        <>
+          {/* Fund pills */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+            {spanishFunds.map(f => (
+              <button
+                key={f.id}
+                onClick={() => setSelectedSpanish(f.id)}
+                style={{
+                  ...pill(selectedSpanish === f.id),
+                  padding: '10px 14px',
+                  display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+                  minWidth: 180,
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 700 }}>🇪🇸 {f.name.replace(' FI', '')}</div>
+                <div style={{ fontSize: 9, opacity: .7, marginTop: 2 }}>{f.manager}</div>
+                <div style={{ fontSize: 9, opacity: .7, marginTop: 2, fontFamily: 'var(--fm)' }}>
+                  {f.holdings_count || 0} posiciones · {f.last_quarter || '—'}
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* Status filter + diff summary */}
+          {spanishDiff && (
+            <div style={{ ...card, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>
+                Cambios {spanishDiff.q1} → {spanishDiff.q2}
+              </span>
+              {['ALL', 'NEW', 'ADDED', 'HELD', 'REDUCED', 'SOLD'].map(s => {
+                const n = s === 'ALL' ? spanishDiff.diff?.length : (spanishDiff.diff || []).filter(h => h.status === s).length;
+                return (
+                  <button
+                    key={s}
+                    onClick={() => setSpanishFilter(s)}
+                    style={{
+                      ...pill(spanishFilter === s),
+                      color: spanishFilter === s ? (ES_STATUS_COLOR[s] || 'var(--gold)') : 'var(--text-tertiary)',
+                      borderColor: spanishFilter === s ? (ES_STATUS_COLOR[s] || 'var(--gold)') : 'var(--border)',
+                    }}
+                  >
+                    {s === 'ALL' ? 'Todas' : ES_STATUS_LBL[s]} ({n})
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Holdings table */}
+          {spanishLoading ? <InlineLoading label="Cargando cartera..." /> : !spanishDiff || !spanishDiff.diff?.length ? (
+            <EmptyState
+              icon="🇪🇸"
+              title="Sin datos del fondo"
+              description="Seleccciona un fondo o prueba con otro trimestre."
+            />
+          ) : (
+            <div style={card}>
+              <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Datos extraídos de los informes semestrales CNMV (Cobas, Magallanes, azValor).
+                La comparación es entre el cierre de 2025-06-30 y 2024-12-31.
+                Los holdings marcados <span style={{ color: 'var(--green)' }}>🆕 Nueva</span> fueron incorporados durante el primer semestre 2025.
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={th}>Posición</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Peso actual</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Peso prev</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Δ</th>
+                    <th style={{ ...th, textAlign: 'center' }}>Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(spanishDiff.diff || [])
+                    .filter(h => spanishFilter === 'ALL' || h.status === spanishFilter)
+                    .slice(0, 100)
+                    .map((h) => (
+                      <tr key={h.ticker}>
+                        <td style={td}>
+                          <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{h.name || '—'}</div>
+                          <div style={{ fontSize: 9, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>
+                            {h.ticker?.startsWith('ES:') ? h.ticker.slice(3) : h.ticker}
+                          </div>
+                        </td>
+                        <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', fontWeight: 600, color: h.w_now >= 4 ? 'var(--gold)' : 'var(--text-secondary)' }}>
+                          {h.w_now > 0 ? `${h.w_now.toFixed(2)}%` : '—'}
+                        </td>
+                        <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', color: 'var(--text-tertiary)' }}>
+                          {h.w_prev > 0 ? `${h.w_prev.toFixed(2)}%` : '—'}
+                        </td>
+                        <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', fontWeight: 600, color: h.delta_pct > 0 ? 'var(--green)' : h.delta_pct < 0 ? 'var(--red)' : 'var(--text-tertiary)' }}>
+                          {h.delta_pct > 0 ? '+' : ''}{h.delta_pct?.toFixed(2)}%
+                        </td>
+                        <td style={{ ...td, textAlign: 'center' }}>
+                          <span style={{
+                            fontSize: 10, fontWeight: 700,
+                            color: ES_STATUS_COLOR[h.status] || 'var(--text-tertiary)',
+                          }}>
+                            {ES_STATUS_LBL[h.status] || h.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
             </div>
           )}
         </>
