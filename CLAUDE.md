@@ -69,6 +69,7 @@
 ### Cron Jobs (Mac)
 - `sync-flex.sh` — runs daily at 8:30am Mon-Fri, syncs IB Flex trades+dividends to D1
 - IB auto-sync — 1x/day on app load via sessionStorage flag
+- `scripts/sync-funds.sh` — Smart Money 13F refresh + push notify. Calls `POST /api/funds/refresh` then `POST /api/funds/alerts/notify`. Logs to `~/Library/Logs/ayr-sync-funds.log`. Schedule: 09:00 local on days 1, 15, 16, 17, 20 of every month (15-17 = 13F filing window 45d after quarter end; day 20 = Spanish semestrales Cobas/Magallanes/azValor; day 1 = monthly safety pass). Install: `crontab -e` and paste from `scripts/sync-funds.crontab.example`.
 
 ## Architecture
 ```

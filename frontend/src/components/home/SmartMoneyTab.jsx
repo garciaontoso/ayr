@@ -26,6 +26,7 @@ const SUB_VIEWS = [
   { id: 'spanish', lbl: '🇪🇸 Fondos España', desc: 'Cobas / Magallanes / azValor' },
   { id: 'mine',  lbl: '🎯 Mi cartera',     desc: 'Quién tiene tus tickers' },
   { id: 'consensus', lbl: '⭐ Consensus',  desc: 'Tickers en ≥3 fondos' },
+  { id: 'performance', lbl: '📊 Performance', desc: 'Hit rate por fondo' },
 ];
 
 const ALERT_STATUS_COLOR = {
@@ -130,6 +131,10 @@ export default function SmartMoneyTab() {
   const [statusFilter, setStatusFilter] = useState('ALL');     // ALL|NEW|ADDED|REDUCED|SOLD
   const [showRead, setShowRead] = useState(false);             // toggle "Mostrar leídas"
   const [pendingAction, setPendingAction] = useState(null);    // id of row being processed (UI lock)
+  // ── Performance state ──
+  const [perfData, setPerfData] = useState(null);
+  const [perfLoading, setPerfLoading] = useState(false);
+  const [scoreProgress, setScoreProgress] = useState(null); // { processed, remaining }
 
   // ── Load funds list (US only) ──
   const loadFunds = useCallback(async () => {
@@ -324,6 +329,40 @@ export default function SmartMoneyTab() {
     setTimeout(() => setRefreshMsg(''), 10000);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadFunds, view, selectedFund, loadAlerts]);
+
+  // ── Load performance (accuracy stats) ──
+  const loadPerformance = useCallback(async () => {
+    setPerfLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/funds/alerts/performance`);
+      const d = await r.json();
+      setPerfData(d);
+    } catch { setPerfData({ funds: [], global: {} }); }
+    setPerfLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (view === 'performance' && !perfData) loadPerformance();
+  }, [view, perfData, loadPerformance]);
+
+  // ── Score all pending alerts (iterative, respects Worker subrequest cap) ──
+  const scoreAlerts = useCallback(async () => {
+    setScoreProgress({ processed: 0, remaining: '...' });
+    let totalProcessed = 0;
+    // Iterate until done or max 6 batches (90 tickers)
+    for (let i = 0; i < 6; i++) {
+      try {
+        const r = await fetch(`${API_URL}/api/funds/alerts/score?limit=15`, { method: 'POST' });
+        const d = await r.json();
+        totalProcessed += d.processed || 0;
+        setScoreProgress({ processed: totalProcessed, remaining: d.remaining });
+        if (d.done || (d.processed || 0) === 0) break;
+      } catch { break; }
+    }
+    // Reload performance after scoring
+    await loadPerformance();
+    setTimeout(() => setScoreProgress(null), 4000);
+  }, [loadPerformance]);
 
   // ── Test push notification button ──
   const testPushNotify = useCallback(async () => {
@@ -751,6 +790,122 @@ export default function SmartMoneyTab() {
                 </div>
               ))}
             </div>
+          )}
+        </>
+      )}
+
+      {/* ─── View: 📊 Performance ─── */}
+      {view === 'performance' && (
+        <>
+          <div style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>Accuracy tracking</div>
+              <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                Mide cuánto sube/baja el ticker a 7/30/90 días después de cada alerta.
+                Hit = el fondo acertó (subió tras NEW/ADDED, bajó tras SOLD/REDUCED, ≥2% en cualquiera).
+              </div>
+            </div>
+            <button
+              onClick={scoreAlerts}
+              disabled={scoreProgress !== null}
+              style={{
+                padding: '8px 14px', borderRadius: 8,
+                border: '1px solid var(--gold)', background: 'rgba(200,164,78,.1)',
+                color: 'var(--gold)', fontSize: 11, fontWeight: 700,
+                cursor: scoreProgress ? 'wait' : 'pointer', fontFamily: 'var(--fm)',
+              }}
+            >
+              {scoreProgress
+                ? `⏳ Procesando… ${scoreProgress.processed}`
+                : '🔄 Calcular scores'}
+            </button>
+          </div>
+          {scoreProgress && (
+            <div style={{ ...card, background: 'rgba(100,210,255,.06)', borderColor: 'rgba(100,210,255,.3)', fontSize: 11, color: 'var(--text-secondary)' }}>
+              Procesados: {scoreProgress.processed} · Restantes: {scoreProgress.remaining}
+            </div>
+          )}
+
+          {perfLoading ? <InlineLoading label="Cargando performance..." /> : !perfData || !perfData.funds?.length ? (
+            <EmptyState
+              icon="📊"
+              title="Sin datos de accuracy todavía"
+              description="Las alertas necesitan al menos 7 días de historia para calcular returns. Pulsa 'Calcular scores' para procesar las antiguas, o espera a que pasen unos días tras el próximo refresh de 13F."
+            />
+          ) : (
+            <>
+              {perfData.global?.total_scored > 0 && (
+                <div style={{ ...card, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Total scored</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--gold)', fontFamily: 'var(--fd)' }}>
+                      {perfData.global.total_scored}/{perfData.global.total_alerts}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Avg return 30d</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: (perfData.global.avg_return_30d || 0) > 0 ? 'var(--green)' : 'var(--red)', fontFamily: 'var(--fd)' }}>
+                      {perfData.global.avg_return_30d != null ? `${(perfData.global.avg_return_30d * 100).toFixed(2)}%` : '—'}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Hit rate 30d</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: (perfData.global.hit_rate_30d || 0) > 0.5 ? 'var(--green)' : 'var(--gold)', fontFamily: 'var(--fd)' }}>
+                      {perfData.global.hit_rate_30d != null ? `${(perfData.global.hit_rate_30d * 100).toFixed(0)}%` : '—'}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Cobertura</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-secondary)', fontFamily: 'var(--fd)' }}>
+                      {perfData.global.total_alerts > 0 ? `${Math.round((perfData.global.total_scored / perfData.global.total_alerts) * 100)}%` : '—'}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div style={card}>
+                <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 8 }}>
+                  Ordenado por hit rate 30d descendente. Fondos sin scored aparecen al final.
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      <th style={th}>Fondo · Gestor</th>
+                      <th style={{ ...th, textAlign: 'center' }}>Scored</th>
+                      <th style={{ ...th, textAlign: 'right' }}>Hit 7d</th>
+                      <th style={{ ...th, textAlign: 'right' }}>Hit 30d</th>
+                      <th style={{ ...th, textAlign: 'right' }}>Hit 90d</th>
+                      <th style={{ ...th, textAlign: 'right' }}>Avg ret 7d</th>
+                      <th style={{ ...th, textAlign: 'right' }}>Avg ret 30d</th>
+                      <th style={{ ...th, textAlign: 'right' }}>Avg ret 90d</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {perfData.funds.map(f => {
+                      const fmtPct = (v) => v == null ? '—' : `${(v * 100).toFixed(1)}%`;
+                      const fmtRet = (v) => v == null ? '—' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)}%`;
+                      const hitColor = (v) => v == null ? 'var(--text-tertiary)' : v >= 0.7 ? 'var(--gold)' : v >= 0.5 ? 'var(--green)' : 'var(--red)';
+                      const retColor = (v) => v == null ? 'var(--text-tertiary)' : v > 0 ? 'var(--green)' : 'var(--red)';
+                      return (
+                        <tr key={f.fund_id}>
+                          <td style={td}>
+                            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{f.fund_name}</div>
+                            <div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>{f.manager}</div>
+                          </td>
+                          <td style={{ ...td, textAlign: 'center', fontFamily: 'var(--fm)', fontWeight: 600 }}>{f.scored_count}</td>
+                          <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', fontWeight: 700, color: hitColor(f.hit_rate_7d) }}>{fmtPct(f.hit_rate_7d)}</td>
+                          <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', fontWeight: 700, color: hitColor(f.hit_rate_30d) }}>{fmtPct(f.hit_rate_30d)}</td>
+                          <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', fontWeight: 700, color: hitColor(f.hit_rate_90d) }}>{fmtPct(f.hit_rate_90d)}</td>
+                          <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', color: retColor(f.avg_return_7d) }}>{fmtRet(f.avg_return_7d)}</td>
+                          <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', color: retColor(f.avg_return_30d) }}>{fmtRet(f.avg_return_30d)}</td>
+                          <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)', color: retColor(f.avg_return_90d) }}>{fmtRet(f.avg_return_90d)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </>
       )}

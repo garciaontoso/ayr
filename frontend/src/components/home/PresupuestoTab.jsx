@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { API_URL, CURRENCIES } from '../../constants/index.js';
 import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
-import { Modal } from '../ui';
+import { Modal, Toast } from '../ui';
 
 // ─── Categories matching user's budget spreadsheet ───
 const DEFAULT_CATEGORIAS = [
@@ -110,6 +110,7 @@ export default function PresupuestoTab() {
   const [expandedItem, setExpandedItem] = useState(null);
   const [CATEGORIAS, setCATEGORIAS] = useState(loadCatOrder);
   const [dragCat, setDragCat] = useState(null);
+  const [toast, setToast] = useState(null);
 
   // Load cat order from API
   useEffect(() => {
@@ -128,7 +129,9 @@ export default function PresupuestoTab() {
     fetch(`${API_URL}/api/presupuesto/cat-order`, {
       method: 'PUT', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ order: cats.map(c => c.id) }),
-    }).catch(()=>{});
+    })
+      .then(r => { if (!r.ok) throw new Error(r.status); setToast({ type: 'success', message: '✓ Orden guardado' }); })
+      .catch(e => setToast({ type: 'error', message: 'Error: ' + (e?.message || e) }));
   }; // id of expanded row
   const [dismissedMissing, setDismissedMissing] = useState(() => { try { return JSON.parse(localStorage.getItem('presu_dismissed_missing') || '[]'); } catch { return []; } });
   const [dismissedIncreases, setDismissedIncreases] = useState(() => { try { return JSON.parse(localStorage.getItem('presu_dismissed_increases') || '[]'); } catch { return []; } });
@@ -1154,6 +1157,7 @@ export default function PresupuestoTab() {
           </table>
         )}
       </Modal>
+      {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </div>
   );
 }

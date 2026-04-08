@@ -758,6 +758,27 @@ async function ensureMigrations(env) {
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_fam_ticker ON fund_alert_mutes(ticker)`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_fam_fund ON fund_alert_mutes(fund_id)`).run();
 
+    // Ronda 8 — Alert accuracy tracking.
+    // For each alert, store the ticker's price at detected_at + prices at
+    // 7d/30d/90d after. Returns and hit flags are computed from those.
+    // The scoring logic (hit if direction matches status) lives in the
+    // /api/funds/alerts/score endpoint, not in the schema.
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS alert_outcomes (
+      alert_id INTEGER PRIMARY KEY,
+      price_at_detected REAL,
+      price_7d REAL,
+      price_30d REAL,
+      price_90d REAL,
+      return_7d REAL,
+      return_30d REAL,
+      return_90d REAL,
+      hit_7d INTEGER,
+      hit_30d INTEGER,
+      hit_90d INTEGER,
+      computed_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_ao_computed ON alert_outcomes(computed_at)`).run();
+
     // Seed the curated superinvestors (idempotent — INSERT OR IGNORE).
     // CIKs sourced from docs/fondos-tab-design.md.
     const SUPERINVESTORS_SEED = [
@@ -1703,7 +1724,7 @@ export default {
 
       // GET /api/funds/:id — fund detail with current quarter top holdings
       const fundDetailMatch = path.match(/^\/api\/funds\/([a-z0-9_-]+)$/);
-      const RESERVED_FUND_PATHS = new Set(['list', 'consensus', 'refresh', 'by-ticker', 'by-tickers', 'seed-spanish', 'cik-search', 'resolve-isins', 'alerts', 'notify']);
+      const RESERVED_FUND_PATHS = new Set(['list', 'consensus', 'refresh', 'by-ticker', 'by-tickers', 'seed-spanish', 'cik-search', 'resolve-isins', 'alerts', 'notify', 'score', 'performance']);
       if (fundDetailMatch && request.method === "GET" && !RESERVED_FUND_PATHS.has(fundDetailMatch[1])) {
         const fundId = fundDetailMatch[1];
         const fund = await env.DB.prepare(`SELECT * FROM superinvestors WHERE id = ?`).bind(fundId).first();
@@ -1945,6 +1966,221 @@ export default {
       if (path === "/api/funds/alerts/mutes" && request.method === "GET") {
         const { results } = await env.DB.prepare(`SELECT id, ticker, fund_id, muted_at FROM fund_alert_mutes ORDER BY muted_at DESC`).all();
         return json({ mutes: results || [] }, corsHeaders);
+      }
+
+      // POST /api/funds/alerts/score?limit=15 — compute accuracy outcomes
+      // for existing alerts. Fetches one FMP historical-price call per
+      // UNIQUE ticker (not per alert) and derives 7/30/90-day returns.
+      // Cloudflare Workers caps subrequests at ~50 per invocation, so we
+      // process up to `limit` unique tickers per call and return a cursor.
+      // The frontend can call repeatedly until remaining = 0.
+      //
+      // Hit flag logic:
+      //   NEW / ADDED   → hit if return > +2% (the fund was right to buy)
+      //   SOLD / REDUCED → hit if return < -2% (the fund was right to sell)
+      //
+      // Only alerts with detected_at old enough for the window are scored:
+      //   price_7d  needs detected_at ≥ 7d ago
+      //   price_30d needs detected_at ≥ 30d ago
+      //   price_90d needs detected_at ≥ 90d ago
+      // Partial outcomes are fine — UPSERT fills the missing columns later.
+      if (path === "/api/funds/alerts/score" && request.method === "POST") {
+        const FMP_KEY = env.FMP_KEY;
+        if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
+        const limit = Math.min(20, parseInt(url.searchParams.get('limit') || '15', 10));
+
+        // 1. Find unique tickers with alerts that need scoring.
+        //    An alert needs scoring if its outcome row is missing OR any
+        //    window column is still NULL and enough time has passed.
+        const { results: pending } = await env.DB.prepare(
+          `SELECT DISTINCT fa.ticker
+           FROM fund_alerts fa
+           LEFT JOIN alert_outcomes ao ON ao.alert_id = fa.id
+           WHERE fa.ticker NOT LIKE 'ES:%'
+             AND (
+               ao.alert_id IS NULL
+               OR (ao.price_7d  IS NULL AND julianday('now') - julianday(fa.detected_at) >= 7)
+               OR (ao.price_30d IS NULL AND julianday('now') - julianday(fa.detected_at) >= 30)
+               OR (ao.price_90d IS NULL AND julianday('now') - julianday(fa.detected_at) >= 90)
+             )
+           LIMIT ?`
+        ).bind(limit).all();
+
+        const tickers = (pending || []).map(r => r.ticker);
+        if (!tickers.length) {
+          return json({ processed: 0, tickers: [], remaining: 0, done: true }, corsHeaders);
+        }
+
+        // Remaining count (for progress UI)
+        const { results: remainingRows } = await env.DB.prepare(
+          `SELECT COUNT(DISTINCT fa.ticker) AS n
+           FROM fund_alerts fa
+           LEFT JOIN alert_outcomes ao ON ao.alert_id = fa.id
+           WHERE fa.ticker NOT LIKE 'ES:%'
+             AND (
+               ao.alert_id IS NULL
+               OR (ao.price_7d  IS NULL AND julianday('now') - julianday(fa.detected_at) >= 7)
+               OR (ao.price_30d IS NULL AND julianday('now') - julianday(fa.detected_at) >= 30)
+               OR (ao.price_90d IS NULL AND julianday('now') - julianday(fa.detected_at) >= 90)
+             )`
+        ).all();
+        const totalRemaining = remainingRows?.[0]?.n || 0;
+
+        // 2. For each ticker, fetch 120-day price history from FMP and
+        //    build a {YYYY-MM-DD: close} map.
+        const fetchHistory = async (ticker) => {
+          try {
+            const fmpSym = toFMP(ticker);
+            const from = new Date(Date.now() - 120 * 86400000).toISOString().slice(0, 10);
+            const u = `https://financialmodelingprep.com/stable/historical-price-eod/light?symbol=${encodeURIComponent(fmpSym)}&from=${from}&apikey=${FMP_KEY}`;
+            const r = await fetch(u);
+            if (!r.ok) return null;
+            const data = await r.json();
+            if (!Array.isArray(data) || data.length === 0) return null;
+            const map = {};
+            for (const row of data) {
+              const d = row.date || row.Date;
+              const p = Number(row.price ?? row.close ?? row.adjClose);
+              if (d && Number.isFinite(p)) map[d] = p;
+            }
+            // Sorted dates for nearest-trading-day lookup
+            const sortedDates = Object.keys(map).sort();
+            return { map, sortedDates };
+          } catch { return null; }
+        };
+
+        // Given a target date string, find the closest trading-day price ≤ target
+        const priceAt = (hist, targetDate) => {
+          if (!hist || !hist.map) return null;
+          // If exact hit, return it
+          if (hist.map[targetDate] != null) return hist.map[targetDate];
+          // Binary-ish: find the first trading date ≤ target
+          let lo = 0, hi = hist.sortedDates.length - 1, best = null;
+          while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            const d = hist.sortedDates[mid];
+            if (d <= targetDate) { best = d; lo = mid + 1; }
+            else { hi = mid - 1; }
+          }
+          return best ? hist.map[best] : null;
+        };
+
+        // 3. For each ticker, score every alert on it
+        const upserts = [];
+        const scoreStmt = env.DB.prepare(
+          `INSERT INTO alert_outcomes (alert_id, price_at_detected, price_7d, price_30d, price_90d, return_7d, return_30d, return_90d, hit_7d, hit_30d, hit_90d, computed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(alert_id) DO UPDATE SET
+             price_at_detected = COALESCE(excluded.price_at_detected, alert_outcomes.price_at_detected),
+             price_7d   = COALESCE(excluded.price_7d, alert_outcomes.price_7d),
+             price_30d  = COALESCE(excluded.price_30d, alert_outcomes.price_30d),
+             price_90d  = COALESCE(excluded.price_90d, alert_outcomes.price_90d),
+             return_7d  = COALESCE(excluded.return_7d, alert_outcomes.return_7d),
+             return_30d = COALESCE(excluded.return_30d, alert_outcomes.return_30d),
+             return_90d = COALESCE(excluded.return_90d, alert_outcomes.return_90d),
+             hit_7d     = COALESCE(excluded.hit_7d, alert_outcomes.hit_7d),
+             hit_30d    = COALESCE(excluded.hit_30d, alert_outcomes.hit_30d),
+             hit_90d    = COALESCE(excluded.hit_90d, alert_outcomes.hit_90d),
+             computed_at = datetime('now')`
+        );
+
+        const nowTs = Date.now();
+        let processed = 0, failed = 0;
+        for (const ticker of tickers) {
+          const hist = await fetchHistory(ticker);
+          if (!hist) { failed++; continue; }
+          // Load all alerts for this ticker
+          const { results: alerts } = await env.DB.prepare(
+            `SELECT id, detected_at, status FROM fund_alerts WHERE ticker = ?`
+          ).bind(ticker).all();
+          for (const a of (alerts || [])) {
+            const detected = new Date(a.detected_at + 'Z');
+            if (isNaN(detected.getTime())) continue;
+            const dateStr = detected.toISOString().slice(0, 10);
+            const price0 = priceAt(hist, dateStr);
+            if (price0 == null) continue;
+
+            const ageDays = (nowTs - detected.getTime()) / 86400000;
+            const priceFor = (window) => {
+              if (ageDays < window) return null;
+              const targetDate = new Date(detected.getTime() + window * 86400000).toISOString().slice(0, 10);
+              return priceAt(hist, targetDate);
+            };
+            const price7  = priceFor(7);
+            const price30 = priceFor(30);
+            const price90 = priceFor(90);
+
+            const retFor = (price) => (price != null && price0 > 0) ? ((price - price0) / price0) : null;
+            const r7  = retFor(price7);
+            const r30 = retFor(price30);
+            const r90 = retFor(price90);
+
+            // Hit if the fund's action direction was correct by ≥2%
+            const hit = (ret) => {
+              if (ret == null) return null;
+              const bullish = a.status === 'NEW' || a.status === 'ADDED';
+              const bearish = a.status === 'SOLD' || a.status === 'REDUCED';
+              if (bullish) return ret > 0.02 ? 1 : 0;
+              if (bearish) return ret < -0.02 ? 1 : 0;
+              return null;
+            };
+
+            upserts.push(scoreStmt.bind(
+              a.id, price0, price7, price30, price90,
+              r7, r30, r90,
+              hit(r7), hit(r30), hit(r90)
+            ));
+          }
+          processed++;
+        }
+        if (upserts.length) await env.DB.batch(upserts);
+
+        return json({
+          processed,
+          failed,
+          tickers,
+          remaining: Math.max(0, totalRemaining - processed),
+          done: processed >= totalRemaining,
+          upsertsCount: upserts.length,
+        }, corsHeaders);
+      }
+
+      // GET /api/funds/alerts/performance — aggregated accuracy per fund
+      // and global stats. Joins fund_alerts + alert_outcomes + superinvestors.
+      if (path === "/api/funds/alerts/performance" && request.method === "GET") {
+        const { results: perFund } = await env.DB.prepare(
+          `SELECT fa.fund_id, s.name AS fund_name, s.manager, s.conviction, s.source,
+                  COUNT(ao.alert_id)                                         AS scored_count,
+                  AVG(ao.return_7d)                                          AS avg_return_7d,
+                  AVG(ao.return_30d)                                         AS avg_return_30d,
+                  AVG(ao.return_90d)                                         AS avg_return_90d,
+                  AVG(CASE WHEN ao.hit_7d IS NOT NULL THEN ao.hit_7d END)    AS hit_rate_7d,
+                  AVG(CASE WHEN ao.hit_30d IS NOT NULL THEN ao.hit_30d END)  AS hit_rate_30d,
+                  AVG(CASE WHEN ao.hit_90d IS NOT NULL THEN ao.hit_90d END)  AS hit_rate_90d,
+                  SUM(CASE WHEN ao.hit_30d = 1 THEN 1 ELSE 0 END)            AS hits_30d,
+                  SUM(CASE WHEN ao.hit_30d IS NOT NULL THEN 1 ELSE 0 END)    AS scored_30d
+           FROM fund_alerts fa
+           JOIN superinvestors s ON s.id = fa.fund_id
+           LEFT JOIN alert_outcomes ao ON ao.alert_id = fa.id
+           WHERE s.followed = 1
+           GROUP BY fa.fund_id, s.name, s.manager, s.conviction, s.source
+           HAVING COUNT(ao.alert_id) > 0
+           ORDER BY hit_rate_30d DESC NULLS LAST, avg_return_30d DESC`
+        ).all();
+
+        const { results: globalRows } = await env.DB.prepare(
+          `SELECT COUNT(*) AS total_alerts,
+                  COUNT(ao.alert_id) AS total_scored,
+                  AVG(ao.return_30d) AS avg_return_30d,
+                  AVG(CASE WHEN ao.hit_30d IS NOT NULL THEN ao.hit_30d END) AS hit_rate_30d
+           FROM fund_alerts fa
+           LEFT JOIN alert_outcomes ao ON ao.alert_id = fa.id`
+        ).all();
+
+        return json({
+          funds: perFund || [],
+          global: globalRows?.[0] || {},
+        }, corsHeaders);
       }
 
       // POST /api/funds/alerts/notify — Smart Money push dispatcher.

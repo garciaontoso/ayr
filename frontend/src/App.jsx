@@ -109,6 +109,7 @@ export default function ARApp() {
   const [dataError, setDataError] = useState(null);
   const [apiData, setApiData] = useState(null);
   const [isOffline, setIsOffline] = useState(typeof navigator !== 'undefined' ? !navigator.onLine : false);
+  const [toast, setToast] = useState(null);
 
   // Offline detection
   useEffect(() => {
@@ -439,7 +440,6 @@ function buildPositionsFromCB() {
   const [editingPos, setEditingPos] = useState(null); // ticker being edited
   const [pricesLoading, setPricesLoading] = useState(false);
   const [pricesLastUpdate, setPricesLastUpdate] = useState(null);
-  const [toast, setToast] = useState(null);
 
   // ── Live Price Refresh ──
   const refreshPrices = useCallback(async (force = false) => {
@@ -2047,7 +2047,13 @@ function buildPositionsFromCB() {
     ibData, ibDiscrepancies, loadIBData, ibSyncMsg,
     alerts, alertsUnread, showAlertPanel, setShowAlertPanel, divStreaks, smartMoneyHolders, theme, toggleTheme,
     openScoresModal,
-    markAlertsRead: () => { fetch(`${API_URL}/api/alerts/read`, { method: "POST" }).catch(() => {}); setAlertsUnread(0); setAlerts(a => a.map(x => ({ ...x, leida: 1 }))); },
+    markAlertsRead: () => {
+      fetch(`${API_URL}/api/alerts/read`, { method: "POST" })
+        .then(r => { if (!r.ok) throw new Error(r.status); setToast({ type: 'success', message: '✓ Alertas marcadas como leídas' }); })
+        .catch(e => setToast({ type: 'error', message: 'Error: ' + (e?.message || e) }));
+      setAlertsUnread(0);
+      setAlerts(a => a.map(x => ({ ...x, leida: 1 })));
+    },
   }), [homeTab, portfolioList, watchlistList, historialList, portfolioTotals, portfolioComputed,
     positions, portfolio, searchTicker, countryFilter, portSort, showCapTable,
     pricesLoading, pricesLastUpdate, displayCcy, fxRates, fxLoading, fxLastUpdate,
@@ -2515,6 +2521,7 @@ function buildPositionsFromCB() {
           </div>
         </div>
       )}
+      {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </div>
   );
 }

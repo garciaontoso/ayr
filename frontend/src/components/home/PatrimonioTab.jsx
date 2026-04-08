@@ -3,6 +3,7 @@ import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { API_URL } from '../../constants/index.js';
 import { EmptyState } from '../ui/EmptyState.jsx';
+import { Toast } from '../ui';
 import { useFireMetrics, FIRE_SWR } from '../../hooks/useFireMetrics.js';
 
 // ═══════════════════════════════════════
@@ -17,17 +18,18 @@ function SnapshotsSection() {
 
   const [goldPrice, setGoldPrice] = useState(0);
   const [btcPrice, setBtcPrice] = useState(0);
+  const [toast, setToast] = useState(null);
 
   useEffect(() => {
     const eurRate = fxRates?.EUR || 0.92;
     fetch(`${API_URL}/api/prices?tickers=GC%3DF&live=1`).then(r=>r.json()).then(d => {
       const priceUsd = d?.prices?.['GC=F']?.price || 0;
       if (priceUsd > 0) setGoldPrice(Math.round(priceUsd * eurRate / 31.1035 * 100) / 100);
-    }).catch(()=>{});
+    }).catch(() => setToast({ type: 'warning', message: '⚠ Precio del oro no disponible' }));
     fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=eur').then(r=>r.json()).then(d => {
       const priceEur = d?.bitcoin?.eur || 0;
       if (priceEur > 0) setBtcPrice(Math.round(priceEur));
-    }).catch(()=>{});
+    }).catch(() => setToast({ type: 'warning', message: '⚠ Precio de BTC no disponible' }));
   }, [fxRates]);
 
   const prefillForm = useCallback(() => {
@@ -326,6 +328,7 @@ function SnapshotsSection() {
       </table>
     </div>
   </div>
+  {toast && <Toast {...toast} onClose={() => setToast(null)} />}
 </div>
   );
 }

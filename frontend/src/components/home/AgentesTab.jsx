@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { API_URL } from '../../constants/index.js';
 import { InlineLoading } from '../ui/EmptyState.jsx';
-import { Button } from '../ui';
+import { Button, Toast } from '../ui';
 
 /* ═══════════════════════════════════════════
    AI Agents Dashboard — A&R v4.1 (FMP Ultimate)
@@ -845,6 +845,7 @@ export default function AgentesTab() {
 // Side drawer that exposes the system prompt + I/O shapes + insights
 // for a single agent. Opens when user clicks any agent card.
 function PromptDrawer({ agent, meta, insights, activeTab, setActiveTab, onClose }) {
+  const [toast, setToast] = useState(null);
   // Escape key handler (a11y). Added 2026-04-08 per Audit D finding —
   // the drawer is a full-height side panel with no way to close via
   // keyboard. Registered only when the drawer is open (agent truthy).
@@ -860,8 +861,8 @@ function PromptDrawer({ agent, meta, insights, activeTab, setActiveTab, onClose 
   const copyPrompt = () => {
     if (!meta?.system_prompt) return;
     navigator.clipboard.writeText(meta.system_prompt)
-      .then(() => alert('Prompt copiado al portapapeles'))
-      .catch(() => {});
+      .then(() => setToast({ type: 'success', message: '✓ Prompt copiado' }))
+      .catch(e => setToast({ type: 'error', message: '✗ Error copiando: ' + (e?.message || e) }));
   };
 
   const TabBtn = ({ id, label }) => (
@@ -1018,6 +1019,7 @@ function PromptDrawer({ agent, meta, insights, activeTab, setActiveTab, onClose 
           </div>
         )}
       </div>
+      {toast && <Toast {...toast} onClose={() => setToast(null)} />}
     </div>
   );
 }

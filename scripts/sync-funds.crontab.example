@@ -1,0 +1,22 @@
+# A&R — Smart Money sync (13F superinvestors)
+# Install with: crontab -e   (then paste the lines below)
+# View logs:    tail -f ~/Library/Logs/ayr-sync-funds.log
+#
+# Schedule rationale:
+#   - 13F filings are due 45 days after quarter end:
+#       Q4 -> Feb 14   |   Q1 -> May 15   |   Q2 -> Aug 14   |   Q3 -> Nov 14
+#     So days 15/16/17 are when funds actually publish. Run at 09:00 local
+#     three days in a row to catch late filers and any FMP ingestion lag.
+#   - Day 1 is a light monthly sweep (cheap insurance for backfills).
+#   - Day 20 covers Spanish semestrales (Cobas / Magallanes / azValor), which
+#     are filed mid-Feb and mid-Aug; the 20th gives the CNMV pipeline time
+#     to settle and also serves as a second monthly safety net.
+
+# 13F primary window — days 15, 16, 17 of every month at 09:00 local time
+0 9 15,16,17 * * /Users/ricardogarciaontoso/IA/AyR/scripts/sync-funds.sh
+
+# Monthly safety pass — day 1 at 09:00 (catches any late-filer backfill)
+0 9 1 * *      /Users/ricardogarciaontoso/IA/AyR/scripts/sync-funds.sh
+
+# Spanish semestrales + second safety pass — day 20 at 09:00
+0 9 20 * *     /Users/ricardogarciaontoso/IA/AyR/scripts/sync-funds.sh
