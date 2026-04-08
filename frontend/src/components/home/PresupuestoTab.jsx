@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { API_URL, CURRENCIES } from '../../constants/index.js';
 import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
+import { Modal } from '../ui';
 
 // ─── Categories matching user's budget spreadsheet ───
 const DEFAULT_CATEGORIAS = [
@@ -119,7 +120,7 @@ export default function PresupuestoTab() {
         const missing = DEFAULT_CATEGORIAS.filter(c => !d.order.includes(c.id));
         setCATEGORIAS([...ordered, ...missing]);
       }
-    }).catch(()=>{});
+    }).catch(() => setCATEGORIAS(DEFAULT_CATEGORIAS));
   }, []);
 
   const saveCatOrder = (cats) => {
@@ -1130,38 +1131,29 @@ export default function PresupuestoTab() {
       )}
 
       {/* ═══ History Modal ═══ */}
-      {showHistory && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
-             onClick={() => setShowHistory(false)}>
-          <div style={{ ...card, width: 420, maxHeight: '60vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>📊 Historial de cambios</span>
-              <button onClick={() => setShowHistory(false)} style={{ border: 'none', background: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 14 }}>✕</button>
-            </div>
-            {history.length === 0 ? (
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textAlign: 'center', padding: 20 }}>Sin cambios registrados</div>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
-                <thead>
-                  <tr><th style={th}>Fecha</th><th style={{ ...th, textAlign: 'right' }}>Anterior</th><th style={{ ...th, textAlign: 'right' }}>Nuevo</th><th style={th}>Cambio</th></tr>
-                </thead>
-                <tbody>
-                  {history.map((h, i) => (
-                    <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={td}>{h.fecha}</td>
-                      <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)' }}>{fmtEur(h.importe_anterior)}</td>
-                      <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)' }}>{fmtEur(h.importe_nuevo)}</td>
-                      <td style={{ ...td, textAlign: 'center', color: h.cambio_pct > 0 ? '#ff6b6b' : '#51cf66', fontWeight: 700 }}>
-                        {h.cambio_pct > 0 ? '+' : ''}{h.cambio_pct.toFixed(1)}%
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-      )}
+      <Modal open={showHistory} onClose={() => setShowHistory(false)} title="📊 Historial de cambios" width={460}>
+        {history.length === 0 ? (
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textAlign: 'center', padding: 20 }}>Sin cambios registrados</div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
+            <thead>
+              <tr><th style={th}>Fecha</th><th style={{ ...th, textAlign: 'right' }}>Anterior</th><th style={{ ...th, textAlign: 'right' }}>Nuevo</th><th style={th}>Cambio</th></tr>
+            </thead>
+            <tbody>
+              {history.map((h, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={td}>{h.fecha}</td>
+                  <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)' }}>{fmtEur(h.importe_anterior)}</td>
+                  <td style={{ ...td, textAlign: 'right', fontFamily: 'var(--fm)' }}>{fmtEur(h.importe_nuevo)}</td>
+                  <td style={{ ...td, textAlign: 'center', color: h.cambio_pct > 0 ? '#ff6b6b' : '#51cf66', fontWeight: 700 }}>
+                    {h.cambio_pct > 0 ? '+' : ''}{h.cambio_pct.toFixed(1)}%
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Modal>
     </div>
   );
 }

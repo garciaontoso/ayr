@@ -17,13 +17,13 @@ export default function DashboardTab() {
     fetch(`${API_URL}/api/ib-nlv-history?limit=90`)
       .then(r => r.json())
       .then(d => setNlvHistory(d.results || []))
-      .catch(() => {});
+      .catch(() => setNlvHistory([]));
     // SPY price history for comparison
     const from = new Date(Date.now() - 3 * 365.25 * 86400000).toISOString().slice(0, 10);
     fetch(`${API_URL}/api/price-history?symbol=SPY&from=${from}`)
       .then(r => r.json())
       .then(d => setSpyHistory((d.historical || d || []).reverse()))
-      .catch(() => {});
+      .catch(() => setSpyHistory([]));
   }, []);
   const {
     portfolioTotals, portfolioList, privacyMode, hide, hideN,

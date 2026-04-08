@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { API_URL } from '../../constants';
+import { Modal } from '../ui';
 
 const TYPE_ICONS = { book: '📘', paper: '📄', podcast: '🎙️', article: '🔗' };
 const TYPE_LABELS = { book: 'Libro', paper: 'Paper', podcast: 'Podcast', article: 'Artículo' };
@@ -564,44 +565,48 @@ export default function LibraryTab() {
       )}
 
       {/* Add Modal */}
-      {showAdd && (
-        <div
-          onClick={() => setShowAdd(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.6)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: 16,
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: 'var(--subtle-bg)',
-              border: '1px solid var(--border)',
-              borderRadius: 8,
-              padding: 20,
-              width: '100%',
-              maxWidth: 480,
-              maxHeight: '90vh',
-              overflowY: 'auto',
-            }}
-          >
-            <div
+      <Modal
+        open={showAdd}
+        onClose={() => setShowAdd(false)}
+        title="Añadir a Library"
+        width={480}
+        footer={
+          <>
+            <button
+              onClick={() => setShowAdd(false)}
               style={{
-                fontSize: 16,
-                fontWeight: 700,
-                color: 'var(--text-primary)',
-                marginBottom: 16,
+                padding: '8px 16px',
+                background: 'transparent',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                color: 'var(--text-secondary)',
+                cursor: 'pointer',
+                fontSize: 13,
               }}
             >
-              Añadir a Library
-            </div>
-
+              Cancelar
+            </button>
+            <button
+              onClick={createItem}
+              disabled={saving}
+              style={{
+                padding: '8px 16px',
+                background: 'var(--gold)',
+                border: 'none',
+                borderRadius: 6,
+                color: '#000',
+                cursor: saving ? 'wait' : 'pointer',
+                fontSize: 13,
+                fontWeight: 600,
+                opacity: saving ? 0.6 : 1,
+              }}
+            >
+              {saving ? 'Guardando...' : 'Guardar'}
+            </button>
+          </>
+        }
+      >
+        <>
             <div style={{ marginBottom: 12 }}>
               <label style={labelStyle}>Título *</label>
               <input
@@ -675,7 +680,7 @@ export default function LibraryTab() {
               </div>
             </div>
 
-            <div style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 4 }}>
               <label style={labelStyle}>URL (opcional)</label>
               <input
                 style={inputStyle}
@@ -684,118 +689,34 @@ export default function LibraryTab() {
                 placeholder="https://..."
               />
             </div>
-
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setShowAdd(false)}
-                style={{
-                  padding: '8px 16px',
-                  background: 'transparent',
-                  border: '1px solid var(--border)',
-                  borderRadius: 6,
-                  color: 'var(--text-secondary)',
-                  cursor: 'pointer',
-                  fontSize: 13,
-                }}
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={createItem}
-                disabled={saving}
-                style={{
-                  padding: '8px 16px',
-                  background: 'var(--gold)',
-                  border: 'none',
-                  borderRadius: 6,
-                  color: '#000',
-                  cursor: saving ? 'wait' : 'pointer',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  opacity: saving ? 0.6 : 1,
-                }}
-              >
-                {saving ? 'Guardando...' : 'Guardar'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+        </>
+      </Modal>
 
       {/* Notes Modal */}
-      {notesItem && (
-        <div
-          onClick={() => setNotesItem(null)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.6)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: 16,
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: 'var(--subtle-bg)',
-              border: '1px solid var(--border)',
-              borderRadius: 8,
-              padding: 20,
-              width: '100%',
-              maxWidth: 600,
-              maxHeight: '90vh',
-              overflowY: 'auto',
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'flex-start',
-                marginBottom: 16,
-              }}
-            >
-              <div>
-                <div
-                  style={{
-                    fontSize: 11,
-                    color: 'var(--text-tertiary)',
-                    textTransform: 'uppercase',
-                    marginBottom: 4,
-                  }}
-                >
-                  Notas
-                </div>
-                <div
-                  style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}
-                >
-                  {notesItem.title}
-                </div>
-                {notesItem.author && (
-                  <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
-                    {notesItem.author}
-                  </div>
-                )}
+      <Modal
+        open={!!notesItem}
+        onClose={() => setNotesItem(null)}
+        width={600}
+        title={
+          notesItem ? (
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 4 }}>
+                Notas
               </div>
-              <button
-                onClick={() => setNotesItem(null)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: 'var(--text-tertiary)',
-                  fontSize: 20,
-                  cursor: 'pointer',
-                  padding: 0,
-                  lineHeight: 1,
-                }}
-              >
-                ✕
-              </button>
+              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
+                {notesItem.title}
+              </div>
+              {notesItem.author && (
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                  {notesItem.author}
+                </div>
+              )}
             </div>
-
+          ) : null
+        }
+      >
+        {notesItem && (
+          <>
             <div style={{ marginBottom: 16 }}>
               {notesLoading ? (
                 <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>Cargando...</div>
@@ -916,9 +837,9 @@ export default function LibraryTab() {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
     </div>
   );
 }

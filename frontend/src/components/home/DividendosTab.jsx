@@ -41,7 +41,7 @@ function CalendarioSection({ divLog, POS_STATIC, ownedTickers, soloActuales }) {
         }
         setRealExDates(byDate);
       })
-      .catch(() => {});
+      .catch(() => setRealExDates({}));
   }, []);
 
   const DOW = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];

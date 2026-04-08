@@ -1163,7 +1163,8 @@ function buildPositionsFromCB() {
         appTickers.add(p.ticker);
       }
     });
-  }, [ibData.loaded, ibData.positions.length, portfolioList.length]);
+    // H4 fix: depend on the actual ticker set, not just the count, so swaps re-trigger.
+  }, [ibData.loaded, ibData.positions.length, portfolioList.map(p => p.ticker).join(',')]);
 
   const portfolioComputed = useMemo(() => {
     return portfolioList.map(p => {
@@ -1335,7 +1336,8 @@ function buildPositionsFromCB() {
       if (document.visibilityState === "visible") refreshLivePrices();
     }, 10000);
     return () => clearInterval(interval);
-  }, [dataLoaded, portfolioList.length, refreshLivePrices, isOffline]);
+    // refreshLivePrices already depends on portfolioList ref, so the interval restarts on real changes.
+  }, [dataLoaded, refreshLivePrices, isOffline]);
 
   // Request notification permission + Web Push subscription
   useEffect(() => {
@@ -1407,7 +1409,8 @@ function buildPositionsFromCB() {
       try { sessionStorage.setItem(streakKey + '-data', JSON.stringify(all)); } catch {}
     };
     loadBatch();
-  }, [portfolioList.length]);
+    // H4 fix: a swap (e.g. SELL one, BUY another) keeps length but changes tickers.
+  }, [portfolioList.map(p => p.ticker).join(',')]);
 
   // Open Q/S drill-down modal — fetch detailed history
   const openScoresModal = useCallback(async (ticker) => {
@@ -1444,7 +1447,8 @@ function buildPositionsFromCB() {
         }
       }
     }).catch(() => {});
-  }, [ibData.loaded, portfolioList.length]);
+    // H4 fix: ticker set, not count, so swaps re-trigger alert checks.
+  }, [ibData.loaded, portfolioList.map(p => p.ticker).join(',')]);
 
   // ── Load cached settings on mount (non-blocking) ──
   useEffect(() => {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { API_URL } from '../../constants/index.js';
-import { Button } from '../ui';
+import { Button, Modal } from '../ui';
 
 // ── Helpers ──────────────────────────────────────────────────────
 function fmtUSD(n) {
@@ -374,70 +374,26 @@ function BriefingModal({ ticker, briefing, loading, error, onClose }) {
   const history = briefing?.history || [];
   const stats = briefing?.stats || {};
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.6)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-        padding: 20,
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: 'var(--bg)',
-          border: '1px solid var(--border)',
-          borderRadius: 12,
-          maxWidth: 720,
-          width: '100%',
-          maxHeight: '90vh',
-          overflowY: 'auto',
-          color: 'var(--text-primary)',
-        }}
-      >
-        {/* Header */}
-        <div
-          style={{
-            padding: '18px 24px',
-            borderBottom: '1px solid var(--border)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-          }}
-        >
-          <div>
-            <div style={{ fontSize: 20, fontWeight: 700, fontFamily: 'var(--fm)' }}>
-              📊 {ticker} — Pre-Earnings Briefing
-            </div>
-            {upcoming && (
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>
-                Reporte: {fmtDate(upcoming.earnings_date)}
-                {upcoming.earnings_time && ` · ${upcoming.earnings_time.toUpperCase()}`}
-                {upcoming.fiscal_period && ` · ${upcoming.fiscal_period}`}
-              </div>
-            )}
+    <Modal
+      open={!!ticker}
+      onClose={onClose}
+      width={720}
+      title={
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700, fontFamily: 'var(--fm)' }}>
+            📊 {ticker} — Pre-Earnings Briefing
           </div>
-          <button onClick={onClose} style={{
-            background: 'transparent',
-            border: '1px solid var(--border)',
-            borderRadius: 6,
-            color: 'var(--text-secondary)',
-            cursor: 'pointer',
-            fontSize: 18,
-            width: 32,
-            height: 32,
-            lineHeight: 1,
-          }}>×</button>
+          {upcoming && (
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>
+              Reporte: {fmtDate(upcoming.earnings_date)}
+              {upcoming.earnings_time && ` · ${upcoming.earnings_time.toUpperCase()}`}
+              {upcoming.fiscal_period && ` · ${upcoming.fiscal_period}`}
+            </div>
+          )}
         </div>
-
-        {/* Body */}
-        <div style={{ padding: 24 }}>
+      }
+    >
+      <>
           {loading && <div style={{ color: 'var(--text-secondary)' }}>Cargando briefing...</div>}
           {error && <div style={{ color: 'var(--red)' }}>Error: {error}</div>}
           {!loading && !error && (
@@ -540,9 +496,8 @@ function BriefingModal({ ticker, briefing, loading, error, onClose }) {
               )}
             </>
           )}
-        </div>
-      </div>
-    </div>
+      </>
+    </Modal>
   );
 }
 

@@ -164,7 +164,7 @@ export default function GastosTab() {
   useEffect(() => {
     fetch(`${API_URL}/api/presupuesto`).then(r=>r.json()).then(d => {
       if (Array.isArray(d)) setPresuItems(d);
-    }).catch(()=>{});
+    }).catch(() => setPresuItems([]));
   }, []);
 
   // Normalize: strip stopwords for fuzzy matching
