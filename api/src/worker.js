@@ -4786,96 +4786,6 @@ Schema exacto:
         return json(results, corsHeaders);
       }
 
-      // GET /api/options-massive?symbols=AAPL,MSFT&dte=30&otm=5 — Massive (ex-Polygon) options with greeks
-      if (path === "/api/options-massive" && request.method === "GET") {
-        const MASSIVE_KEY = env.MASSIVE_KEY;
-        if (!MASSIVE_KEY) return json({ error: "MASSIVE_KEY not configured" }, corsHeaders, 500);
-
-        const symbols = (url.searchParams.get("symbols") || "").split(",").filter(Boolean).map(s => s.trim().toUpperCase()).slice(0, 50);
-        const targetDTE = parseInt(url.searchParams.get("dte") || "30");
-        const otmPct = parseFloat(url.searchParams.get("otm") || "5") / 100;
-        if (!symbols.length) return json({ error: "Missing ?symbols=" }, corsHeaders, 400);
-
-        const results = {};
-        const now = new Date();
-        const minExp = new Date(now.getTime() + Math.max(targetDTE - 10, 7) * 86400000).toISOString().slice(0, 10);
-        const maxExp = new Date(now.getTime() + (targetDTE + 15) * 86400000).toISOString().slice(0, 10);
-
-        // Process one at a time — free tier is 5 calls/min
-        for (const sym of symbols) {
-          try {
-            const apiUrl = `https://api.polygon.io/v3/snapshot/options/${encodeURIComponent(sym)}?contract_type=call&expiration_date.gte=${minExp}&expiration_date.lte=${maxExp}&limit=250&apiKey=${MASSIVE_KEY}`;
-            const resp = await fetchWithRetry(apiUrl, {}, { maxRetries: 2, baseDelay: 12000 });
-            if (!resp.ok) {
-              const errText = await resp.text().catch(() => "");
-              results[sym] = { error: resp.status, msg: errText.slice(0, 200) };
-              continue;
-            }
-            const data = await resp.json();
-            const contracts = data.results || [];
-            if (!contracts.length) { results[sym] = { error: "no data" }; continue; }
-
-            // Get underlying price from first contract
-            const price = contracts[0]?.underlying_asset?.price || 0;
-            if (!price) { results[sym] = { error: "no price" }; continue; }
-
-            const targetStrike = price * (1 + otmPct);
-
-            // Find best OTM call closest to target strike + closest to target DTE
-            let bestContract = null;
-            let bestScore = Infinity;
-            for (const c of contracts) {
-              const strike = c.details?.strike_price || 0;
-              if (strike < price) continue; // skip ITM
-              const exp = c.details?.expiration_date;
-              const daysToExp = exp ? Math.ceil((new Date(exp) - now) / 86400000) : targetDTE;
-              const strikeDist = Math.abs(strike - targetStrike) / price;
-              const dteDist = Math.abs(daysToExp - targetDTE) / 30;
-              const score = strikeDist + dteDist * 0.3; // weight strike closeness more
-              if (score < bestScore) { bestScore = score; bestContract = c; }
-            }
-
-            if (!bestContract) { results[sym] = { price, error: "no OTM calls" }; continue; }
-
-            const d = bestContract.details || {};
-            const q = bestContract.last_quote || {};
-            const g = bestContract.greeks || {};
-            const expDate = d.expiration_date || "";
-            const dte = expDate ? Math.ceil((new Date(expDate) - now) / 86400000) : targetDTE;
-
-            results[sym] = {
-              price,
-              strike: d.strike_price || 0,
-              bid: q.bid || 0,
-              ask: q.ask || 0,
-              last: bestContract.last_trade?.price || 0,
-              iv: bestContract.implied_volatility || 0,
-              volume: bestContract.day?.volume || 0,
-              oi: bestContract.open_interest || 0,
-              dte,
-              expiration: expDate,
-              distPct: ((d.strike_price - price) / price * 100).toFixed(1),
-              premiumPct: (((q.bid || 0) / price) * 100).toFixed(2),
-              annualizedPct: (((q.bid || 0) / price) * (365 / Math.max(dte, 1)) * 100).toFixed(1),
-              // Greeks — not available from Yahoo
-              delta: g.delta || null,
-              gamma: g.gamma || null,
-              theta: g.theta || null,
-              vega: g.vega || null,
-              breakEven: bestContract.break_even_price || null,
-              contractSymbol: d.ticker || "",
-              source: "MASSIVE",
-            };
-          } catch (e) {
-            results[sym] = { error: e.message };
-          }
-          // Rate limit: ~5 calls/min = 1 every 12s on free tier
-          if (symbols.indexOf(sym) < symbols.length - 1) await new Promise(r => setTimeout(r, 12500));
-        }
-
-        return json(results, corsHeaders);
-      }
-
       // ─── IB OAuth helpers — delegates to top-level functions ───
       // (Actual implementations extracted to module scope for reuse by scheduled handler)
 
@@ -5600,25 +5510,6 @@ Schema exacto:
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
       }
 
-      // GET /api/alerts/dividend-changes — recent dividend cut/raise alerts
-      if (path === "/api/alerts/dividend-changes" && request.method === "GET") {
-        try {
-          const limit = parseInt(url.searchParams.get("limit") || "50");
-          const { results } = await env.DB.prepare(
-            "SELECT * FROM alerts WHERE tipo IN ('DIV_CUT','DIV_RAISE') ORDER BY created_at DESC LIMIT ?"
-          ).bind(limit).all();
-          return json({ alerts: results || [], count: (results || []).length }, corsHeaders);
-        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
-      }
-
-      // POST /api/alerts/check-dividend-changes — manually trigger dividend change detection
-      if (path === "/api/alerts/check-dividend-changes" && request.method === "POST") {
-        try {
-          const result = await checkDividendChanges(env);
-          return json(result, corsHeaders);
-        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
-      }
-
       // ─── POSITIONS (D1 — replaces POS_STATIC) ───
 
       // GET /api/positions — all positions
@@ -6263,21 +6154,6 @@ Schema exacto:
             growth_yoy: growthYoy != null ? Math.round(growthYoy * 10) / 10 : null,
             tickers_count: byTicker.length,
           }, corsHeaders);
-        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
-      }
-
-      // POST /api/dividendos/fix-tickers — normalize IB tickers in existing dividend records
-      if (path === "/api/dividendos/fix-tickers" && request.method === "POST") {
-        try {
-          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616","VIS.D":"BME:VIS","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA"};
-          let fixed = 0;
-          for (const [ibTicker, appTicker] of Object.entries(IB_MAP)) {
-            const result = await env.DB.prepare(
-              "UPDATE dividendos SET ticker = ? WHERE ticker = ?"
-            ).bind(appTicker, ibTicker).run();
-            if (result?.changes > 0) fixed += result.changes;
-          }
-          return json({ success: true, fixed }, corsHeaders);
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
       }
 
@@ -7446,23 +7322,6 @@ Schema exacto:
         return json(results, corsHeaders);
       }
 
-      // POST /api/presupuesto/seed — bulk insert from initial data
-      if (path === "/api/presupuesto/seed" && request.method === "POST") {
-        const body = await parseBody(request);
-        const items = body.items || [];
-        let inserted = 0;
-        for (const it of items) {
-          try {
-            await env.DB.prepare(
-              `INSERT INTO presupuesto (nombre, categoria, banco, frecuencia, importe, notas)
-               VALUES (?, ?, ?, ?, ?, ?)`
-            ).bind(it.nombre, it.categoria, it.banco || '', it.frecuencia || 'MENSUAL', it.importe, it.notas || '').run();
-            inserted++;
-          } catch(e) { console.error("Seed presupuesto error:", e.message); }
-        }
-        return json({ success: true, inserted, total: items.length }, corsHeaders);
-      }
-
       // GET /api/dividendos/calendar.ics — iCal feed
       if (path === "/api/dividendos/calendar.ics" && request.method === "GET") {
         const { results } = await env.DB.prepare(
@@ -7696,72 +7555,6 @@ Schema exacto:
           total: allTickers.length,
           actions,
           results: allResults,
-        }, corsHeaders);
-      }
-
-      // GET /api/ai-portfolio-summary — dashboard view of AI analysis
-      if (path === "/api/ai-portfolio-summary" && request.method === "GET") {
-        // Get latest analysis per ticker (most recent only)
-        const { results: analyses } = await env.DB.prepare(`
-          SELECT a.* FROM ai_analysis a
-          INNER JOIN (
-            SELECT ticker, MAX(updated_at) as max_date FROM ai_analysis GROUP BY ticker
-          ) latest ON a.ticker = latest.ticker AND a.updated_at = latest.max_date
-          ORDER BY a.score DESC
-        `).all();
-
-        if (!analyses.length) return json({ error: "No analysis data. Run POST /api/ai-analyze-portfolio first." }, corsHeaders, 404);
-
-        const groups = { HOLD: [], TRIM: [], SELL: [], ADD: [] };
-        let totalScore = 0;
-        const incomeOpps = [];
-        const alerts = [];
-
-        for (const row of analyses) {
-          const action = row.action || "HOLD";
-          const parsed = {
-            ticker: row.ticker,
-            score: row.score,
-            action,
-            summary: row.summary,
-            verdict: row.verdict ? JSON.parse(row.verdict) : null,
-            income_optimization: row.income_optimization ? JSON.parse(row.income_optimization) : null,
-            updated_at: row.updated_at,
-          };
-
-          if (!groups[action]) groups[action] = [];
-          groups[action].push(parsed);
-          totalScore += row.score || 0;
-
-          // Collect income optimization opportunities
-          if (parsed.income_optimization) {
-            const inc = parsed.income_optimization;
-            if (inc.enhancedYield && inc.currentYield && inc.enhancedYield > inc.currentYield) {
-              incomeOpps.push({
-                ticker: row.ticker,
-                currentYield: inc.currentYield,
-                enhancedYield: inc.enhancedYield,
-                strategy: inc.suggestedStrategy,
-                monthlyPremium: inc.ccPremiumMonthly,
-              });
-            }
-          }
-
-          // Positions needing attention
-          if (action === "SELL" || action === "TRIM" || (row.score && row.score <= 4)) {
-            alerts.push({ ticker: row.ticker, action, score: row.score, summary: row.summary });
-          }
-        }
-
-        incomeOpps.sort((a, b) => (b.enhancedYield - b.currentYield) - (a.enhancedYield - a.currentYield));
-
-        return json({
-          portfolioHealthScore: analyses.length ? Math.round((totalScore / analyses.length) * 10) / 10 : 0,
-          positionsAnalyzed: analyses.length,
-          groups,
-          topIncomeOpportunities: incomeOpps.slice(0, 10),
-          alerts,
-          lastUpdated: analyses[0]?.updated_at || null,
         }, corsHeaders);
       }
 
@@ -9384,40 +9177,6 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
 
       // ─── AI AGENTS ──────────────────────────────────────────────
 
-      // GET /api/fmp-map-check — validate FMP_MAP entries by querying FMP profile.
-      // Catches relistings, ticker changes, and stale mappings before they corrupt scoring.
-      // Run weekly via manual trigger or scheduled task.
-      if (path === "/api/fmp-map-check" && request.method === "GET") {
-        const key = env.FMP_KEY;
-        if (!key) return json({ error: "no FMP key" }, corsHeaders, 500);
-        const results = [];
-        for (const [ourTicker, fmpSym] of Object.entries(FMP_MAP)) {
-          try {
-            const url2 = `https://financialmodelingprep.com/stable/profile?symbol=${encodeURIComponent(fmpSym)}&apikey=${key}`;
-            const resp = await fetch(url2);
-            const data = await resp.json();
-            const ok = Array.isArray(data) && data.length > 0 && data[0]?.symbol;
-            results.push({
-              ours: ourTicker,
-              fmp: fmpSym,
-              ok,
-              actualSymbol: ok ? data[0].symbol : null,
-              name: ok ? data[0].companyName : null,
-              status: ok ? "valid" : "INVALID — needs review",
-            });
-          } catch (e) {
-            results.push({ ours: ourTicker, fmp: fmpSym, ok: false, status: `error: ${e.message}` });
-          }
-          await new Promise(r => setTimeout(r, 200)); // light rate limit
-        }
-        const invalid = results.filter(r => !r.ok);
-        // Persist last check timestamp for monitoring
-        try {
-          await setAgentMemory(env, "fmp_map_last_check", { ts: Date.now(), invalid: invalid.length, total: results.length });
-        } catch {}
-        return json({ ok: invalid.length === 0, total: results.length, invalid: invalid.length, results }, corsHeaders);
-      }
-
       // GET /api/agent-insights — retrieve agent insights
       if (path === "/api/agent-insights" && request.method === "GET") {
         const agent = url.searchParams.get("agent");
@@ -9754,37 +9513,6 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         }, corsHeaders);
       }
 
-      // GET /api/tastytrade-test — verify Tastytrade API connection
-      if (path === "/api/tastytrade-test" && request.method === "GET") {
-        try {
-          const ttResp = await fetch("https://api.tastyworks.com/sessions", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "User-Agent": "AyR/1.0" },
-            body: JSON.stringify({ login: env.TASTYTRADE_USER || "", password: env.TASTYTRADE_PASS || "" }),
-          });
-          const raw = await ttResp.text();
-          let ttData;
-          try { ttData = JSON.parse(raw); } catch { return json({ error: "Tastytrade returned non-JSON", status: ttResp.status, body: raw.slice(0, 300) }, corsHeaders, 502); }
-
-          if (ttData?.data?.["session-token"]) {
-            const token = ttData.data["session-token"];
-            const accResp = await fetch("https://api.tastyworks.com/customers/me/accounts", {
-              headers: { "Authorization": token, "User-Agent": "AyR/1.0" },
-            });
-            const accRaw = await accResp.text();
-            let accData;
-            try { accData = JSON.parse(accRaw); } catch { accData = {}; }
-            const accounts = accData?.data?.items?.map(a => ({
-              number: a["account-number"], type: a["account-type-name"], nickname: a.nickname,
-            })) || [];
-            return json({ ok: true, accounts, sessionValid: true }, corsHeaders);
-          }
-          return json({ error: "Login failed", status: ttResp.status, response: ttData }, corsHeaders, 401);
-        } catch (e) {
-          return json({ error: e.message }, corsHeaders, 500);
-        }
-      }
-
       // POST /api/download-transcripts — download earnings transcripts from FMP for all positions
       if (path === "/api/download-transcripts" && request.method === "POST") {
         const singleTicker = url.searchParams.get("ticker");
@@ -9880,176 +9608,6 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         try {
           const result = await enrichPositionSectors(env);
           return json({ ok: true, ...result }, corsHeaders);
-        } catch (e) {
-          return json({ error: e.message }, corsHeaders, 500);
-        }
-      }
-
-      // GET /api/options-analysis?symbol=KO — deep options analysis for a specific ticker
-      // Returns: IV rank, best CC/CSP strikes, timing assessment, theta decay
-      if (path === "/api/options-analysis" && request.method === "GET") {
-        const symbol = (url.searchParams.get("symbol") || "").toUpperCase().trim();
-        if (!symbol) return json({ error: "Missing ?symbol=TICKER" }, corsHeaders, 400);
-
-        try {
-          // 1. Fetch options chain (30d and 45d expirations)
-          const baseUrl = `https://query2.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol)}`;
-          const resp1 = await fetchYahoo(baseUrl);
-          if (!resp1.ok) return json({ error: `Yahoo returned ${resp1.status} for ${symbol}` }, corsHeaders, 502);
-          const data1 = await resp1.json();
-          const result = data1?.optionChain?.result?.[0];
-          if (!result) return json({ error: `No options data for ${symbol}` }, corsHeaders, 404);
-
-          const quote = result.quote || {};
-          const price = quote.regularMarketPrice || 0;
-          const expirations = result.expirationDates || [];
-          const now = Math.floor(Date.now() / 1000);
-          const earningsTs = quote.earningsTimestamp || quote.earningsTimestampStart;
-          const earningsInDays = earningsTs ? Math.round((earningsTs - now) / 86400) : null;
-          const fiftyTwoHigh = quote.fiftyTwoWeekHigh || price;
-          const fiftyTwoLow = quote.fiftyTwoWeekLow || price;
-
-          // 2. Get 2 expirations: ~30d and ~45d
-          const targets = [30, 45];
-          const chains = [];
-          for (const targetDTE of targets) {
-            const targetTs = now + targetDTE * 86400;
-            let bestExp = expirations[0];
-            for (const exp of expirations) {
-              if (Math.abs(exp - targetTs) < Math.abs(bestExp - targetTs)) bestExp = exp;
-            }
-            const dte = Math.round((bestExp - now) / 86400);
-            let options = result.options?.[0] || {};
-            if (bestExp !== expirations[0]) {
-              const r2 = await fetchYahoo(`${baseUrl}?date=${bestExp}`);
-              if (r2.ok) {
-                const d2 = await r2.json();
-                options = d2?.optionChain?.result?.[0]?.options?.[0] || options;
-              }
-            }
-            chains.push({ dte, expDate: new Date(bestExp * 1000).toISOString().split("T")[0], calls: options.calls || [], puts: options.puts || [] });
-          }
-
-          // 3. Calculate IV Rank (current ATM IV vs historical vol)
-          const gfData = await getGfData(env, [symbol]);
-          const gf = gfData[symbol] || {};
-          const historicalVol = parseFloat(gf.volatility1y) || 25;
-
-          // Get ATM IV from closest-to-money options
-          const chain30 = chains[0];
-          const atmCalls = chain30.calls.filter(c => Math.abs(c.strike - price) < price * 0.03);
-          const atmPuts = chain30.puts.filter(p => Math.abs(p.strike - price) < price * 0.03);
-          const allAtmIV = [...atmCalls, ...atmPuts].map(o => o.impliedVolatility).filter(v => v > 0);
-          // Yahoo IV is decimal (0.25 = 25%), convert to percentage
-          const currentIV = allAtmIV.length ? Math.round(allAtmIV.reduce((s, v) => s + v, 0) / allAtmIV.length * 10000) / 100 : null;
-          // IV Rank: how current IV compares to historical vol. >100 = IV elevated, <100 = IV low
-          const ivRatio = currentIV && historicalVol ? currentIV / historicalVol : null;
-          const ivRank = ivRatio ? Math.round(Math.min(100, Math.max(0, (ivRatio - 0.5) * 100))) : null;
-          const ivSignal = ivRank > 60 ? 'ALTA — momento optimo para vender' : ivRank > 30 ? 'MEDIA — aceptable para vender' : 'BAJA — esperar mejor momento';
-
-          // 4. Position data
-          const posRow = await env.DB.prepare("SELECT * FROM positions WHERE ticker = ?").bind(symbol).first();
-          const shares = posRow?.shares || 0;
-          const avgCost = posRow?.avg_price || 0;
-          const divYield = posRow?.div_yield || 0;
-
-          // 5. Analyze best CC and CSP for each expiration
-          const strategies = [];
-
-          for (const chain of chains) {
-            const calls = chain.calls.filter(c => c.bid > 0 && !c.inTheMoney);
-            const puts = chain.puts.filter(p => p.bid > 0 && !p.inTheMoney);
-
-            // Best Covered Calls at different OTM levels
-            for (const otmTarget of [0.03, 0.05, 0.08, 0.10]) {
-              const targetStrike = price * (1 + otmTarget);
-              const bestCC = calls.reduce((best, c) => {
-                if (!best || Math.abs(c.strike - targetStrike) < Math.abs(best.strike - targetStrike)) return c;
-                return best;
-              }, null);
-              if (bestCC && bestCC.bid >= 0.05) {
-                const premium = bestCC.bid;
-                const premPct = (premium / price * 100);
-                const annualized = premPct * (365 / chain.dte);
-                const otmPct = ((bestCC.strike - price) / price * 100);
-                const probOTM = 100 - (bestCC.impliedVolatility ? Math.round(50 + otmPct / (bestCC.impliedVolatility * Math.sqrt(chain.dte / 365)) * 15) : 70);
-                const theta = premium / chain.dte;
-                strategies.push({
-                  type: 'COVERED_CALL', expDate: chain.expDate, dte: chain.dte,
-                  strike: bestCC.strike, otmPct: Math.round(otmPct * 10) / 10,
-                  bid: bestCC.bid, ask: bestCC.ask || 0,
-                  premium: Math.round(premium * 100) / 100,
-                  premiumPct: Math.round(premPct * 100) / 100,
-                  annualized: Math.round(annualized),
-                  iv: bestCC.impliedVolatility ? Math.round(bestCC.impliedVolatility * 10000) / 100 : null,
-                  openInterest: bestCC.openInterest || 0,
-                  volume: bestCC.volume || 0,
-                  thetaDaily: Math.round(theta * 100) / 100,
-                  probOTM: Math.min(95, Math.max(40, probOTM)),
-                  contractsAvailable: shares >= 100 ? Math.floor(shares / 100) : 0,
-                  totalPremium: shares >= 100 ? Math.round(bestCC.bid * Math.floor(shares / 100) * 100) : 0,
-                });
-              }
-            }
-
-            // Best Cash Secured Puts at different OTM levels
-            for (const otmTarget of [0.05, 0.08, 0.10, 0.15]) {
-              const targetStrike = price * (1 - otmTarget);
-              const bestCSP = puts.reduce((best, p) => {
-                if (!best || Math.abs(p.strike - targetStrike) < Math.abs(best.strike - targetStrike)) return p;
-                return best;
-              }, null);
-              if (bestCSP && bestCSP.bid >= 0.05) {
-                const premium = bestCSP.bid;
-                const premPct = (premium / bestCSP.strike * 100);
-                const annualized = premPct * (365 / chain.dte);
-                const otmPct = ((price - bestCSP.strike) / price * 100);
-                const yocIfAssigned = posRow?.div_ttm ? (posRow.div_ttm / bestCSP.strike * 100) : (divYield * 100 * price / bestCSP.strike);
-                strategies.push({
-                  type: 'CASH_SECURED_PUT', expDate: chain.expDate, dte: chain.dte,
-                  strike: bestCSP.strike, otmPct: Math.round(otmPct * 10) / 10,
-                  bid: bestCSP.bid, ask: bestCSP.ask || 0,
-                  premium: Math.round(premium * 100) / 100,
-                  premiumPct: Math.round(premPct * 100) / 100,
-                  annualized: Math.round(annualized),
-                  iv: bestCSP.impliedVolatility ? Math.round(bestCSP.impliedVolatility * 10000) / 100 : null,
-                  openInterest: bestCSP.openInterest || 0,
-                  volume: bestCSP.volume || 0,
-                  cashRequired: Math.round(bestCSP.strike * 100),
-                  yocIfAssigned: Math.round(yocIfAssigned * 100) / 100,
-                  belowAvgCost: avgCost ? bestCSP.strike < avgCost : null,
-                });
-              }
-            }
-          }
-
-          // 6. Timing assessment
-          let timing = 'NEUTRAL';
-          let timingReason = [];
-          if (ivRank > 60) { timing = 'FAVORABLE'; timingReason.push(`IV rank ${ivRank}% — volatilidad elevada, primas ricas`); }
-          if (ivRank <= 30) { timing = 'DESFAVORABLE'; timingReason.push(`IV rank ${ivRank}% — volatilidad baja, primas pobres`); }
-          if (earningsInDays && earningsInDays < 30) { timing = 'CUIDADO'; timingReason.push(`Earnings en ${earningsInDays} dias — riesgo IV crush`); }
-          if (earningsInDays && earningsInDays > 30 && earningsInDays < 60) { timingReason.push(`Earnings en ${earningsInDays}d — vender antes del run-up de IV`); }
-          if (price < fiftyTwoLow * 1.1) { timingReason.push('Cerca de minimos 52s — bueno para CSP'); }
-          if (price > fiftyTwoHigh * 0.9) { timingReason.push('Cerca de maximos 52s — bueno para CC'); }
-
-          return json({
-            symbol, price, shares, avgCost,
-            divYield: Math.round(divYield * 10000) / 100,
-            fiftyTwoRange: `$${fiftyTwoLow.toFixed(2)} - $${fiftyTwoHigh.toFixed(2)}`,
-            currentIV: currentIV ? Math.round(currentIV * 10) / 10 : null,
-            historicalVol: Math.round(historicalVol * 10) / 10,
-            ivRank,
-            ivSignal,
-            earningsInDays,
-            timing, timingReason,
-            gfScore: gf.gfScore, gfValuation: gf.gfValuation,
-            strategies: strategies.sort((a, b) => (b.annualized || 0) - (a.annualized || 0)),
-            recommendation: timing === 'FAVORABLE' ? 'Buen momento para vender opciones — IV elevada' :
-              timing === 'CUIDADO' ? 'Esperar — earnings cercanos pueden causar movimiento brusco' :
-              timing === 'DESFAVORABLE' ? 'Esperar — IV baja, primas no compensan el riesgo' :
-              'Aceptable — primas moderadas',
-          }, corsHeaders);
         } catch (e) {
           return json({ error: e.message }, corsHeaders, 500);
         }

@@ -23,6 +23,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { API_URL } from '../../constants/index.js';
+import { fmtUsdCompact as fmtUsd, fmtPctFrac, fmtNumD as fmtNum, fmtDateES as fmtDate } from '../../utils/formatters.js';
 
 // ─── Constants ──────────────────────────────────────────────────────
 const STRATEGY_META = {
@@ -44,30 +45,8 @@ const STATUS_COLORS = {
 const MONTHS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const MONTHS_SHORT = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 
-const fmtUsd = (n) => {
-  if (n === null || n === undefined || Number.isNaN(Number(n))) return '—';
-  const v = Number(n);
-  const abs = Math.abs(v);
-  if (abs >= 1e6) return `${v < 0 ? '-' : ''}$${(abs / 1e6).toFixed(2)}M`;
-  if (abs >= 1e3) return `${v < 0 ? '-' : ''}$${(abs / 1e3).toFixed(1)}k`;
-  return `${v < 0 ? '-' : ''}$${abs.toFixed(2)}`;
-};
-
-const fmtPct = (n) => {
-  if (n === null || n === undefined || Number.isNaN(Number(n))) return '—';
-  return `${(Number(n) * 100).toFixed(2)}%`;
-};
-
-const fmtNum = (n, dec = 2) => {
-  if (n === null || n === undefined || Number.isNaN(Number(n))) return '—';
-  return Number(n).toFixed(dec);
-};
-
-const fmtDate = (d) => {
-  if (!d) return '—';
-  try { return new Date(d).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: '2-digit' }); }
-  catch { return String(d); }
-};
+// Local alias: OpcionesTab uses 2-decimal percent from a fraction (e.g. 0.1234 → "12.34%").
+const fmtPct = (v) => fmtPctFrac(v, 2);
 
 // ─── Main component ─────────────────────────────────────────────────
 export default function OpcionesTab({ strategy: strategyProp, view = 'list' }) {

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { useDraggableOrder } from '../../hooks/useDraggableOrder.js';
-import { _sf, fDol } from '../../utils/formatters.js';
+import { _sf, fDol, fmtMC } from '../../utils/formatters.js';
 import { EmptyState, LoadingSkeleton } from '../ui/EmptyState.jsx';
 import { API_URL } from '../../constants/index.js';
 
@@ -24,11 +24,6 @@ const SECTOR_COLORS = {
 const getSectorColor = (sector) => {
   if (!sector || sector === "\u2014") return null;
   return SECTOR_COLORS[sector] || "#6b7280";
-};
-
-const fmtMC = mc => {
-  if (!mc || mc <= 0) return "\u2014";
-  return mc >= 1000 ? "$"+_sf(mc/1000,1)+"T" : "$"+_sf(mc,0)+"B";
 };
 
 const COL_DEFS = [
@@ -962,6 +957,7 @@ export default function PortfolioTab() {
                         // DGR columns: show tooltip with 1Y/3Y/5Y/10Y breakdown
                         if (c.isDGR && p._dgr) {
                           const d = p._dgr;
+                          // Kept local: DGR tooltip needs signed + 1-decimal percent from a fraction; closest shared helper (fmtPctFracSigned) defaults to 2 decimals.
                           const fmtDGR = v => v != null ? (v >= 0 ? "+" : "") + _sf(v * 100, 1) + "%" : "\u2014";
                           const dgrColor = v => v != null ? (v > 0.05 ? "#30d158" : v > 0.01 ? "#ffd60a" : "#ff453a") : "var(--text-tertiary)";
                           const val = c.val(p);

@@ -1,4 +1,4 @@
-// NoticiasTab — YouTube multi-channel view with dynamic sub-tabs
+// YouTubeTab — YouTube multi-channel view with dynamic sub-tabs
 // Reads /api/youtube/channels and /api/youtube/videos?channel_id=... (populated
 // by the Mac scan-youtube.sh script after the user clicks "🔄 Escanear canal").
 // Shows per-video cards with expandable per-company analysis extracted by
@@ -88,7 +88,7 @@ const VERDICT_LBL = {
 
 const LS_SELECTED = 'yt_selected_channel';
 
-export default function NoticiasTab() {
+export default function YouTubeTab() {
   const { openAnalysis } = useHome();
   const [channels, setChannels] = useState([]);
   const [selectedChannelId, setSelectedChannelId] = useState(() => {

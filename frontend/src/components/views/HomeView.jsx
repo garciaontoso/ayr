@@ -24,7 +24,7 @@ import IncomeLabTab from '../home/IncomeLabTab';
 // analysis view (TesisTab). File removed entirely after audit B.
 import LibraryTab from '../home/LibraryTab';
 import SmartMoneyTab from '../home/SmartMoneyTab';
-import NoticiasTab, { fetchAllYouTubeForOffline } from '../home/NoticiasTab';
+import YouTubeTab, { fetchAllYouTubeForOffline } from '../home/YouTubeTab';
 import OpcionesTab from '../home/OpcionesTab';
 import EarningsArchiveTab from '../home/EarningsArchiveTab';
 import CurrencyTab from '../home/CurrencyTab';
@@ -170,11 +170,37 @@ const SESSION_META = {
   closed:  { icon: '💤', label: 'Cerrado',    color: '#6b7280' },
 };
 
+// Marquee speed presets — higher duration = slower scroll.
+// Icon rotates through a progression so user can see current speed at a glance.
+const MARQUEE_SPEEDS = [
+  { id: 'turtle',  label: '🐢',    duration: 180, title: 'Muy lento' },
+  { id: 'slow',    label: '🐢💨', duration: 120, title: 'Lento' },
+  { id: 'normal',  label: '🚶',    duration: 90,  title: 'Normal' },
+  { id: 'fast',    label: '🏃',    duration: 50,  title: 'Rápido' },
+  { id: 'racing',  label: '🏎',    duration: 25,  title: 'Muy rápido' },
+];
+
 function SentimentBar() {
   const [data, setData] = useState(null);
   const [history, setHistory] = useState({ vix: [], fearGreed: [] });
   const [futures, setFutures] = useState(null);
   const [showDetail, setShowDetail] = useState(false);
+  // Marquee speed state persists in localStorage so it survives reloads
+  const [speedIdx, setSpeedIdx] = useState(() => {
+    try {
+      const v = parseInt(localStorage.getItem('ayr_marquee_speed') || '2', 10);
+      if (Number.isFinite(v) && v >= 0 && v < MARQUEE_SPEEDS.length) return v;
+    } catch {}
+    return 2; // default 'normal' (90s)
+  });
+  const currentSpeed = MARQUEE_SPEEDS[speedIdx];
+  const cycleSpeed = () => {
+    setSpeedIdx(prev => {
+      const next = (prev + 1) % MARQUEE_SPEEDS.length;
+      try { localStorage.setItem('ayr_marquee_speed', String(next)); } catch {}
+      return next;
+    });
+  };
   useEffect(() => {
     const ac = new AbortController();
     const { signal } = ac;
@@ -335,17 +361,37 @@ function SentimentBar() {
         <div style={{
           marginBottom: 4, background: 'var(--card)', border: '1px solid var(--border)',
           borderRadius: 6, overflow: 'hidden', position: 'relative',
+          display: 'flex', alignItems: 'center',
         }}>
           <style>{`
             @keyframes ayr-ticker-scroll {
               0%   { transform: translateX(0); }
               100% { transform: translateX(-50%); }
             }
-            .ayr-ticker-track { animation: ayr-ticker-scroll 90s linear infinite; }
+            .ayr-ticker-track { animation: ayr-ticker-scroll var(--ayr-marquee-duration, 90s) linear infinite; }
             .ayr-ticker-track:hover { animation-play-state: paused; }
           `}</style>
+          {/* Speed selector — click to cycle 🐢→🐢💨→🚶→🏃→🏎 */}
+          <button
+            onClick={cycleSpeed}
+            title={`Velocidad: ${currentSpeed.title} — click para cambiar`}
+            style={{
+              flex: '0 0 auto', background: 'var(--subtle-bg)',
+              border: 'none', borderRight: '1px solid var(--border)',
+              padding: '0 10px', height: '100%', cursor: 'pointer',
+              fontSize: 14, lineHeight: 1, minHeight: 30,
+              display: 'flex', alignItems: 'center', gap: 4,
+            }}
+          >
+            <span>{currentSpeed.label}</span>
+            <span style={{ fontSize: 7, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', fontWeight: 700 }}>
+              {currentSpeed.title}
+            </span>
+          </button>
           <div className="ayr-ticker-track" style={{
             display: 'inline-flex', whiteSpace: 'nowrap', gap: 0,
+            ['--ayr-marquee-duration']: `${currentSpeed.duration}s`,
+            flex: 1, minWidth: 0,
           }}>
             {/* Duplicate the list twice so the loop is seamless */}
             {[...marqueeItems, ...marqueeItems].map((f, idx) => {
@@ -678,7 +724,7 @@ function AirplaneMode({ portfolioList }) {
 
     // ── Phase 6.5: YouTube Dividendo videos for Noticias tab offline ──
     // fetchAllYouTubeForOffline writes to localStorage 'offline_youtube_videos'
-    // (separate from the SW cache because the NoticiasTab reads JSON, not Response).
+    // (separate from the SW cache because the YouTubeTab reads JSON, not Response).
     setDlPhase("Vídeos YouTube Dividendo");
     setDlTotal(1); setDlCurrent(0);
     try {
@@ -1293,7 +1339,7 @@ export default function HomeView() {
       {homeTab==="presupuesto" && <PresupuestoTab />}
       {homeTab==="library" && <LibraryTab />}
       {homeTab==="smart-money" && <SmartMoneyTab />}
-      {homeTab==="videos-youtube" && <NoticiasTab />}
+      {homeTab==="videos-youtube" && <YouTubeTab />}
       {homeTab==="earnings-archive" && <EarningsArchiveTab />}
       {homeTab==="opciones-cs" && <OpcionesTab strategy="CS" view="list" />}
       {homeTab==="opciones-roc" && <OpcionesTab strategy="ROC" view="list" />}

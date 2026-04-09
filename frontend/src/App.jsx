@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } from "react";
-import { _sf, _sl, n, fDol } from './utils/formatters.js';
+import { _sf, _sl, n, fDol, fmtNumD, fmtPctFrac, fmtMul, fmtBnUsd } from './utils/formatters.js';
 import { CURRENCIES, DISPLAY_CCYS, DEFAULT_FX, YEARS, _CURRENT_YEAR, TABS, API_URL, HOME_TABS } from './constants/index.js';
 import { convertCcy, fetchFxRates } from './utils/currency.js';
 import { storageAvailable, saveCompanyToStorage, loadCompanyFromStorage, loadPortfolioIndex, removeCompanyFromStorage } from './utils/storage.js';
@@ -2365,10 +2365,12 @@ function buildPositionsFromCB() {
               const inputs = d.inputs || {};
               const qInputs = inputs.quality || {};
               const sInputs = inputs.safety || {};
-              const fmt = (v, decimals=2) => v == null ? "—" : (typeof v === 'number' ? v.toFixed(decimals) : v);
-              const fmtPct = (v) => v == null ? "—" : (v*100).toFixed(1)+"%";
-              const fmtMul = (v) => v == null ? "—" : v.toFixed(2)+"x";
-              const fmtBn = (v) => v == null ? "—" : v >= 1e9 ? "$"+(v/1e9).toFixed(1)+"B" : v >= 1e6 ? "$"+(v/1e6).toFixed(0)+"M" : "$"+v.toFixed(0);
+              // Migrated to shared helpers in utils/formatters.js.
+              // fmt falls back to the raw value for non-numbers (e.g. string labels), so keep a tiny wrapper.
+              const fmt = (v, decimals=2) => (typeof v === 'number' ? fmtNumD(v, decimals) : (v == null ? "—" : v));
+              const fmtPct = fmtPctFrac;          // fraction → "X.X%"
+              // fmtMul, fmtBn come from imports (fmtBn → fmtBnUsd alias below for local call sites)
+              const fmtBn = fmtBnUsd;
 
               const ScoreBar = ({label, pts, max, val=null, fmt=null}) => {
                 const pct = (pts || 0) / max * 100;

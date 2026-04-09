@@ -1,28 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { API_URL } from '../../constants/index.js';
 import { Button, Modal } from '../ui';
-
-// ── Helpers ──────────────────────────────────────────────────────
-function fmtUSD(n) {
-  if (n == null || isNaN(n)) return '—';
-  return '$' + Math.round(n).toLocaleString('en-US');
-}
-function fmtPct(n, digits = 1) {
-  if (n == null || isNaN(n)) return '—';
-  const sign = n >= 0 ? '+' : '';
-  return sign + Number(n).toFixed(digits) + '%';
-}
-function fmtNum(n, digits = 2) {
-  if (n == null || isNaN(n)) return '—';
-  return Number(n).toFixed(digits);
-}
-function fmtDate(iso) {
-  if (!iso) return '—';
-  try {
-    const d = new Date(iso + 'T00:00:00');
-    return d.toLocaleDateString('es-ES', { weekday: 'short', day: '2-digit', month: 'short' });
-  } catch { return iso; }
-}
+import {
+  fmtUSD,
+  fmtPctSigned as fmtPct,
+  fmtNumD as fmtNum,
+  fmtDateESLong as fmtDate,
+} from '../../utils/formatters.js';
 function daysLabel(n) {
   if (n == null) return '';
   if (n === 0) return 'hoy';

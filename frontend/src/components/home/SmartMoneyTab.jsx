@@ -19,6 +19,7 @@ import { useHome } from '../../context/HomeContext';
 import { API_URL } from '../../constants/index.js';
 import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
 import { useDraggableOrder } from '../../hooks/useDraggableOrder.js';
+import { fmtPctFrac, fmtPctFracSigned } from '../../utils/formatters.js';
 
 const SUB_VIEWS = [
   { id: 'alerts', lbl: '🔔 Alerts', desc: 'Cambios materiales último Q' },
@@ -880,8 +881,8 @@ export default function SmartMoneyTab() {
                   </thead>
                   <tbody>
                     {perfData.funds.map(f => {
-                      const fmtPct = (v) => v == null ? '—' : `${(v * 100).toFixed(1)}%`;
-                      const fmtRet = (v) => v == null ? '—' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)}%`;
+                      const fmtPct = fmtPctFrac;         // 1-decimal % from fraction
+                      const fmtRet = fmtPctFracSigned;   // signed 2-decimal % from fraction
                       const hitColor = (v) => v == null ? 'var(--text-tertiary)' : v >= 0.7 ? 'var(--gold)' : v >= 0.5 ? 'var(--green)' : 'var(--red)';
                       const retColor = (v) => v == null ? 'var(--text-tertiary)' : v > 0 ? 'var(--green)' : 'var(--red)';
                       return (
