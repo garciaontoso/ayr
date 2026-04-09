@@ -636,6 +636,30 @@ export default function NoticiasTab() {
 
 function VideoCard({ video, expanded, onToggle, openAnalysis }) {
   const companies = video.companies || [];
+  const [showTranscript, setShowTranscript] = useState(false);
+  const [transcriptText, setTranscriptText] = useState(video.transcript || null);
+  const [loadingTranscript, setLoadingTranscript] = useState(false);
+  const [transcriptError, setTranscriptError] = useState('');
+
+  const loadTranscript = async () => {
+    if (transcriptText) { setShowTranscript(true); return; }
+    setLoadingTranscript(true); setTranscriptError('');
+    try {
+      const r = await fetch(`${API_URL}/api/youtube/video/${encodeURIComponent(video.video_id)}`);
+      const d = await r.json();
+      if (d?.video?.transcript) {
+        setTranscriptText(d.video.transcript);
+        setShowTranscript(true);
+      } else {
+        setTranscriptError('No hay transcripción guardada para este vídeo. Vuelve a procesarlo desde el botón "🔔 Procesar".');
+      }
+    } catch (e) {
+      setTranscriptError(String(e));
+    } finally {
+      setLoadingTranscript(false);
+    }
+  };
+
   const card = {
     background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12,
     padding: 14, fontFamily: 'var(--fm)',
@@ -653,6 +677,7 @@ function VideoCard({ video, expanded, onToggle, openAnalysis }) {
             {video.status === 'pending' && ' · ⏳ Pendiente de transcripción'}
             {video.status === 'summarized' && ` · 🤖 ${companies.length} empresa${companies.length !== 1 ? 's' : ''} analizada${companies.length !== 1 ? 's' : ''}`}
             {video.status === 'error' && ' · ❌ Error'}
+            {video.transcript_word_count ? ` · 📄 ${video.transcript_word_count.toLocaleString()} palabras` : ''}
             {video.processing_cost_usd ? ` · $${Number(video.processing_cost_usd).toFixed(3)}` : ''}
           </div>
           {video.summary_general && (
@@ -671,12 +696,13 @@ function VideoCard({ video, expanded, onToggle, openAnalysis }) {
         </a>
       </div>
 
-      {companies.length > 0 && (
-        <>
+      {/* Action buttons row */}
+      <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+        {companies.length > 0 && (
           <button
             onClick={onToggle}
             style={{
-              marginTop: 8, padding: '4px 10px', borderRadius: 6,
+              padding: '4px 10px', borderRadius: 6,
               background: 'transparent', border: '1px solid var(--border)',
               color: 'var(--text-tertiary)', cursor: 'pointer',
               fontSize: 10, fontFamily: 'var(--fm)',
@@ -684,6 +710,87 @@ function VideoCard({ video, expanded, onToggle, openAnalysis }) {
           >
             {expanded ? '▲ Ocultar' : '▼ Ver'} {companies.length} empresa{companies.length !== 1 ? 's' : ''}
           </button>
+        )}
+        {(video.transcript || video.transcript_word_count) && (
+          <button
+            onClick={loadTranscript}
+            disabled={loadingTranscript}
+            style={{
+              padding: '4px 10px', borderRadius: 6,
+              background: 'transparent', border: '1px solid var(--gold)',
+              color: 'var(--gold)', cursor: 'pointer',
+              fontSize: 10, fontFamily: 'var(--fm)', opacity: loadingTranscript ? 0.5 : 1,
+            }}
+          >
+            {loadingTranscript ? '⏳ Cargando...' : '📄 Transcripción'}
+          </button>
+        )}
+      </div>
+      {transcriptError && (
+        <div style={{ marginTop: 6, fontSize: 10, color: 'var(--red)' }}>{transcriptError}</div>
+      )}
+      {showTranscript && transcriptText && (
+        <div
+          onClick={() => setShowTranscript(false)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,.7)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--card)', border: '1px solid var(--gold)', borderRadius: 12,
+              padding: 18, maxWidth: 820, width: '100%', maxHeight: '85vh',
+              display: 'flex', flexDirection: 'column',
+            }}
+          >
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              marginBottom: 12, paddingBottom: 10, borderBottom: '1px solid var(--border)',
+            }}>
+              <div>
+                <div style={{ fontFamily: 'var(--fd)', fontSize: 16, color: 'var(--gold)' }}>
+                  📄 Transcripción completa
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                  {video.title} · {(video.transcript_word_count || transcriptText.split(/\s+/).length).toLocaleString()} palabras
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  onClick={() => { navigator.clipboard?.writeText(transcriptText); }}
+                  style={{
+                    background: 'transparent', border: '1px solid var(--border)',
+                    color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: 6,
+                    fontSize: 10, cursor: 'pointer',
+                  }}
+                >
+                  📋 Copiar
+                </button>
+                <button
+                  onClick={() => setShowTranscript(false)}
+                  style={{
+                    background: 'transparent', border: 'none',
+                    color: 'var(--text-secondary)', fontSize: 18, cursor: 'pointer',
+                  }}
+                >×</button>
+              </div>
+            </div>
+            <div style={{
+              overflowY: 'auto', fontSize: 12, lineHeight: 1.6,
+              color: 'var(--text-primary)', whiteSpace: 'pre-wrap',
+              fontFamily: 'var(--fb)', paddingRight: 8,
+            }}>
+              {transcriptText}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {companies.length > 0 && (
+        <>
 
           {expanded && (
             <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>

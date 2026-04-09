@@ -4291,9 +4291,18 @@ Schema exacto:
         } catch(e) { console.error("VIX fetch:", e.message); }
 
         // 2) CNN Fear & Greed
+        // CNN blocks bots with HTTP 418 unless we send a full browser header set
+        // including Referer + Origin matching the public page. The generic
+        // "Mozilla/5.0" UA is detected immediately as a bot.
         try {
           const resp = await fetch("https://production.dataviz.cnn.io/index/fearandgreed/graphdata", {
-            headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" }
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+              "Accept": "application/json, text/plain, */*",
+              "Accept-Language": "en-US,en;q=0.9",
+              "Referer": "https://edition.cnn.com/markets/fear-and-greed",
+              "Origin": "https://edition.cnn.com",
+            },
           });
           if (resp.ok) {
             const data = await resp.json();
@@ -4326,6 +4335,196 @@ Schema exacto:
         } catch(e) { console.error("sentiment cache write:", e.message); }
 
         return json({ ...result, cached: false, updated: new Date().toISOString() }, corsHeaders);
+      }
+
+      // GET /api/market-sentiment/history?range=1d|5d|1m
+      // Returns intraday VIX points (5-min from FMP) + daily Fear & Greed
+      // history from CNN (already a 30d window in the same upstream payload).
+      // Cached in price_cache with 15min TTL to avoid hammering FMP on
+      // every tab switch.
+      if (path === "/api/market-sentiment/history" && request.method === "GET") {
+        const range = (url.searchParams.get("range") || "1d").toLowerCase();
+        const cacheKey = `market-sentiment-history-${range}`;
+        try {
+          const cached = await env.DB.prepare(
+            "SELECT data, updated_at FROM price_cache WHERE id = ?"
+          ).bind(cacheKey).first();
+          if (cached?.data) {
+            const age = Date.now() - new Date(cached.updated_at).getTime();
+            const ttl = range === '1d' ? 5 * 60 * 1000 : 30 * 60 * 1000;
+            if (age < ttl) {
+              return json({ ...JSON.parse(cached.data), cached: true, updated: cached.updated_at }, corsHeaders);
+            }
+          }
+        } catch {}
+
+        const out = { vix: [], fearGreed: [], range };
+
+        // VIX intraday via FMP historical-chart/5min (latest 1 day ≈ 80 points)
+        try {
+          const interval = range === '1d' ? '5min' : range === '5d' ? '30min' : '1hour';
+          const fmpUrl = `https://financialmodelingprep.com/stable/historical-chart/${interval}?symbol=^VIX&apikey=${env.FMP_KEY}`;
+          const resp = await fetch(fmpUrl);
+          if (resp.ok) {
+            const rows = await resp.json();
+            if (Array.isArray(rows)) {
+              // Trim by range
+              const cutoffDays = range === '1d' ? 1 : range === '5d' ? 5 : 30;
+              const cutoff = Date.now() - cutoffDays * 86400 * 1000;
+              out.vix = rows
+                .filter(r => r && r.date && new Date(r.date).getTime() >= cutoff)
+                .map(r => ({
+                  t: new Date(r.date).toISOString(),
+                  v: Number(r.close) || Number(r.price) || 0,
+                }))
+                .reverse();
+            }
+          }
+        } catch(e) { console.error("VIX intraday:", e.message); }
+
+        // Daily Fear & Greed from CNN (payload includes last 30 days)
+        try {
+          const resp = await fetch("https://production.dataviz.cnn.io/index/fearandgreed/graphdata", {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+              "Accept": "application/json, text/plain, */*",
+              "Accept-Language": "en-US,en;q=0.9",
+              "Referer": "https://edition.cnn.com/markets/fear-and-greed",
+              "Origin": "https://edition.cnn.com",
+            },
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            const hist = data?.fear_and_greed_historical?.data;
+            if (Array.isArray(hist)) {
+              out.fearGreed = hist.map(p => ({
+                t: new Date(p.x).toISOString(),
+                v: Math.round((p.y || 0) * 10) / 10,
+                rating: p.rating || null,
+              }));
+            }
+          }
+        } catch(e) { console.error("F&G history:", e.message); }
+
+        try {
+          await env.DB.prepare(
+            `INSERT INTO price_cache (id, data, updated_at) VALUES (?, ?, datetime('now'))
+             ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
+          ).bind(cacheKey, JSON.stringify(out)).run();
+        } catch {}
+
+        return json({ ...out, cached: false }, corsHeaders);
+      }
+
+      // GET /api/futures-intraday?range=1d
+      // Returns current quotes + 5min intraday series for the main global
+      // index futures. Grouped by region for UI rendering.
+      //
+      // Symbols chosen (all available on FMP as continuous futures):
+      //   Americanos:  ES=F S&P, NQ=F Nasdaq, YM=F Dow, RTY=F Russell
+      //   Europeos:    ESTX50 (SX5E), DAX (DEU40), FTSE (UKX), CAC (FCHI)
+      //                — FMP doesn't provide European futures directly as
+      //                  /stable/ symbols; we use their CASH index symbols
+      //                  (^STOXX50E, ^GDAXI, ^FTSE, ^FCHI) as fallbacks.
+      //   Asiáticos:   NKD=F Nikkei, HSI=F Hang Seng (futures on CME/HKFE)
+      //                — Same caveat; we use cash indexes as fallback.
+      //
+      // Cached 5 min in price_cache.
+      if (path === "/api/futures-intraday" && request.method === "GET") {
+        const cacheKey = "futures-intraday";
+        try {
+          const cached = await env.DB.prepare(
+            "SELECT data, updated_at FROM price_cache WHERE id = ?"
+          ).bind(cacheKey).first();
+          if (cached?.data) {
+            const age = Date.now() - new Date(cached.updated_at).getTime();
+            if (age < 5 * 60 * 1000) {
+              return json({ ...JSON.parse(cached.data), cached: true, updated: cached.updated_at }, corsHeaders);
+            }
+          }
+        } catch {}
+
+        // List of symbols to try. FMP uses different conventions for futures
+        // vs cash. We'll fetch both and prefer the futures where available.
+        const instruments = [
+          // region, label, primarySym (futures), fallbackSym (cash), color
+          { region: 'USA',     label: 'S&P 500',   primary: 'ES=F',   fallback: '^GSPC',     color: '#1d4ed8' },
+          { region: 'USA',     label: 'Nasdaq',    primary: 'NQ=F',   fallback: '^IXIC',     color: '#2563eb' },
+          { region: 'USA',     label: 'Dow Jones', primary: 'YM=F',   fallback: '^DJI',      color: '#3b82f6' },
+          { region: 'USA',     label: 'Russell',   primary: 'RTY=F',  fallback: '^RUT',      color: '#60a5fa' },
+          { region: 'Europa',  label: 'Euro Stoxx',primary: '^STOXX50E', fallback: null,    color: '#7c3aed' },
+          { region: 'Europa',  label: 'DAX',       primary: '^GDAXI',  fallback: null,      color: '#8b5cf6' },
+          { region: 'Europa',  label: 'FTSE 100',  primary: '^FTSE',   fallback: null,      color: '#a855f7' },
+          { region: 'Europa',  label: 'CAC 40',    primary: '^FCHI',   fallback: null,      color: '#c084fc' },
+          { region: 'Europa',  label: 'IBEX',      primary: '^IBEX',   fallback: null,      color: '#d8b4fe' },
+          { region: 'Asia',    label: 'Nikkei',    primary: '^N225',   fallback: null,      color: '#dc2626' },
+          { region: 'Asia',    label: 'Hang Seng', primary: '^HSI',    fallback: null,      color: '#ef4444' },
+          { region: 'Asia',    label: 'Shanghai',  primary: '^SSEC',   fallback: null,      color: '#f87171' },
+        ];
+
+        // Fetch quotes + histories in parallel. FMP /stable/quote only
+        // accepts a single symbol per call on some tiers; /batch-quote is
+        // more reliable across symbol types (indexes, futures, FX).
+        const fetchOne = async (inst) => {
+          const trySym = async (sym) => {
+            if (!sym) return null;
+            try {
+              // Quote via batch-quote (singular form is flaky for indexes)
+              const qUrl = `https://financialmodelingprep.com/stable/batch-quote?symbols=${encodeURIComponent(sym)}&apikey=${env.FMP_KEY}`;
+              const qResp = await fetch(qUrl);
+              const qArr = qResp.ok ? await qResp.json() : null;
+              const quote = Array.isArray(qArr) && qArr.length ? qArr[0] : null;
+              if (!quote || quote.price == null) return null;
+              // Intraday (last ~1 day of 5min bars)
+              const hUrl = `https://financialmodelingprep.com/stable/historical-chart/5min?symbol=${encodeURIComponent(sym)}&apikey=${env.FMP_KEY}`;
+              const hResp = await fetch(hUrl);
+              const hArr = hResp.ok ? await hResp.json() : null;
+              let spark = [];
+              if (Array.isArray(hArr) && hArr.length) {
+                const cutoff = Date.now() - 26 * 3600 * 1000;
+                spark = hArr
+                  .filter(r => r && r.date && new Date(r.date).getTime() >= cutoff)
+                  .map(r => ({ t: r.date, v: Number(r.close || r.price) }))
+                  .reverse()
+                  .slice(-80);
+              }
+              return { sym, quote, spark };
+            } catch { return null; }
+          };
+          let res = await trySym(inst.primary);
+          if (!res && inst.fallback) res = await trySym(inst.fallback);
+          if (!res) return null;
+          const q = res.quote;
+          const prev = q.previousClose || q.price;
+          const chg = q.price - prev;
+          const chgPct = prev ? (chg / prev) * 100 : 0;
+          return {
+            region: inst.region,
+            label: inst.label,
+            color: inst.color,
+            symbol: res.sym,
+            price: Math.round(q.price * 100) / 100,
+            change: Math.round(chg * 100) / 100,
+            changePct: Math.round(chgPct * 100) / 100,
+            spark: res.spark,
+          };
+        };
+
+        const results = await Promise.all(instruments.map(fetchOne));
+        const byRegion = { USA: [], Europa: [], Asia: [] };
+        for (const r of results) {
+          if (r && byRegion[r.region]) byRegion[r.region].push(r);
+        }
+
+        const payload = { regions: byRegion };
+        try {
+          await env.DB.prepare(
+            `INSERT INTO price_cache (id, data, updated_at) VALUES (?, ?, datetime('now'))
+             ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
+          ).bind(cacheKey, JSON.stringify(payload)).run();
+        } catch {}
+
+        return json({ ...payload, cached: false }, corsHeaders);
       }
 
       // ─── FMP PROXY ────────────────────────────────
@@ -8396,6 +8595,9 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         return json({ theses: results || [] }, corsHeaders);
       }
       if (path === "/api/theses/missing" && request.method === "GET") {
+        // Threshold configurable via query param ?min_weight=0 (default 0.5%
+        // to include smaller positions but still exclude noise / cash ETFs).
+        const minWeight = Number(url.searchParams.get("min_weight") ?? "0.5");
         // Compute weights in-app (positions table has market_value)
         const { results: positions } = await env.DB.prepare(
           "SELECT ticker, name, market_value FROM positions WHERE shares > 0"
@@ -8405,7 +8607,7 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
           ticker: p.ticker,
           name: p.name,
           weight_pct: total > 0 ? (p.market_value / total) * 100 : 0,
-        })).filter(p => p.weight_pct >= 1);
+        })).filter(p => p.weight_pct >= minWeight);
         const { results: thesesRows } = await env.DB.prepare(
           "SELECT ticker FROM theses WHERE is_current = 1"
         ).all();
@@ -8417,10 +8619,45 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
           missing,
           missing_count: missing.length,
           total_eligible: weighted.length,
+          total_positions: positions.length,
+          total_theses: thesesTickers.size,
+          min_weight_pct: minWeight,
           coverage_pct: weighted.length > 0
             ? Math.round((weighted.length - missing.length) / weighted.length * 100)
             : 0,
         }, corsHeaders);
+      }
+      // POST /api/theses/generate-all — lazy bulk generator for positions
+      // without a thesis. Triggers Opus generation for each missing ticker
+      // sequentially (~$0.10-0.15 each). Respects min_weight in body.
+      if (path === "/api/theses/generate-all" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        let body = {};
+        try { body = await request.json(); } catch {}
+        const minWeight = Number(body.min_weight ?? 0.5);
+        const limit = Math.min(Number(body.limit ?? 10), 30);
+        const { results: positions } = await env.DB.prepare(
+          "SELECT ticker, name, market_value FROM positions WHERE shares > 0"
+        ).all();
+        const total = positions.reduce((s, p) => s + (p.market_value || 0), 0);
+        const weighted = positions.map(p => ({
+          ticker: p.ticker,
+          name: p.name,
+          weight_pct: total > 0 ? (p.market_value / total) * 100 : 0,
+        })).filter(p => p.weight_pct >= minWeight);
+        const { results: thesesRows } = await env.DB.prepare(
+          "SELECT ticker FROM theses WHERE is_current = 1"
+        ).all();
+        const thesesTickers = new Set((thesesRows || []).map(r => r.ticker));
+        const missing = weighted
+          .filter(p => !thesesTickers.has(p.ticker))
+          .sort((a, b) => b.weight_pct - a.weight_pct)
+          .slice(0, limit);
+        // Return the list only — real generation kicks off via individual
+        // calls from the frontend to /api/theses/:ticker/generate (keeps
+        // the worker single-request-scope and the UI in control of progress).
+        return json({ ok: true, queue: missing, count: missing.length, min_weight_pct: minWeight }, corsHeaders);
       }
       if (path.startsWith("/api/theses/") && request.method === "GET") {
         const ticker = decodeURIComponent(path.slice("/api/theses/".length));
@@ -14983,7 +15220,7 @@ async function handleYouTubeUploadSummary(request, env, corsHeaders) {
   if (unauth) return unauth;
 
   const body = await request.json();
-  const { video_id, transcript_source, processing_cost_usd, raw_summary } = body;
+  const { video_id, transcript_source, processing_cost_usd, raw_summary, transcript, transcript_word_count } = body;
   if (!video_id || !raw_summary) {
     return json({ error: 'missing fields' }, corsHeaders, 400);
   }
@@ -14998,12 +15235,17 @@ async function handleYouTubeUploadSummary(request, env, corsHeaders) {
 
   await env.DB.prepare(
     `UPDATE youtube_videos
-     SET summary_general = ?, processing_cost_usd = ?, transcript_source = ?, status = 'summarized'
+     SET summary_general = ?, processing_cost_usd = ?, transcript_source = ?,
+         transcript = COALESCE(?, transcript),
+         transcript_word_count = COALESCE(?, transcript_word_count),
+         status = 'summarized'
      WHERE video_id = ?`
   ).bind(
     parsed.summary_general || null,
     processing_cost_usd || 0,
     transcript_source || null,
+    transcript || null,
+    transcript_word_count || null,
     video_id
   ).run();
 

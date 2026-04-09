@@ -26,9 +26,10 @@ import { API_URL } from '../../constants/index.js';
 
 // ─── Constants ──────────────────────────────────────────────────────
 const STRATEGY_META = {
-  CS:  { icon: '🎯', label: 'Credit Spreads', color: '#06b6d4', help: 'Bull Put Spreads con Kelly sizing' },
-  ROC: { icon: '📞', label: 'Return on Capital', color: '#10b981', help: 'Covered calls sobre acciones que posees' },
-  ROP: { icon: '🛡', label: 'Return on Premium', color: '#f59e0b', help: 'Cash secured puts sobre acciones que quieres poseer' },
+  CS:   { icon: '🎯', label: 'Credit Spreads', color: '#06b6d4', help: 'Bull Put Spreads con Kelly sizing' },
+  ROC:  { icon: '📞', label: 'Return on Capital', color: '#10b981', help: 'Covered calls sobre acciones que posees' },
+  ROP:  { icon: '🛡', label: 'Return on Premium', color: '#f59e0b', help: 'Cash secured puts sobre acciones que quieres poseer' },
+  LEAPS:{ icon: '📅', label: 'LEAPS & Calls', color: '#a855f7', help: 'LEAPS + calls sobre SPX y otros índices' },
 };
 
 const STATUS_COLORS = {
@@ -553,10 +554,10 @@ const actionBtnStyle = {
 function SummaryView({ summary, loading, year }) {
   if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Cargando resumen...</div>;
 
-  // Build pivot: rows = months (1-12), cols = CS/ROC/ROP/Total
+  // Build pivot: rows = months (1-12), cols = CS/ROC/ROP/LEAPS/Total
   const pivot = {};
   for (let m = 1; m <= 12; m++) {
-    pivot[m] = { CS: 0, ROC: 0, ROP: 0, total: 0, n: 0 };
+    pivot[m] = { CS: 0, ROC: 0, ROP: 0, LEAPS: 0, total: 0, n: 0 };
   }
   for (const row of summary.by_month) {
     const mo = parseInt(row.mo, 10);
@@ -565,11 +566,12 @@ function SummaryView({ summary, loading, year }) {
     pivot[mo].total += Number(row.realized_pnl || 0);
     pivot[mo].n += Number(row.n_realized || 0);
   }
-  const grandTotal = { CS: 0, ROC: 0, ROP: 0, total: 0 };
+  const grandTotal = { CS: 0, ROC: 0, ROP: 0, LEAPS: 0, total: 0 };
   for (const m of Object.keys(pivot)) {
     grandTotal.CS += pivot[m].CS;
     grandTotal.ROC += pivot[m].ROC;
     grandTotal.ROP += pivot[m].ROP;
+    grandTotal.LEAPS += pivot[m].LEAPS;
     grandTotal.total += pivot[m].total;
   }
   const maxAbs = Math.max(1, ...Object.values(pivot).map(p => Math.abs(p.total)));
@@ -581,7 +583,7 @@ function SummaryView({ summary, loading, year }) {
         display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
         gap: 10, marginBottom: 14,
       }}>
-        {['CS','ROC','ROP'].map(s => (
+        {['CS','ROC','ROP','LEAPS'].map(s => (
           <div key={s} style={{
             background: 'var(--card)', border: '1px solid var(--border)',
             borderRadius: 10, padding: '12px 14px',
@@ -634,6 +636,7 @@ function SummaryView({ summary, loading, year }) {
               <th style={{ padding: '8px 10px', textAlign: 'right', color: STRATEGY_META.CS.color }}>🎯 CS</th>
               <th style={{ padding: '8px 10px', textAlign: 'right', color: STRATEGY_META.ROC.color }}>📞 ROC</th>
               <th style={{ padding: '8px 10px', textAlign: 'right', color: STRATEGY_META.ROP.color }}>🛡 ROP</th>
+              <th style={{ padding: '8px 10px', textAlign: 'right', color: STRATEGY_META.LEAPS.color }}>📅 LEAPS</th>
               <th style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--gold)' }}>Total</th>
               <th style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--text-tertiary)' }}>Trades</th>
               <th style={{ padding: '8px 10px', textAlign: 'left', color: 'var(--text-tertiary)', width: 160 }}>Bar</th>
@@ -649,6 +652,7 @@ function SummaryView({ summary, loading, year }) {
                   <td style={{ padding: '6px 10px', textAlign: 'right' }}>{p.CS !== 0 ? fmtUsd(p.CS) : '—'}</td>
                   <td style={{ padding: '6px 10px', textAlign: 'right' }}>{p.ROC !== 0 ? fmtUsd(p.ROC) : '—'}</td>
                   <td style={{ padding: '6px 10px', textAlign: 'right' }}>{p.ROP !== 0 ? fmtUsd(p.ROP) : '—'}</td>
+                  <td style={{ padding: '6px 10px', textAlign: 'right' }}>{p.LEAPS !== 0 ? fmtUsd(p.LEAPS) : '—'}</td>
                   <td style={{
                     padding: '6px 10px', textAlign: 'right', fontWeight: 700,
                     color: p.total > 0 ? 'var(--green)' : p.total < 0 ? 'var(--red)' : 'var(--text-primary)',

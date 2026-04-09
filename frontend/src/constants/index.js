@@ -107,6 +107,10 @@ export const HOME_TAB_GROUPS = [
       {id:"portfolio",lbl:"Portfolio",ico:"💼"},
       {id:"agentes",lbl:"Agentes",ico:"🤖"},
       {id:"dashboard",lbl:"Dashboard",ico:"📊"},
+      {id:"trades",lbl:"Trades",ico:"📈"},
+      {id:"earnings",lbl:"Earnings",ico:"📅"},
+      {id:"advisor",lbl:"Advisor",ico:"🧭"},
+      {id:"earnings-archive",lbl:"Archive",ico:"🗄"},
       {id:"watchlist",lbl:"Watchlist",ico:"👁"},
       {id:"historial",lbl:"Historial",ico:"📦"},
     ],
@@ -120,10 +124,9 @@ export const HOME_TAB_GROUPS = [
       {id:"opciones-cs",lbl:"Credit Spreads",ico:"🎯"},
       {id:"opciones-roc",lbl:"ROC",ico:"📞"},
       {id:"opciones-rop",lbl:"ROP",ico:"🛡"},
+      {id:"opciones-leaps",lbl:"LEAPS & Calls",ico:"📅"},
       {id:"opciones-resumen",lbl:"Resumen",ico:"📊"},
       {id:"income",lbl:"Income",ico:"🥦"},
-      {id:"earnings",lbl:"Earnings",ico:"📅"},
-      {id:"trades",lbl:"Trades",ico:"📈"},
     ],
   },
   {
@@ -135,15 +138,7 @@ export const HOME_TAB_GROUPS = [
       {id:"presupuesto",lbl:"Presupuesto",ico:"📋"},
       {id:"nomina",lbl:"Mi Nomina",ico:"🧾"},
       {id:"patrimonio",lbl:"Patrimonio",ico:"🏛"},
-    ],
-  },
-  {
-    id: "planificacion",
-    lbl: "Planificación",
-    ico: "🔥",
-    tabs: [
       {id:"fire",lbl:"FIRE",ico:"🔥"},
-      {id:"advisor",lbl:"Advisor",ico:"🧭"},
     ],
   },
   {
@@ -164,8 +159,7 @@ export const HOME_TAB_GROUPS = [
     tabs: [
       {id:"research",lbl:"Research",ico:"🔍"},
       {id:"smart-money",lbl:"Smart Money",ico:"🏛️"},
-      {id:"el-dividendo",lbl:"El Dividendo",ico:"▶️"},
-      {id:"earnings-archive",lbl:"Archive",ico:"📊"},
+      {id:"videos-youtube",lbl:"Vídeos YouTube",ico:"▶️"},
       {id:"library",lbl:"Library",ico:"📚"},
     ],
   },

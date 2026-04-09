@@ -133,12 +133,52 @@ function RunReminderBadge({ onClick }) {
   );
 }
 
+// Compact sparkline — SVG polyline, no libs, color-coded direction.
+function MiniSpark({ points, width = 90, height = 28, colorUp = '#ff453a', colorDown = '#30d158' }) {
+  if (!Array.isArray(points) || points.length < 2) {
+    return <div style={{ width, height, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: 'var(--text-tertiary)' }}>—</div>;
+  }
+  const vals = points.map(p => p.v);
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const range = max - min || 1;
+  const stepX = width / (points.length - 1);
+  const path = points.map((p, i) => {
+    const x = i * stepX;
+    const y = height - ((p.v - min) / range) * (height - 4) - 2;
+    return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const first = vals[0];
+  const last = vals[vals.length - 1];
+  const trending = last >= first ? colorUp : colorDown;
+  // Baseline area
+  const areaPath = `${path} L${width},${height} L0,${height} Z`;
+  return (
+    <svg width={width} height={height} style={{ display: 'block' }}>
+      <path d={areaPath} fill={trending} opacity={0.1} />
+      <path d={path} fill="none" stroke={trending} strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={width} cy={height - ((last - min) / range) * (height - 4) - 2} r={1.8} fill={trending} />
+    </svg>
+  );
+}
+
 function SentimentBar() {
   const [data, setData] = useState(null);
+  const [history, setHistory] = useState({ vix: [], fearGreed: [] });
+  const [futures, setFutures] = useState(null);
+  const [showDetail, setShowDetail] = useState(false);
   useEffect(() => {
     fetch(API_URL + "/api/market-sentiment")
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setData(d); })
+      .catch(() => {});
+    fetch(API_URL + "/api/market-sentiment/history?range=1d")
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setHistory({ vix: d.vix || [], fearGreed: d.fearGreed || [] }); })
+      .catch(() => {});
+    fetch(API_URL + "/api/futures-intraday")
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setFutures(d.regions || null); })
       .catch(() => {});
   }, []);
 
@@ -164,46 +204,137 @@ function SentimentBar() {
   const vixColor = vix ? (vix.price < 15 ? "#30d158" : vix.price < 25 ? "#ffd60a" : vix.price < 35 ? "#ff9f0a" : "#ff453a") : "var(--text-tertiary)";
   const fgColor = fg ? (fg.score <= 25 ? "#ff453a" : fg.score <= 45 ? "#ff9f0a" : fg.score <= 55 ? "#ffd60a" : "#30d158") : "var(--text-tertiary)";
 
-  return (
-    <div style={{
-      display: "flex", alignItems: "center", gap: 12, padding: "2px 8px",
-      background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8,
-      marginBottom: 2, fontSize: 10, fontFamily: "var(--fm)",
+  const renderFutCard = (f) => (
+    <div key={f.symbol} title={`${f.label} ${f.symbol}`} style={{
+      display: 'flex', flexDirection: 'column', gap: 1,
+      padding: '4px 6px', minWidth: 96,
+      borderRight: '1px solid var(--border)',
     }}>
-      {vix && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <MiniGauge value={vix.price} min={0} max={60} colors={vixColors} size={54} />
-          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-            <span style={{ fontSize: 9, color: "var(--text-tertiary)", fontWeight: 600 }}>VIX</span>
-            <span style={{ fontSize: 13, fontWeight: 700, color: vixColor }}>{vix.price.toFixed(1)}</span>
-            <span style={{ fontSize: 8, color: vix.change >= 0 ? "#ff453a" : "#30d158" }}>
-              {vix.change >= 0 ? "+" : ""}{vix.change.toFixed(1)} ({vix.changePct >= 0 ? "+" : ""}{vix.changePct.toFixed(1)}%)
-            </span>
-          </div>
-        </div>
-      )}
-      {vix && <div style={{ width: 1, height: 28, background: "var(--border)" }} />}
-      {fg ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <MiniGauge value={fg.score} min={0} max={100} colors={fgColors} size={54} />
-          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-            <span style={{ fontSize: 9, color: "var(--text-tertiary)", fontWeight: 600 }}>Fear & Greed</span>
-            <span style={{ fontSize: 13, fontWeight: 700, color: fgColor }}>{fg.score}</span>
-            <span style={{ fontSize: 8, color: fgColor }}>{fg.label}</span>
-          </div>
-        </div>
-      ) : (
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <MiniGauge value={50} min={0} max={100} colors={fgColors} size={70} label="" />
-          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-            <span style={{ fontSize: 9, color: "var(--text-tertiary)", fontWeight: 600 }}>Fear & Greed</span>
-            <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-tertiary)" }}>—</span>
-            <span style={{ fontSize: 8, color: "var(--text-tertiary)" }}>No data</span>
-          </div>
-        </div>
-      )}
-      {data.cached && <span style={{ fontSize: 7, color: "var(--text-tertiary)", opacity: 0.5, marginLeft: "auto" }}>cached</span>}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 4 }}>
+        <span style={{ fontSize: 8, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.3px' }}>{f.label}</span>
+        <span style={{ fontSize: 8, fontWeight: 700, color: f.changePct >= 0 ? '#30d158' : '#ff453a' }}>
+          {f.changePct >= 0 ? '+' : ''}{f.changePct.toFixed(2)}%
+        </span>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--fm)' }}>
+          {f.price < 100 ? f.price.toFixed(2) : f.price < 10000 ? f.price.toFixed(0) : (f.price / 1000).toFixed(1) + 'k'}
+        </span>
+        <MiniSpark points={f.spark} width={48} height={14} />
+      </div>
     </div>
+  );
+
+  return (
+    <>
+      <div style={{
+        display: "flex", alignItems: "center", gap: 10, padding: "4px 8px",
+        background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8,
+        marginBottom: 2, fontSize: 10, fontFamily: "var(--fm)", overflowX: 'auto', overflowY: 'hidden',
+      }}>
+        {vix && (
+          <div style={{ display: "flex", alignItems: "center", gap: 4, flex: "0 0 auto" }}>
+            <MiniGauge value={vix.price} min={0} max={60} colors={vixColors} size={54} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              <span style={{ fontSize: 9, color: "var(--text-tertiary)", fontWeight: 600 }}>VIX</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: vixColor }}>{vix.price.toFixed(1)}</span>
+              <span style={{ fontSize: 8, color: vix.change >= 0 ? "#ff453a" : "#30d158" }}>
+                {vix.change >= 0 ? "+" : ""}{vix.change.toFixed(1)} ({vix.changePct >= 0 ? "+" : ""}{vix.changePct.toFixed(1)}%)
+              </span>
+            </div>
+            <MiniSpark points={history.vix} width={78} height={26}
+              colorUp="#ff453a" colorDown="#30d158" />
+          </div>
+        )}
+        {vix && <div style={{ width: 1, height: 30, background: "var(--border)", flex: "0 0 auto" }} />}
+        {fg ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 4, flex: "0 0 auto" }}>
+            <MiniGauge value={fg.score} min={0} max={100} colors={fgColors} size={54} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              <span style={{ fontSize: 9, color: "var(--text-tertiary)", fontWeight: 600 }}>Fear & Greed</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: fgColor }}>{fg.score}</span>
+              <span style={{ fontSize: 8, color: fgColor }}>{fg.label}</span>
+            </div>
+            <MiniSpark points={history.fearGreed.slice(-30)} width={78} height={26}
+              colorUp="#30d158" colorDown="#ff453a" />
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flex: "0 0 auto" }}>
+            <MiniGauge value={50} min={0} max={100} colors={fgColors} size={54} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+              <span style={{ fontSize: 9, color: "var(--text-tertiary)", fontWeight: 600 }}>Fear & Greed</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-tertiary)" }}>—</span>
+              <span style={{ fontSize: 8, color: "var(--text-tertiary)" }}>No data</span>
+            </div>
+          </div>
+        )}
+
+        {/* Futures: global index intraday */}
+        {futures && (
+          <>
+            <div style={{ width: 1, height: 30, background: "var(--border)", flex: "0 0 auto" }} />
+            {['USA', 'Europa', 'Asia'].map(reg => (
+              (futures[reg] || []).length > 0 && (
+                <div key={reg} style={{ display: 'flex', alignItems: 'stretch', gap: 0, flex: '0 0 auto' }}>
+                  <div style={{
+                    padding: '0 6px', display: 'flex', flexDirection: 'column', justifyContent: 'center',
+                    fontSize: 7, fontWeight: 800, color: 'var(--gold)',
+                    writingMode: 'vertical-rl', transform: 'rotate(180deg)', letterSpacing: '1px',
+                  }}>
+                    {reg.toUpperCase()}
+                  </div>
+                  {futures[reg].map(renderFutCard)}
+                </div>
+              )
+            ))}
+          </>
+        )}
+
+        <button onClick={() => setShowDetail(v => !v)} style={{
+          background: 'transparent', border: '1px solid var(--border)',
+          color: 'var(--text-secondary)', padding: '3px 8px', borderRadius: 4,
+          fontSize: 9, cursor: 'pointer', marginLeft: 'auto', flex: '0 0 auto',
+        }}>
+          {showDetail ? '▲ Ocultar' : '▼ Detalle'}
+        </button>
+        {data.cached && <span style={{ fontSize: 7, color: "var(--text-tertiary)", opacity: 0.5, flex: '0 0 auto' }}>cached</span>}
+      </div>
+
+      {showDetail && (
+        <div style={{
+          background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8,
+          padding: 12, marginBottom: 6, marginTop: -2,
+        }}>
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))',
+            gap: 8,
+          }}>
+            {futures && ['USA','Europa','Asia'].flatMap(reg => (futures[reg] || []).map(f => (
+              <div key={f.symbol} style={{
+                background: 'var(--subtle-bg)', border: '1px solid var(--border)',
+                borderRadius: 6, padding: 8, display: 'flex', flexDirection: 'column', gap: 3,
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ fontSize: 9, color: 'var(--text-tertiary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px' }}>
+                    {reg} · {f.label}
+                  </span>
+                  <span style={{ fontSize: 9, color: f.changePct >= 0 ? '#30d158' : '#ff453a', fontWeight: 700 }}>
+                    {f.changePct >= 0 ? '+' : ''}{f.changePct.toFixed(2)}%
+                  </span>
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--fm)' }}>
+                  {f.price.toLocaleString('es-ES', { maximumFractionDigits: f.price < 100 ? 2 : 0 })}
+                </div>
+                <MiniSpark points={f.spark} width={152} height={32} />
+                <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>
+                  {f.symbol} · {f.change >= 0 ? '+' : ''}{f.change.toFixed(2)}
+                </div>
+              </div>
+            )))}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -1087,11 +1218,12 @@ export default function HomeView() {
       {homeTab==="presupuesto" && <PresupuestoTab />}
       {homeTab==="library" && <LibraryTab />}
       {homeTab==="smart-money" && <SmartMoneyTab />}
-      {homeTab==="el-dividendo" && <NoticiasTab />}
+      {homeTab==="videos-youtube" && <NoticiasTab />}
       {homeTab==="earnings-archive" && <EarningsArchiveTab />}
       {homeTab==="opciones-cs" && <OpcionesTab strategy="CS" view="list" />}
       {homeTab==="opciones-roc" && <OpcionesTab strategy="ROC" view="list" />}
       {homeTab==="opciones-rop" && <OpcionesTab strategy="ROP" view="list" />}
+      {homeTab==="opciones-leaps" && <OpcionesTab strategy="LEAPS" view="list" />}
       {homeTab==="opciones-resumen" && <OpcionesTab strategy="CS" view="summary" />}
       {homeTab==="currency" && <CurrencyTab />}
       {homeTab==="macro" && <MacroTab />}

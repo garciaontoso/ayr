@@ -170,19 +170,24 @@ $(cat "$TXT_PATH")
   COST=$(awk "BEGIN { printf \"%.4f\", ($INPUT_TOKENS * 15 + $OUTPUT_TOKENS * 75) / 1000000 }")
   echo "  ✓ Opus response: $INPUT_TOKENS→$OUTPUT_TOKENS tokens, \$$COST"
 
-  # 4. Upload to Worker
+  # 4. Upload to Worker. Include FULL transcript so it's browsable in the UI.
+  TRANSCRIPT_TEXT=$(cat "$TXT_PATH")
   UPLOAD_JSON=$(jq -n \
     --arg video_id "$VID" \
     --arg model "$MODEL" \
     --arg transcript_source "yt-dlp-chrome-cookies" \
     --argjson cost "$COST" \
     --arg raw "$SUMMARY_TEXT" \
+    --arg transcript "$TRANSCRIPT_TEXT" \
+    --argjson word_count "$WORD_COUNT" \
     '{
       video_id: $video_id,
       model: $model,
       transcript_source: $transcript_source,
       processing_cost_usd: $cost,
-      raw_summary: $raw
+      raw_summary: $raw,
+      transcript: $transcript,
+      transcript_word_count: $word_count
     }')
 
   HTTP_CODE=$(curl -sS -o /tmp/upload_resp.txt -w "%{http_code}" \

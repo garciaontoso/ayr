@@ -97,6 +97,21 @@ ROP_24_ALT_ROWS.pop(50); ROP_24_ALT_ROWS[49] = 'final_rorc'
 ROP_24_ALT_ROWS.pop(51); ROP_24_ALT_ROWS[50] = 'final_arorc'
 ROP_24_ALT_ROWS.pop(52); ROP_24_ALT_ROWS[51] = 'notes'
 
+LEAPS_ROWS = {**CS_ROWS}
+# LEAPS uses R61 for TOTAL DEBIT (vs CS R60) and shifts subsequent rows by +1
+del LEAPS_ROWS[60]  # remove CS total_debit at R60
+LEAPS_ROWS[61] = 'total_debit'
+LEAPS_ROWS[62] = 'final_net_credit'
+LEAPS_ROWS[63] = 'final_rorc'
+LEAPS_ROWS[64] = 'final_arorc'
+LEAPS_ROWS[65] = 'notes'
+# Remove the old CS R61-R64 mappings that still linger
+# (CS_ROWS had 61=final_net_credit, 62=final_rorc, 63=final_arorc, 64=notes)
+# LEAPS shifts these down by 1. After the copy we explicitly overwrote them
+# at 61-65, but CS_ROWS didn't have 65, so the old 64 would still map.
+# Ensure 64 is not 'notes' anymore:
+# (Already handled because we reassigned 65 above; verify 64 isn't 'notes'.)
+
 SHEETS = [
     ('C.S 26', 'CS', 2026, CS_ROWS),
     ('C.S 25', 'CS', 2025, CS_ROWS),
@@ -110,6 +125,11 @@ SHEETS = [
     ('ROP 25', 'ROP', 2025, ROP_ROWS),
     ('ROP 24', 'ROP', 2024, ROP_24_ALT_ROWS),
     ('ROP 23', 'ROP', 2023, ROP_24_ALT_ROWS),
+    # LEAPS & CALLS uses the same template as CS with a +1 row offset in
+    # the results block. The user trades SPX calls here, among others.
+    ('LEAPS & CALLS 26', 'LEAPS', 2026, LEAPS_ROWS),
+    ('LEAPS & CALLS 25', 'LEAPS', 2025, LEAPS_ROWS),
+    ('LEAPS & CALLS 24', 'LEAPS', 2024, LEAPS_ROWS),
 ]
 
 VALID_STATUSES = {'OPEN', 'EXPIRED', 'CLOSED', 'ROLLED', 'ASSIGNED', 'IDEA'}

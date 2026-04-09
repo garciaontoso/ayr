@@ -32,7 +32,7 @@ const fmtMC = mc => {
 };
 
 const COL_DEFS = [
-  { id:"ticker", label:"TICKER", group:"Core", w:"55px", align:"left", locked:true, defaultOn:true,
+  { id:"ticker", label:"TICKER", group:"Core", w:"160px", align:"left", locked:true, defaultOn:true,
     val:p=>p.ticker, fmt:v=>v, sortV:p=>(p.name||p.ticker).toLowerCase() },
   { id:"price", label:"PRECIO", group:"Core", w:"58px", defaultOn:true,
     val:p=>p.lastPrice||0, fmt:(v,p)=>{const c=p.ccy||p.currency||"USD";const s=c==="GBX"?"\u00a3":c==="EUR"?"\u20ac":c==="GBP"?"\u00a3":c==="HKD"?"HK$":c==="CAD"?"C$":"$";return s+(c==="GBX"?(v/100):v).toFixed(2);}, sortV:p=>p.priceUSD||0 },
@@ -168,30 +168,97 @@ const SORT_OPTIONS = [
 
 // Small self-contained widget that fetches /api/theses/missing and shows
 // the coverage progress as a compact badge in the Portfolio header.
-// Click opens the Portfolio ticker list with no extra filtering (visual only).
+// Click opens a mini-panel with the list of missing tickers + a button to
+// auto-generate them via /api/theses/:ticker/generate (uses Claude Opus).
 function ThesesCoverageBadge() {
   const [data, setData] = useState(null);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await fetch(API_URL + "/api/theses/missing");
-        const d = await r.json();
-        if (!cancelled) setData(d);
-      } catch {}
-    })();
-    return () => { cancelled = true; };
+  const [open, setOpen] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [progress, setProgress] = useState({ done: 0, total: 0, current: null });
+  const reload = useCallback(async () => {
+    try {
+      const r = await fetch(`${API_URL}/api/theses/missing?min_weight=0.5`);
+      const d = await r.json();
+      setData(d);
+    } catch {}
   }, []);
+  useEffect(() => { let cancelled = false; (async () => { try { const r = await fetch(`${API_URL}/api/theses/missing?min_weight=0.5`); const d = await r.json(); if (!cancelled) setData(d); } catch {} })(); return () => { cancelled = true; }; }, []);
+  const generateAll = useCallback(async () => {
+    if (!data || !data.missing || data.missing.length === 0) return;
+    if (!window.confirm(`Generar tesis con Opus para ${data.missing.length} empresas. Coste estimado: ~$${(data.missing.length * 0.12).toFixed(2)}. ¿Continuar?`)) return;
+    setGenerating(true);
+    const tickers = data.missing.map(m => m.ticker);
+    setProgress({ done: 0, total: tickers.length, current: null });
+    for (const t of tickers) {
+      setProgress(p => ({ ...p, current: t }));
+      try {
+        await fetch(`${API_URL}/api/theses/${encodeURIComponent(t)}/generate`, { method: 'POST' });
+      } catch {}
+      setProgress(p => ({ ...p, done: p.done + 1 }));
+    }
+    setGenerating(false);
+    await reload();
+  }, [data, reload]);
   if (!data || !data.total_eligible) return null;
   const written = (data.total_eligible || 0) - (data.missing_count || 0);
   const pct = data.coverage_pct ?? 0;
   const color = pct >= 80 ? 'var(--green)' : pct >= 40 ? 'var(--gold)' : 'var(--red)';
   return (
-    <div title={`${written} de ${data.total_eligible} posiciones (>=1% del portfolio) con tesis escrita. Abre cada empresa para ver/editar su tesis.`}
-      style={{display:"flex",alignItems:"center",gap:6,padding:"2px 10px",borderRadius:6,border:`1px solid ${color}`,background:`${color}14`,fontFamily:"var(--fm)",cursor:"help"}}>
-      <span style={{fontSize:9,color:"var(--text-tertiary)"}}>Tesis</span>
-      <span style={{fontSize:13,fontWeight:700,color}}>{written}/{data.total_eligible}</span>
-      <span style={{fontSize:9,color,opacity:.7}}>{pct}%</span>
+    <div style={{ position: 'relative' }}>
+      <div
+        onClick={() => setOpen(v => !v)}
+        title={`${written} de ${data.total_eligible} posiciones (≥${data.min_weight_pct || 0.5}%) con tesis. ${data.total_positions || 0} posiciones totales, ${data.total_theses || 0} tesis en DB. Click para expandir.`}
+        style={{display:"flex",alignItems:"center",gap:6,padding:"2px 10px",borderRadius:6,border:`1px solid ${color}`,background:`${color}14`,fontFamily:"var(--fm)",cursor:"pointer"}}>
+        <span style={{fontSize:9,color:"var(--text-tertiary)"}}>Tesis</span>
+        <span style={{fontSize:13,fontWeight:700,color}}>{written}/{data.total_eligible}</span>
+        <span style={{fontSize:9,color,opacity:.7}}>{pct}%</span>
+      </div>
+      {open && (
+        <div style={{
+          position:'absolute', top:28, right:0, zIndex:50,
+          minWidth: 280, maxWidth: 360,
+          background:'var(--card)', border:'1px solid var(--gold)', borderRadius:8,
+          padding:12, boxShadow:'0 8px 24px rgba(0,0,0,.4)',
+        }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+            <div style={{ fontSize:11, fontWeight:700, color:'var(--gold)' }}>Tesis pendientes</div>
+            <button onClick={() => setOpen(false)} style={{ background:'transparent', border:'none', color:'var(--text-tertiary)', cursor:'pointer', fontSize:14 }}>×</button>
+          </div>
+          {data.missing_count === 0 ? (
+            <div style={{ fontSize:10, color:'var(--green)' }}>✓ Todas las posiciones ≥{data.min_weight_pct}% tienen tesis.</div>
+          ) : (
+            <>
+              <div style={{ fontSize:10, color:'var(--text-tertiary)', marginBottom:6 }}>
+                {data.missing_count} posiciones sin tesis (filtrado ≥{data.min_weight_pct}% del portfolio):
+              </div>
+              <div style={{ maxHeight: 180, overflowY:'auto', marginBottom:8 }}>
+                {data.missing.map(m => (
+                  <div key={m.ticker} style={{ fontSize:10, padding:'3px 0', borderBottom:'1px solid var(--border)', display:'flex', justifyContent:'space-between' }}>
+                    <span>
+                      <span style={{ color:'var(--gold)', fontWeight:700 }}>{m.ticker}</span>
+                      <span style={{ color:'var(--text-tertiary)', marginLeft:4 }}>{(m.name || '').slice(0, 22)}</span>
+                    </span>
+                    <span style={{ color:'var(--text-tertiary)' }}>{m.weight_pct.toFixed(1)}%</span>
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={generateAll}
+                disabled={generating}
+                style={{
+                  width:'100%', padding:'6px 10px', borderRadius:6,
+                  border:'1px solid var(--gold)', background:'var(--gold-dim)',
+                  color:'var(--gold)', fontSize:10, fontWeight:700, cursor: generating ? 'wait' : 'pointer',
+                }}
+              >
+                {generating
+                  ? `⏳ ${progress.done}/${progress.total}${progress.current ? ' · ' + progress.current : ''}`
+                  : `🤖 Generar ${data.missing_count} con Opus (~$${(data.missing_count * 0.12).toFixed(2)})`}
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -233,34 +300,32 @@ export default function PortfolioTab() {
   // Previous implementation keyed by date YYYY-MM-DD which made the boundary at
   // midnight buggy (open at 23:59 and refresh at 00:01 → two different caches
   // pointing to the same compute). Now we use a TTL-based cache.
+  const QS_CACHE_KEY = 'qs-scores-v2';
   const [qsScores, setQsScores] = useState({});
-  useEffect(() => {
-    const CACHE_KEY = 'qs-scores-v2';
-    const TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
-    try {
-      const raw = sessionStorage.getItem(CACHE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && parsed.ts && (Date.now() - parsed.ts) < TTL_MS) {
-          setQsScores(parsed.data || {});
-          return;
-        }
-      }
-    } catch {}
-    let cancelled = false;
-    (async () => {
+  const loadQsScores = useCallback(async (force = false) => {
+    const TTL_MS = 4 * 60 * 60 * 1000;
+    if (!force) {
       try {
-        const r = await fetch(`${API_URL}/api/scores`);
-        const d = await r.json();
-        if (cancelled) return;
-        const map = {};
-        for (const row of (d.scores || [])) map[row.ticker] = row;
-        setQsScores(map);
-        try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), data: map })); } catch {}
+        const raw = sessionStorage.getItem(QS_CACHE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.ts && (Date.now() - parsed.ts) < TTL_MS) {
+            setQsScores(parsed.data || {});
+            return;
+          }
+        }
       } catch {}
-    })();
-    return () => { cancelled = true; };
+    }
+    try {
+      const r = await fetch(`${API_URL}/api/scores`);
+      const d = await r.json();
+      const map = {};
+      for (const row of (d.scores || [])) map[row.ticker] = row;
+      setQsScores(map);
+      try { sessionStorage.setItem(QS_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: map })); } catch {}
+    } catch {}
   }, []);
+  useEffect(() => { loadQsScores(false); }, [loadQsScores]);
   const [showRebalance, setShowRebalance] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);
   const [alertForm, setAlertForm] = useState({ ticker: "", price: "", direction: "below" });
@@ -286,6 +351,51 @@ export default function PortfolioTab() {
   const [showColPicker, setShowColPicker] = useState(false);
   const colPickerRef = useRef(null);
   const [colSort, setColSort] = useState({ id: "value", asc: false });
+
+  // ─── Column widths with persistence ───
+  // Users can drag the right edge of any header cell to resize. Widths
+  // are stored in localStorage under COLS_WIDTH_KEY as { colId: pixels }.
+  const COLS_WIDTH_KEY = "ayr_portfolio_col_widths";
+  const [colWidths, setColWidths] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(COLS_WIDTH_KEY) || "{}"); }
+    catch { return {}; }
+  });
+  // Persist to localStorage whenever widths change
+  useEffect(() => {
+    try { localStorage.setItem(COLS_WIDTH_KEY, JSON.stringify(colWidths)); }
+    catch {}
+  }, [colWidths]);
+
+  // Resize state — refs so the mousemove handler doesn't re-render
+  const resizeRef = useRef({ colId: null, startX: 0, startWidth: 0 });
+  const onResizeStart = useCallback((e, colId, currentWidth) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizeRef.current = { colId, startX: e.clientX, startWidth: currentWidth };
+    const onMove = (ev) => {
+      const dx = ev.clientX - resizeRef.current.startX;
+      const newW = Math.max(28, resizeRef.current.startWidth + dx);
+      setColWidths(prev => ({ ...prev, [resizeRef.current.colId]: newW }));
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      resizeRef.current = { colId: null, startX: 0, startWidth: 0 };
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
+
+  const resetColWidths = useCallback(() => {
+    setColWidths({});
+  }, []);
+
+  // Helper: resolve width for a column, favouring user override
+  const getColWidth = useCallback((c) => {
+    if (colWidths[c.id] != null) return colWidths[c.id];
+    const parsed = parseInt(c.w);
+    return Number.isFinite(parsed) ? parsed : 50;
+  }, [colWidths]);
 
   // Drag-to-reorder columns
   const dragColRef = useRef(null);
@@ -438,6 +548,8 @@ export default function PortfolioTab() {
     setFundLoading(false);
   }, [portfolioTotals?.positions]);
 
+  const [refreshingAll, setRefreshingAll] = useState(false);
+
   const loadDGR = useCallback(async () => {
     const tickers = (portfolioTotals?.positions || []).map(p=>p.ticker); // Worker FMP_MAP handles foreign tickers
     if (!tickers.length) return;
@@ -458,6 +570,25 @@ export default function PortfolioTab() {
     } catch(e) { console.error("DGR load error:", e); }
     setDgrLoading(false);
   }, [portfolioTotals?.positions]);
+
+  // Refresh everything: prices + Q&S + fundamentals + DGR.
+  // Invalidates caches first so the next fetch comes fresh.
+  const refreshAll = useCallback(async () => {
+    if (refreshingAll) return;
+    setRefreshingAll(true);
+    try {
+      try { sessionStorage.removeItem(QS_CACHE_KEY); } catch {}
+      try { localStorage.removeItem(FUND_CACHE_KEY); } catch {}
+      try { localStorage.removeItem(DGR_CACHE_KEY); } catch {}
+      await Promise.all([
+        refreshPrices?.(true),
+        loadQsScores(true),
+        loadFundamentals(),
+        loadDGR(),
+      ].filter(Boolean));
+    } catch (e) { console.error("refreshAll error:", e); }
+    finally { setRefreshingAll(false); }
+  }, [refreshingAll, refreshPrices, loadQsScores, loadFundamentals, loadDGR]);
 
   const enrichedPositions = useMemo(() => {
     return (portfolioTotals?.positions || []).map(p => ({
@@ -579,7 +710,8 @@ export default function PortfolioTab() {
             <span style={{fontSize:9,fontFamily:"var(--fm)",color:"var(--green)"}}>{greenCount}{"\u2713"}</span>
             <div style={{marginLeft:"auto",display:"flex",gap:3,alignItems:"center"}}>
               <input type="text" placeholder="+ Ticker" value={searchTicker} onChange={e=>setSearchTicker(e.target.value.toUpperCase())} onKeyDown={e=>{if(e.key==="Enter"&&searchTicker){updatePosition(searchTicker,{list:"portfolio",shares:0,avgCost:0,dps:0,name:searchTicker,lastPrice:0});setSearchTicker("");}}} style={{padding:"4px 8px",background:"rgba(255,255,255,.04)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:10,outline:"none",fontFamily:"var(--fm)",width:70}}/>
-              <button onClick={()=>refreshPrices(true)} disabled={pricesLoading} title="Refresh" style={{padding:"4px 7px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:pricesLoading?"var(--gold)":"var(--text-tertiary)",fontSize:10,cursor:pricesLoading?"wait":"pointer"}}>{pricesLoading?"\u23f3":"\ud83d\udd04"}</button>
+              <button onClick={()=>refreshPrices(true)} disabled={pricesLoading} title="Solo precios (rápido)" style={{padding:"4px 7px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:pricesLoading?"var(--gold)":"var(--text-tertiary)",fontSize:10,cursor:pricesLoading?"wait":"pointer"}}>{pricesLoading?"\u23f3":"\ud83d\udd04"}</button>
+              <button onClick={refreshAll} disabled={refreshingAll} title="Refrescar precios + Q&S + Fundamentales + DGR (todo)" style={{padding:"4px 7px",borderRadius:6,border:"1px solid var(--gold)",background:refreshingAll?"var(--gold-dim)":"transparent",color:"var(--gold)",fontSize:10,cursor:refreshingAll?"wait":"pointer",fontWeight:700}}>{refreshingAll?"⏳":"🔁 Todo"}</button>
               <button onClick={exportCSV} title="CSV" style={{padding:"4px 6px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer",fontFamily:"var(--fm)"}} onMouseEnter={e=>e.target.style.color="var(--gold)"} onMouseLeave={e=>e.target.style.color="var(--text-tertiary)"}>CSV</button>
             </div>
           </div>);
@@ -725,17 +857,23 @@ export default function PortfolioTab() {
               </div>
             )}
             <div style={{overflowX:"auto",borderRadius:8,border:"1px solid var(--border)"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:10,fontFamily:"var(--fm)",minWidth:activeCols.length*42+46}}>
+              <table style={{width:"max-content",borderCollapse:"collapse",fontSize:10,fontFamily:"var(--fm)",minWidth:"100%"}}>
                 <colgroup>
                   <col style={{width:22}}/>
-                  {activeCols.map(c=><col key={c.id} style={{width:c.id==="ticker"?undefined:parseInt(c.w)||50}}/>)}
+                  {activeCols.map(c=><col key={c.id} style={{width:getColWidth(c)}}/>)}
                   <col style={{width:24}}/>
                 </colgroup>
                 <thead><tr style={{borderBottom:"2px solid var(--border)"}}>
                   <th style={{padding:"4px 2px",width:22}}/>
                   {activeCols.map(c=>(
-                    <th key={c.id} draggable="true" onDragStart={e=>onColDragStart(e,c.id)} onDragOver={e=>onColDragOver(e,c.id)} onDrop={e=>onColDrop(e,c.id)} onDragEnd={onColDragEnd} onClick={()=>toggleColSortFn(c.id)} style={{padding:"4px 3px",textAlign:c.align||"right",color:colSort.id===c.id?"var(--gold)":"var(--text-tertiary)",fontSize:7,fontWeight:700,fontFamily:"var(--fm)",letterSpacing:.3,cursor:draggingCol?"grabbing":"pointer",whiteSpace:"nowrap",userSelect:"none",overflow:"hidden",textOverflow:"ellipsis",opacity:draggingCol===c.id?.5:1,borderLeft:dropTarget===c.id?"2px solid var(--gold)":"2px solid transparent",transition:"border-color .1s"}} title={c.label}>
+                    <th key={c.id} draggable="true" onDragStart={e=>onColDragStart(e,c.id)} onDragOver={e=>onColDragOver(e,c.id)} onDrop={e=>onColDrop(e,c.id)} onDragEnd={onColDragEnd} onClick={()=>toggleColSortFn(c.id)} style={{padding:"4px 3px",textAlign:c.align||"right",color:colSort.id===c.id?"var(--gold)":"var(--text-tertiary)",fontSize:7,fontWeight:700,fontFamily:"var(--fm)",letterSpacing:.3,cursor:draggingCol?"grabbing":"pointer",whiteSpace:"nowrap",userSelect:"none",overflow:"hidden",textOverflow:"ellipsis",opacity:draggingCol===c.id?.5:1,borderLeft:dropTarget===c.id?"2px solid var(--gold)":"2px solid transparent",transition:"border-color .1s",position:"relative"}} title={`${c.label} — arrastra el borde derecho para redimensionar`}>
                       {c.label}{colSort.id===c.id?(colSort.asc?" \u25b2":" \u25bc"):""}
+                      <span
+                        onMouseDown={(e)=>onResizeStart(e,c.id,getColWidth(c))}
+                        onClick={(e)=>e.stopPropagation()}
+                        style={{position:"absolute",right:0,top:0,bottom:0,width:4,cursor:"col-resize",background:"transparent",zIndex:2}}
+                        title="Arrastra para redimensionar"
+                      />
                     </th>
                   ))}
                   <th style={{padding:"4px 2px",width:24}}/>
