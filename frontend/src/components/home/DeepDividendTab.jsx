@@ -126,7 +126,7 @@ function ActionRequiredPanel({ items, onClick }) {
             gap: 12,
             alignItems: 'center',
             padding: '10px 12px',
-            borderBottom: '1px solid var(--border-subtle)',
+            borderBottom: '1px solid var(--border)',
             cursor: onClick ? 'pointer' : 'default',
             transition: 'background .15s',
           }}
@@ -176,7 +176,7 @@ function TopOpportunitiesPanel({ items, onClick }) {
             gap: 12,
             alignItems: 'center',
             padding: '10px 12px',
-            borderBottom: '1px solid var(--border-subtle)',
+            borderBottom: '1px solid var(--border)',
             cursor: onClick ? 'pointer' : 'default',
           }}
           onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,.03)'}
@@ -224,8 +224,8 @@ function SafetyGrowthMatrix({ rows, onClick }) {
       <line x1={M} y1={H - M} x2={W - M} y2={H - M} stroke="var(--border)" strokeWidth={1} />
       <line x1={M} y1={M} x2={M} y2={H - M} stroke="var(--border)" strokeWidth={1} />
       {/* Mid lines */}
-      <line x1={M + (W-2*M)/2} y1={M} x2={M + (W-2*M)/2} y2={H-M} stroke="var(--border-subtle)" strokeDasharray="2 4" />
-      <line x1={M} y1={M + (H-2*M)/2} x2={W-M} y2={M + (H-2*M)/2} stroke="var(--border-subtle)" strokeDasharray="2 4" />
+      <line x1={M + (W-2*M)/2} y1={M} x2={M + (W-2*M)/2} y2={H-M} stroke="var(--border)" strokeDasharray="2 4" />
+      <line x1={M} y1={M + (H-2*M)/2} x2={W-M} y2={M + (H-2*M)/2} stroke="var(--border)" strokeDasharray="2 4" />
 
       {/* Axis labels */}
       <text x={W / 2} y={H - 8} fill="var(--text-secondary)" fontSize={11} textAnchor="middle">Growth Score →</text>
@@ -411,22 +411,25 @@ function DeepAnalysisModal({ ticker, data, onClose, onRun, runStatus }) {
       onClick={onClose}
       style={{
         position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-        background: 'rgba(0,0,0,.7)', zIndex: 1000,
+        background: 'rgba(0,0,0,.92)', zIndex: 9999,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: 20,
+        backdropFilter: 'blur(4px)',
       }}
     >
       <div
         onClick={e => e.stopPropagation()}
         style={{
-          background: 'var(--bg-secondary)',
-          border: '1px solid var(--border)',
+          background: '#0d1117',
+          border: '1px solid #30363d',
           borderRadius: 12,
           maxWidth: 900,
           width: '100%',
           maxHeight: '90vh',
           overflow: 'auto',
-          padding: 20,
+          padding: 24,
+          boxShadow: '0 20px 60px rgba(0,0,0,0.8), 0 0 0 1px rgba(212,175,55,0.15)',
+          position: 'relative',
         }}
       >
         {/* Header */}
@@ -824,8 +827,8 @@ export default function DeepDividendTab() {
       <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 16 }}>
         {/* LEFT: Action Required + Top Opportunities + Alerts */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <section style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border-subtle)', borderRadius: 8, overflow: 'hidden' }}>
-            <header style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-subtle)', background: 'rgba(239,68,68,.04)' }}>
+          <section style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+            <header style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', background: 'rgba(239,68,68,.04)' }}>
               <strong style={{ fontSize: 12, color: '#fb923c' }}>⚠️ ACCIÓN REQUERIDA</strong>
               {dashboard?.action_required?.length > 0 && (
                 <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-tertiary)' }}>
@@ -836,8 +839,8 @@ export default function DeepDividendTab() {
             <ActionRequiredPanel items={dashboard?.action_required} onClick={openDrill} />
           </section>
 
-          <section style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border-subtle)', borderRadius: 8, overflow: 'hidden' }}>
-            <header style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-subtle)', background: 'rgba(34,197,94,.04)' }}>
+          <section style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+            <header style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', background: 'rgba(34,197,94,.04)' }}>
               <strong style={{ fontSize: 12, color: '#86efac' }}>⭐ TOP OPORTUNIDADES</strong>
               {dashboard?.top_opportunities?.length > 0 && (
                 <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-tertiary)' }}>
@@ -848,8 +851,8 @@ export default function DeepDividendTab() {
             <TopOpportunitiesPanel items={dashboard?.top_opportunities} onClick={openDrill} />
           </section>
 
-          <section style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border-subtle)', borderRadius: 8, overflow: 'hidden' }}>
-            <header style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-subtle)', background: 'rgba(212,175,55,.04)' }}>
+          <section style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+            <header style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', background: 'rgba(212,175,55,.04)' }}>
               <strong style={{ fontSize: 12, color: '#d4af37' }}>🔔 SMART ALERTS</strong>
               <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-tertiary)' }}>
                 8-K · insider clusters · cross-validation conflicts
@@ -863,8 +866,8 @@ export default function DeepDividendTab() {
 
         {/* RIGHT: 2x2 matrix + track record */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <section style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border-subtle)', borderRadius: 8, overflow: 'hidden' }}>
-            <header style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
+          <section style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+            <header style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
               <strong style={{ fontSize: 12, color: 'var(--text-secondary)' }}>📊 SAFETY × GROWTH MATRIX</strong>
             </header>
             <div style={{ padding: 12, display: 'flex', justifyContent: 'center' }}>
@@ -872,8 +875,8 @@ export default function DeepDividendTab() {
             </div>
           </section>
 
-          <section style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border-subtle)', borderRadius: 8, overflow: 'hidden' }}>
-            <header style={{ padding: '10px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
+          <section style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+            <header style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
               <strong style={{ fontSize: 12, color: 'var(--text-secondary)' }}>🎯 TRACK RECORD</strong>
             </header>
             <TrackRecordPanel data={calibration} />
