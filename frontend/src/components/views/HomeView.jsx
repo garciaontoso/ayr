@@ -27,6 +27,7 @@ import SmartMoneyTab from '../home/SmartMoneyTab';
 import YouTubeTab, { fetchAllYouTubeForOffline } from '../home/YouTubeTab';
 import OpcionesTab from '../home/OpcionesTab';
 import EarningsArchiveTab from '../home/EarningsArchiveTab';
+import DeepDividendTab from '../home/DeepDividendTab';
 import CurrencyTab from '../home/CurrencyTab';
 import MacroTab from '../home/MacroTab';
 import EarningsTab from '../home/EarningsTab';
@@ -1357,6 +1358,7 @@ export default function HomeView() {
       {homeTab==="smart-money" && <SmartMoneyTab />}
       {homeTab==="videos-youtube" && <YouTubeTab />}
       {homeTab==="earnings-archive" && <EarningsArchiveTab />}
+      {homeTab==="deep-dividend" && <DeepDividendTab />}
       {homeTab==="opciones-cs" && <OpcionesTab strategy="CS" view="list" />}
       {homeTab==="opciones-roc" && <OpcionesTab strategy="ROC" view="list" />}
       {homeTab==="opciones-rop" && <OpcionesTab strategy="ROP" view="list" />}
