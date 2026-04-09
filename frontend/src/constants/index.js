@@ -104,6 +104,7 @@ export const HOME_TAB_GROUPS = [
     lbl: "Cartera",
     ico: "💼",
     tabs: [
+      {id:"briefing",lbl:"Briefing",ico:"☀️"},
       {id:"portfolio",lbl:"Portfolio",ico:"💼"},
       {id:"agentes",lbl:"Agentes",ico:"🤖"},
       {id:"dashboard",lbl:"Dashboard",ico:"📊"},
@@ -159,7 +160,7 @@ export const HOME_TAB_GROUPS = [
     lbl: "Research",
     ico: "🔍",
     tabs: [
-      {id:"research",lbl:"Research",ico:"🔍"},
+      {id:"research",lbl:"Radar",ico:"📡"},
       {id:"smart-money",lbl:"Smart Money",ico:"🏛️"},
       {id:"videos-youtube",lbl:"Vídeos YouTube",ico:"▶️"},
       {id:"library",lbl:"Library",ico:"📚"},

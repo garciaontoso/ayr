@@ -32,6 +32,7 @@ import CurrencyTab from '../home/CurrencyTab';
 import MacroTab from '../home/MacroTab';
 import EarningsTab from '../home/EarningsTab';
 import NewsTab from '../home/NewsTab';
+import DailyBriefingTab from '../home/DailyBriefingTab';
 
 // Combined Income tab with sub-tabs
 function IncomeTab() {
@@ -1339,6 +1340,7 @@ export default function HomeView() {
 
     {homeTab==="portfolio" && <PortfolioTab />}
     <ErrorBoundary>
+      {homeTab==="briefing" && <DailyBriefingTab />}
       {homeTab==="screener" && <ScreenerTab />}
       {homeTab==="trades" && <TradesTab />}
       {homeTab==="patrimonio" && <PatrimonioTab />}
