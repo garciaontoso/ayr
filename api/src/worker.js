@@ -3506,24 +3506,31 @@ export default {
           }
         }
 
-        // Load docs list (most recent 18: roughly 3 10-K + 9 10-Q + 6 transcripts)
+        // Load docs list — up to 42 most recent (covers 7y: 7 10-K + 21 10-Q
+        // + 14 transcripts). Per-doc truncation keeps the total context size
+        // manageable regardless of how many docs are loaded.
         const rs = await env.DB.prepare(`
           SELECT id, doc_type, fiscal_year, fiscal_quarter, filing_date, r2_key, title
           FROM earnings_documents
           WHERE ticker = ?
           ORDER BY (filing_date IS NULL), filing_date DESC, id DESC
-          LIMIT 18
+          LIMIT 42
         `).bind(ticker).all();
         const rows = rs.results || [];
         if (rows.length === 0) {
           return json({ error: `No documents archived for ${ticker}` }, corsHeaders, 404);
         }
 
-        // Truncation strategy: 10-K → 30k chars, 10-Q → 15k, TRANSCRIPT → full (≤60k)
+        // Truncation strategy with 7-year coverage: smaller per-doc budget
+        // than the old 3-year version, since we now pack more documents
+        // into the same ~95k-token window.
+        //   10-K (annual) → 18k chars ≈ 4.5k tokens (highest signal)
+        //   10-Q (quarterly) → 9k chars ≈ 2.2k tokens (medium signal)
+        //   TRANSCRIPT (earnings call) → 40k chars ≈ 10k tokens (richest narrative)
         const truncLimit = {
-          "10-K": 30000,
-          "10-Q": 15000,
-          "TRANSCRIPT": 60000,
+          "10-K": 18000,
+          "10-Q": 9000,
+          "TRANSCRIPT": 40000,
         };
         const segments = [];
         let totalChars = 0;
@@ -3557,7 +3564,7 @@ export default {
 
         const systemPrompt = `Eres un analista senior de renta variable especializado en dividendos sostenibles a largo plazo. Tu objetivo es ayudar a un inversor dividendero a decidir si una empresa debe mantenerse en cartera, acumularse o venderse.
 
-Analiza los documentos financieros proporcionados (10-K, 10-Q y transcripts de earnings calls) de una misma empresa a lo largo de varios años y produce un informe multianual con veredicto claro.
+Analiza los documentos financieros proporcionados (10-K, 10-Q y transcripts de earnings calls) de una misma empresa a lo largo de hasta 7 años y produce un informe multianual con veredicto claro. Este histórico cubre ~2 ciclos económicos completos, así que puedes evaluar la durabilidad del moat y la respuesta a recesiones.
 
 Céntrate en:
 - Trayectoria de ingresos (crecimiento, desaceleración, segmentos, pricing power)

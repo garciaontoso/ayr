@@ -1,3 +1,4 @@
+import { useState, useMemo } from 'react';
 import { useCostBasis } from '../../context/CostBasisContext';
 import { _sf } from '../../utils/formatters.js';
 import { CURRENCIES } from '../../constants/index.js';
@@ -9,8 +10,38 @@ export default function CostBasisView() {
     addTransaction, importTransactions, deleteTransaction, goHome, cbLoading,
   } = useCostBasis();
 
+  // Sort state — click on a column header to sort. Supports date, type,
+  // cost, optCredit and divTotal. Default is date descending (newest first).
+  const [sortCol, setSortCol] = useState('date');
+  const [sortAsc, setSortAsc] = useState(false);
+  const toggleSort = (col) => {
+    if (sortCol === col) setSortAsc(v => !v);
+    else { setSortCol(col); setSortAsc(col === 'type'); /* type asc by default */ }
+  };
+
   const pos = positions[cbTicker] || {};
-  const txns = cbTransactions;
+  // Sorted view of transactions — the acumulative fields (_balance, _totalShares,
+  // _adjustedBasis) are precomputed assuming chronological order, so when the
+  // user sorts by anything else those columns are still the value AT THE TIME
+  // of that transaction (row-intrinsic), which stays correct.
+  const txns = useMemo(() => {
+    const arr = [...(cbTransactions || [])];
+    const getter = {
+      date:      (t) => t.date || '',
+      type:      (t) => t.type || '',
+      cost:      (t) => Number(t.cost) || 0,
+      optCredit: (t) => Number(t.optCreditTotal || t.optCredit || 0),
+      divTotal:  (t) => Number(t.divTotal || 0),
+      total:     (t) => Number(t.cost || 0) + Number(t.optCreditTotal || 0) + Number(t.divTotal || 0),
+    }[sortCol] || ((t) => t.date || '');
+    arr.sort((a, b) => {
+      const va = getter(a), vb = getter(b);
+      if (va < vb) return sortAsc ? -1 : 1;
+      if (va > vb) return sortAsc ? 1 : -1;
+      return 0;
+    });
+    return arr;
+  }, [cbTransactions, sortCol, sortAsc]);
   const ccy = pos.currency || "USD";
   const sym = CURRENCIES[ccy]?.symbol || "$";
   const showForm = cbShowForm;
@@ -163,14 +194,36 @@ export default function CostBasisView() {
                 </tr>
                 <tr>
                   {[
-                    {l:"FECHA",w:90},{l:"TIPO",w:80},{l:"SHARES",w:65,r:1},{l:"PRICE",w:70,r:1},{l:"FEES",w:55,r:1},{l:"COST",w:75,r:1},
-                    {l:"EXPIRY",w:85},{l:"TYPE",w:55},{l:"STATUS",w:70},{l:"CONTR.",w:50,r:1},{l:"STRIKE",w:60,r:1},{l:"CREDIT",w:65,r:1},
-                    {l:"PER SH",w:65,r:1},{l:"TOTAL",w:70,r:1},
+                    {l:"FECHA",w:90,sort:'date'},{l:"TIPO",w:80,sort:'type'},{l:"SHARES",w:65,r:1},{l:"PRICE",w:70,r:1},{l:"FEES",w:55,r:1},{l:"COST",w:75,r:1,sort:'cost'},
+                    {l:"EXPIRY",w:85},{l:"TYPE",w:55},{l:"STATUS",w:70},{l:"CONTR.",w:50,r:1},{l:"STRIKE",w:60,r:1},{l:"CREDIT",w:65,r:1,sort:'optCredit'},
+                    {l:"PER SH",w:65,r:1},{l:"TOTAL",w:70,r:1,sort:'divTotal'},
                     {l:"BALANCE",w:80,r:1},{l:"SHARES",w:60,r:1},{l:"BASIS",w:75,r:1},{l:"BASIS %",w:65,r:1},{l:"DIV Y%",w:60,r:1},
                     {l:"",w:30},
-                  ].map((h,i)=>(
-                    <th key={i} style={{padding:"7px 6px",textAlign:h.r?"right":"left",color:"var(--text-tertiary)",fontSize:9,fontWeight:600,fontFamily:"var(--fm)",letterSpacing:.4,borderBottom:"1px solid var(--border)",whiteSpace:"nowrap",minWidth:h.w}}>{h.l}</th>
-                  ))}
+                  ].map((h,i)=>{
+                    const active = h.sort && sortCol === h.sort;
+                    const indicator = active ? (sortAsc ? ' ▲' : ' ▼') : '';
+                    return (
+                      <th key={i}
+                        onClick={h.sort ? () => toggleSort(h.sort) : undefined}
+                        title={h.sort ? `Ordenar por ${h.l}` : undefined}
+                        style={{
+                          padding:"7px 6px",
+                          textAlign:h.r?"right":"left",
+                          color:active?"var(--gold)":"var(--text-tertiary)",
+                          fontSize:9,
+                          fontWeight:active?700:600,
+                          fontFamily:"var(--fm)",
+                          letterSpacing:.4,
+                          borderBottom:"1px solid var(--border)",
+                          whiteSpace:"nowrap",
+                          minWidth:h.w,
+                          cursor:h.sort?"pointer":"default",
+                          userSelect:h.sort?"none":"auto",
+                        }}>
+                        {h.l}{indicator}
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>

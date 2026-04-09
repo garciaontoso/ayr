@@ -12,8 +12,9 @@ Env vars required (source ~/.ayr-env before running):
   FMP_KEY          (Financial Modeling Prep API key)
 
 Usage:
-  scripts/download-earnings.py                       # portfolio tickers, 3y
-  scripts/download-earnings.py --years 5             # 5-year lookback
+  scripts/download-earnings.py                       # portfolio tickers, 7y
+  scripts/download-earnings.py --years 3             # 3-year lookback (legacy)
+  scripts/download-earnings.py --years 10            # 10-year (SEC EDGAR ceiling)
   scripts/download-earnings.py --tickers AAPL,MSFT   # specific tickers
   scripts/download-earnings.py --skip-sec            # transcripts only
   scripts/download-earnings.py --skip-fmp            # SEC filings only
@@ -396,13 +397,14 @@ def get_portfolio_tickers():
 # ─── Main ────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--years", type=int, default=3, help="lookback years (default 3)")
+    parser.add_argument("--years", type=int, default=7, help="lookback years (default 7 — covers 2 full cycles)")
     parser.add_argument("--tickers", type=str, help="comma-separated override")
     parser.add_argument("--forms", type=str, default="10-K,10-Q,20-F", help="SEC form types")
     parser.add_argument("--skip-sec", action="store_true")
     parser.add_argument("--skip-fmp", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--limit-per-ticker", type=int, default=20)
+    parser.add_argument("--limit-per-ticker", type=int, default=40,
+                        help="max filings + transcripts per ticker (default 40 for 7y lookback)")
     parser.add_argument("--only-missing", action="store_true",
                         help="skip tickers that already have any docs in the archive")
     args = parser.parse_args()
