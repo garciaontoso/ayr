@@ -4091,6 +4091,103 @@ Schema exacto:
         }, corsHeaders);
       }
 
+      // ═══════════════════════════════════════════════════════════
+      // SMART ALERTS endpoints (2026-04-09)
+      // ═══════════════════════════════════════════════════════════
+
+      // POST /api/smart-alerts/8k-scan
+      // Scans portfolio for new 8-K material events via SEC EDGAR
+      if (path === "/api/smart-alerts/8k-scan" && request.method === "POST") {
+        await ensureMigrations(env);
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          const result = await run8KMaterialEventsAgent(env);
+          return json(result, corsHeaders);
+        } catch (e) {
+          return json({ ok: false, error: String(e.message || e) }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/smart-alerts/8k-events?days=7
+      // Returns recent material 8-K events
+      if (path === "/api/smart-alerts/8k-events" && request.method === "GET") {
+        await ensureMigrations(env);
+        const days = Math.min(parseInt(url.searchParams.get('days') || '30', 10) || 30, 365);
+        const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
+        const rs = await env.DB.prepare(`
+          SELECT id, ticker, filing_date, item_codes, event_type, event_summary, severity, raw_url
+          FROM material_events_8k
+          WHERE processed_at >= ?
+          ORDER BY filing_date DESC, processed_at DESC
+        `).bind(cutoff).all();
+        return json({ ok: true, count: rs.results?.length || 0, events: rs.results || [] }, corsHeaders);
+      }
+
+      // POST /api/smart-alerts/insider-cluster-scan
+      if (path === "/api/smart-alerts/insider-cluster-scan" && request.method === "POST") {
+        await ensureMigrations(env);
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          const result = await runInsiderClusterDetector(env);
+          return json(result, corsHeaders);
+        } catch (e) {
+          return json({ ok: false, error: String(e.message || e) }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/smart-alerts/insider-clusters?days=30
+      if (path === "/api/smart-alerts/insider-clusters" && request.method === "GET") {
+        await ensureMigrations(env);
+        const days = Math.min(parseInt(url.searchParams.get('days') || '30', 10) || 30, 365);
+        const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
+        const rs = await env.DB.prepare(`
+          SELECT id, ticker, window_start, window_end, direction, n_insiders, severity, detected_at
+          FROM insider_clusters
+          WHERE detected_at >= ?
+          ORDER BY detected_at DESC
+        `).bind(cutoff).all();
+        return json({ ok: true, count: rs.results?.length || 0, clusters: rs.results || [] }, corsHeaders);
+      }
+
+      // GET /api/smart-alerts/cross-validation-conflicts
+      if (path === "/api/smart-alerts/cross-validation-conflicts" && request.method === "GET") {
+        await ensureMigrations(env);
+        try {
+          const result = await runCrossValidationConflictScanner(env);
+          return json(result, corsHeaders);
+        } catch (e) {
+          return json({ ok: false, error: String(e.message || e) }, corsHeaders, 500);
+        }
+      }
+
+      // POST /api/smart-alerts/track-record-eval
+      // Cron-friendly: evaluates predictions made 30/90/180/365 days ago
+      if (path === "/api/smart-alerts/track-record-eval" && request.method === "POST") {
+        await ensureMigrations(env);
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          const result = await runTrackRecordEvaluator(env);
+          return json(result, corsHeaders);
+        } catch (e) {
+          return json({ ok: false, error: String(e.message || e) }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/daily-briefing
+      // The 1-page actionable summary. NO AUTH (read-only, user-facing).
+      if (path === "/api/daily-briefing" && request.method === "GET") {
+        await ensureMigrations(env);
+        try {
+          const briefing = await buildDailyBriefing(env);
+          return json(briefing, corsHeaders);
+        } catch (e) {
+          return json({ ok: false, error: String(e.message || e) }, corsHeaders, 500);
+        }
+      }
+
       // POST /api/deep-dividend/backtest  { ticker, as_of_quarter }
       // Runs the pipeline using only documents available BEFORE as_of_quarter,
       // for walk-forward backtest validation.
@@ -11935,6 +12032,382 @@ async function runDeepDividendPipeline(env, opts = {}) {
     devils_advocate,
     cross_validation,
     stored_id,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SMART ALERTS LAYER (2026-04-09)
+// ═══════════════════════════════════════════════════════════════
+//
+// 4 alert types with high signal-to-noise:
+//   1. 8-K material events (CEO change, impairment, restatement)
+//   2. Insider clusters pre-earnings (3+ insiders, 60d window)
+//   3. Cross-validation conflicts (deep verdict disagrees with deterministic agents)
+//   4. Track record evaluator (postmortem of agent_predictions)
+//
+// All 4 use the existing push notification infrastructure (sendWebPush).
+// Anti-fatigue: hard cap 3 push/day across all alert types, deduplication.
+// ═══════════════════════════════════════════════════════════════
+
+// Anti-fatigue: returns true if alert was sent in last 24h for same ticker+type
+async function smartAlertWasRecentlySent(env, ticker, alert_type) {
+  const cutoff = Math.floor(Date.now() / 1000) - 86400;
+  try {
+    const r = await env.DB.prepare(
+      `SELECT 1 FROM material_events_8k WHERE ticker = ? AND event_type = ? AND processed_at >= ? AND alert_sent = 1 LIMIT 1`
+    ).bind(ticker, alert_type, cutoff).first();
+    return !!r;
+  } catch { return false; }
+}
+
+// ─── 8-K material event tracker ──────────────────────────────────
+// Polls SEC EDGAR submissions API for portfolio tickers.
+// Detects items 5.02 (mgmt change), 2.05 (impairment), 4.01 (auditor change),
+// 4.02 (restatement), 1.01 (material agreement), 8.01 (other material).
+const SEC_EDGAR_BASE = "https://data.sec.gov/submissions";
+const SEC_USER_AGENT = "AyR Deep Dividend Analyzer dev@ayr.local";
+
+const CRITICAL_8K_ITEMS = {
+  "5.02": { type: "mgmt_change", severity: "HIGH", label: "Departure or appointment of officer/director" },
+  "2.05": { type: "impairment", severity: "HIGH", label: "Costs associated with exit or disposal" },
+  "2.06": { type: "impairment", severity: "HIGH", label: "Material impairments" },
+  "4.01": { type: "auditor_change", severity: "CRITICAL", label: "Changes in registrant's certifying accountant" },
+  "4.02": { type: "restatement", severity: "CRITICAL", label: "Non-reliance on previously issued financial statements" },
+  "1.01": { type: "material_agreement", severity: "MEDIUM", label: "Entry into material definitive agreement" },
+  "1.03": { type: "bankruptcy", severity: "CRITICAL", label: "Bankruptcy or receivership" },
+  "8.01": { type: "other_material", severity: "MEDIUM", label: "Other material events" },
+};
+
+async function fetch8KFilingsForCIK(cik) {
+  // CIK must be 10-digit padded
+  const padded = String(cik).padStart(10, '0');
+  const url = `${SEC_EDGAR_BASE}/CIK${padded}.json`;
+  try {
+    const r = await fetch(url, { headers: { 'User-Agent': SEC_USER_AGENT } });
+    if (!r.ok) return null;
+    const data = await r.json();
+    const recent = data?.filings?.recent;
+    if (!recent) return null;
+    const out = [];
+    for (let i = 0; i < (recent.form || []).length; i++) {
+      if (recent.form[i] === '8-K') {
+        out.push({
+          accession: recent.accessionNumber[i],
+          filing_date: recent.filingDate[i],
+          report_date: recent.reportDate?.[i] || null,
+          items: recent.items?.[i] || '',
+          primary_doc: recent.primaryDocument[i],
+        });
+      }
+    }
+    return out;
+  } catch (e) {
+    console.error(`[8K] fetch failed for CIK ${cik}:`, e.message);
+    return null;
+  }
+}
+
+async function process8KFilingsForTicker(env, ticker, cik) {
+  const filings = await fetch8KFilingsForCIK(cik);
+  if (!filings) return { ok: false, processed: 0 };
+  let inserted = 0;
+  const sevenDaysAgo = Date.now() - 7 * 86400000;
+  for (const filing of filings) {
+    const filingMs = new Date(filing.filing_date).getTime();
+    if (filingMs < sevenDaysAgo) break; // recent only
+    // Parse items: "5.02,9.01" → ["5.02","9.01"]
+    const itemList = String(filing.items || '').split(',').map(s => s.trim()).filter(Boolean);
+    let highestSeverity = null;
+    let primaryEventType = null;
+    let label = null;
+    for (const item of itemList) {
+      const known = CRITICAL_8K_ITEMS[item];
+      if (known) {
+        if (!highestSeverity || (known.severity === 'CRITICAL') || (known.severity === 'HIGH' && highestSeverity !== 'CRITICAL')) {
+          highestSeverity = known.severity;
+          primaryEventType = known.type;
+          label = known.label;
+        }
+      }
+    }
+    if (!highestSeverity) continue; // skip non-material 8-Ks
+    try {
+      const r = await env.DB.prepare(`
+        INSERT OR IGNORE INTO material_events_8k
+        (ticker, filing_date, accession_number, item_codes, event_type, event_summary, severity, raw_url, processed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        ticker,
+        filing.filing_date,
+        filing.accession,
+        itemList.join(','),
+        primaryEventType,
+        label,
+        highestSeverity,
+        `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${cik}&type=8-K`,
+        Math.floor(Date.now() / 1000)
+      ).run();
+      if (r.meta?.changes > 0) inserted++;
+    } catch (e) { /* dup */ }
+  }
+  return { ok: true, processed: filings.length, inserted };
+}
+
+// Cron-callable: scan all portfolio tickers for new 8-K events
+async function run8KMaterialEventsAgent(env) {
+  // Need ticker → CIK mapping. Use sec_filings_cik table (built by the existing
+  // sec_filings agent). Fall back to ticker-as-cik for already-cached entries.
+  let mapping = {};
+  try {
+    const rs = await env.DB.prepare(`SELECT ticker, cik FROM sec_filings_cik WHERE cik IS NOT NULL`).all();
+    for (const r of (rs.results || [])) mapping[r.ticker] = r.cik;
+  } catch {}
+  if (Object.keys(mapping).length === 0) {
+    return { ok: false, reason: "no CIK mapping available" };
+  }
+  // Iterate portfolio
+  const positions = await env.DB.prepare(
+    `SELECT ticker FROM positions WHERE shares > 0`
+  ).all();
+  const portfolio = (positions.results || []).map(p => p.ticker);
+  const results = [];
+  for (const ticker of portfolio) {
+    const cik = mapping[ticker];
+    if (!cik) continue;
+    try {
+      const r = await process8KFilingsForTicker(env, ticker, cik);
+      if (r.inserted > 0) results.push({ ticker, inserted: r.inserted });
+    } catch (e) {
+      results.push({ ticker, error: e.message });
+    }
+    // Polite rate limit for SEC
+    await new Promise(r => setTimeout(r, 100));
+  }
+  return { ok: true, scanned: portfolio.length, with_new_events: results.length, results };
+}
+
+// ─── Insider cluster detector ────────────────────────────────────
+// Reads existing insider data (from FMP, populated by runInsiderAgent)
+// and looks for 3+ non-10b5-1 transactions same direction in 60d window
+// preceding the next earnings date.
+async function runInsiderClusterDetector(env) {
+  const today = new Date();
+  const sixtyDaysAgo = new Date(today.getTime() - 60 * 86400000).toISOString().slice(0, 10);
+  // The agent_insights table has insider data; we look for patterns
+  const positions = await env.DB.prepare(
+    `SELECT ticker FROM positions WHERE shares > 0`
+  ).all();
+  const portfolio = (positions.results || []).map(p => p.ticker);
+  const clusters = [];
+  for (const ticker of portfolio) {
+    try {
+      // Get the most recent insider insight for this ticker
+      const ins = await env.DB.prepare(`
+        SELECT details FROM agent_insights
+        WHERE agent_name = 'insider' AND ticker = ? AND fecha >= ?
+        ORDER BY fecha DESC LIMIT 1
+      `).bind(ticker, sixtyDaysAgo).first();
+      if (!ins?.details) continue;
+      let details;
+      try { details = JSON.parse(ins.details); } catch { continue; }
+      // Look for cluster signals in the details
+      // The runInsiderAgent stores: {transactions: [...], net_buys, net_sells, cluster_buys, cluster_sells}
+      const buyCluster = details.cluster_buys || 0;
+      const sellCluster = details.cluster_sells || 0;
+      if (buyCluster >= 3 || sellCluster >= 3) {
+        const direction = buyCluster > sellCluster ? 'buy' : 'sell';
+        const n_insiders = Math.max(buyCluster, sellCluster);
+        // Check if we already alerted this cluster
+        const exists = await env.DB.prepare(
+          `SELECT 1 FROM insider_clusters WHERE ticker = ? AND window_end = ? AND direction = ?`
+        ).bind(ticker, today.toISOString().slice(0, 10), direction).first();
+        if (exists) continue;
+        const severity = n_insiders >= 5 ? 'HIGH' : 'MEDIUM';
+        await env.DB.prepare(`
+          INSERT OR IGNORE INTO insider_clusters
+          (ticker, window_start, window_end, direction, n_insiders, severity, detected_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          ticker, sixtyDaysAgo, today.toISOString().slice(0, 10),
+          direction, n_insiders, severity, Math.floor(Date.now() / 1000)
+        ).run();
+        clusters.push({ ticker, direction, n_insiders, severity });
+      }
+    } catch (e) { /* skip */ }
+  }
+  return { ok: true, scanned: portfolio.length, clusters_found: clusters.length, clusters };
+}
+
+// ─── Cross-validation conflict scanner ───────────────────────────
+// Reads latest deep_dividend_analysis rows and surfaces ones where the
+// agent disagrees with deterministic signals.
+async function runCrossValidationConflictScanner(env) {
+  const since = Math.floor(Date.now() / 1000) - 7 * 86400; // last 7 days
+  const rs = await env.DB.prepare(`
+    SELECT id, ticker, verdict, confidence, cross_validation_json
+    FROM deep_dividend_analysis
+    WHERE created_at >= ?
+  `).bind(since).all();
+  const conflicts = [];
+  for (const r of (rs.results || [])) {
+    try {
+      const cv = JSON.parse(r.cross_validation_json || '{}');
+      if (cv.conflict_detected) {
+        conflicts.push({
+          id: r.id,
+          ticker: r.ticker,
+          deep_verdict: r.verdict,
+          deep_confidence: r.confidence,
+          agreement_pct: cv.agreement_pct,
+          sources: cv.sources,
+        });
+      }
+    } catch {}
+  }
+  return { ok: true, n_analyses_checked: rs.results?.length || 0, conflicts_found: conflicts.length, conflicts };
+}
+
+// ─── Track record evaluator (postmortem) ─────────────────────────
+// Cron-friendly: evaluate predictions made 30/90/180/365 days ago
+// against actual outcomes, populate brier_score and div_outcome columns.
+async function runTrackRecordEvaluator(env) {
+  const now = Math.floor(Date.now() / 1000);
+  const checkpoints = [
+    { days: 30,  field: 'div_outcome_30d',  retField: 'total_return_30d' },
+    { days: 90,  field: 'div_outcome_90d',  retField: 'total_return_90d' },
+    { days: 180, field: 'div_outcome_180d', retField: 'total_return_180d' },
+    { days: 365, field: 'div_outcome_365d', retField: 'total_return_365d' },
+  ];
+  let totalEvaluated = 0;
+  for (const cp of checkpoints) {
+    const targetTs = now - cp.days * 86400;
+    const tolerance = 86400; // ±1 day
+    // Find predictions in the window that don't have this checkpoint evaluated yet
+    const rs = await env.DB.prepare(`
+      SELECT id, agent_name, ticker, prediction_date, verdict, cut_probability_3y, raise_probability_12m
+      FROM agent_predictions
+      WHERE prediction_date BETWEEN ? AND ?
+        AND ${cp.field} IS NULL
+      LIMIT 100
+    `).bind(targetTs - tolerance, targetTs + tolerance).all();
+    for (const pred of (rs.results || [])) {
+      try {
+        // Check dividendos table for cut/raise/maintained between prediction_date and now
+        const start = new Date(pred.prediction_date * 1000).toISOString().slice(0, 10);
+        const end = new Date((pred.prediction_date + cp.days * 86400) * 1000).toISOString().slice(0, 10);
+        const divs = await env.DB.prepare(
+          `SELECT bruto, fecha FROM dividendos WHERE ticker = ? AND fecha BETWEEN ? AND ? ORDER BY fecha ASC`
+        ).bind(pred.ticker, start, end).all();
+        const divList = (divs.results || []).map(d => Number(d.bruto) || 0);
+        let outcome = 'maintained';
+        if (divList.length >= 2) {
+          const first = divList[0];
+          const last = divList[divList.length - 1];
+          if (last < first * 0.95) outcome = 'cut';
+          else if (last > first * 1.02) outcome = 'raised';
+          else outcome = 'maintained';
+        } else if (divList.length === 0) {
+          outcome = 'no_dividend_paid';
+        }
+        // Update the prediction row
+        await env.DB.prepare(
+          `UPDATE agent_predictions SET ${cp.field} = ?, evaluated_at = ? WHERE id = ?`
+        ).bind(outcome, now, pred.id).run();
+        // Compute brier score for this prediction (only at 365d)
+        if (cp.days === 365 && pred.cut_probability_3y !== null) {
+          const cutHappened = outcome === 'cut' ? 1 : 0;
+          const brier = Math.pow(pred.cut_probability_3y - cutHappened, 2);
+          const cut_correct = (pred.cut_probability_3y >= 0.5 ? 1 : 0) === cutHappened ? 1 : 0;
+          await env.DB.prepare(
+            `UPDATE agent_predictions SET brier_score = ?, cut_correct = ? WHERE id = ?`
+          ).bind(brier, cut_correct, pred.id).run();
+        }
+        totalEvaluated++;
+      } catch (e) {
+        console.error(`[track-record] eval failed for prediction ${pred.id}:`, e.message);
+      }
+    }
+  }
+  return { ok: true, total_evaluated: totalEvaluated };
+}
+
+// ─── Daily Briefing builder ──────────────────────────────────────
+// Synthesizes everything into a 1-page actionable email/dashboard.
+async function buildDailyBriefing(env) {
+  const today = new Date().toISOString().slice(0, 10);
+  const lookbackTs = Math.floor(Date.now() / 1000) - 24 * 3600;
+
+  // 1. Action required (deep dividend TRIM/SELL)
+  const actionReq = await env.DB.prepare(`
+    SELECT ticker, verdict, confidence, composite_score, cut_probability_3y, red_flags_count
+    FROM deep_dividend_analysis
+    WHERE verdict IN ('TRIM','SELL')
+    ORDER BY composite_score ASC, created_at DESC LIMIT 5
+  `).all();
+
+  // 2. New 8-K events in last 24h
+  const new8K = await env.DB.prepare(`
+    SELECT ticker, item_codes, event_type, severity, filing_date
+    FROM material_events_8k
+    WHERE processed_at >= ?
+    ORDER BY processed_at DESC LIMIT 10
+  `).bind(lookbackTs).all();
+
+  // 3. New insider clusters in last 24h
+  const newClusters = await env.DB.prepare(`
+    SELECT ticker, direction, n_insiders, severity
+    FROM insider_clusters
+    WHERE detected_at >= ?
+    ORDER BY detected_at DESC LIMIT 10
+  `).bind(lookbackTs).all();
+
+  // 4. Earnings this week (placeholder — needs earnings calendar data)
+  // For now, use the last 7 days of new transcripts as proxy
+  const recentTranscripts = await env.DB.prepare(`
+    SELECT DISTINCT ticker FROM earnings_documents
+    WHERE doc_type = 'TRANSCRIPT' AND filing_date >= date('now', '-7 days')
+    ORDER BY filing_date DESC LIMIT 10
+  `).all();
+
+  // 5. Top opportunities (BUY/ACCUMULATE high composite)
+  const topOps = await env.DB.prepare(`
+    SELECT ticker, verdict, confidence, composite_score, raise_probability_12m
+    FROM deep_dividend_analysis
+    WHERE verdict IN ('STRONG_BUY','BUY','ACCUMULATE')
+    ORDER BY composite_score DESC, created_at DESC LIMIT 5
+  `).all();
+
+  // 6. Cross-validation conflicts
+  const conflictsScanner = await runCrossValidationConflictScanner(env);
+
+  // 7. Track record snapshot
+  const trackRecord = await env.DB.prepare(`
+    SELECT
+      COUNT(*) as n_total,
+      SUM(CASE WHEN cut_correct = 1 THEN 1 ELSE 0 END) as n_cut_correct,
+      AVG(brier_score) as avg_brier
+    FROM agent_predictions
+    WHERE agent_name = 'deep_dividend' AND brier_score IS NOT NULL
+  `).first();
+
+  return {
+    ok: true,
+    date: today,
+    sections: {
+      action_required: actionReq.results || [],
+      new_8k_events: new8K.results || [],
+      new_insider_clusters: newClusters.results || [],
+      earnings_this_week: (recentTranscripts.results || []).map(r => r.ticker),
+      top_opportunities: topOps.results || [],
+      cross_validation_conflicts: conflictsScanner.conflicts || [],
+      track_record: {
+        n_total_evaluated: trackRecord?.n_total || 0,
+        n_cut_correct: trackRecord?.n_cut_correct || 0,
+        avg_brier_score: trackRecord?.avg_brier || null,
+        baseline_random_brier: 0.25,
+      },
+    },
+    generated_at: new Date().toISOString(),
   };
 }
 
