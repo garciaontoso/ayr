@@ -248,115 +248,20 @@ function SentimentBar() {
   const vixColor = vix ? (vix.price < 15 ? "#30d158" : vix.price < 25 ? "#ffd60a" : vix.price < 35 ? "#ff9f0a" : "#ff453a") : "var(--text-tertiary)";
   const fgColor = fg ? (fg.score <= 25 ? "#ff453a" : fg.score <= 45 ? "#ff9f0a" : fg.score <= 55 ? "#ffd60a" : "#30d158") : "var(--text-tertiary)";
 
-  const renderFutCard = (f) => {
-    const sess = SESSION_META[f.session || 'regular'];
-    return (
-      <div key={f.symbol} title={`${f.label} ${f.symbol} · ${sess.label}`} style={{
-        display: 'flex', flexDirection: 'column', gap: 1,
-        padding: '4px 6px', minWidth: 96,
-        borderRight: '1px solid var(--border)',
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 4 }}>
-          <span style={{ fontSize: 8, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.3px' }}>
-            {sess.icon}{sess.icon ? ' ' : ''}{f.label}
-          </span>
-          <span style={{ fontSize: 8, fontWeight: 700, color: f.changePct >= 0 ? '#30d158' : '#ff453a' }}>
-            {f.changePct >= 0 ? '+' : ''}{f.changePct.toFixed(2)}%
-          </span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--fm)' }}>
-            {f.price < 100 ? f.price.toFixed(2) : f.price < 10000 ? f.price.toFixed(0) : (f.price / 1000).toFixed(1) + 'k'}
-          </span>
-          <MiniSpark points={f.spark} width={48} height={14} />
-        </div>
-      </div>
-    );
-  };
-
-  // News-style marquee — slides all index values horizontally continuously.
-  // CSS animation via inline keyframes so we don't need a separate stylesheet.
-  // We duplicate the list once so the loop appears seamless.
-  const marqueeItems = futures
-    ? ['USA','Europa','Asia'].flatMap(reg => (futures[reg] || []).map(f => ({ ...f, region: reg })))
+  // Single unified marquee: VIX + Fear & Greed first (special gauge items),
+  // then all global index futures. The previous static bar above was
+  // redundant — everything lives in the moving ticker now.
+  const futureItems = futures
+    ? ['USA','Europa','Asia'].flatMap(reg => (futures[reg] || []).map(f => ({ ...f, region: reg, kind: 'future' })))
     : [];
+  const gaugeItems = [];
+  if (vix) gaugeItems.push({ kind: 'vix', vix, spark: history.vix });
+  if (fg) gaugeItems.push({ kind: 'fg', fg, spark: history.fearGreed.slice(-30) });
+  const marqueeItems = [...gaugeItems, ...futureItems];
 
   return (
     <>
-      <div style={{
-        display: "flex", alignItems: "center", gap: 10, padding: "4px 8px",
-        background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8,
-        marginBottom: 2, fontSize: 10, fontFamily: "var(--fm)", overflowX: 'auto', overflowY: 'hidden',
-      }}>
-        {vix && (
-          <div style={{ display: "flex", alignItems: "center", gap: 4, flex: "0 0 auto" }}>
-            <MiniGauge value={vix.price} min={0} max={60} colors={vixColors} size={54} />
-            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-              <span style={{ fontSize: 9, color: "var(--text-tertiary)", fontWeight: 600 }}>VIX</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: vixColor }}>{vix.price.toFixed(1)}</span>
-              <span style={{ fontSize: 8, color: vix.change >= 0 ? "#ff453a" : "#30d158" }}>
-                {vix.change >= 0 ? "+" : ""}{vix.change.toFixed(1)} ({vix.changePct >= 0 ? "+" : ""}{vix.changePct.toFixed(1)}%)
-              </span>
-            </div>
-            <MiniSpark points={history.vix} width={78} height={26}
-              colorUp="#ff453a" colorDown="#30d158" />
-          </div>
-        )}
-        {vix && <div style={{ width: 1, height: 30, background: "var(--border)", flex: "0 0 auto" }} />}
-        {fg ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 4, flex: "0 0 auto" }}>
-            <MiniGauge value={fg.score} min={0} max={100} colors={fgColors} size={54} />
-            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-              <span style={{ fontSize: 9, color: "var(--text-tertiary)", fontWeight: 600 }}>Fear & Greed</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: fgColor }}>{fg.score}</span>
-              <span style={{ fontSize: 8, color: fgColor }}>{fg.label}</span>
-            </div>
-            <MiniSpark points={history.fearGreed.slice(-30)} width={78} height={26}
-              colorUp="#30d158" colorDown="#ff453a" />
-          </div>
-        ) : (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flex: "0 0 auto" }}>
-            <MiniGauge value={50} min={0} max={100} colors={fgColors} size={54} />
-            <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-              <span style={{ fontSize: 9, color: "var(--text-tertiary)", fontWeight: 600 }}>Fear & Greed</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-tertiary)" }}>—</span>
-              <span style={{ fontSize: 8, color: "var(--text-tertiary)" }}>No data</span>
-            </div>
-          </div>
-        )}
-
-        {/* Futures: global index intraday */}
-        {futures && (
-          <>
-            <div style={{ width: 1, height: 30, background: "var(--border)", flex: "0 0 auto" }} />
-            {['USA', 'Europa', 'Asia'].map(reg => (
-              (futures[reg] || []).length > 0 && (
-                <div key={reg} style={{ display: 'flex', alignItems: 'stretch', gap: 0, flex: '0 0 auto' }}>
-                  <div style={{
-                    padding: '0 6px', display: 'flex', flexDirection: 'column', justifyContent: 'center',
-                    fontSize: 7, fontWeight: 800, color: 'var(--gold)',
-                    writingMode: 'vertical-rl', transform: 'rotate(180deg)', letterSpacing: '1px',
-                  }}>
-                    {reg.toUpperCase()}
-                  </div>
-                  {futures[reg].map(renderFutCard)}
-                </div>
-              )
-            ))}
-          </>
-        )}
-
-        <button onClick={() => setShowDetail(v => !v)} style={{
-          background: 'transparent', border: '1px solid var(--border)',
-          color: 'var(--text-secondary)', padding: '3px 8px', borderRadius: 4,
-          fontSize: 9, cursor: 'pointer', marginLeft: 'auto', flex: '0 0 auto',
-        }}>
-          {showDetail ? '▲ Ocultar' : '▼ Detalle'}
-        </button>
-        {data.cached && <span style={{ fontSize: 7, color: "var(--text-tertiary)", opacity: 0.5, flex: '0 0 auto' }}>cached</span>}
-      </div>
-
-      {/* News-style ticker marquee — infinite horizontal scroll */}
+      {/* News-style ticker marquee — infinite horizontal scroll with VIX + F&G + futures all in one */}
       {marqueeItems.length > 0 && (
         <div style={{
           marginBottom: 4, background: 'var(--card)', border: '1px solid var(--border)',
@@ -395,6 +300,64 @@ function SentimentBar() {
           }}>
             {/* Duplicate the list twice so the loop is seamless */}
             {[...marqueeItems, ...marqueeItems].map((f, idx) => {
+              // Special cards for VIX and Fear & Greed — with inline sparkline
+              if (f.kind === 'vix') {
+                const v = f.vix;
+                const col = v.price < 15 ? '#30d158' : v.price < 25 ? '#ffd60a' : v.price < 35 ? '#ff9f0a' : '#ff453a';
+                const label = v.price < 15 ? 'Calma' : v.price < 25 ? 'Normal' : v.price < 35 ? 'Tensión' : 'Pánico';
+                const chgCol = v.change >= 0 ? '#ff453a' : '#30d158';
+                return (
+                  <div key={`vix-${idx}`} title={`VIX ${v.price.toFixed(2)} — ${label}`} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 8,
+                    padding: '5px 14px', borderRight: `2px solid ${col}`,
+                    fontFamily: 'var(--fm)', background: `linear-gradient(90deg, ${col}10, transparent)`,
+                  }}>
+                    <span style={{ fontSize: 9, color: 'var(--text-tertiary)', fontWeight: 800, letterSpacing: '.5px' }}>
+                      📊 VIX
+                    </span>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: col, fontFamily: 'var(--fm)' }}>
+                      {v.price.toFixed(1)}
+                    </span>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: chgCol }}>
+                      {v.change >= 0 ? '▲' : '▼'} {v.change >= 0 ? '+' : ''}{v.change.toFixed(1)} ({v.changePct >= 0 ? '+' : ''}{v.changePct.toFixed(1)}%)
+                    </span>
+                    <MiniSpark points={f.spark} width={70} height={22}
+                      colorUp="#ff453a" colorDown="#30d158" />
+                    <span style={{ fontSize: 9, fontWeight: 700, color: col, letterSpacing: '.3px', textTransform: 'uppercase' }}>
+                      {label}
+                    </span>
+                  </div>
+                );
+              }
+              if (f.kind === 'fg') {
+                const g = f.fg;
+                const col = g.score <= 25 ? '#ff453a' : g.score <= 45 ? '#ff9f0a' : g.score <= 55 ? '#ffd60a' : '#30d158';
+                return (
+                  <div key={`fg-${idx}`} title={`Fear & Greed ${g.score} — ${g.label}`} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 8,
+                    padding: '5px 14px', borderRight: `2px solid ${col}`,
+                    fontFamily: 'var(--fm)', background: `linear-gradient(90deg, ${col}10, transparent)`,
+                  }}>
+                    <span style={{ fontSize: 9, color: 'var(--text-tertiary)', fontWeight: 800, letterSpacing: '.5px' }}>
+                      🎭 F&G
+                    </span>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: col, fontFamily: 'var(--fm)' }}>
+                      {g.score}
+                    </span>
+                    <span style={{ fontSize: 9, fontWeight: 700, color: col, letterSpacing: '.3px', textTransform: 'uppercase' }}>
+                      {g.label}
+                    </span>
+                    <MiniSpark points={f.spark} width={70} height={22}
+                      colorUp="#30d158" colorDown="#ff453a" />
+                    {g.previous && (
+                      <span style={{ fontSize: 8, color: 'var(--text-tertiary)' }}>
+                        ayer {g.previous.score}
+                      </span>
+                    )}
+                  </div>
+                );
+              }
+              // Regular futures card
               const sess = SESSION_META[f.session || 'regular'];
               const col = f.changePct >= 0 ? '#30d158' : '#ff453a';
               return (
@@ -403,7 +366,7 @@ function SentimentBar() {
                   padding: '5px 14px', borderRight: '1px solid var(--border)',
                   fontFamily: 'var(--fm)',
                 }}>
-                  {sess.icon && <span style={{ fontSize: 10 }}>{sess.icon}</span>}
+                  {sess.icon && <span style={{ fontSize: 10 }} title={sess.label}>{sess.icon}</span>}
                   <span style={{ fontSize: 9, color: 'var(--text-tertiary)', fontWeight: 700, letterSpacing: '.3px' }}>
                     {f.region.toUpperCase()}
                   </span>
@@ -414,18 +377,71 @@ function SentimentBar() {
                   <span style={{ fontSize: 10, fontWeight: 700, color: col }}>
                     {f.changePct >= 0 ? '▲' : '▼'} {f.changePct >= 0 ? '+' : ''}{f.changePct.toFixed(2)}%
                   </span>
+                  <MiniSpark points={f.spark} width={40} height={14}
+                    colorUp="#30d158" colorDown="#ff453a" />
                 </div>
               );
             })}
           </div>
+          {/* Trailing controls — detail toggle + cached indicator */}
+          <button
+            onClick={() => setShowDetail(v => !v)}
+            title={showDetail ? 'Ocultar panel detalle' : 'Ver panel detalle'}
+            style={{
+              flex: '0 0 auto', background: 'var(--subtle-bg)',
+              border: 'none', borderLeft: '1px solid var(--border)',
+              padding: '0 10px', cursor: 'pointer',
+              fontSize: 9, color: 'var(--text-secondary)', fontWeight: 700,
+              display: 'flex', alignItems: 'center',
+            }}
+          >
+            {showDetail ? '▲' : '▼'} Detalle
+          </button>
+          {data.cached && (
+            <span style={{ flex: '0 0 auto', fontSize: 7, color: 'var(--text-tertiary)', opacity: 0.5, padding: '0 6px' }}>
+              cached
+            </span>
+          )}
         </div>
       )}
 
+      {/* Expanded detail panel — big gauges + big sparklines */}
       {showDetail && (
         <div style={{
           background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8,
           padding: 12, marginBottom: 6, marginTop: -2,
         }}>
+          {/* VIX + F&G gauges at the top */}
+          <div style={{
+            display: 'flex', gap: 20, marginBottom: 14, paddingBottom: 12,
+            borderBottom: '1px solid var(--border)', flexWrap: 'wrap',
+          }}>
+            {vix && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <MiniGauge value={vix.price} min={0} max={60} colors={vixColors} size={90} />
+                <div>
+                  <div style={{ fontSize: 9, color: 'var(--text-tertiary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px' }}>VIX</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: vixColor, fontFamily: 'var(--fm)' }}>{vix.price.toFixed(2)}</div>
+                  <div style={{ fontSize: 10, color: vix.change >= 0 ? '#ff453a' : '#30d158', fontFamily: 'var(--fm)' }}>
+                    {vix.change >= 0 ? '+' : ''}{vix.change.toFixed(2)} ({vix.changePct >= 0 ? '+' : ''}{vix.changePct.toFixed(1)}%)
+                  </div>
+                  <MiniSpark points={history.vix} width={180} height={40} colorUp="#ff453a" colorDown="#30d158" />
+                </div>
+              </div>
+            )}
+            {fg && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <MiniGauge value={fg.score} min={0} max={100} colors={fgColors} size={90} />
+                <div>
+                  <div style={{ fontSize: 9, color: 'var(--text-tertiary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px' }}>Fear &amp; Greed</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: fgColor, fontFamily: 'var(--fm)' }}>{fg.score}</div>
+                  <div style={{ fontSize: 10, color: fgColor, fontFamily: 'var(--fm)', textTransform: 'uppercase', letterSpacing: '.3px' }}>{fg.label}</div>
+                  <MiniSpark points={history.fearGreed} width={180} height={40} colorUp="#30d158" colorDown="#ff453a" />
+                </div>
+              </div>
+            )}
+          </div>
+          {/* Futures cards in a responsive grid */}
           <div style={{
             display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))',
             gap: 8,
@@ -448,7 +464,7 @@ function SentimentBar() {
                 </div>
                 <MiniSpark points={f.spark} width={152} height={32} />
                 <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>
-                  {f.symbol} · {f.change >= 0 ? '+' : ''}{f.change.toFixed(2)}
+                  {f.symbol} · {f.change >= 0 ? '+' : ''}{f.change.toFixed(2)} · {SESSION_META[f.session || 'regular'].label}
                 </div>
               </div>
             )))}
