@@ -2732,34 +2732,17 @@ export default {
         ).run();
 
         // ── Auto-trigger Deep Dividend Analysis (2026-04-09) ──
-        // Only for TRANSCRIPTs of portfolio tickers — these are the
-        // material events worth re-running the pipeline on. 10-K/10-Q
-        // upload alone doesn't trigger; new transcripts do.
-        // Fire-and-forget via ctx.waitUntil so we don't block the upload response.
-        let auto_deep_queued = false;
-        if (docType === "TRANSCRIPT") {
-          try {
-            const isPortfolio = await env.DB.prepare(
-              `SELECT 1 FROM positions WHERE ticker = ? AND shares > 0 LIMIT 1`
-            ).bind(ticker).first();
-            if (isPortfolio && ctx?.waitUntil) {
-              ctx.waitUntil(
-                runDeepDividendPipeline(env, { ticker, force: true })
-                  .then(r => console.log(`[deep-dividend] auto-run for ${ticker}: ${r.ok ? r.verdict?.action : 'failed'}`))
-                  .catch(e => console.error(`[deep-dividend] auto-run failed for ${ticker}:`, e.message))
-              );
-              auto_deep_queued = true;
-            }
-          } catch (e) {
-            console.error(`[deep-dividend] auto-trigger check failed:`, e.message);
-          }
-        }
+        // ── Auto-trigger Deep Dividend Analysis: DISABLED 2026-04-09 ──
+        // User explicitly opted out of paid Opus API calls. Deep dividend
+        // analysis is now MANUAL only — performed by Claude Code in chat
+        // and uploaded via POST /api/deep-dividend/upload-manual.
+        // The auto-trigger code is kept commented for easy re-enable later.
 
         return json({
           ok: true, ticker, doc_type: docType,
           r2_key: textKey, r2_key_raw: rawKey,
           size_bytes: textBytes, size_bytes_raw: rawBytes,
-          auto_deep_analysis_queued: auto_deep_queued,
+          auto_deep_analysis_queued: false,
         }, corsHeaders);
       }
 
@@ -4221,6 +4204,7 @@ Schema exacto:
 
       // POST /api/deep-dividend/run  { ticker, force? }
       // Direct run of the deep pipeline (alternative to analyze?deep=1)
+      // ⚠️ COSTS MONEY: calls Anthropic API directly. Default is MANUAL mode now.
       if (path === "/api/deep-dividend/run" && request.method === "POST") {
         await ensureMigrations(env);
         const unauth = ytRequireToken(request, env);
@@ -4239,6 +4223,115 @@ Schema exacto:
         } catch (e) {
           return json({ ok: false, error: String(e.message || e) }, corsHeaders, 500);
         }
+      }
+
+      // POST /api/deep-dividend/upload-manual
+      // Stores a deep dividend analysis WITHOUT calling Anthropic API.
+      // Used by Claude Code in chat to upload analyses performed manually.
+      // Body: full deep_dividend_analysis row payload (see schema below).
+      // Free for the user — Claude Code's processing is included in their
+      // subscription, no API tokens consumed.
+      if (path === "/api/deep-dividend/upload-manual" && request.method === "POST") {
+        await ensureMigrations(env);
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        let body;
+        try { body = await request.json(); }
+        catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+
+        // Required fields
+        const ticker = String(body.ticker || "").trim().toUpperCase();
+        const quarter = String(body.quarter || "").trim();
+        const sector_bucket = String(body.sector_bucket || "GENERAL").toUpperCase();
+        const verdict = String(body.verdict || "HOLD").toUpperCase();
+        const confidence = String(body.confidence || "medium").toLowerCase();
+        const safety_score = parseInt(body.safety_score || 5, 10);
+        const growth_score = parseInt(body.growth_score || 5, 10);
+        const honesty_score = parseInt(body.honesty_score || 5, 10);
+
+        if (!ticker || !quarter) {
+          return json({ error: "ticker and quarter required" }, corsHeaders, 400);
+        }
+        if (!body.result_json) {
+          return json({ error: "result_json required (the full Stage 3 Analyzer output)" }, corsHeaders, 400);
+        }
+
+        // Compute composite score (safety 0.5 + growth 0.3 + honesty 0.2)
+        const composite = Math.round((safety_score * 0.5 + growth_score * 0.3 + honesty_score * 0.2) * 10) / 10;
+
+        // Optional fields
+        const moat_score = body.moat_score != null ? parseInt(body.moat_score, 10) : null;
+        const cap_alloc = body.capital_alloc_score != null ? parseInt(body.capital_alloc_score, 10) : null;
+        const cut_prob = body.cut_probability_3y != null ? Number(body.cut_probability_3y) : null;
+        const raise_prob = body.raise_probability_12m != null ? Number(body.raise_probability_12m) : null;
+
+        // Count flags
+        let red_flags = 0, green_flags = 0;
+        try {
+          const r = body.result_json["3_red_and_green_flags"] || {};
+          red_flags = (r.red || []).length;
+          green_flags = (r.green || []).length;
+        } catch {}
+
+        const now = Math.floor(Date.now() / 1000);
+        let stored_id = null;
+        try {
+          const ins = await env.DB.prepare(`
+            INSERT OR REPLACE INTO deep_dividend_analysis
+            (ticker, quarter, sector_bucket, safety_score, growth_score, honesty_score,
+             moat_score, capital_alloc_score, composite_score, verdict, confidence,
+             cut_probability_3y, raise_probability_12m, red_flags_count, green_flags_count,
+             result_json, devils_advocate_json, cross_validation_json,
+             extraction_ids, model_extractor, model_historian, model_analyzer, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            ticker, quarter, sector_bucket,
+            safety_score, growth_score, honesty_score,
+            moat_score, cap_alloc, composite,
+            verdict, confidence,
+            cut_prob, raise_prob,
+            red_flags, green_flags,
+            JSON.stringify(body.result_json),
+            body.devils_advocate_json ? JSON.stringify(body.devils_advocate_json) : null,
+            body.cross_validation_json ? JSON.stringify(body.cross_validation_json) : null,
+            body.extraction_ids ? JSON.stringify(body.extraction_ids) : null,
+            "claude-code-manual",
+            "claude-code-manual",
+            "claude-code-manual",
+            now
+          ).run();
+          stored_id = ins.meta?.last_row_id;
+        } catch (e) {
+          return json({ error: `D1 insert failed: ${e.message}` }, corsHeaders, 500);
+        }
+
+        // Track in agent_predictions for postmortem (same as automatic pipeline)
+        try {
+          await env.DB.prepare(`
+            INSERT OR REPLACE INTO agent_predictions
+            (agent_name, ticker, prediction_date, verdict, confidence, safety_score, growth_score,
+             cut_probability_3y, raise_probability_12m, prediction_json)
+            VALUES ('deep_dividend', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            ticker, now, verdict, confidence,
+            safety_score, growth_score, cut_prob, raise_prob,
+            JSON.stringify({ verdict, scores: { safety: safety_score, growth: growth_score, honesty: honesty_score, composite }, source: "claude-code-manual" })
+          ).run();
+        } catch (e) {
+          console.error(`[deep-dividend] agent_predictions insert failed:`, e.message);
+        }
+
+        return json({
+          ok: true,
+          stored_id,
+          ticker,
+          quarter,
+          verdict,
+          confidence,
+          composite_score: composite,
+          source: "claude-code-manual",
+          message: "Analysis stored. Reload the Deep Dividend tab to see it."
+        }, corsHeaders);
       }
 
       // GET /api/deep-dividend/list?verdict=TRIM&since=2025-01-01
