@@ -50,9 +50,10 @@ const fmtPct = (v) => fmtPctFrac(v, 2);
 
 // ─── Main component ─────────────────────────────────────────────────
 export default function OpcionesTab({ strategy: strategyProp, view = 'list' }) {
-  // Strategy can be 'CS', 'ROC', 'ROP'; view can be 'list' or 'summary'
+  // Strategy can be 'CS', 'ROC', 'ROP'; view can be 'list', 'summary' or 'orphans'
   const strategy = strategyProp || 'CS';
   const isSummary = view === 'summary';
+  const isOrphans = view === 'orphans';
 
   // Persisted filter state (shared across sub-tabs via module-level ref)
   const [year, setYear] = useState(() => {
@@ -79,6 +80,13 @@ export default function OpcionesTab({ strategy: strategyProp, view = 'list' }) {
 
   // Close modal
   const [closingTrade, setClosingTrade] = useState(null);
+
+  // Orphans (IB cost_basis trades not in Excel)
+  const [orphans, setOrphans] = useState([]);
+  const [orphansStats, setOrphansStats] = useState({ by_ticker: [], by_year: [], by_status: [], total_credit: 0 });
+  const [orphansLoading, setOrphansLoading] = useState(false);
+  const [orphansYear, setOrphansYear] = useState('');
+  const [orphansTicker, setOrphansTicker] = useState('');
 
   // Persistence hooks for filters
   useEffect(() => { localStorage.setItem('opciones_filter_year', year); }, [year]);
@@ -108,9 +116,36 @@ export default function OpcionesTab({ strategy: strategyProp, view = 'list' }) {
     }
   }, [meta.years, year]);
 
+  // Load orphans (IB trades not logged in Excel)
+  useEffect(() => {
+    if (!isOrphans) return;
+    const ac = new AbortController();
+    (async () => {
+      setOrphansLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (orphansYear) params.set('year', orphansYear);
+        if (orphansTicker) params.set('ticker', orphansTicker);
+        params.set('limit', '500');
+        const r = await fetch(`${API_URL}/api/options/reconcile/orphans?${params.toString()}`, { signal: ac.signal });
+        const d = await r.json();
+        if (ac.signal.aborted) return;
+        if (d.ok) {
+          setOrphans(d.orphans || []);
+          setOrphansStats(d.stats || { by_ticker: [], by_year: [], by_status: [], total_credit: 0 });
+        }
+      } catch (e) {
+        if (e.name !== 'AbortError') { /* non-fatal */ }
+      } finally {
+        if (!ac.signal.aborted) setOrphansLoading(false);
+      }
+    })();
+    return () => ac.abort();
+  }, [isOrphans, orphansYear, orphansTicker]);
+
   // Load trades when filters change (list view only)
   useEffect(() => {
-    if (isSummary) return;
+    if (isSummary || isOrphans) return;
     const ac = new AbortController();
     (async () => {
       setLoading(true); setError('');
@@ -135,11 +170,11 @@ export default function OpcionesTab({ strategy: strategyProp, view = 'list' }) {
       }
     })();
     return () => ac.abort();
-  }, [strategy, year, month, statusFilter, underlying, account, search, isSummary]);
+  }, [strategy, year, month, statusFilter, underlying, account, search, isSummary, isOrphans]);
 
   // Load summary when in summary view
   useEffect(() => {
-    if (!isSummary) return;
+    if (!isSummary || isOrphans) return;
     const ac = new AbortController();
     (async () => {
       setSummaryLoading(true);
@@ -154,7 +189,7 @@ export default function OpcionesTab({ strategy: strategyProp, view = 'list' }) {
       finally { if (!ac.signal.aborted) setSummaryLoading(false); }
     })();
     return () => ac.abort();
-  }, [isSummary, year]);
+  }, [isSummary, year, isOrphans]);
 
   // KPI aggregation over currently-visible trades
   const kpis = useMemo(() => {
@@ -226,17 +261,49 @@ export default function OpcionesTab({ strategy: strategyProp, view = 'list' }) {
     setMonth(''); setStatusFilter(''); setUnderlying(''); setAccount(''); setSearch('');
   };
 
+  // Pre-fill the Planner modal from an orphan IB trade so the user can save it to Excel
+  const handleCreateFromOrphan = useCallback((o) => {
+    const optTipo = (o.opt_tipo || '').toUpperCase();
+    const inferredStrategy = optTipo === 'C' ? 'ROC' : 'ROP';
+    const credit = Math.abs(Number(o.opt_credit_total || 0));
+    const contracts = Number(o.opt_contracts || 1) || 1;
+    const perContract = contracts > 0 ? credit / contracts / 100 : 0;
+    const tradeDate = (o.fecha || '').slice(0, 10);
+    setEditingTrade({
+      strategy: inferredStrategy,
+      underlying: o.ticker,
+      short_strike: o.opt_strike,
+      long_strike: null,
+      expiration_date: o.opt_expiry,
+      trade_date: tradeDate,
+      actual_contracts: contracts,
+      contracts: contracts,
+      net_credit: perContract,
+      net_credit_total: credit,
+      status: o.opt_status || 'OPEN',
+      account: '',
+      notes: `Importado desde IB Flex (cost_basis id ${o.id})`,
+      _from_orphan_id: o.id,
+    });
+    setShowPlanner(true);
+  }, []);
+
   // ─── Render ───────────────────────────────────────────────────────
   const sMeta = STRATEGY_META[strategy];
-  const titleIcon = isSummary ? '📊' : sMeta.icon;
-  const titleText = isSummary ? 'Resumen Mensual de Opciones' : sMeta.label;
+  const titleIcon = isOrphans ? '⚠️' : (isSummary ? '📊' : sMeta.icon);
+  const titleText = isOrphans
+    ? 'Trades sin loguear (IB → Excel)'
+    : (isSummary ? 'Resumen Mensual de Opciones' : sMeta.label);
+  const headerHelp = isOrphans
+    ? 'Trades ejecutados en IB pero que no están en tu Excel — pulsa "Crear en Excel" para añadirlos'
+    : (isSummary ? 'Ingresos realizados por mes · agrupados por estrategia' : sMeta.help);
 
   return (
     <div style={{ padding: '16px 20px', maxWidth: 1400, margin: '0 auto' }}>
       {/* Header */}
       <div style={{
-        background: 'var(--card)',
-        border: '1px solid var(--border)',
+        background: isOrphans ? 'rgba(217, 119, 6, 0.08)' : 'var(--card)',
+        border: `1px solid ${isOrphans ? 'rgba(217, 119, 6, 0.5)' : 'var(--border)'}`,
         borderRadius: 12,
         padding: '14px 18px',
         marginBottom: 14,
@@ -244,15 +311,15 @@ export default function OpcionesTab({ strategy: strategyProp, view = 'list' }) {
       }}>
         <div>
           <div style={{
-            fontFamily: 'var(--fd)', fontSize: 22, color: 'var(--gold)', letterSpacing: '.3px',
+            fontFamily: 'var(--fd)', fontSize: 22, color: isOrphans ? '#f59e0b' : 'var(--gold)', letterSpacing: '.3px',
           }}>
             {titleIcon} {titleText}
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
-            {isSummary ? 'Ingresos realizados por mes · agrupados por estrategia' : sMeta.help}
+            {headerHelp}
           </div>
         </div>
-        {!isSummary && (
+        {!isSummary && !isOrphans && (
           <button
             onClick={() => { setEditingTrade(null); setShowPlanner(true); }}
             style={{
@@ -267,6 +334,7 @@ export default function OpcionesTab({ strategy: strategyProp, view = 'list' }) {
       </div>
 
       {/* Filters bar */}
+      {!isOrphans && (
       <div style={{
         background: 'var(--card)', border: '1px solid var(--border)',
         borderRadius: 12, padding: '10px 14px', marginBottom: 14,
@@ -319,8 +387,20 @@ export default function OpcionesTab({ strategy: strategyProp, view = 'list' }) {
           Limpiar
         </button>
       </div>
+      )}
 
-      {isSummary ? (
+      {isOrphans ? (
+        <OrphansView
+          orphans={orphans}
+          stats={orphansStats}
+          loading={orphansLoading}
+          year={orphansYear}
+          ticker={orphansTicker}
+          onYearChange={setOrphansYear}
+          onTickerChange={setOrphansTicker}
+          onCreate={handleCreateFromOrphan}
+        />
+      ) : isSummary ? (
         <SummaryView summary={summary} loading={summaryLoading} year={year}/>
       ) : (
         <>
@@ -944,4 +1024,229 @@ const btnSecondary = {
   background: 'transparent', border: '1px solid var(--border)',
   color: 'var(--text-secondary)', padding: '8px 16px', borderRadius: 8,
   fontSize: 12, cursor: 'pointer',
+};
+
+// ─── Orphans view (IB trades not logged in Excel) ───────────────────
+function OrphansView({ orphans, stats, loading, year, ticker, onYearChange, onTickerChange, onCreate }) {
+  const amber = '#f59e0b';
+  const amberBg = 'rgba(217, 119, 6, 0.06)';
+  const amberBorder = 'rgba(217, 119, 6, 0.35)';
+
+  const yearOptions = [
+    { v: '', l: 'Todos' },
+    ...((stats.by_year || []).map(y => ({ v: String(y.year), l: `${y.year} (${y.count})` }))),
+  ];
+
+  const statusColor = (s) => {
+    const u = (s || '').toUpperCase();
+    if (u === 'OPEN') return '#3b82f6';
+    if (u === 'EXPIRED') return 'var(--green)';
+    if (u === 'CLOSED') return 'var(--gold)';
+    if (u === 'ASSIGNED') return amber;
+    if (u === 'ROLLED') return '#a855f7';
+    return 'var(--text-tertiary)';
+  };
+
+  return (
+    <div>
+      {/* Filter strip */}
+      <div style={{
+        background: amberBg, border: `1px solid ${amberBorder}`,
+        borderRadius: 12, padding: '10px 14px', marginBottom: 14,
+        display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center',
+      }}>
+        <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--text-tertiary)' }}>
+          Filtros:
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>Año:</span>
+          <select
+            value={year}
+            onChange={(e) => onYearChange(e.target.value)}
+            style={selectStyle}
+          >
+            {yearOptions.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+          </select>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>Ticker:</span>
+          <input
+            type="text"
+            placeholder="ej. KHC"
+            value={ticker}
+            onChange={(e) => onTickerChange(e.target.value.toUpperCase().trim())}
+            style={{ ...selectStyle, width: 110, textTransform: 'uppercase' }}
+          />
+        </div>
+        {(year || ticker) && (
+          <button
+            onClick={() => { onYearChange(''); onTickerChange(''); }}
+            style={btnSecondary}
+          >
+            Limpiar
+          </button>
+        )}
+      </div>
+
+      {/* KPI strip */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+        gap: 8, marginBottom: 14,
+      }}>
+        <div style={{
+          background: 'var(--card)', border: `1px solid ${amberBorder}`,
+          borderLeft: `3px solid ${amber}`,
+          borderRadius: 10, padding: '10px 12px',
+        }}>
+          <div style={{ fontSize: 9, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.5px' }}>
+            Total sin loguear
+          </div>
+          <div style={{ fontFamily: 'var(--fm)', fontSize: 18, fontWeight: 700, color: amber, marginTop: 2 }}>
+            {orphans.length}
+          </div>
+        </div>
+        <div style={{
+          background: 'var(--card)', border: '1px solid var(--border)',
+          borderRadius: 10, padding: '10px 12px',
+        }}>
+          <div style={{ fontSize: 9, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.5px' }}>
+            Credit total IB
+          </div>
+          <div style={{ fontFamily: 'var(--fm)', fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', marginTop: 2 }}>
+            {fmtUsd(stats.total_credit)}
+          </div>
+        </div>
+        {(stats.by_status || []).slice(0, 4).map(s => (
+          <div key={s.status} style={{
+            background: 'var(--card)', border: '1px solid var(--border)',
+            borderLeft: `3px solid ${statusColor(s.status)}`,
+            borderRadius: 10, padding: '10px 12px',
+          }}>
+            <div style={{ fontSize: 9, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.5px' }}>
+              {s.status || '—'}
+            </div>
+            <div style={{ fontFamily: 'var(--fm)', fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', marginTop: 2 }}>
+              {s.count}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Table */}
+      <div style={{
+        background: 'var(--card)', border: '1px solid var(--border)',
+        borderRadius: 12, overflow: 'hidden',
+      }}>
+        {loading ? (
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
+            Cargando trades huérfanos...
+          </div>
+        ) : orphans.length === 0 ? (
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
+            No hay trades sin loguear. Excel está al día.
+          </div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: 'var(--fm)' }}>
+            <thead>
+              <tr style={{ background: 'var(--subtle-bg)', borderBottom: `1px solid ${amberBorder}` }}>
+                <th style={thStyle}>Fecha</th>
+                <th style={thStyle}>Ticker</th>
+                <th style={thStyle}>Tipo</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Strike</th>
+                <th style={thStyle}>Expiry</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Contracts</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Credit</th>
+                <th style={thStyle}>Status</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              {orphans.map(o => (
+                <tr key={o.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={tdStyle}>{fmtDate(o.fecha)}</td>
+                  <td style={{ ...tdStyle, color: 'var(--gold)', fontWeight: 600 }}>{o.ticker}</td>
+                  <td style={tdStyle}>
+                    <span style={{
+                      padding: '2px 6px', borderRadius: 4, fontSize: 10,
+                      background: o.opt_tipo === 'P' ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)',
+                      color: o.opt_tipo === 'P' ? '#ef4444' : '#22c55e',
+                    }}>
+                      {o.opt_tipo}
+                    </span>
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>{fmtNum(o.opt_strike, 2)}</td>
+                  <td style={tdStyle}>{fmtDate(o.opt_expiry)}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>{o.opt_contracts}</td>
+                  <td style={{ ...tdStyle, textAlign: 'right', color: Number(o.opt_credit_total) >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                    {fmtUsd(o.opt_credit_total)}
+                  </td>
+                  <td style={tdStyle}>
+                    <span style={{
+                      padding: '2px 6px', borderRadius: 4, fontSize: 10,
+                      background: 'var(--subtle-bg)',
+                      color: statusColor(o.opt_status),
+                      border: `1px solid ${statusColor(o.opt_status)}40`,
+                    }}>
+                      {o.opt_status || '—'}
+                    </span>
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: 'right' }}>
+                    <button
+                      onClick={() => onCreate(o)}
+                      style={{
+                        background: amber, color: '#000', border: 'none',
+                        padding: '4px 10px', borderRadius: 6, fontSize: 10, fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      ➕ Crear en Excel
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* By-ticker breakdown */}
+      {!loading && (stats.by_ticker || []).length > 0 && (
+        <div style={{
+          marginTop: 14, background: 'var(--card)', border: '1px solid var(--border)',
+          borderRadius: 12, padding: '12px 14px',
+        }}>
+          <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--text-tertiary)', marginBottom: 8 }}>
+            Por ticker
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {(stats.by_ticker || []).slice(0, 30).map(t => (
+              <button
+                key={t.ticker}
+                onClick={() => onTickerChange(t.ticker)}
+                style={{
+                  background: 'var(--subtle-bg)', border: '1px solid var(--border)',
+                  borderRadius: 6, padding: '4px 8px', fontSize: 10,
+                  color: 'var(--text-secondary)', cursor: 'pointer',
+                  fontFamily: 'var(--fm)',
+                }}
+              >
+                <span style={{ color: 'var(--gold)', fontWeight: 600 }}>{t.ticker}</span>
+                <span style={{ marginLeft: 4, color: amber }}>{t.count}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const thStyle = {
+  padding: '8px 12px', textAlign: 'left',
+  fontSize: 10, textTransform: 'uppercase', letterSpacing: '.5px',
+  color: 'var(--text-tertiary)', fontWeight: 600,
+};
+
+const tdStyle = {
+  padding: '8px 12px', color: 'var(--text-primary)',
 };

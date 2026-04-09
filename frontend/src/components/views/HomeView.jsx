@@ -1362,6 +1362,7 @@ export default function HomeView() {
       {homeTab==="opciones-rop" && <OpcionesTab strategy="ROP" view="list" />}
       {homeTab==="opciones-leaps" && <OpcionesTab strategy="LEAPS" view="list" />}
       {homeTab==="opciones-resumen" && <OpcionesTab strategy="CS" view="summary" />}
+      {homeTab==="opciones-orphans" && <OpcionesTab strategy="CS" view="orphans" />}
       {homeTab==="currency" && <CurrencyTab />}
       {homeTab==="macro" && <MacroTab />}
       {homeTab==="earnings" && <EarningsTab />}

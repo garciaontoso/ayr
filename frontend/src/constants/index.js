@@ -126,6 +126,7 @@ export const HOME_TAB_GROUPS = [
       {id:"opciones-rop",lbl:"ROP",ico:"🛡"},
       {id:"opciones-leaps",lbl:"LEAPS & Calls",ico:"📅"},
       {id:"opciones-resumen",lbl:"Resumen",ico:"📊"},
+      {id:"opciones-orphans",lbl:"Sin loguear",ico:"⚠️"},
       {id:"income",lbl:"Income",ico:"🥦"},
     ],
   },
