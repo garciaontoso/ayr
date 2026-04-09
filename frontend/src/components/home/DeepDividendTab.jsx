@@ -57,6 +57,202 @@ function fmtTimeAgo(unixSec) {
   return `${Math.floor(days / 30)}mes`;
 }
 
+// ─── Tiny markdown renderer (in-house subset, safe — no dangerouslySetInnerHTML) ──
+// Handles: # ## ### #### headings, **bold**, *italic*, `code`, pipe tables,
+// - / 1. lists, paragraphs, --- hr. Returns an array of React elements.
+function renderInline(text, keyPrefix = 'inl') {
+  // Process inline tokens: `code`, **bold**, *italic*. Order matters.
+  const out = [];
+  let remaining = text;
+  let counter = 0;
+  // Regex captures: group 1 = code, group 2 = bold, group 3 = italic
+  const re = /`([^`]+)`|\*\*([^*]+)\*\*|\*([^*\n]+)\*/;
+  while (remaining.length > 0) {
+    const m = re.exec(remaining);
+    if (!m) {
+      out.push(remaining);
+      break;
+    }
+    if (m.index > 0) out.push(remaining.slice(0, m.index));
+    const k = `${keyPrefix}-${counter++}`;
+    if (m[1] != null) {
+      out.push(
+        <code key={k} style={{
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          fontSize: '0.92em',
+          padding: '1px 5px',
+          borderRadius: 3,
+          background: 'rgba(255,255,255,.06)',
+          color: 'var(--text-primary)',
+        }}>{m[1]}</code>
+      );
+    } else if (m[2] != null) {
+      out.push(<strong key={k} style={{ color: 'var(--text-primary)' }}>{m[2]}</strong>);
+    } else if (m[3] != null) {
+      out.push(<em key={k}>{m[3]}</em>);
+    }
+    remaining = remaining.slice(m.index + m[0].length);
+  }
+  return out;
+}
+
+function renderMarkdown(md) {
+  if (!md || typeof md !== 'string') return [];
+  const lines = md.replace(/\r\n/g, '\n').split('\n');
+  const out = [];
+  let i = 0;
+  let key = 0;
+  const nextKey = () => `md-${key++}`;
+
+  const H_BASE = { margin: '14px 0 6px', fontWeight: 700 };
+  const H1_STYLE = { ...H_BASE, fontSize: 24, color: 'var(--gold, #c8a44e)', marginTop: 4, borderBottom: '1px solid rgba(200,164,78,.3)', paddingBottom: 6 };
+  const H2_STYLE = { ...H_BASE, fontSize: 18, color: 'var(--gold, #c8a44e)', marginTop: 18 };
+  const H3_STYLE = { ...H_BASE, fontSize: 14, color: 'rgba(200,164,78,.85)', marginTop: 14 };
+  const H4_STYLE = { ...H_BASE, fontSize: 12, color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: 0.4 };
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    // Blank line — skip
+    if (trimmed === '') { i++; continue; }
+
+    // Horizontal rule
+    if (/^-{3,}$/.test(trimmed) || /^\*{3,}$/.test(trimmed)) {
+      out.push(<hr key={nextKey()} style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '18px 0' }} />);
+      i++; continue;
+    }
+
+    // Headings
+    const hMatch = /^(#{1,4})\s+(.*)$/.exec(trimmed);
+    if (hMatch) {
+      const level = hMatch[1].length;
+      const content = hMatch[2];
+      const styles = [H1_STYLE, H2_STYLE, H3_STYLE, H4_STYLE];
+      const Tag = `h${level}`;
+      out.push(React.createElement(Tag, { key: nextKey(), style: styles[level - 1] }, renderInline(content, `h${level}-${key}`)));
+      i++; continue;
+    }
+
+    // Tables: line starts with | and next line is | --- |
+    if (trimmed.startsWith('|') && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1].trim())) {
+      const splitRow = (row) => {
+        let r = row.trim();
+        if (r.startsWith('|')) r = r.slice(1);
+        if (r.endsWith('|')) r = r.slice(0, -1);
+        return r.split('|').map(c => c.trim());
+      };
+      const headers = splitRow(line);
+      i += 2; // skip header + separator
+      const rows = [];
+      while (i < lines.length && lines[i].trim().startsWith('|')) {
+        rows.push(splitRow(lines[i]));
+        i++;
+      }
+      out.push(
+        <div key={nextKey()} style={{ overflowX: 'auto', margin: '10px 0' }}>
+          <table style={{
+            borderCollapse: 'collapse',
+            width: '100%',
+            fontSize: 12,
+            border: '1px solid var(--border)',
+          }}>
+            <thead>
+              <tr>
+                {headers.map((h, hi) => (
+                  <th key={hi} style={{
+                    padding: '6px 10px',
+                    textAlign: 'left',
+                    background: 'rgba(200,164,78,.10)',
+                    color: 'var(--gold, #c8a44e)',
+                    borderBottom: '1px solid rgba(200,164,78,.3)',
+                    fontWeight: 600,
+                  }}>{renderInline(h, `th-${hi}`)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, ri) => (
+                <tr key={ri} style={{ background: ri % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.02)' }}>
+                  {row.map((cell, ci) => (
+                    <td key={ci} style={{
+                      padding: '5px 10px',
+                      borderBottom: '1px solid var(--border)',
+                      color: 'var(--text-secondary)',
+                      verticalAlign: 'top',
+                    }}>{renderInline(cell, `td-${ri}-${ci}`)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+      continue;
+    }
+
+    // Unordered list
+    if (/^[-*]\s+/.test(trimmed)) {
+      const items = [];
+      while (i < lines.length && /^[-*]\s+/.test(lines[i].trim())) {
+        const itemText = lines[i].trim().replace(/^[-*]\s+/, '');
+        items.push(itemText);
+        i++;
+      }
+      out.push(
+        <ul key={nextKey()} style={{ margin: '6px 0 10px 20px', padding: 0, color: 'var(--text-secondary)' }}>
+          {items.map((it, ii) => (
+            <li key={ii} style={{ marginBottom: 3 }}>{renderInline(it, `li-${ii}`)}</li>
+          ))}
+        </ul>
+      );
+      continue;
+    }
+
+    // Ordered list
+    if (/^\d+\.\s+/.test(trimmed)) {
+      const items = [];
+      while (i < lines.length && /^\d+\.\s+/.test(lines[i].trim())) {
+        const itemText = lines[i].trim().replace(/^\d+\.\s+/, '');
+        items.push(itemText);
+        i++;
+      }
+      out.push(
+        <ol key={nextKey()} style={{ margin: '6px 0 10px 22px', padding: 0, color: 'var(--text-secondary)' }}>
+          {items.map((it, ii) => (
+            <li key={ii} style={{ marginBottom: 3 }}>{renderInline(it, `oli-${ii}`)}</li>
+          ))}
+        </ol>
+      );
+      continue;
+    }
+
+    // Paragraph: collect consecutive non-empty lines (until blank, heading, list, table, or hr)
+    const paraLines = [];
+    while (i < lines.length) {
+      const t = lines[i].trim();
+      if (t === '') break;
+      if (/^#{1,4}\s+/.test(t)) break;
+      if (/^[-*]\s+/.test(t)) break;
+      if (/^\d+\.\s+/.test(t)) break;
+      if (t.startsWith('|')) break;
+      if (/^-{3,}$/.test(t) || /^\*{3,}$/.test(t)) break;
+      paraLines.push(t);
+      i++;
+    }
+    if (paraLines.length > 0) {
+      const joined = paraLines.join(' ');
+      out.push(
+        <p key={nextKey()} style={{ margin: '8px 0', color: 'var(--text-secondary)', lineHeight: 1.65 }}>
+          {renderInline(joined, `p-${key}`)}
+        </p>
+      );
+    }
+  }
+
+  return out;
+}
+
 function VerdictBadge({ verdict, confidence, large }) {
   const c = VERDICT_COLORS[verdict] || VERDICT_COLORS.HOLD;
   return (
@@ -394,6 +590,8 @@ function TrackRecordPanel({ data }) {
 
 // ─── Section: Per-ticker drill-down modal ───────────────────────
 function DeepAnalysisModal({ ticker, data, onClose, onRun, runStatus }) {
+  // TDZ-safe: declare all state hooks BEFORE any early returns or effects.
+  const [showFullReport, setShowFullReport] = useState(false);
   if (!ticker) return null;
   const r = data?.result_json;
   const safety = r?.["2_dividend_safety"] || {};
@@ -675,6 +873,77 @@ function DeepAnalysisModal({ ticker, data, onClose, onRun, runStatus }) {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* 📄 Informe Extenso (long-form markdown report) */}
+        {data?.markdown_report && (
+          <div style={{
+            marginTop: 20,
+            paddingTop: 16,
+            borderTop: '1px solid var(--border)',
+          }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+              <button
+                onClick={() => setShowFullReport(v => !v)}
+                style={{
+                  flex: 1,
+                  padding: '10px 14px',
+                  background: showFullReport ? 'rgba(200,164,78,.18)' : 'rgba(200,164,78,.10)',
+                  border: '1px solid var(--gold, #c8a44e)',
+                  color: 'var(--gold, #c8a44e)',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  letterSpacing: 0.4,
+                  textAlign: 'center',
+                  transition: 'background .15s',
+                }}
+              >
+                {showFullReport ? '▲ Ocultar' : '▼ Ver'} informe completo ({Math.round(data.markdown_report.length / 1024)}k chars)
+              </button>
+              <button
+                onClick={() => {
+                  const blob = new Blob([data.markdown_report], { type: 'text/markdown' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `${ticker}-${new Date().toISOString().slice(0, 10)}.md`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                style={{
+                  padding: '10px 14px',
+                  background: 'transparent',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-secondary)',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 500,
+                  whiteSpace: 'nowrap',
+                }}
+                title="Descargar informe como archivo .md"
+              >
+                ⬇ Descargar .md
+              </button>
+            </div>
+            {showFullReport && (
+              <div style={{
+                marginTop: 16,
+                padding: '16px 20px',
+                background: 'var(--card, rgba(255,255,255,.02))',
+                border: '1px solid var(--border)',
+                borderRadius: 10,
+                maxWidth: 820,
+                fontSize: 13,
+                lineHeight: 1.65,
+                color: 'var(--text-primary)',
+              }}>
+                {renderMarkdown(data.markdown_report)}
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -2884,6 +2884,109 @@ export default {
         return json({ ok: true, count: items.length, items }, corsHeaders);
       }
 
+      // GET /api/earnings/archive/report/:ticker
+      // Returns the cached institutional markdown report for a ticker.
+      // - If the cached analysis already has `markdown_report`, returns it as-is.
+      // - Otherwise (legacy one-liner schema), synthesises a markdown render
+      //   from the structured fields so the frontend's "Download report"
+      //   button always has something to give the user.
+      if (path.startsWith("/api/earnings/archive/report/") && request.method === "GET") {
+        await ensureMigrations(env);
+        const ticker = decodeURIComponent(
+          path.slice("/api/earnings/archive/report/".length)
+        ).trim().toUpperCase();
+        if (!ticker) return json({ error: "ticker required" }, corsHeaders, 400);
+
+        const cacheKey = `earnings_archive_analysis:${ticker}`;
+        const row = await env.DB.prepare(
+          `SELECT value, updated_at FROM app_config WHERE key = ?`
+        ).bind(cacheKey).first();
+        if (!row?.value) {
+          return json({ error: `No cached analysis for ${ticker}` }, corsHeaders, 404);
+        }
+
+        let analysis = null;
+        try { analysis = JSON.parse(row.value); }
+        catch { return json({ error: "Cached analysis is not valid JSON" }, corsHeaders, 500); }
+
+        // If the new long-form report is present, return it directly.
+        let markdown_report = null;
+        let synthesised = false;
+        if (typeof analysis?.markdown_report === 'string' && analysis.markdown_report.trim().length > 0) {
+          markdown_report = analysis.markdown_report;
+        } else {
+          // Fallback: render the legacy flat-schema fields as markdown so the
+          // "Download report" button still works for tickers that haven't
+          // been re-analysed under the new prompt yet.
+          synthesised = true;
+          const lines = [];
+          const safe = (v) => (v == null ? '—' : String(v));
+          const list = (arr) => Array.isArray(arr) && arr.length
+            ? arr.map(x => `- ${String(x)}`).join('\n')
+            : '_(none)_';
+          const verdict = safe(analysis.long_term_verdict);
+          const score = analysis.dividend_safety_score != null ? `${analysis.dividend_safety_score}/10` : '—';
+          const conf = safe(analysis.confidence);
+
+          lines.push(`# ${ticker} — Long-Term Dividend Research Report`);
+          lines.push(`_Cached ${row.updated_at} · legacy one-liner schema (not yet re-analysed under the institutional prompt)_`);
+          lines.push('');
+          lines.push('## Verdict');
+          lines.push(`- **Verdict:** ${verdict}`);
+          lines.push(`- **Dividend safety score:** ${score}`);
+          lines.push(`- **Confidence:** ${conf}`);
+          lines.push('');
+          lines.push('## Executive summary');
+          lines.push(safe(analysis.summary));
+          lines.push('');
+          lines.push('## Revenue trend');
+          lines.push(safe(analysis.revenue_trend));
+          lines.push('');
+          lines.push('## Margin & FCF trend');
+          lines.push(safe(analysis.margin_trend));
+          lines.push('');
+          lines.push('## Moat');
+          lines.push(safe(analysis.moat));
+          lines.push('');
+          lines.push('## Capital allocation');
+          lines.push(safe(analysis.capital_allocation));
+          lines.push('');
+          lines.push('## Dividend health');
+          lines.push(safe(analysis.dividend_health));
+          lines.push('');
+          lines.push('## Guidance changes');
+          lines.push(list(analysis.guidance_changes));
+          lines.push('');
+          lines.push('## Emerging risks');
+          lines.push(list(analysis.emerging_risks));
+          lines.push('');
+          lines.push('## Why YES (keep / accumulate)');
+          lines.push(list(analysis.why_yes));
+          lines.push('');
+          lines.push('## Why NO (concerns)');
+          lines.push(list(analysis.why_no));
+          lines.push('');
+          lines.push('## Thesis update');
+          lines.push(safe(analysis.thesis_update));
+          if (analysis.key_numbers && typeof analysis.key_numbers === 'object') {
+            lines.push('');
+            lines.push('## Key numbers');
+            for (const [k, v] of Object.entries(analysis.key_numbers)) {
+              lines.push(`- **${k}:** ${safe(v)}`);
+            }
+          }
+          markdown_report = lines.join('\n');
+        }
+
+        return json({
+          ok: true,
+          ticker,
+          markdown_report,
+          updated_at: row.updated_at,
+          synthesised,
+        }, corsHeaders);
+      }
+
       // ═══════════════════════════════════════════════════════════════════
       // OPTIONS TRADES — Credit Spreads / ROC / ROP planner+tracker
       // Mirrors the user's master Excel template (A&R spreadsheet) with
@@ -4008,17 +4111,31 @@ dilo. En español.`;
           return json({ error: "analysis object required" }, corsHeaders, 400);
         }
         // Require the same fields as the automated endpoint produces
+        // (heatmap depends on these). markdown_report is accepted as an
+        // OPTIONAL field — old-style analyses without it still work, and
+        // new-style payloads with the full institutional report just pass
+        // it through to the cache.
         const required = ['summary','long_term_verdict','dividend_safety_score','why_yes','why_no'];
         for (const k of required) {
           if (analysis[k] == null) return json({ error: `analysis.${k} required` }, corsHeaders, 400);
         }
+        // Optional: markdown_report (string), key_numbers (object). Both are
+        // persisted as-is via JSON.stringify(analysis) below — no field
+        // stripping, so any extra structured fields the caller provides
+        // round-trip cleanly to /report/:ticker and the heatmap.
         const cacheKey = `earnings_archive_analysis:${ticker}`;
         await env.DB.prepare(`
           INSERT INTO app_config (key, value, updated_at)
           VALUES (?, ?, datetime('now'))
           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
         `).bind(cacheKey, JSON.stringify(analysis)).run();
-        return json({ ok: true, ticker, stored: true, source: 'manual' }, corsHeaders);
+        return json({
+          ok: true,
+          ticker,
+          stored: true,
+          source: 'manual',
+          has_markdown_report: typeof analysis.markdown_report === 'string' && analysis.markdown_report.length > 0,
+        }, corsHeaders);
       }
 
       // ─── Opus trend analysis over multi-year earnings archive ─────
@@ -4133,38 +4250,124 @@ dilo. En español.`;
           return json({ error: "Could not load any R2 bodies" }, corsHeaders, 500);
         }
 
-        const systemPrompt = `Eres un analista senior de renta variable especializado en dividendos sostenibles a largo plazo. Tu objetivo es ayudar a un inversor dividendero a decidir si una empresa debe mantenerse en cartera, acumularse o venderse.
+        const systemPrompt = `Eres un analista senior de equity research especializado en dividendos sostenibles a largo plazo. Tu audiencia es un inversor retail que gestiona ~$1.3M en una cartera long-term buy-and-hold. Trabajas para una firma tipo Morningstar/Argus/Valueline.
 
-Analiza los documentos financieros proporcionados (10-K, 10-Q y transcripts de earnings calls) de una misma empresa a lo largo de hasta 7 años y produce un informe multianual con veredicto claro. Este histórico cubre ~2 ciclos económicos completos, así que puedes evaluar la durabilidad del moat y la respuesta a recesiones.
+Tu tarea: producir un INFORME DE EQUITY RESEARCH INSTITUCIONAL completo de la empresa, leyendo los 10-K, 10-Q y transcripts de earnings calls que te paso (hasta 7 años de historia, ~2 ciclos económicos completos).
 
-Céntrate en:
-- Trayectoria de ingresos (crecimiento, desaceleración, segmentos, pricing power)
-- Evolución de márgenes (gross, operating, net) y free cash flow
-- Capital allocation: dividendo, recompras, capex, M&A, deuda
-- Foso competitivo: ¿es ancho, estable o erosionándose?
-- Salud y seguridad del dividendo (payout ratio, FCF cover, track record)
-- Riesgos emergentes nuevos respecto a años anteriores
-- Veredicto final: ¿es una buena posición para un dividendero a largo plazo?
+El informe debe ser EXTENSO (~4000-6000 palabras) y NUMÉRICAMENTE RIGUROSO. Cada afirmación debe estar respaldada con números específicos extraídos de los filings. Si dices "revenue grew", cita la cifra exacta y el año. Si dices "margin compressed", pon las basis points.
 
-Sé crítico y honesto. No esquives los problemas. Si la tesis se está deteriorando, dilo claramente.
+FORMATO DE SALIDA: JSON con dos campos principales:
+1. \`markdown_report\` — el informe completo en formato markdown (~4000-6000 palabras, con headers, tablas, listas)
+2. Campos estructurados para la heatmap (verdict, safety score, etc.)
 
-Formato de salida: JSON VÁLIDO, sin markdown, sin code fences, sin texto extra fuera del JSON.
-Schema exacto:
+ESTRUCTURA DEL INFORME MARKDOWN:
+
+# {Company Name} ({TICKER}) — Long-Term Dividend Research Report
+## {Month Year} · {N}-Year Lookback · {N} documents analyzed
+
+## PART I · EXECUTIVE SUMMARY
+(1 página: verdict claro, tesis en 1 frase, top 3 razones pro, top 3 contras, target price range, key catalysts next 12 months)
+
+## PART II · COMPANY SNAPSHOT
+(negocio, segmentos operativos con revenue/margin breakdown, geografía, 1-page financial snapshot table)
+
+## PART III · HISTORICAL REVIEW — {N}-YEAR NARRATIVE
+(narrativa de cómo ha evolucionado la empresa en el periodo de lookback: decisiones estratégicas clave, impacto COVID, cambios de management, refranchising/M&A, pricing era, current state — ~600 palabras)
+
+## PART IV · DIVIDEND DEEP DIVE ⭐
+(el corazón del informe — dedica 1500+ palabras aquí)
+- Historical track record (años consecutivos de aumento)
+- DGR 1y / 3y / 5y / 10y (calculado de los datos)
+- Payout ratio earnings vs FCF (trayectoria año a año)
+- FCF coverage ratio (tabla completa año por año)
+- Balance sheet health (net debt, interest coverage, credit rating)
+- Red flags (tendencias que preocupan)
+- Stress test: escenario recesión
+- Proyección YOC a 5/10 años con la DGR actual
+
+## PART V · BUSINESS QUALITY & MOAT
+(evidencia concreta, no frases vacías — cita cuota de mercado, pricing power demostrado, distribución, marcas clave. Números del filing.)
+
+## PART VI · CAPITAL ALLOCATION
+(dividendos, buybacks año por año con $ efectivos, M&A mayor con performance, capex intensity, debt paydown)
+
+## PART VII · MANAGEMENT ASSESSMENT
+(leadership team, track record vs guidance histórico, tono en earnings calls, insider transactions si se ve en filings, compensation alignment)
+
+## PART VIII · FINANCIAL ANALYSIS
+(IS, BS, CF trayectoria de los años de lookback en tablas. Key ratios history: ROE, ROIC, net margin, D/E, current ratio)
+
+## PART IX · VALUATION
+(P/E history y actual, EV/EBITDA, FCF yield, dividend yield vs histórico, peer comparison si mencionado en filings)
+
+## PART X · RISKS & STRESS TESTS
+(Business risks, regulatory, macro, emerging risks NUEVOS en los últimos 2 años)
+
+## PART XI · THESIS & VERDICT
+(veredicto final, tesis articulada, por qué mantener long-term, qué cambiaría la tesis, triggers específicos para trim/add, position sizing recommendation)
+
+## 🤖 AI-ONLY LAYER (cosas que un analista humano no puede hacer fácil)
+### Management Tone Evolution
+(cómo ha cambiado el tono en las earnings calls a lo largo del periodo — palabras que aparecen/desaparecen, confidence shift)
+
+### Guidance Track Record
+(año por año: qué guidearon vs qué entregaron. Credibility score)
+
+### Cross-Filing Consistency Check
+(conflicts entre narrative y data — cuando dicen una cosa pero los números dicen otra)
+
+### Topics Stopped Discussing
+(temas que management dejó de mencionar con el tiempo — red flag)
+
+### Risk Cluster Analysis
+(riesgos que aparecen en 3+ filings = emerging concern)
+
+### Scenario Stress Test
+(base/pessimistic/optimistic case con números)
+
+### YOC Long-Term Projection
+(proyección 10 años con la DGR actual, break-even vs SPY yield)
+
+## APPENDIX
+### Data sources
+(lista de documentos analizados con sus fiscal years)
+### Key numbers reference
+(tabla consolidada de los números más importantes)
+### Previous report diff
+(si es posible, qué ha cambiado vs el análisis anterior)
+
+---
+
+IMPORTANTE:
+- Sé crítico. Si la tesis se deteriora, dilo claramente.
+- CITA NÚMEROS ESPECÍFICOS. "Revenue grew" no basta. "Revenue grew from $31.9B (FY2018) to $47.1B (FY2024), CAGR 6.7%" sí.
+- USA TABLAS markdown cuando tenga sentido (dividendos año por año, FCF coverage, etc.)
+- Habla en español salvo nombres propios y términos técnicos (moat, buyback, payout)
+
+Formato de salida (JSON estricto, sin markdown fences alrededor):
 {
-  "summary": "resumen ejecutivo en 2-3 frases",
-  "revenue_trend": "una frase describiendo la tendencia de ingresos",
-  "margin_trend": "una frase describiendo la tendencia de márgenes y FCF",
-  "moat": "una frase sobre el foso competitivo y si se mantiene",
-  "capital_allocation": "una frase sobre cómo asigna capital (div/buybacks/capex/M&A)",
-  "guidance_changes": ["cambio 1", "cambio 2", "..."],
-  "emerging_risks": ["riesgo 1", "riesgo 2", "..."],
-  "dividend_health": "frase sobre seguridad del dividendo con payout ratio si está disponible",
+  "markdown_report": "# Company (TICKER) — ...\\n\\n[el informe completo en markdown, ~4000-6000 palabras]",
+  "summary": "resumen ejecutivo en 2-3 frases (para la heatmap)",
+  "revenue_trend": "una frase cuantificada",
+  "margin_trend": "una frase cuantificada",
+  "moat": "una frase",
+  "capital_allocation": "una frase",
+  "guidance_changes": ["con números"],
+  "emerging_risks": ["específicos"],
+  "dividend_health": "con payout ratio",
   "dividend_safety_score": 1-10,
-  "why_yes": ["razón para mantenerla 1", "razón 2", "razón 3"],
-  "why_no": ["contra 1", "contra 2", "contra 3"],
+  "why_yes": ["3 razones concretas con números"],
+  "why_no": ["3 razones concretas con números"],
   "long_term_verdict": "BUY" | "ACCUMULATE" | "HOLD" | "TRIM" | "SELL",
-  "thesis_update": "conclusión sobre si la tesis dividendera sigue siendo válida",
-  "confidence": "high" | "medium" | "low"
+  "thesis_update": "conclusión en 2-3 frases",
+  "confidence": "high" | "medium" | "low",
+  "key_numbers": {
+    "current_yield_pct": 3.1,
+    "payout_ratio_fcf_pct": 72,
+    "years_div_growth": 63,
+    "dgr_5y_pct": 4.2,
+    "net_debt_ebitda": 2.1
+  }
 }`;
 
         const userPrompt = `Ticker: ${ticker}\nDocumentos analizados: ${segments.length}\n\n${segments.join("\n\n")}`;
@@ -4175,7 +4378,7 @@ Schema exacto:
         try {
           analysis = await callAgentClaude(env, systemPrompt, userPrompt, {
             model: "claude-opus-4-20250514",
-            maxTokens: 2000,
+            maxTokens: 8000,
           });
         } catch (e) {
           return json({ error: `Claude API failed: ${String(e.message || e)}` }, corsHeaders, 502);
