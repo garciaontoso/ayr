@@ -3812,6 +3812,39 @@ dilo. En español.`;
         }, corsHeaders);
       }
 
+      // POST /api/earnings/archive/analyze/manual
+      // Upsert a pre-computed analysis JSON into the cache, bypassing the
+      // Opus API call. Used when the user's Claude Code session generates
+      // the analysis directly (free) instead of invoking the API.
+      // Body: { ticker, analysis: {...same schema as /analyze...} }
+      // Auth: trusted origin OR bearer token (same as other mutations)
+      if (path === "/api/earnings/archive/analyze/manual" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        await ensureMigrations(env);
+        let body;
+        try { body = await request.json(); }
+        catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const ticker = String(body.ticker || "").trim().toUpperCase();
+        if (!ticker) return json({ error: "ticker required" }, corsHeaders, 400);
+        const analysis = body.analysis;
+        if (!analysis || typeof analysis !== 'object') {
+          return json({ error: "analysis object required" }, corsHeaders, 400);
+        }
+        // Require the same fields as the automated endpoint produces
+        const required = ['summary','long_term_verdict','dividend_safety_score','why_yes','why_no'];
+        for (const k of required) {
+          if (analysis[k] == null) return json({ error: `analysis.${k} required` }, corsHeaders, 400);
+        }
+        const cacheKey = `earnings_archive_analysis:${ticker}`;
+        await env.DB.prepare(`
+          INSERT INTO app_config (key, value, updated_at)
+          VALUES (?, ?, datetime('now'))
+          ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+        `).bind(cacheKey, JSON.stringify(analysis)).run();
+        return json({ ok: true, ticker, stored: true, source: 'manual' }, corsHeaders);
+      }
+
       // ─── Opus trend analysis over multi-year earnings archive ─────
       // POST /api/earnings/archive/analyze  { ticker, force? }
       // Loads up to N most recent docs from R2 (10-K + 10-Q + transcripts),
