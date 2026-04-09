@@ -2754,9 +2754,11 @@ export default {
           }
         }
 
-        // spread for CS
+        // spread for CS — always positive regardless of bull/bear direction.
+        // Bull put: short > long. Bear call: short < long. Both yield a
+        // positive width when we take the absolute difference.
         if (strategy === 'CS' && num(r.short_strike) != null && num(r.long_strike) != null) {
-          r.spread = num(r.short_strike) - num(r.long_strike);
+          r.spread = Math.abs(num(r.short_strike) - num(r.long_strike));
         }
 
         // actual_pct_from_price (puts: 1 - strike/price; calls: strike/price - 1)
@@ -2824,8 +2826,10 @@ export default {
           if (num(r.rorc) != null) r.arorc = num(r.rorc) * num(r.multiplier);
         }
 
-        // Kelly (CS only)
-        if (strategy === 'CS') {
+        // Kelly sizing — used by CS (credit spreads) and LEAPS (calls on
+        // indexes, same template as CS per the user's Excel). ROC/ROP use
+        // a simpler naked sizing so Kelly is skipped there.
+        if (strategy === 'CS' || strategy === 'LEAPS') {
           r.kelly_w = num(r.prob_otm);
           if (r.rc_at_risk_pct == null) r.rc_at_risk_pct = 0.3;
           if (num(r.risk_capital) != null) {
@@ -2834,16 +2838,24 @@ export default {
               r.kelly_r = num(r.net_credit) / num(r.avg_loss);
               if (num(r.kelly_r) > 0 && num(r.kelly_w) != null) {
                 r.kelly_pct = num(r.kelly_w) - (1 - num(r.kelly_w)) / num(r.kelly_r);
+                // Clamp to 0 when Kelly signals a negative edge
+                if (r.kelly_pct < 0) r.kelly_pct = 0;
               }
             }
           }
-          if (num(r.bankroll) != null) {
+          // Only compute size if we actually have a bankroll; otherwise
+          // the user hasn't completed the planner, leave derived fields null.
+          if (num(r.bankroll) != null && num(r.bankroll) > 0) {
             if (num(r.kelly_pct) != null) r.kelly_max_bet = num(r.kelly_pct) * num(r.bankroll);
             r.rule1_max_margin = num(r.bankroll) / 3;
             if (num(r.risk_capital) != null && num(r.risk_capital) > 0) {
-              const cap = Math.min(num(r.kelly_max_bet) || Infinity, num(r.rule1_max_margin) || Infinity);
-              if (Number.isFinite(cap)) {
-                r.max_contracts = Math.floor(cap / num(r.risk_capital) / 100);
+              const kmb = num(r.kelly_max_bet);
+              const rule1 = num(r.rule1_max_margin);
+              if (kmb != null || rule1 != null) {
+                const cap = Math.min(kmb ?? Infinity, rule1 ?? Infinity);
+                if (Number.isFinite(cap) && cap > 0) {
+                  r.max_contracts = Math.max(0, Math.floor(cap / num(r.risk_capital) / 100));
+                }
               }
             }
           }
@@ -2853,10 +2865,18 @@ export default {
         if (num(r.net_credit) != null && num(r.shares) != null) r.net_credit_total = num(r.net_credit) * num(r.shares);
         if (num(r.risk_capital) != null && num(r.shares) != null) r.risk_capital_total = num(r.risk_capital) * num(r.shares);
 
-        // Final P&L when closed/expired
+        // Final P&L when closed/expired.
+        // closing_debit is the per-share buyback debit. The Excel convention
+        // stores it as a NEGATIVE number (money paid to close), so the final
+        // formula is (net_credit_total + total_debit). We normalize any
+        // positive closing_debit passed via the planner to negative so users
+        // who enter "0.50" to mean "paid 0.50" don't double-count as profit.
         if (num(r.shares) != null) {
           if (num(r.closing_debit) != null) {
-            r.total_debit = num(r.closing_debit) * num(r.shares);
+            let cd = num(r.closing_debit);
+            if (cd > 0) cd = -cd; // normalize: debit paid is always negative
+            r.closing_debit = cd;
+            r.total_debit = cd * num(r.shares);
           }
           // If EXPIRED with no closing_debit recorded, treat as 0
           const isClosed = ['EXPIRED','CLOSED','ASSIGNED','ROLLED'].includes((r.status || '').toUpperCase());
@@ -2868,9 +2888,11 @@ export default {
             if (num(r.final_net_credit) != null && num(r.risk_capital_total) != null && num(r.risk_capital_total) !== 0) {
               r.final_rorc = num(r.final_net_credit) / num(r.risk_capital_total);
             }
-            // days held for final_arorc
+            // days held for final_arorc — use stored dte as floor to avoid
+            // absurd annualization on same-day closes (e.g. 0DTE = 365×).
             if (r.result_date && r.trade_date && num(r.final_rorc) != null) {
-              const daysHeld = Math.max(1, Math.round((new Date(r.result_date) - new Date(r.trade_date)) / 86400000));
+              let daysHeld = Math.round((new Date(r.result_date) - new Date(r.trade_date)) / 86400000);
+              if (!Number.isFinite(daysHeld) || daysHeld < 1) daysHeld = Math.max(1, num(r.dte) || 1);
               r.final_arorc = (365 / daysHeld) * num(r.final_rorc);
             }
           }
@@ -2908,8 +2930,19 @@ export default {
         return json({ ok: true, trade: derived }, corsHeaders);
       }
 
-      // POST /api/options/trades — create new trade
+      // Trusted origin check for options mutations. Either the caller is
+      // coming from an allowed browser origin (ayr.onto-so.com, pages.dev
+      // preview, localhost) OR it passes a Bearer AYR_WORKER_TOKEN. Accepts
+      // BOTH so cron/Mac scripts and the web UI can call mutating endpoints.
+      const optionsRequireAuth = () => {
+        if (isAllowed && origin) return null; // browser from allowed origin
+        return ytRequireToken(request, env);   // fallback: bearer token
+      };
+
+      // POST /api/options/trades — create new trade (auth required)
       if (path === "/api/options/trades" && request.method === "POST") {
+        const unauth = optionsRequireAuth();
+        if (unauth) return unauth;
         await ensureMigrations(env);
         let body;
         try { body = await request.json(); }
@@ -2924,8 +2957,10 @@ export default {
         return json({ ok: true, id, trade: { id, ...derived } }, corsHeaders);
       }
 
-      // PUT /api/options/trades/:id — update
+      // PUT /api/options/trades/:id — update (auth required)
       if (path.startsWith("/api/options/trades/") && request.method === "PUT") {
+        const unauth = optionsRequireAuth();
+        if (unauth) return unauth;
         await ensureMigrations(env);
         const id = Number(path.split("/").pop());
         if (!id) return json({ error: "Invalid id" }, corsHeaders, 400);
@@ -2944,13 +2979,17 @@ export default {
         return json({ ok: true, trade: { id, ...merged } }, corsHeaders);
       }
 
-      // DELETE /api/options/trades/:id
+      // DELETE /api/options/trades/:id (auth required; returns 404 if not found)
       if (path.startsWith("/api/options/trades/") && request.method === "DELETE") {
+        const unauth = optionsRequireAuth();
+        if (unauth) return unauth;
         await ensureMigrations(env);
         const id = Number(path.split("/").pop());
         if (!id) return json({ error: "Invalid id" }, corsHeaders, 400);
+        const existing = await env.DB.prepare(`SELECT id FROM options_trades WHERE id = ?`).bind(id).first();
+        if (!existing) return json({ error: "Not found" }, corsHeaders, 404);
         await env.DB.prepare(`DELETE FROM options_trades WHERE id = ?`).bind(id).run();
-        return json({ ok: true }, corsHeaders);
+        return json({ ok: true, deleted: id }, corsHeaders);
       }
 
       // GET /api/options/trades?strategy=CS&year=2025&month=4&status=EXPIRED&underlying=RUT&account=IB
@@ -4495,9 +4534,29 @@ Schema exacto:
           if (!res && inst.fallback) res = await trySym(inst.fallback);
           if (!res) return null;
           const q = res.quote;
-          const prev = q.previousClose || q.price;
+          const prev = (q.previousClose != null && q.previousClose !== 0) ? q.previousClose : q.price;
           const chg = q.price - prev;
           const chgPct = prev ? (chg / prev) * 100 : 0;
+          // Determine session flag: US market regular hours are 9:30-16:00 ET.
+          // We use quote timestamp (epoch ms) and derive hours in America/New_York.
+          // If no timestamp, default to 'regular'.
+          let session = 'regular';
+          try {
+            const ts = q.timestamp ? q.timestamp * 1000 : (q.earningsAnnouncement ? null : Date.now());
+            if (ts) {
+              const fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit', weekday: 'short' });
+              const parts = fmt.formatToParts(new Date(ts));
+              const hm = parts.find(p => p.type === 'hour')?.value + ':' + parts.find(p => p.type === 'minute')?.value;
+              const wd = parts.find(p => p.type === 'weekday')?.value;
+              const h = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
+              const m = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
+              const mins = h * 60 + m;
+              if (wd === 'Sat' || wd === 'Sun') session = 'closed';
+              else if (mins < 9 * 60 + 30) session = 'pre';
+              else if (mins >= 16 * 60) session = 'post';
+              else session = 'regular';
+            }
+          } catch {}
           return {
             region: inst.region,
             label: inst.label,
@@ -4506,11 +4565,21 @@ Schema exacto:
             price: Math.round(q.price * 100) / 100,
             change: Math.round(chg * 100) / 100,
             changePct: Math.round(chgPct * 100) / 100,
+            session,
             spark: res.spark,
           };
         };
 
-        const results = await Promise.all(instruments.map(fetchOne));
+        // Concurrency cap — 12 instruments × up to 4 subrequests each can
+        // approach the 50-subrequest worker limit on the free plan if we
+        // fire everything at once. Process in chunks of 4 at a time.
+        const CONCURRENCY = 4;
+        const results = [];
+        for (let i = 0; i < instruments.length; i += CONCURRENCY) {
+          const chunk = instruments.slice(i, i + CONCURRENCY);
+          const chunkResults = await Promise.all(chunk.map(fetchOne));
+          results.push(...chunkResults);
+        }
         const byRegion = { USA: [], Europa: [], Asia: [] };
         for (const r of results) {
           if (r && byRegion[r.region]) byRegion[r.region].push(r);

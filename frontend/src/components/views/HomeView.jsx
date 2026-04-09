@@ -162,24 +162,42 @@ function MiniSpark({ points, width = 90, height = 28, colorUp = '#ff453a', color
   );
 }
 
+// Pre-market session flag → small emoji + tooltip
+const SESSION_META = {
+  pre:     { icon: '🌅', label: 'Pre-Market', color: '#fbbf24' },
+  regular: { icon: '',   label: 'Regular',    color: null       },
+  post:    { icon: '🌙', label: 'After-Hours', color: '#a78bfa' },
+  closed:  { icon: '💤', label: 'Cerrado',    color: '#6b7280' },
+};
+
 function SentimentBar() {
   const [data, setData] = useState(null);
   const [history, setHistory] = useState({ vix: [], fearGreed: [] });
   const [futures, setFutures] = useState(null);
   const [showDetail, setShowDetail] = useState(false);
   useEffect(() => {
-    fetch(API_URL + "/api/market-sentiment")
+    const ac = new AbortController();
+    const { signal } = ac;
+    fetch(API_URL + "/api/market-sentiment", { signal })
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) setData(d); })
+      .then(d => { if (d && !signal.aborted) setData(d); })
       .catch(() => {});
-    fetch(API_URL + "/api/market-sentiment/history?range=1d")
+    fetch(API_URL + "/api/market-sentiment/history?range=1d", { signal })
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) setHistory({ vix: d.vix || [], fearGreed: d.fearGreed || [] }); })
+      .then(d => { if (d && !signal.aborted) setHistory({ vix: d.vix || [], fearGreed: d.fearGreed || [] }); })
       .catch(() => {});
-    fetch(API_URL + "/api/futures-intraday")
+    fetch(API_URL + "/api/futures-intraday", { signal })
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) setFutures(d.regions || null); })
+      .then(d => { if (d && !signal.aborted) setFutures(d.regions || null); })
       .catch(() => {});
+    // Re-fetch futures every 60s to keep session flag + prices fresh
+    const ivl = setInterval(() => {
+      fetch(API_URL + "/api/futures-intraday", { signal })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d && !signal.aborted) setFutures(d.regions || null); })
+        .catch(() => {});
+    }, 60000);
+    return () => { ac.abort(); clearInterval(ivl); };
   }, []);
 
   if (!data || (!data.vix && !data.fearGreed)) return null;
@@ -204,26 +222,38 @@ function SentimentBar() {
   const vixColor = vix ? (vix.price < 15 ? "#30d158" : vix.price < 25 ? "#ffd60a" : vix.price < 35 ? "#ff9f0a" : "#ff453a") : "var(--text-tertiary)";
   const fgColor = fg ? (fg.score <= 25 ? "#ff453a" : fg.score <= 45 ? "#ff9f0a" : fg.score <= 55 ? "#ffd60a" : "#30d158") : "var(--text-tertiary)";
 
-  const renderFutCard = (f) => (
-    <div key={f.symbol} title={`${f.label} ${f.symbol}`} style={{
-      display: 'flex', flexDirection: 'column', gap: 1,
-      padding: '4px 6px', minWidth: 96,
-      borderRight: '1px solid var(--border)',
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 4 }}>
-        <span style={{ fontSize: 8, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.3px' }}>{f.label}</span>
-        <span style={{ fontSize: 8, fontWeight: 700, color: f.changePct >= 0 ? '#30d158' : '#ff453a' }}>
-          {f.changePct >= 0 ? '+' : ''}{f.changePct.toFixed(2)}%
-        </span>
+  const renderFutCard = (f) => {
+    const sess = SESSION_META[f.session || 'regular'];
+    return (
+      <div key={f.symbol} title={`${f.label} ${f.symbol} · ${sess.label}`} style={{
+        display: 'flex', flexDirection: 'column', gap: 1,
+        padding: '4px 6px', minWidth: 96,
+        borderRight: '1px solid var(--border)',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 4 }}>
+          <span style={{ fontSize: 8, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.3px' }}>
+            {sess.icon}{sess.icon ? ' ' : ''}{f.label}
+          </span>
+          <span style={{ fontSize: 8, fontWeight: 700, color: f.changePct >= 0 ? '#30d158' : '#ff453a' }}>
+            {f.changePct >= 0 ? '+' : ''}{f.changePct.toFixed(2)}%
+          </span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--fm)' }}>
+            {f.price < 100 ? f.price.toFixed(2) : f.price < 10000 ? f.price.toFixed(0) : (f.price / 1000).toFixed(1) + 'k'}
+          </span>
+          <MiniSpark points={f.spark} width={48} height={14} />
+        </div>
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
-        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--fm)' }}>
-          {f.price < 100 ? f.price.toFixed(2) : f.price < 10000 ? f.price.toFixed(0) : (f.price / 1000).toFixed(1) + 'k'}
-        </span>
-        <MiniSpark points={f.spark} width={48} height={14} />
-      </div>
-    </div>
-  );
+    );
+  };
+
+  // News-style marquee — slides all index values horizontally continuously.
+  // CSS animation via inline keyframes so we don't need a separate stylesheet.
+  // We duplicate the list once so the loop appears seamless.
+  const marqueeItems = futures
+    ? ['USA','Europa','Asia'].flatMap(reg => (futures[reg] || []).map(f => ({ ...f, region: reg })))
+    : [];
 
   return (
     <>
@@ -299,6 +329,51 @@ function SentimentBar() {
         </button>
         {data.cached && <span style={{ fontSize: 7, color: "var(--text-tertiary)", opacity: 0.5, flex: '0 0 auto' }}>cached</span>}
       </div>
+
+      {/* News-style ticker marquee — infinite horizontal scroll */}
+      {marqueeItems.length > 0 && (
+        <div style={{
+          marginBottom: 4, background: 'var(--card)', border: '1px solid var(--border)',
+          borderRadius: 6, overflow: 'hidden', position: 'relative',
+        }}>
+          <style>{`
+            @keyframes ayr-ticker-scroll {
+              0%   { transform: translateX(0); }
+              100% { transform: translateX(-50%); }
+            }
+            .ayr-ticker-track { animation: ayr-ticker-scroll 90s linear infinite; }
+            .ayr-ticker-track:hover { animation-play-state: paused; }
+          `}</style>
+          <div className="ayr-ticker-track" style={{
+            display: 'inline-flex', whiteSpace: 'nowrap', gap: 0,
+          }}>
+            {/* Duplicate the list twice so the loop is seamless */}
+            {[...marqueeItems, ...marqueeItems].map((f, idx) => {
+              const sess = SESSION_META[f.session || 'regular'];
+              const col = f.changePct >= 0 ? '#30d158' : '#ff453a';
+              return (
+                <div key={`${f.symbol}-${idx}`} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '5px 14px', borderRight: '1px solid var(--border)',
+                  fontFamily: 'var(--fm)',
+                }}>
+                  {sess.icon && <span style={{ fontSize: 10 }}>{sess.icon}</span>}
+                  <span style={{ fontSize: 9, color: 'var(--text-tertiary)', fontWeight: 700, letterSpacing: '.3px' }}>
+                    {f.region.toUpperCase()}
+                  </span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--gold)' }}>{f.label}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)' }}>
+                    {f.price.toLocaleString('es-ES', { maximumFractionDigits: f.price < 100 ? 2 : 0 })}
+                  </span>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: col }}>
+                    {f.changePct >= 0 ? '▲' : '▼'} {f.changePct >= 0 ? '+' : ''}{f.changePct.toFixed(2)}%
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {showDetail && (
         <div style={{

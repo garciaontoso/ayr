@@ -366,12 +366,21 @@ export default function PortfolioTab() {
     catch {}
   }, [colWidths]);
 
-  // Resize state — refs so the mousemove handler doesn't re-render
+  // Resize state — refs so the mousemove handler doesn't re-render.
+  // resizeHandlersRef tracks the currently-active listener pair so a
+  // mid-drag unmount can clean them up (prevents window-level listener
+  // leaks and "setState on unmounted component" warnings).
   const resizeRef = useRef({ colId: null, startX: 0, startWidth: 0 });
+  const resizeHandlersRef = useRef(null);
   const onResizeStart = useCallback((e, colId, currentWidth) => {
     e.preventDefault();
     e.stopPropagation();
     resizeRef.current = { colId, startX: e.clientX, startWidth: currentWidth };
+    // Clean up any previous active handlers before adding new ones
+    if (resizeHandlersRef.current) {
+      window.removeEventListener('mousemove', resizeHandlersRef.current.onMove);
+      window.removeEventListener('mouseup', resizeHandlersRef.current.onUp);
+    }
     const onMove = (ev) => {
       const dx = ev.clientX - resizeRef.current.startX;
       const newW = Math.max(28, resizeRef.current.startWidth + dx);
@@ -381,9 +390,19 @@ export default function PortfolioTab() {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       resizeRef.current = { colId: null, startX: 0, startWidth: 0 };
+      resizeHandlersRef.current = null;
     };
+    resizeHandlersRef.current = { onMove, onUp };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
+  }, []);
+  // Unmount cleanup for mid-drag
+  useEffect(() => () => {
+    if (resizeHandlersRef.current) {
+      window.removeEventListener('mousemove', resizeHandlersRef.current.onMove);
+      window.removeEventListener('mouseup', resizeHandlersRef.current.onUp);
+      resizeHandlersRef.current = null;
+    }
   }, []);
 
   const resetColWidths = useCallback(() => {

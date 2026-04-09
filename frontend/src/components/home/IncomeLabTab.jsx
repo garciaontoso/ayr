@@ -114,7 +114,7 @@ export default function IncomeLabTab() {
   useEffect(() => {
     const year = new Date().getFullYear();
     Promise.all([
-      fetch(`${API_URL}/api/cost-basis-all?tipo=OPTION&limit=2000&sort=fecha&dir=asc`).then(r=>r.json()).catch(()=>({results:[]})),
+      fetch(`${API_URL}/api/costbasis/all?tipo=OPTION&limit=2000&sort=fecha&dir=asc`).then(r=>r.json()).catch(()=>({results:[]})),
       fetch(`${API_URL}/api/dividendos`).then(r=>r.json()).catch(()=>[]),
     ]).then(([optData, divData]) => {
       // Build monthly stacked income for last 24 months

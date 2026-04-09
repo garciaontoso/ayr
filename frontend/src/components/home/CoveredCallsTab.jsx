@@ -94,7 +94,7 @@ export default function CoveredCallsTab() {
 
   // Fetch CC trade history from cost_basis
   useEffect(() => {
-    fetch(`${API_URL}/api/cost-basis-all?tipo=OPTION&limit=2000&sort=fecha&dir=desc`)
+    fetch(`${API_URL}/api/costbasis/all?tipo=OPTION&limit=2000&sort=fecha&dir=desc`)
       .then(r => r.json())
       .then(d => setCcHistory(d.results || []))
       .catch(() => setCcHistory([]));

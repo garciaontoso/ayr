@@ -470,9 +470,11 @@ function TradesTable({ trades, strategy, loading, onClose, onEdit, onDelete }) {
 
   const cols = strategy === 'CS'
     ? ['Fecha','Ticker','S/L','Spread','Credit','NetCr','DTE','RORC','ARORC','Kelly','Contr','NetTotal','Status','Acciones']
-    : strategy === 'ROC'
-      ? ['Fecha','Ticker','Strike','Credit','NetCr','DTE','RORC','ARORC','Contr','NetTotal','Status','Acciones']
-      : ['Fecha','Ticker','Strike','Credit','NetCr','DTE','RORC','ARORC','Contr','NetTotal','Status','Acciones'];
+    : strategy === 'LEAPS'
+      ? ['Fecha','Ticker','Strike','Credit','NetCr','DTE','RORC','ARORC','Kelly','Contr','NetTotal','Status','Acciones']
+      : strategy === 'ROC'
+        ? ['Fecha','Ticker','Strike','Credit','NetCr','DTE','RORC','ARORC','Contr','NetTotal','Status','Acciones']
+        : ['Fecha','Ticker','Strike','Credit','NetCr','DTE','RORC','ARORC','Contr','NetTotal','Status','Acciones'];
 
   return (
     <div style={{
@@ -507,6 +509,15 @@ function TradesTable({ trades, strategy, loading, onClose, onEdit, onDelete }) {
                     <td style={{ padding: '6px' }}>{fmtNum(t.short_strike, 0)}/{fmtNum(t.long_strike, 0)}</td>
                     <td style={{ padding: '6px' }}>{fmtNum(t.spread, 0)}</td>
                   </>
+                ) : strategy === 'LEAPS' ? (
+                  // LEAPS rows may be long calls (stored as long_strike) or
+                  // short-call credit spreads (stored as short_strike/long_strike).
+                  // Prefer long_strike → short_strike → combined display.
+                  <td style={{ padding: '6px' }}>
+                    {t.short_strike != null && t.long_strike != null
+                      ? `${fmtNum(t.short_strike, 0)}/${fmtNum(t.long_strike, 0)}`
+                      : fmtNum(t.long_strike ?? t.short_strike, 0)}
+                  </td>
                 ) : (
                   <td style={{ padding: '6px' }}>{fmtNum(t.short_strike, 2)}</td>
                 )}
@@ -515,7 +526,7 @@ function TradesTable({ trades, strategy, loading, onClose, onEdit, onDelete }) {
                 <td style={{ padding: '6px', textAlign: 'right' }}>{t.dte ?? '—'}</td>
                 <td style={{ padding: '6px', color: 'var(--text-secondary)' }}>{fmtPct(t.rorc)}</td>
                 <td style={{ padding: '6px', color: t.arorc > 0.4 ? 'var(--green)' : 'var(--text-secondary)' }}>{fmtPct(t.arorc)}</td>
-                {strategy === 'CS' && <td style={{ padding: '6px' }}>{fmtPct(t.kelly_pct)}</td>}
+                {(strategy === 'CS' || strategy === 'LEAPS') && <td style={{ padding: '6px' }}>{fmtPct(t.kelly_pct)}</td>}
                 <td style={{ padding: '6px', textAlign: 'right' }}>{t.actual_contracts || '—'}</td>
                 <td style={{
                   padding: '6px', fontWeight: 700,
