@@ -104,6 +104,7 @@ export const HOME_TAB_GROUPS = [
     lbl: "Cartera",
     ico: "💼",
     tabs: [
+      {id:"briefing",lbl:"Briefing",ico:"☀️"},
       {id:"portfolio",lbl:"Portfolio",ico:"💼"},
       {id:"agentes",lbl:"Agentes",ico:"🤖"},
       {id:"dashboard",lbl:"Dashboard",ico:"📊"},

@@ -3067,6 +3067,350 @@ export default {
         }, corsHeaders);
       }
 
+      // ═══════════════════════════════════════════════════════════════════
+      // Daily Briefing — one-page morning snapshot for a dividend investor
+      // GET  /api/briefing/daily            → aggregated briefing (cached 1h)
+      // POST /api/briefing/generate-summary → Opus 4-6 paragraph commentary
+      // ═══════════════════════════════════════════════════════════════════
+      if (path === "/api/briefing/daily" && request.method === "GET") {
+        await ensureMigrations(env);
+        const today = new Date().toISOString().slice(0, 10);
+        const cacheKey = `daily_briefing_${today}`;
+        const force = url.searchParams.get('force') === '1';
+
+        // 1h TTL cache in app_config
+        if (!force) {
+          try {
+            const cached = await env.DB.prepare(
+              `SELECT value, updated_at FROM app_config WHERE key = ?`
+            ).bind(cacheKey).first();
+            if (cached?.value) {
+              const isoTs = cached.updated_at.replace(' ', 'T') + 'Z';
+              const ageHr = (Date.now() - new Date(isoTs).getTime()) / 3600000;
+              if (ageHr < 1) {
+                try {
+                  const parsed = JSON.parse(cached.value);
+                  return json({ ...parsed, cached: true, cached_at: cached.updated_at }, corsHeaders);
+                } catch {}
+              }
+            }
+          } catch (e) { /* fall through and rebuild */ }
+        }
+
+        // Portfolio totals + last 7d NLV
+        const totalsRow = await env.DB.prepare(
+          `SELECT
+              SUM(COALESCE(usd_value, market_value, 0)) AS total_value,
+              SUM(COALESCE(pnl_abs, 0)) AS pnl_abs
+            FROM positions WHERE COALESCE(shares,0) > 0`
+        ).first();
+        const totalValue = Number(totalsRow?.total_value || 0);
+        const nlvRs = await env.DB.prepare(
+          `SELECT fecha AS date, nlv FROM nlv_history
+            ORDER BY fecha DESC LIMIT 7`
+        ).all();
+        const nlvHistory = (nlvRs.results || []).reverse();
+
+        // Day P&L: derive from latest 2 NLV snapshots if present
+        let dayChangeUsd = 0, dayChangePct = 0;
+        if (nlvHistory.length >= 2) {
+          const last = Number(nlvHistory[nlvHistory.length - 1].nlv) || 0;
+          const prev = Number(nlvHistory[nlvHistory.length - 2].nlv) || 0;
+          if (prev > 0) {
+            dayChangeUsd = last - prev;
+            dayChangePct = (dayChangeUsd / prev) * 100;
+          }
+        }
+
+        // Market: VIX + F&G from price_cache (market-sentiment) + SPY quote
+        let vix = null, vixChangePct = null, fgScore = null, fgLabel = null, spyChangePct = null;
+        try {
+          const sent = await env.DB.prepare(
+            "SELECT data FROM price_cache WHERE id = 'market-sentiment'"
+          ).first();
+          if (sent?.data) {
+            const s = JSON.parse(sent.data);
+            if (s.vix) { vix = s.vix.price; vixChangePct = s.vix.changePct; }
+            if (s.fearGreed) { fgScore = s.fearGreed.score; fgLabel = s.fearGreed.label; }
+          }
+        } catch {}
+        try {
+          const spyMap = await fmpQuote(['SPY'], env);
+          const spy = spyMap?.SPY;
+          if (spy?.changesPercentage != null) spyChangePct = Number(spy.changesPercentage);
+          else if (spy?.price && spy.previousClose) {
+            spyChangePct = (spy.price - spy.previousClose) / spy.previousClose * 100;
+          }
+        } catch {}
+
+        // Top movers — call fmpQuote for portfolio tickers; rank by changesPercentage
+        const posRs = await env.DB.prepare(
+          `SELECT ticker, COALESCE(usd_value, market_value, 0) AS value, shares
+             FROM positions WHERE COALESCE(shares,0) > 0`
+        ).all();
+        const posRows = posRs.results || [];
+        const tickers = posRows.map(r => r.ticker).filter(Boolean);
+        let moversUp = [], moversDown = [];
+        try {
+          const quoteMap = await fmpQuote(tickers, env);
+          const enriched = posRows.map(r => {
+            const q = quoteMap[r.ticker] || {};
+            const cp = q.changesPercentage != null
+              ? Number(q.changesPercentage)
+              : (q.previousClose && q.price ? (q.price - q.previousClose) / q.previousClose * 100 : null);
+            const ch = q.change != null
+              ? Number(q.change)
+              : (q.previousClose && q.price ? q.price - q.previousClose : null);
+            return {
+              ticker: r.ticker,
+              change_pct: cp,
+              change_usd: ch != null && r.shares ? ch * Number(r.shares) : null,
+              value: Number(r.value) || 0,
+            };
+          }).filter(x => x.change_pct != null);
+          const sorted = enriched.slice().sort((a, b) => b.change_pct - a.change_pct);
+          moversUp = sorted.slice(0, 5);
+          moversDown = sorted.slice(-5).reverse();
+        } catch (e) { /* leave empty on failure */ }
+
+        // Critical alerts from agent_insights for today (severity critical|warning)
+        const alertsRs = await env.DB.prepare(
+          `SELECT agent_name, ticker, severity, title, summary, fecha
+             FROM agent_insights
+            WHERE fecha = ? AND severity IN ('critical','warning')
+            ORDER BY CASE severity WHEN 'critical' THEN 0 ELSE 1 END, agent_name
+            LIMIT 50`
+        ).bind(today).all();
+        const criticalAlerts = (alertsRs.results || []).map(r => ({
+          agent_name: r.agent_name,
+          ticker: r.ticker,
+          severity: r.severity,
+          message: r.summary || r.title || '',
+          title: r.title,
+          fecha: r.fecha,
+        }));
+
+        // Upcoming earnings — next 7 days, portfolio tickers only
+        const horizon7 = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+        const earningsRs = await env.DB.prepare(
+          `SELECT ec.ticker, ec.earnings_date AS report_date, ec.eps_estimate,
+                  COALESCE(p.usd_value, p.market_value, 0) AS value
+             FROM earnings_calendar ec
+             JOIN positions p ON p.ticker = ec.ticker
+            WHERE ec.earnings_date >= ? AND ec.earnings_date <= ?
+              AND COALESCE(p.shares,0) > 0
+            ORDER BY ec.earnings_date ASC, ec.ticker ASC`
+        ).bind(today, horizon7).all();
+        const upcomingEarnings = (earningsRs.results || []).map(r => ({
+          ticker: r.ticker,
+          report_date: r.report_date,
+          eps_estimate: r.eps_estimate,
+          portfolio_weight_pct: totalValue > 0 ? (Number(r.value) / totalValue) * 100 : 0,
+        }));
+
+        // New filings — last 48h, portfolio tickers
+        const filingsRs = await env.DB.prepare(
+          `SELECT ed.id, ed.ticker, ed.doc_type, ed.filing_date
+             FROM earnings_documents ed
+             JOIN positions p ON p.ticker = ed.ticker
+            WHERE COALESCE(p.shares,0) > 0
+              AND ed.downloaded_at >= datetime('now', '-2 days')
+            ORDER BY ed.downloaded_at DESC LIMIT 25`
+        ).all();
+        const newFilings = (filingsRs.results || []).map(r => ({
+          ticker: r.ticker,
+          doc_type: r.doc_type,
+          filing_date: r.filing_date,
+          id: r.id,
+        }));
+
+        // Upcoming dividends — dividendos table only stores PAID rows; we can't
+        // know future ex-dates without FMP. Best-effort: surface dividends paid
+        // in the last 7 days as "recent" (so the card isn't always empty) and
+        // mark them as such. The frontend label is "Recientes / Próximos".
+        // If a future projection table exists later, swap the query.
+        const past7 = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+        let upcomingDividends = [];
+        try {
+          const divRs = await env.DB.prepare(
+            `SELECT d.ticker, d.fecha AS payment_date,
+                    COALESCE(d.bruto, 0) AS amount, COALESCE(d.shares, 0) AS shares
+               FROM dividendos d
+               JOIN positions p ON p.ticker = d.ticker
+              WHERE d.fecha >= ? AND COALESCE(p.shares,0) > 0
+              ORDER BY d.fecha DESC LIMIT 20`
+          ).bind(past7).all();
+          upcomingDividends = (divRs.results || []).map(r => ({
+            ticker: r.ticker,
+            ex_date: null,
+            payment_date: r.payment_date,
+            amount: Number(r.amount) || 0,
+            shares: Number(r.shares) || 0,
+          }));
+        } catch {}
+
+        // Pending actions — derived from critical alerts (deduped by ticker)
+        // and trade agent signals if present.
+        const pendingMap = new Map();
+        for (const a of criticalAlerts) {
+          if (!a.ticker || a.ticker === '_GLOBAL_') continue;
+          if (pendingMap.has(a.ticker)) continue;
+          let action = 'review';
+          const lo = (a.message || '').toLowerCase();
+          if (/sell|vender/.test(lo)) action = 'sell';
+          else if (/trim|recortar/.test(lo)) action = 'trim';
+          else if (/add|comprar|añadir/.test(lo)) action = 'add';
+          pendingMap.set(a.ticker, {
+            ticker: a.ticker,
+            action,
+            reason: a.message.slice(0, 160),
+            source_agent: a.agent_name,
+          });
+          if (pendingMap.size >= 5) break;
+        }
+        const pendingActions = Array.from(pendingMap.values());
+
+        const briefing = {
+          ok: true,
+          generated_at: new Date().toISOString(),
+          cached: false,
+          cached_at: null,
+          date: today,
+          portfolio: {
+            total_value_usd: totalValue,
+            day_change_usd: dayChangeUsd,
+            day_change_pct: dayChangePct,
+            nlv_history: nlvHistory,
+          },
+          market: {
+            vix,
+            vix_change_pct: vixChangePct,
+            fear_greed_score: fgScore,
+            fear_greed_label: fgLabel,
+            spy_change_pct: spyChangePct,
+          },
+          top_movers: { up: moversUp, down: moversDown },
+          critical_alerts: criticalAlerts,
+          upcoming_earnings: upcomingEarnings,
+          new_filings: newFilings,
+          upcoming_dividends: upcomingDividends,
+          pending_actions: pendingActions,
+          opus_summary: null,
+        };
+
+        // Cache 1h
+        try {
+          await env.DB.prepare(`
+            INSERT INTO app_config (key, value, updated_at)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+          `).bind(cacheKey, JSON.stringify(briefing)).run();
+        } catch {}
+
+        return json(briefing, corsHeaders);
+      }
+
+      if (path === "/api/briefing/generate-summary" && request.method === "POST") {
+        await ensureMigrations(env);
+        // Auth — same pattern as options mutating endpoints
+        const _briefingAuth = (isAllowed && origin) ? null : ytRequireToken(request, env);
+        if (_briefingAuth) return _briefingAuth;
+        if (!env.ANTHROPIC_API_KEY) return json({ error: "ANTHROPIC_API_KEY not set" }, corsHeaders, 500);
+
+        const today = new Date().toISOString().slice(0, 10);
+        const summaryKey = `daily_briefing_summary_${today}`;
+        let body = {};
+        try { body = await request.json(); } catch {}
+        const force = !!body.force;
+
+        // Cache check (24h)
+        if (!force) {
+          const cached = await env.DB.prepare(
+            `SELECT value, updated_at FROM app_config WHERE key = ?`
+          ).bind(summaryKey).first();
+          if (cached?.value) {
+            const isoTs = cached.updated_at.replace(' ', 'T') + 'Z';
+            const ageHr = (Date.now() - new Date(isoTs).getTime()) / 3600000;
+            if (ageHr < 24) {
+              return json({ ok: true, cached: true, cached_at: cached.updated_at, summary: cached.value }, corsHeaders);
+            }
+          }
+        }
+
+        // Pull the briefing data — prefer client-provided body.briefing,
+        // otherwise read from the daily cache.
+        let briefingJson = body.briefing;
+        if (!briefingJson) {
+          const cached = await env.DB.prepare(
+            `SELECT value FROM app_config WHERE key = ?`
+          ).bind(`daily_briefing_${today}`).first();
+          if (!cached?.value) {
+            return json({ error: "No daily briefing cached. Call GET /api/briefing/daily first." }, corsHeaders, 400);
+          }
+          try { briefingJson = JSON.parse(cached.value); }
+          catch { return json({ error: "Cached briefing is corrupt" }, corsHeaders, 500); }
+        }
+
+        const systemPrompt = `Eres un analista senior asesorando a un inversor dividendero long-term.
+Te paso el briefing matinal de su cartera (${today}). Escribe un resumen
+conversacional de 4-6 párrafos cubriendo:
+
+1. Cómo amanece el mercado (VIX, F&G, futuros).
+2. Qué movió la cartera ayer (winners/losers con contexto).
+3. Alertas críticas que requieren atención (si las hay).
+4. Próximos earnings + qué vigilar.
+5. Dividendos próximos.
+6. Acción recomendada del día (máx 3 líneas).
+
+Tono: concreto, directo, sin fluff. Usa números. Si no hay nada urgente,
+dilo. En español.`;
+
+        const userPrompt = `Datos:\n${JSON.stringify(briefingJson, null, 2)}`;
+
+        let claudeResp;
+        try {
+          claudeResp = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": env.ANTHROPIC_API_KEY,
+              "anthropic-version": "2023-06-01",
+            },
+            body: JSON.stringify({
+              model: "claude-opus-4-20250514",
+              max_tokens: 1500,
+              system: systemPrompt,
+              messages: [{ role: "user", content: userPrompt }],
+            }),
+          });
+        } catch (e) {
+          return json({ error: `Claude API fetch failed: ${String(e)}` }, corsHeaders, 502);
+        }
+        if (!claudeResp.ok) {
+          const errText = await claudeResp.text();
+          return json({ error: `Claude API ${claudeResp.status}: ${errText}` }, corsHeaders, 502);
+        }
+        const claudeJson = await claudeResp.json();
+        const summary = claudeJson.content?.[0]?.text || "";
+
+        // Cache 24h
+        try {
+          await env.DB.prepare(`
+            INSERT INTO app_config (key, value, updated_at)
+            VALUES (?, ?, datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+          `).bind(summaryKey, summary).run();
+        } catch {}
+
+        return json({
+          ok: true,
+          cached: false,
+          summary,
+          tokens_in: claudeJson.usage?.input_tokens,
+          tokens_out: claudeJson.usage?.output_tokens,
+        }, corsHeaders);
+      }
+
       // GET /api/options/reconcile/cs — match Excel CS rows to IB leg PAIRS in cost_basis
       // Each Excel CS row = 1 trade (short + long strike). IB Flex stores each leg as a separate row.
       // We join cost_basis twice to find a (short_leg, long_leg) pair on the same fecha for each Excel CS.
@@ -5624,7 +5968,11 @@ Schema exacto:
           const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA"};
           const mapTicker = (sym) => IB_MAP[sym] || sym;
 
-          // Import trades into cost_basis table using batch (D1 limit: 100 statements per batch)
+          // Import trades into cost_basis table using batch (D1 limit: 100 statements per batch).
+          // For OPTION rows we additionally populate opt_contracts (|quantity|) and
+          // opt_credit_total (-netCash, so STO shows positive credit, BTC negative debit).
+          // Without these the rows are present but show contracts=0/credit=0 which breaks
+          // the CS reconciliation join. Bug was discovered in session 2026-04-09.
           let tradesInserted = 0, tradesSkipped = 0;
           const tradeStmts = [];
           for (const t of trades) {
@@ -5635,12 +5983,16 @@ Schema exacto:
             const price = parseFloat(t.tradePrice) || 0;
             const commission = parseFloat(t.ibCommission) || 0;
             const netCash = parseFloat(t.netCash) || 0;
-            const tipo = t.assetCategory === "OPT" ? "OPTION" : "EQUITY";
+            const isOpt = t.assetCategory === "OPT";
+            const tipo = isOpt ? "OPTION" : "EQUITY";
             const expiry = t.expiry ? `${t.expiry.slice(0,4)}-${t.expiry.slice(4,6)}-${t.expiry.slice(6,8)}` : null;
+            const optContracts = isOpt ? Math.abs(qty) : 0;
+            const optCreditTotal = isOpt ? -netCash : 0; // STO: negative netCash → positive credit
+            const optCreditPerShare = isOpt && qty !== 0 ? optCreditTotal / (Math.abs(qty) * 100) : 0;
 
             tradeStmts.push(env.DB.prepare(
-              "INSERT OR IGNORE INTO cost_basis (ticker, fecha, tipo, shares, precio, comision, coste, opt_strike, opt_expiry, opt_tipo) VALUES (?,?,?,?,?,?,?,?,?,?)"
-            ).bind(ticker, fecha, tipo, qty, price, commission, netCash, t.strike || null, expiry, t.putCall || null));
+              "INSERT OR IGNORE INTO cost_basis (ticker, fecha, tipo, shares, precio, comision, coste, opt_strike, opt_expiry, opt_tipo, opt_contracts, opt_credit, opt_credit_total) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            ).bind(ticker, fecha, tipo, qty, price, commission, netCash, t.strike || null, expiry, t.putCall || null, optContracts, optCreditPerShare, optCreditTotal));
           }
           // Execute in batches of 80
           for (let i = 0; i < tradeStmts.length; i += 80) {
