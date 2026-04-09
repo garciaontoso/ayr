@@ -117,6 +117,10 @@ export const HOME_TAB_GROUPS = [
     ico: "💰",
     tabs: [
       {id:"dividendos",lbl:"Dividendos",ico:"💰"},
+      {id:"opciones-cs",lbl:"Credit Spreads",ico:"🎯"},
+      {id:"opciones-roc",lbl:"ROC",ico:"📞"},
+      {id:"opciones-rop",lbl:"ROP",ico:"🛡"},
+      {id:"opciones-resumen",lbl:"Resumen",ico:"📊"},
       {id:"income",lbl:"Income",ico:"🥦"},
       {id:"earnings",lbl:"Earnings",ico:"📅"},
       {id:"trades",lbl:"Trades",ico:"📈"},

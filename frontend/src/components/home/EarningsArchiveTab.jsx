@@ -8,8 +8,30 @@
 // No extra state is stored beyond component-local state. Results from /analyze
 // are cached per ticker in `analysisByTicker` so that switching tickers doesn't
 // re-trigger the expensive call.
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { API_URL } from '../../constants/index.js';
+
+const VERDICT_PRIORITY = { BUY: 0, ACCUMULATE: 1, HOLD: 2, TRIM: 3, SELL: 4 };
+const VERDICT_COLORS = {
+  BUY: { bg: 'rgba(34,197,94,.18)', fg: '#22c55e', border: '#22c55e' },
+  ACCUMULATE: { bg: 'rgba(34,197,94,.10)', fg: '#86efac', border: '#86efac' },
+  HOLD: { bg: 'rgba(212,175,55,.16)', fg: '#d4af37', border: '#d4af37' },
+  TRIM: { bg: 'rgba(249,115,22,.16)', fg: '#fb923c', border: '#fb923c' },
+  SELL: { bg: 'rgba(239,68,68,.16)', fg: '#ef4444', border: '#ef4444' },
+};
+
+function truncate(s, n) {
+  if (!s) return '';
+  const str = typeof s === 'string' ? s : (typeof s === 'object' ? (s.text || JSON.stringify(s)) : String(s));
+  return str.length > n ? str.slice(0, n - 1) + '…' : str;
+}
+
+function safetyColor(score) {
+  if (score == null) return 'var(--text-tertiary)';
+  if (score >= 8) return '#22c55e';
+  if (score >= 6) return '#d4af37';
+  return '#ef4444';
+}
 
 function formatBytes(n) {
   if (n == null || isNaN(n)) return '—';
@@ -55,6 +77,15 @@ export default function EarningsArchiveTab() {
 
   // Per-ticker cache: { AAPL: { analysis, loading, error } }
   const [analysisByTicker, setAnalysisByTicker] = useState({});
+
+  // ── Heatmap view state ───────────────────────────────────
+  const [viewMode, setViewMode] = useState('list'); // 'list' | 'heatmap'
+  const [cachedAnalyses, setCachedAnalyses] = useState([]); // [{ticker, updated_at, analysis}]
+  const [cachedLoading, setCachedLoading] = useState(false);
+  const [cachedError, setCachedError] = useState('');
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
+  const bulkAbortRef = useRef(false);
 
   // ── Load stats on mount ───────────────────────────────────
   useEffect(() => {
@@ -172,6 +203,64 @@ export default function EarningsArchiveTab() {
     }
   }, [selectedTicker, analysisByTicker]);
 
+  // ── Heatmap: fetch all cached analyses ────────────────────
+  const fetchCachedAnalyses = useCallback(async () => {
+    setCachedLoading(true);
+    setCachedError('');
+    try {
+      const r = await fetch(`${API_URL}/api/earnings/archive/analyses-cached`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      setCachedAnalyses(data.items || []);
+    } catch (e) {
+      setCachedError(e.message || 'Error cargando verdictos');
+    } finally {
+      setCachedLoading(false);
+    }
+  }, []);
+
+  // Auto-fetch when entering heatmap view
+  useEffect(() => {
+    if (viewMode === 'heatmap') fetchCachedAnalyses();
+  }, [viewMode, fetchCachedAnalyses]);
+
+  // Bulk analyzer for uncached tickers
+  const runBulkAnalyze = useCallback(async (uncachedList) => {
+    if (!uncachedList || uncachedList.length === 0) return;
+    bulkAbortRef.current = false;
+    setBulkRunning(true);
+    setBulkProgress({ done: 0, total: uncachedList.length });
+    for (let i = 0; i < uncachedList.length; i++) {
+      if (bulkAbortRef.current) break;
+      const ticker = uncachedList[i];
+      try {
+        const r = await fetch(`${API_URL}/api/earnings/archive/analyze`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticker }),
+        });
+        if (r.ok) {
+          const data = await r.json();
+          if (data.analysis) {
+            setCachedAnalyses(prev => {
+              const next = prev.filter(x => x.ticker !== ticker);
+              next.unshift({
+                ticker,
+                updated_at: data.cached_at || new Date().toISOString(),
+                analysis: data.analysis,
+              });
+              return next;
+            });
+          }
+        }
+      } catch {}
+      setBulkProgress({ done: i + 1, total: uncachedList.length });
+      // Small delay between calls so we don't hammer the worker
+      await new Promise(res => setTimeout(res, 600));
+    }
+    setBulkRunning(false);
+  }, []);
+
   // ── Derived ───────────────────────────────────────────────
   const tickers = useMemo(() => {
     if (!stats?.by_ticker) return [];
@@ -191,6 +280,35 @@ export default function EarningsArchiveTab() {
   }, [docs]);
 
   const currentAnalysis = selectedTicker ? analysisByTicker[selectedTicker] : null;
+
+  // Heatmap derived: sorted cards + verdict distribution + uncached list
+  const sortedCachedCards = useMemo(() => {
+    return cachedAnalyses.slice().sort((a, b) => {
+      const va = (a.analysis?.long_term_verdict || 'HOLD').toUpperCase();
+      const vb = (b.analysis?.long_term_verdict || 'HOLD').toUpperCase();
+      const pa = VERDICT_PRIORITY[va] ?? 99;
+      const pb = VERDICT_PRIORITY[vb] ?? 99;
+      if (pa !== pb) return pa - pb;
+      const sa = a.analysis?.dividend_safety_score ?? -1;
+      const sb = b.analysis?.dividend_safety_score ?? -1;
+      return sb - sa;
+    });
+  }, [cachedAnalyses]);
+
+  const verdictDist = useMemo(() => {
+    const d = { BUY: 0, ACCUMULATE: 0, HOLD: 0, TRIM: 0, SELL: 0 };
+    for (const it of cachedAnalyses) {
+      const v = (it.analysis?.long_term_verdict || '').toUpperCase();
+      if (d[v] != null) d[v]++;
+    }
+    return d;
+  }, [cachedAnalyses]);
+
+  const uncachedTickers = useMemo(() => {
+    const cachedSet = new Set(cachedAnalyses.map(x => x.ticker));
+    const all = (stats?.by_ticker || []).map(t => t.ticker);
+    return all.filter(t => t && !cachedSet.has(t));
+  }, [cachedAnalyses, stats]);
 
   // ── Styles ────────────────────────────────────────────────
   const card = {
@@ -238,7 +356,7 @@ export default function EarningsArchiveTab() {
               10-K, 10-Q y transcripts de earnings calls (últimos 3 años)
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             {loadingStats && <div style={{ ...statPill, color: 'var(--text-tertiary)', background: 'transparent' }}>Cargando…</div>}
             {statsError && <div style={{ ...statPill, borderColor: '#ff6b6b', color: '#ff6b6b', background: 'transparent' }}>Error: {statsError}</div>}
             {stats && (
@@ -248,11 +366,65 @@ export default function EarningsArchiveTab() {
                 <div style={statPill}>{(stats.by_ticker || []).length} tickers</div>
               </>
             )}
+            {/* View-mode segmented control */}
+            <div style={{
+              display: 'inline-flex',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              overflow: 'hidden',
+              marginLeft: 4,
+            }}>
+              {['list', 'heatmap'].map(m => {
+                const active = viewMode === m;
+                return (
+                  <button
+                    key={m}
+                    onClick={() => setViewMode(m)}
+                    style={{
+                      padding: '6px 12px',
+                      border: 'none',
+                      background: active ? 'rgba(200,164,78,.18)' : 'transparent',
+                      color: active ? 'var(--gold)' : 'var(--text-tertiary)',
+                      fontSize: 11,
+                      fontWeight: 800,
+                      fontFamily: 'var(--fm)',
+                      cursor: 'pointer',
+                      textTransform: 'uppercase',
+                      letterSpacing: 0.5,
+                    }}
+                  >
+                    {m === 'list' ? 'Lista' : 'Heatmap'}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Two-column layout */}
+      {/* Heatmap view */}
+      {viewMode === 'heatmap' && (
+        <HeatmapView
+          card={card}
+          loading={cachedLoading}
+          error={cachedError}
+          items={sortedCachedCards}
+          dist={verdictDist}
+          uncachedTickers={uncachedTickers}
+          bulkRunning={bulkRunning}
+          bulkProgress={bulkProgress}
+          onRefresh={fetchCachedAnalyses}
+          onBulkAnalyze={runBulkAnalyze}
+          onAbortBulk={() => { bulkAbortRef.current = true; }}
+          onSelectTicker={(t) => {
+            setSelectedTicker(t);
+            setViewMode('list');
+          }}
+        />
+      )}
+
+      {/* Two-column layout (Lista) */}
+      {viewMode === 'list' && (
       <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         {/* Left pane: ticker list */}
         <div style={{ ...card, width: 280, flexShrink: 0, padding: 12, maxHeight: '70vh', display: 'flex', flexDirection: 'column' }}>
@@ -435,6 +607,7 @@ export default function EarningsArchiveTab() {
           )}
         </div>
       </div>
+      )}
 
       {/* Modal */}
       {viewingDoc && (
@@ -656,6 +829,236 @@ function AnalysisCard({ analysis }) {
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontStyle: 'italic', lineHeight: 1.55 }}>
             {analysis.thesis_update}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Heatmap view ─────────────────────────────────────────────
+function HeatmapView({
+  card, loading, error, items, dist, uncachedTickers,
+  bulkRunning, bulkProgress, onRefresh, onBulkAnalyze, onAbortBulk, onSelectTicker,
+}) {
+  const total = items.length;
+  const estCost = uncachedTickers.length; // ~$1/ticker
+  const btn = (style = {}) => ({
+    padding: '8px 14px',
+    borderRadius: 8,
+    border: '1px solid var(--border)',
+    background: 'transparent',
+    color: 'var(--text-primary)',
+    fontSize: 11,
+    fontWeight: 700,
+    cursor: 'pointer',
+    fontFamily: 'var(--fm)',
+    ...style,
+  });
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Stats + actions bar */}
+      <div style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 700 }}>
+            {total} verdicto{total !== 1 ? 's' : ''} cacheado{total !== 1 ? 's' : ''}
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--text-tertiary)', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {Object.entries(dist).filter(([, n]) => n > 0).map(([v, n]) => (
+              <span key={v} style={{ color: VERDICT_COLORS[v]?.fg || 'var(--text-tertiary)', fontWeight: 800 }}>
+                {n} {v}
+              </span>
+            ))}
+            {total === 0 && <span>—</span>}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          {bulkRunning && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ fontSize: 11, color: 'var(--gold)', fontWeight: 700 }}>
+                {bulkProgress.done}/{bulkProgress.total} analizados
+              </div>
+              <div style={{
+                width: 120, height: 6, borderRadius: 999,
+                background: 'rgba(255,255,255,.06)', overflow: 'hidden',
+              }}>
+                <div style={{
+                  width: `${bulkProgress.total ? (bulkProgress.done / bulkProgress.total) * 100 : 0}%`,
+                  height: '100%', background: 'var(--gold)', transition: 'width .2s',
+                }} />
+              </div>
+              <button onClick={onAbortBulk} style={btn({ borderColor: '#ff6b6b', color: '#ff6b6b' })}>
+                Cancelar
+              </button>
+            </div>
+          )}
+          <button onClick={onRefresh} disabled={loading || bulkRunning} style={btn({ opacity: (loading || bulkRunning) ? 0.5 : 1 })}>
+            🔄 Refrescar
+          </button>
+          <button
+            onClick={() => onBulkAnalyze(uncachedTickers)}
+            disabled={bulkRunning || uncachedTickers.length === 0}
+            style={btn({
+              borderColor: '#06b6d4',
+              background: uncachedTickers.length === 0 ? 'transparent' : 'rgba(6,182,212,.12)',
+              color: '#06b6d4',
+              opacity: (bulkRunning || uncachedTickers.length === 0) ? 0.5 : 1,
+            })}
+          >
+            🚀 Analizar toda la cartera ({uncachedTickers.length} pend · ~${estCost})
+          </button>
+        </div>
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div style={{ ...card, borderColor: '#ff6b6b', color: '#ff6b6b', fontSize: 11 }}>
+          Error: {error}
+        </div>
+      )}
+
+      {/* Loading */}
+      {loading && total === 0 && (
+        <div style={{ ...card, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12, padding: 30 }}>
+          Cargando verdictos cacheados…
+        </div>
+      )}
+
+      {/* Empty */}
+      {!loading && !error && total === 0 && (
+        <div style={{ ...card, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12, padding: 40, lineHeight: 1.6 }}>
+          No hay análisis cacheados aún.<br />
+          Abre alguna empresa en la vista <b style={{ color: 'var(--gold)' }}>Lista</b> y pulsa "Analizar con Opus" para generar el primero.
+        </div>
+      )}
+
+      {/* Grid */}
+      {total > 0 && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+          gap: 12,
+        }}>
+          {items.map(it => (
+            <VerdictCard key={it.ticker} item={it} onClick={() => onSelectTicker(it.ticker)} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VerdictCard({ item, onClick }) {
+  const a = item.analysis || {};
+  const verdict = (a.long_term_verdict || 'HOLD').toUpperCase();
+  const colors = VERDICT_COLORS[verdict] || VERDICT_COLORS.HOLD;
+  const safety = a.dividend_safety_score;
+  const safetyN = typeof safety === 'number' ? safety : null;
+  const sBarColor = safetyColor(safetyN);
+  const conf = (a.confidence || '').toLowerCase();
+  const confColor = conf === 'high' ? '#22c55e' : conf === 'medium' ? '#d4af37' : conf === 'low' ? '#ef4444' : 'var(--text-tertiary)';
+
+  const yes = Array.isArray(a.why_yes) ? a.why_yes.slice(0, 2) : [];
+  const no = Array.isArray(a.why_no) ? a.why_no.slice(0, 2) : [];
+
+  let updatedStr = '';
+  if (item.updated_at) {
+    try { updatedStr = new Date(item.updated_at.replace(' ', 'T') + 'Z').toLocaleDateString('es-ES'); }
+    catch { updatedStr = item.updated_at; }
+  }
+
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        background: 'var(--card)',
+        border: `1px solid ${colors.border}`,
+        borderRadius: 12,
+        padding: 14,
+        fontFamily: 'var(--fm)',
+        cursor: 'pointer',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        transition: 'transform .12s, box-shadow .12s',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = `0 6px 20px ${colors.bg}`; }}
+      onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}
+    >
+      {/* Header: ticker + verdict badge */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+        <div style={{ fontFamily: 'var(--fd)', fontSize: 22, fontWeight: 800, color: 'var(--gold)', lineHeight: 1 }}>
+          {item.ticker}
+        </div>
+        <div style={{
+          padding: '5px 10px',
+          borderRadius: 6,
+          background: colors.bg,
+          color: colors.fg,
+          border: `1px solid ${colors.border}`,
+          fontSize: 11,
+          fontWeight: 800,
+          letterSpacing: 0.5,
+        }}>
+          {verdict}
+        </div>
+      </div>
+
+      {/* Safety + confidence */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 120 }}>
+          <div style={{ fontSize: 10, color: 'var(--text-tertiary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Safety
+          </div>
+          <div style={{ fontSize: 12, color: sBarColor, fontWeight: 800 }}>
+            {safetyN != null ? `${safetyN}/10` : '—'}
+          </div>
+          <div style={{
+            flex: 1, height: 5, borderRadius: 999,
+            background: 'rgba(255,255,255,.06)', overflow: 'hidden', minWidth: 40,
+          }}>
+            <div style={{
+              width: `${safetyN != null ? Math.max(0, Math.min(100, safetyN * 10)) : 0}%`,
+              height: '100%', background: sBarColor,
+            }} />
+          </div>
+        </div>
+        <div style={{
+          padding: '3px 8px',
+          borderRadius: 999,
+          background: `${confColor}22`,
+          color: confColor,
+          fontSize: 9,
+          fontWeight: 800,
+          textTransform: 'uppercase',
+          letterSpacing: 0.4,
+        }}>
+          Confianza: {a.confidence || '—'}
+        </div>
+      </div>
+
+      {/* Bullets */}
+      {(yes.length > 0 || no.length > 0) && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {yes.map((y, i) => (
+            <div key={`y${i}`} style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+              <span style={{ color: '#22c55e', fontWeight: 800, marginRight: 4 }}>✓</span>
+              {truncate(y, 60)}
+            </div>
+          ))}
+          {no.map((n, i) => (
+            <div key={`n${i}`} style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+              <span style={{ color: '#ef4444', fontWeight: 800, marginRight: 4 }}>✗</span>
+              {truncate(n, 60)}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Updated */}
+      {updatedStr && (
+        <div style={{ fontSize: 9, color: 'var(--text-tertiary)', marginTop: 'auto', textAlign: 'right' }}>
+          actualizado {updatedStr}
         </div>
       )}
     </div>

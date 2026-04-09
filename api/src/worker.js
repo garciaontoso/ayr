@@ -807,6 +807,92 @@ async function ensureMigrations(env) {
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_ed_type ON earnings_documents(ticker, doc_type)`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_ed_filed ON earnings_documents(filing_date)`).run();
 
+    // ─── Options trades (Credit Spreads, ROC covered calls, ROP cash-secured puts) ───
+    // Single table for all three strategies with NULLable strategy-specific
+    // columns. Imported from user's master Excel and also written by the new
+    // in-app planner. Derived fields (rorc, arorc, kelly_*, final_*) are
+    // computed SERVER-SIDE on insert/update to keep Excel parity authoritative.
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS options_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      strategy TEXT NOT NULL,
+      account TEXT,
+      year INTEGER,
+      trade_date TEXT,
+      underlying TEXT,
+      price REAL,
+      on_sale_price REAL,
+      dte INTEGER,
+      expiration_date TEXT,
+      floor_ceiling REAL,
+      buffer_pct REAL,
+      floor_buffer_strike REAL,
+      actual_pct_from_floor REAL,
+      prob_otm REAL,
+      delta REAL,
+      short_strike REAL,
+      actual_pct_from_price REAL,
+      adj_pct_from_price REAL,
+      long_strike REAL,
+      spread REAL,
+      target_credit REAL,
+      credit REAL,
+      commission REAL,
+      net_credit REAL,
+      risk_capital REAL,
+      margin_pct REAL,
+      margin_capital REAL,
+      rorc REAL,
+      multiplier REAL,
+      arorc REAL,
+      qtr_report_flag TEXT,
+      kelly_w REAL,
+      rc_at_risk_pct REAL,
+      avg_loss REAL,
+      kelly_r REAL,
+      kelly_pct REAL,
+      bankroll REAL,
+      kelly_max_bet REAL,
+      rule1_max_margin REAL,
+      max_contracts INTEGER,
+      actual_contracts INTEGER,
+      shares INTEGER,
+      net_credit_total REAL,
+      risk_capital_total REAL,
+      status TEXT,
+      result_date TEXT,
+      closing_debit REAL,
+      total_debit REAL,
+      final_net_credit REAL,
+      final_rorc REAL,
+      final_arorc REAL,
+      parent_trade_id INTEGER,
+      notes TEXT,
+      source_sheet TEXT,
+      source_col INTEGER,
+      imported_at TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(source_sheet, source_col)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_ot_strategy ON options_trades(strategy)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_ot_year ON options_trades(year)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_ot_status ON options_trades(status)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_ot_underlying ON options_trades(underlying)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_ot_result_date ON options_trades(result_date)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_ot_trade_date ON options_trades(trade_date)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_ot_account ON options_trades(account)`).run();
+
+    // Options trade import issues (things we noticed while parsing the Excel)
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS options_import_issues (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_sheet TEXT,
+      source_col INTEGER,
+      severity TEXT,
+      category TEXT,
+      message TEXT,
+      logged_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+
     // Seed the curated superinvestors (idempotent — INSERT OR IGNORE).
     // CIKs sourced from docs/fondos-tab-design.md.
     const SUPERINVESTORS_SEED = [
@@ -2599,6 +2685,430 @@ export default {
           total_bytes: total?.bytes || 0,
           by_doc_type: byType.results || [],
           by_ticker: byTicker.results || [],
+        }, corsHeaders);
+      }
+
+      // GET /api/earnings/archive/analyses-cached — read all cached Opus verdicts in one shot.
+      if (path === "/api/earnings/archive/analyses-cached" && request.method === "GET") {
+        await ensureMigrations(env);
+        const rs = await env.DB.prepare(
+          `SELECT key, value, updated_at FROM app_config WHERE key LIKE 'earnings_archive_analysis:%' ORDER BY updated_at DESC`
+        ).all();
+        const items = (rs.results || []).map(row => {
+          let analysis = null;
+          try { analysis = JSON.parse(row.value); } catch {}
+          return {
+            ticker: row.key.replace('earnings_archive_analysis:', ''),
+            updated_at: row.updated_at,
+            analysis,
+          };
+        }).filter(x => x.analysis);
+        return json({ ok: true, count: items.length, items }, corsHeaders);
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      // OPTIONS TRADES — Credit Spreads / ROC / ROP planner+tracker
+      // Mirrors the user's master Excel template (A&R spreadsheet) with
+      // server-side Kelly/RORC/ARORC calculation so the numbers match 1:1.
+      // ═══════════════════════════════════════════════════════════════════
+
+      // Helper: compute all derived fields for a trade from its raw inputs.
+      // Mirrors the Excel formulas exactly. Called on both create and update.
+      const computeOptionsDerived = (t) => {
+        const r = { ...t };
+        const strategy = (r.strategy || '').toUpperCase();
+        const num = (v) => (v === null || v === undefined || v === '' || Number.isNaN(Number(v)) ? null : Number(v));
+        r.strategy = strategy;
+
+        // DTE from dates if both present
+        if (r.trade_date && r.expiration_date) {
+          const d1 = new Date(r.trade_date); const d2 = new Date(r.expiration_date);
+          if (!Number.isNaN(d1.getTime()) && !Number.isNaN(d2.getTime())) {
+            r.dte = Math.round((d2 - d1) / 86400000);
+          }
+        }
+        r.dte = num(r.dte);
+
+        // prob_otm = 1 - delta
+        if (num(r.delta) != null && (r.prob_otm == null || r.prob_otm === '')) {
+          r.prob_otm = 1 - num(r.delta);
+        }
+        r.prob_otm = num(r.prob_otm);
+        r.delta = num(r.delta);
+
+        // buffer_pct: 2% for SPX, 3% otherwise (from floor_ceiling)
+        if (num(r.floor_ceiling) != null) {
+          const pct = (r.underlying || '').toUpperCase() === 'SPX' ? 0.02 : 0.03;
+          r.buffer_pct = num(r.floor_ceiling) * pct;
+          r.floor_buffer_strike = num(r.floor_ceiling) - num(r.buffer_pct);
+        }
+
+        // actual_pct_from_floor
+        if (num(r.short_strike) != null && num(r.floor_ceiling) != null && num(r.floor_ceiling) !== 0) {
+          if (strategy === 'ROC') {
+            // calls: (strike - floor)/floor
+            r.actual_pct_from_floor = (num(r.short_strike) - num(r.floor_ceiling)) / num(r.floor_ceiling);
+          } else {
+            // puts (CS/ROP): (floor - strike)/floor
+            r.actual_pct_from_floor = (num(r.floor_ceiling) - num(r.short_strike)) / num(r.floor_ceiling);
+          }
+        }
+
+        // spread for CS
+        if (strategy === 'CS' && num(r.short_strike) != null && num(r.long_strike) != null) {
+          r.spread = num(r.short_strike) - num(r.long_strike);
+        }
+
+        // actual_pct_from_price (puts: 1 - strike/price; calls: strike/price - 1)
+        if (num(r.short_strike) != null && num(r.price) != null && num(r.price) !== 0) {
+          if (strategy === 'ROC') {
+            r.actual_pct_from_price = num(r.short_strike) / num(r.price) - 1;
+          } else {
+            r.actual_pct_from_price = 1 - num(r.short_strike) / num(r.price);
+          }
+        }
+
+        // adj_pct_from_price (CS/ROP): normalized to 45 days
+        if (r.actual_pct_from_price != null && num(r.dte) != null && num(r.dte) > 0 && strategy !== 'ROC') {
+          r.adj_pct_from_price = r.actual_pct_from_price * (45 / num(r.dte));
+        }
+
+        // target_credit @ 48% annualized (CS only)
+        if (strategy === 'CS' && num(r.dte) != null && num(r.spread) != null) {
+          const d = num(r.dte); const s = num(r.spread); const com = num(r.commission) || 0;
+          r.target_credit = Math.ceil(((0.48 * d * s) / (365 + 0.48 * d) + com) * 100) / 100;
+        }
+
+        // net_credit = credit - commission
+        if (num(r.credit) != null) {
+          r.net_credit = num(r.credit) - (num(r.commission) || 0);
+        }
+
+        // risk_capital
+        if (strategy === 'CS' && num(r.spread) != null && num(r.net_credit) != null) {
+          r.risk_capital = num(r.spread) - num(r.net_credit);
+        } else if (strategy === 'ROC' && num(r.short_strike) != null && num(r.net_credit) != null) {
+          r.risk_capital = (num(r.on_sale_price) != null ? num(r.on_sale_price) : num(r.short_strike)) - num(r.net_credit);
+        } else if (strategy === 'ROP' && num(r.short_strike) != null && num(r.net_credit) != null) {
+          r.risk_capital = num(r.short_strike) - num(r.net_credit);
+        }
+
+        // margin_pct defaults
+        if (r.margin_pct == null) {
+          if (strategy === 'ROP') r.margin_pct = 1.0;
+          else if (strategy === 'CS') r.margin_pct = null;
+        }
+
+        // shares = contracts * 100
+        if (num(r.actual_contracts) != null) r.shares = num(r.actual_contracts) * 100;
+
+        // margin_capital
+        if (strategy === 'CS' && num(r.risk_capital) != null && num(r.shares) != null) {
+          r.margin_capital = num(r.risk_capital) * num(r.shares);
+        } else if (strategy === 'ROP' && num(r.risk_capital) != null && num(r.actual_contracts) != null && num(r.margin_pct) != null) {
+          r.margin_capital = num(r.risk_capital) * (num(r.actual_contracts) * 100) * num(r.margin_pct);
+        } else if (strategy === 'ROC') {
+          r.margin_capital = null; // covered
+        }
+
+        // RORC
+        if (strategy === 'ROP' && num(r.net_credit) != null && num(r.risk_capital) != null && num(r.margin_pct) != null && num(r.risk_capital) > 0) {
+          r.rorc = num(r.net_credit) / (num(r.risk_capital) * num(r.margin_pct));
+        } else if (num(r.net_credit) != null && num(r.risk_capital) != null && num(r.risk_capital) > 0) {
+          r.rorc = num(r.net_credit) / num(r.risk_capital);
+        }
+
+        // multiplier + ARORC
+        if (num(r.dte) != null && num(r.dte) > 0) {
+          r.multiplier = 365 / num(r.dte);
+          if (num(r.rorc) != null) r.arorc = num(r.rorc) * num(r.multiplier);
+        }
+
+        // Kelly (CS only)
+        if (strategy === 'CS') {
+          r.kelly_w = num(r.prob_otm);
+          if (r.rc_at_risk_pct == null) r.rc_at_risk_pct = 0.3;
+          if (num(r.risk_capital) != null) {
+            r.avg_loss = num(r.risk_capital) * num(r.rc_at_risk_pct);
+            if (num(r.avg_loss) > 0 && num(r.net_credit) != null) {
+              r.kelly_r = num(r.net_credit) / num(r.avg_loss);
+              if (num(r.kelly_r) > 0 && num(r.kelly_w) != null) {
+                r.kelly_pct = num(r.kelly_w) - (1 - num(r.kelly_w)) / num(r.kelly_r);
+              }
+            }
+          }
+          if (num(r.bankroll) != null) {
+            if (num(r.kelly_pct) != null) r.kelly_max_bet = num(r.kelly_pct) * num(r.bankroll);
+            r.rule1_max_margin = num(r.bankroll) / 3;
+            if (num(r.risk_capital) != null && num(r.risk_capital) > 0) {
+              const cap = Math.min(num(r.kelly_max_bet) || Infinity, num(r.rule1_max_margin) || Infinity);
+              if (Number.isFinite(cap)) {
+                r.max_contracts = Math.floor(cap / num(r.risk_capital) / 100);
+              }
+            }
+          }
+        }
+
+        // totals
+        if (num(r.net_credit) != null && num(r.shares) != null) r.net_credit_total = num(r.net_credit) * num(r.shares);
+        if (num(r.risk_capital) != null && num(r.shares) != null) r.risk_capital_total = num(r.risk_capital) * num(r.shares);
+
+        // Final P&L when closed/expired
+        if (num(r.shares) != null) {
+          if (num(r.closing_debit) != null) {
+            r.total_debit = num(r.closing_debit) * num(r.shares);
+          }
+          // If EXPIRED with no closing_debit recorded, treat as 0
+          const isClosed = ['EXPIRED','CLOSED','ASSIGNED','ROLLED'].includes((r.status || '').toUpperCase());
+          if (isClosed) {
+            const td = num(r.total_debit) || 0;
+            if (num(r.net_credit_total) != null) {
+              r.final_net_credit = num(r.net_credit_total) + td;
+            }
+            if (num(r.final_net_credit) != null && num(r.risk_capital_total) != null && num(r.risk_capital_total) !== 0) {
+              r.final_rorc = num(r.final_net_credit) / num(r.risk_capital_total);
+            }
+            // days held for final_arorc
+            if (r.result_date && r.trade_date && num(r.final_rorc) != null) {
+              const daysHeld = Math.max(1, Math.round((new Date(r.result_date) - new Date(r.trade_date)) / 86400000));
+              r.final_arorc = (365 / daysHeld) * num(r.final_rorc);
+            }
+          }
+        }
+
+        // Derive year from trade_date
+        if (r.trade_date && !r.year) {
+          const y = new Date(r.trade_date).getFullYear();
+          if (!Number.isNaN(y)) r.year = y;
+        }
+
+        return r;
+      };
+
+      // Columns allowed for INSERT/UPDATE. Keep in sync with the CREATE TABLE.
+      const OPT_COLS = [
+        'strategy','account','year','trade_date','underlying','price','on_sale_price',
+        'dte','expiration_date','floor_ceiling','buffer_pct','floor_buffer_strike',
+        'actual_pct_from_floor','prob_otm','delta','short_strike','actual_pct_from_price',
+        'adj_pct_from_price','long_strike','spread','target_credit','credit','commission',
+        'net_credit','risk_capital','margin_pct','margin_capital','rorc','multiplier','arorc',
+        'qtr_report_flag','kelly_w','rc_at_risk_pct','avg_loss','kelly_r','kelly_pct',
+        'bankroll','kelly_max_bet','rule1_max_margin','max_contracts','actual_contracts',
+        'shares','net_credit_total','risk_capital_total','status','result_date','closing_debit',
+        'total_debit','final_net_credit','final_rorc','final_arorc','parent_trade_id','notes',
+        'source_sheet','source_col','imported_at'
+      ];
+
+      // POST /api/options/calc — stateless calculator (for the planner form)
+      if (path === "/api/options/calc" && request.method === "POST") {
+        let body;
+        try { body = await request.json(); }
+        catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const derived = computeOptionsDerived(body || {});
+        return json({ ok: true, trade: derived }, corsHeaders);
+      }
+
+      // POST /api/options/trades — create new trade
+      if (path === "/api/options/trades" && request.method === "POST") {
+        await ensureMigrations(env);
+        let body;
+        try { body = await request.json(); }
+        catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const derived = computeOptionsDerived(body || {});
+        const vals = OPT_COLS.map(c => derived[c] === undefined ? null : derived[c]);
+        const placeholders = OPT_COLS.map(() => '?').join(',');
+        const result = await env.DB.prepare(
+          `INSERT INTO options_trades (${OPT_COLS.join(',')}) VALUES (${placeholders})`
+        ).bind(...vals).run();
+        const id = result.meta?.last_row_id;
+        return json({ ok: true, id, trade: { id, ...derived } }, corsHeaders);
+      }
+
+      // PUT /api/options/trades/:id — update
+      if (path.startsWith("/api/options/trades/") && request.method === "PUT") {
+        await ensureMigrations(env);
+        const id = Number(path.split("/").pop());
+        if (!id) return json({ error: "Invalid id" }, corsHeaders, 400);
+        let body;
+        try { body = await request.json(); }
+        catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        // Load existing row, merge, recompute
+        const existing = await env.DB.prepare(`SELECT * FROM options_trades WHERE id = ?`).bind(id).first();
+        if (!existing) return json({ error: "Not found" }, corsHeaders, 404);
+        const merged = computeOptionsDerived({ ...existing, ...body });
+        const assigns = OPT_COLS.map(c => `${c} = ?`).join(', ');
+        const vals = OPT_COLS.map(c => merged[c] === undefined ? null : merged[c]);
+        await env.DB.prepare(
+          `UPDATE options_trades SET ${assigns}, updated_at = datetime('now') WHERE id = ?`
+        ).bind(...vals, id).run();
+        return json({ ok: true, trade: { id, ...merged } }, corsHeaders);
+      }
+
+      // DELETE /api/options/trades/:id
+      if (path.startsWith("/api/options/trades/") && request.method === "DELETE") {
+        await ensureMigrations(env);
+        const id = Number(path.split("/").pop());
+        if (!id) return json({ error: "Invalid id" }, corsHeaders, 400);
+        await env.DB.prepare(`DELETE FROM options_trades WHERE id = ?`).bind(id).run();
+        return json({ ok: true }, corsHeaders);
+      }
+
+      // GET /api/options/trades?strategy=CS&year=2025&month=4&status=EXPIRED&underlying=RUT&account=IB
+      if (path === "/api/options/trades" && request.method === "GET") {
+        await ensureMigrations(env);
+        const params = url.searchParams;
+        const where = [];
+        const binds = [];
+        const p = (k) => params.get(k);
+        if (p('strategy')) { where.push('strategy = ?'); binds.push(p('strategy').toUpperCase()); }
+        if (p('year')) { where.push('year = ?'); binds.push(Number(p('year'))); }
+        if (p('month')) {
+          where.push(`strftime('%m', COALESCE(result_date, trade_date)) = ?`);
+          binds.push(String(p('month')).padStart(2, '0'));
+        }
+        if (p('status')) { where.push('status = ?'); binds.push(p('status').toUpperCase()); }
+        if (p('underlying')) { where.push('UPPER(underlying) = ?'); binds.push(p('underlying').toUpperCase()); }
+        if (p('account')) { where.push('account = ?'); binds.push(p('account').toUpperCase()); }
+        if (p('q')) {
+          where.push('(UPPER(underlying) LIKE ? OR UPPER(notes) LIKE ?)');
+          binds.push(`%${p('q').toUpperCase()}%`, `%${p('q').toUpperCase()}%`);
+        }
+        const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+        const limit = Math.min(Number(params.get('limit')) || 2000, 5000);
+        const rs = await env.DB.prepare(
+          `SELECT * FROM options_trades ${whereSql} ORDER BY COALESCE(trade_date, '1970-01-01') DESC, id DESC LIMIT ?`
+        ).bind(...binds, limit).all();
+        return json({ ok: true, count: rs.results?.length || 0, trades: rs.results || [] }, corsHeaders);
+      }
+
+      // GET /api/options/summary?year=2025 — monthly × strategy grid
+      if (path === "/api/options/summary" && request.method === "GET") {
+        await ensureMigrations(env);
+        const year = url.searchParams.get('year');
+        const binds = [];
+        let yearClause = '';
+        if (year) {
+          yearClause = `WHERE (strftime('%Y', COALESCE(result_date, trade_date)) = ? OR year = ?)`;
+          binds.push(String(year), Number(year));
+        }
+        // Monthly aggregation grouped by strategy
+        const rs = await env.DB.prepare(`
+          SELECT
+            strategy,
+            strftime('%Y', COALESCE(result_date, trade_date)) AS yr,
+            strftime('%m', COALESCE(result_date, trade_date)) AS mo,
+            COUNT(*) AS n_trades,
+            SUM(CASE WHEN status IN ('EXPIRED','CLOSED','ASSIGNED','ROLLED') THEN 1 ELSE 0 END) AS n_realized,
+            SUM(CASE WHEN status IN ('EXPIRED','CLOSED','ASSIGNED','ROLLED') THEN COALESCE(final_net_credit, net_credit_total) ELSE 0 END) AS realized_pnl,
+            SUM(CASE WHEN status = 'OPEN' THEN COALESCE(net_credit_total, 0) ELSE 0 END) AS open_credit,
+            AVG(CASE WHEN status IN ('EXPIRED','CLOSED','ASSIGNED','ROLLED') THEN final_rorc END) AS avg_rorc
+          FROM options_trades
+          ${yearClause}
+          GROUP BY strategy, yr, mo
+          ORDER BY yr DESC, mo DESC, strategy
+        `).bind(...binds).all();
+
+        // Totals by strategy over the full result set
+        const totalsRs = await env.DB.prepare(`
+          SELECT
+            strategy,
+            COUNT(*) AS n_trades,
+            SUM(CASE WHEN status IN ('EXPIRED','CLOSED','ASSIGNED','ROLLED') THEN COALESCE(final_net_credit, net_credit_total) ELSE 0 END) AS total_realized
+          FROM options_trades
+          ${yearClause}
+          GROUP BY strategy
+        `).bind(...binds).all();
+
+        return json({
+          ok: true,
+          by_month: rs.results || [],
+          totals: totalsRs.results || [],
+        }, corsHeaders);
+      }
+
+      // POST /api/options/trades/bulk-import — for the Python importer
+      if (path === "/api/options/trades/bulk-import" && request.method === "POST") {
+        await ensureMigrations(env);
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        let body;
+        try { body = await request.json(); }
+        catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const trades = Array.isArray(body.trades) ? body.trades : [];
+        const issues = Array.isArray(body.issues) ? body.issues : [];
+        if (!trades.length) return json({ error: "trades array required" }, corsHeaders, 400);
+
+        let inserted = 0, updated = 0, skipped = 0;
+        for (const t of trades) {
+          try {
+            const derived = computeOptionsDerived(t);
+            derived.imported_at = new Date().toISOString();
+            // Upsert by (source_sheet, source_col) — the unique natural key from Excel
+            const existing = derived.source_sheet && derived.source_col
+              ? await env.DB.prepare(
+                  `SELECT id FROM options_trades WHERE source_sheet = ? AND source_col = ?`
+                ).bind(derived.source_sheet, derived.source_col).first()
+              : null;
+            if (existing?.id) {
+              const assigns = OPT_COLS.map(c => `${c} = ?`).join(', ');
+              const vals = OPT_COLS.map(c => derived[c] === undefined ? null : derived[c]);
+              await env.DB.prepare(
+                `UPDATE options_trades SET ${assigns}, updated_at = datetime('now') WHERE id = ?`
+              ).bind(...vals, existing.id).run();
+              updated++;
+            } else {
+              const vals = OPT_COLS.map(c => derived[c] === undefined ? null : derived[c]);
+              const placeholders = OPT_COLS.map(() => '?').join(',');
+              await env.DB.prepare(
+                `INSERT INTO options_trades (${OPT_COLS.join(',')}) VALUES (${placeholders})`
+              ).bind(...vals).run();
+              inserted++;
+            }
+          } catch (e) {
+            skipped++;
+          }
+        }
+        // Log any parser-side issues into options_import_issues
+        for (const iss of issues) {
+          try {
+            await env.DB.prepare(
+              `INSERT INTO options_import_issues (source_sheet, source_col, severity, category, message) VALUES (?, ?, ?, ?, ?)`
+            ).bind(iss.source_sheet || '', iss.source_col || null, iss.severity || 'info', iss.category || 'misc', iss.message || '').run();
+          } catch {}
+        }
+        return json({ ok: true, inserted, updated, skipped, total: trades.length }, corsHeaders);
+      }
+
+      // GET /api/options/import-issues — list parser notes
+      if (path === "/api/options/import-issues" && request.method === "GET") {
+        await ensureMigrations(env);
+        const rs = await env.DB.prepare(
+          `SELECT * FROM options_import_issues ORDER BY id DESC LIMIT 500`
+        ).all();
+        return json({ ok: true, issues: rs.results || [] }, corsHeaders);
+      }
+
+      // GET /api/options/meta — distinct years + underlyings for filter pickers
+      if (path === "/api/options/meta" && request.method === "GET") {
+        await ensureMigrations(env);
+        const years = await env.DB.prepare(
+          `SELECT DISTINCT year FROM options_trades WHERE year IS NOT NULL ORDER BY year DESC`
+        ).all();
+        const undrs = await env.DB.prepare(
+          `SELECT DISTINCT underlying FROM options_trades WHERE underlying IS NOT NULL ORDER BY underlying`
+        ).all();
+        const statuses = await env.DB.prepare(
+          `SELECT DISTINCT status FROM options_trades WHERE status IS NOT NULL ORDER BY status`
+        ).all();
+        const accounts = await env.DB.prepare(
+          `SELECT DISTINCT account FROM options_trades WHERE account IS NOT NULL ORDER BY account`
+        ).all();
+        return json({
+          ok: true,
+          years: (years.results || []).map(r => r.year),
+          underlyings: (undrs.results || []).map(r => r.underlying),
+          statuses: (statuses.results || []).map(r => r.status),
+          accounts: (accounts.results || []).map(r => r.account),
         }, corsHeaders);
       }
 

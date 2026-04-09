@@ -25,6 +25,7 @@ import IncomeLabTab from '../home/IncomeLabTab';
 import LibraryTab from '../home/LibraryTab';
 import SmartMoneyTab from '../home/SmartMoneyTab';
 import NoticiasTab, { fetchAllYouTubeForOffline } from '../home/NoticiasTab';
+import OpcionesTab from '../home/OpcionesTab';
 import EarningsArchiveTab from '../home/EarningsArchiveTab';
 import CurrencyTab from '../home/CurrencyTab';
 import MacroTab from '../home/MacroTab';
@@ -1088,6 +1089,10 @@ export default function HomeView() {
       {homeTab==="smart-money" && <SmartMoneyTab />}
       {homeTab==="el-dividendo" && <NoticiasTab />}
       {homeTab==="earnings-archive" && <EarningsArchiveTab />}
+      {homeTab==="opciones-cs" && <OpcionesTab strategy="CS" view="list" />}
+      {homeTab==="opciones-roc" && <OpcionesTab strategy="ROC" view="list" />}
+      {homeTab==="opciones-rop" && <OpcionesTab strategy="ROP" view="list" />}
+      {homeTab==="opciones-resumen" && <OpcionesTab strategy="CS" view="summary" />}
       {homeTab==="currency" && <CurrencyTab />}
       {homeTab==="macro" && <MacroTab />}
       {homeTab==="earnings" && <EarningsTab />}
