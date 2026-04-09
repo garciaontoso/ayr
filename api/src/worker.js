@@ -931,6 +931,174 @@ async function ensureMigrations(env) {
       } catch(e) {}
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // Deep Dividend Analyzer (2026-04-09)
+    // 5 tables for the multi-stage pipeline:
+    //   1. deep_extractions      — Stage 1 Haiku output per source doc
+    //   2. deep_dividend_analysis — Stage 3 Opus final verdict per ticker+quarter
+    //   3. guidance_tracking      — promise vs delivered tracking across quarters
+    //   4. prompt_versions        — versioned prompts editable from UI
+    //   5. agent_predictions      — track record for ALL agents (not just deep)
+    // ═══════════════════════════════════════════════════════════════
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS deep_extractions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      source_doc_id INTEGER,
+      doc_type TEXT NOT NULL,
+      fiscal_year INTEGER,
+      fiscal_quarter INTEGER,
+      filing_date TEXT,
+      extraction_json TEXT NOT NULL,
+      model TEXT NOT NULL,
+      tokens_in INTEGER,
+      tokens_out INTEGER,
+      cost_usd REAL,
+      created_at INTEGER NOT NULL,
+      UNIQUE(ticker, source_doc_id)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_de_ticker_fy ON deep_extractions(ticker, fiscal_year DESC, fiscal_quarter DESC)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_de_doctype ON deep_extractions(doc_type, ticker)`).run();
+
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS deep_dividend_analysis (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      quarter TEXT NOT NULL,
+      sector_bucket TEXT NOT NULL,
+      safety_score INTEGER NOT NULL,
+      growth_score INTEGER NOT NULL,
+      honesty_score INTEGER NOT NULL,
+      moat_score INTEGER,
+      capital_alloc_score INTEGER,
+      composite_score REAL NOT NULL,
+      verdict TEXT NOT NULL,
+      confidence TEXT NOT NULL,
+      cut_probability_3y REAL,
+      raise_probability_12m REAL,
+      red_flags_count INTEGER DEFAULT 0,
+      green_flags_count INTEGER DEFAULT 0,
+      result_json TEXT NOT NULL,
+      result_md TEXT,
+      devils_advocate_json TEXT,
+      cross_validation_json TEXT,
+      extraction_ids TEXT,
+      prompt_version_id INTEGER,
+      model_extractor TEXT,
+      model_historian TEXT,
+      model_analyzer TEXT,
+      tokens_in INTEGER,
+      tokens_out INTEGER,
+      cost_usd REAL,
+      created_at INTEGER NOT NULL,
+      UNIQUE(ticker, quarter)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_dda_ticker ON deep_dividend_analysis(ticker)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_dda_created ON deep_dividend_analysis(created_at DESC)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_dda_verdict ON deep_dividend_analysis(verdict)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_dda_safety ON deep_dividend_analysis(safety_score)`).run();
+
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS guidance_tracking (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      quarter_promised TEXT NOT NULL,
+      quarter_target TEXT,
+      metric TEXT NOT NULL,
+      promised_value TEXT,
+      promised_quote TEXT,
+      delivered_value TEXT,
+      delivered_quote TEXT,
+      outcome TEXT,
+      outcome_evaluated_at INTEGER,
+      created_at INTEGER NOT NULL,
+      UNIQUE(ticker, quarter_promised, metric)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_gt_ticker ON guidance_tracking(ticker, quarter_promised DESC)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_gt_outcome ON guidance_tracking(outcome) WHERE outcome IS NOT NULL`).run();
+
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS prompt_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      prompt_key TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      body TEXT NOT NULL,
+      notes TEXT,
+      is_active INTEGER NOT NULL DEFAULT 0,
+      created_by TEXT,
+      created_at INTEGER NOT NULL,
+      UNIQUE(prompt_key, version)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_pv_active ON prompt_versions(prompt_key, is_active)`).run();
+
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS agent_predictions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_name TEXT NOT NULL,
+      ticker TEXT NOT NULL,
+      prediction_date INTEGER NOT NULL,
+      verdict TEXT NOT NULL,
+      confidence TEXT,
+      safety_score INTEGER,
+      growth_score INTEGER,
+      cut_probability_3y REAL,
+      raise_probability_12m REAL,
+      prediction_json TEXT,
+      evaluated_at INTEGER,
+      div_outcome_30d TEXT,
+      div_outcome_90d TEXT,
+      div_outcome_180d TEXT,
+      div_outcome_365d TEXT,
+      total_return_30d REAL,
+      total_return_90d REAL,
+      total_return_180d REAL,
+      total_return_365d REAL,
+      total_return_vs_sector_365d REAL,
+      cut_correct INTEGER,
+      raise_correct INTEGER,
+      brier_score REAL,
+      notes TEXT,
+      UNIQUE(agent_name, ticker, prediction_date)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_ap_eval ON agent_predictions(evaluated_at, prediction_date)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_ap_agent ON agent_predictions(agent_name, ticker)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_ap_pending_eval ON agent_predictions(agent_name, evaluated_at) WHERE evaluated_at IS NULL`).run();
+
+    // Smart alerts: 8-K material events tracker (CEO change, impairments, restatements)
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS material_events_8k (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      filing_date TEXT NOT NULL,
+      accession_number TEXT NOT NULL,
+      item_codes TEXT NOT NULL,
+      event_type TEXT,
+      event_summary TEXT,
+      severity TEXT,
+      raw_url TEXT,
+      processed_at INTEGER NOT NULL,
+      alert_sent INTEGER DEFAULT 0,
+      UNIQUE(ticker, accession_number)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_8k_ticker ON material_events_8k(ticker, filing_date DESC)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_8k_severity ON material_events_8k(severity)`).run();
+
+    // Smart alerts: insider cluster detection (preEarnings)
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS insider_clusters (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      window_start TEXT NOT NULL,
+      window_end TEXT NOT NULL,
+      direction TEXT NOT NULL,
+      n_insiders INTEGER NOT NULL,
+      total_value_usd REAL,
+      n_executives INTEGER,
+      includes_cfo INTEGER DEFAULT 0,
+      includes_ceo INTEGER DEFAULT 0,
+      excluded_10b51_count INTEGER DEFAULT 0,
+      next_earnings_date TEXT,
+      days_to_earnings INTEGER,
+      severity TEXT,
+      detected_at INTEGER NOT NULL,
+      alert_sent INTEGER DEFAULT 0,
+      UNIQUE(ticker, window_start, direction)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_ic_ticker ON insider_clusters(ticker, window_start DESC)`).run();
+
     _migrated = true;
   } catch(e) {
     console.error("Migration error:", e.message);
@@ -2563,10 +2731,35 @@ export default {
           src, sourceUrl, textKey, rawKey, textBytes, rawBytes, title
         ).run();
 
+        // ── Auto-trigger Deep Dividend Analysis (2026-04-09) ──
+        // Only for TRANSCRIPTs of portfolio tickers — these are the
+        // material events worth re-running the pipeline on. 10-K/10-Q
+        // upload alone doesn't trigger; new transcripts do.
+        // Fire-and-forget via ctx.waitUntil so we don't block the upload response.
+        let auto_deep_queued = false;
+        if (docType === "TRANSCRIPT") {
+          try {
+            const isPortfolio = await env.DB.prepare(
+              `SELECT 1 FROM positions WHERE ticker = ? AND shares > 0 LIMIT 1`
+            ).bind(ticker).first();
+            if (isPortfolio && ctx?.waitUntil) {
+              ctx.waitUntil(
+                runDeepDividendPipeline(env, { ticker, force: true })
+                  .then(r => console.log(`[deep-dividend] auto-run for ${ticker}: ${r.ok ? r.verdict?.action : 'failed'}`))
+                  .catch(e => console.error(`[deep-dividend] auto-run failed for ${ticker}:`, e.message))
+              );
+              auto_deep_queued = true;
+            }
+          } catch (e) {
+            console.error(`[deep-dividend] auto-trigger check failed:`, e.message);
+          }
+        }
+
         return json({
           ok: true, ticker, doc_type: docType,
           r2_key: textKey, r2_key_raw: rawKey,
           size_bytes: textBytes, size_bytes_raw: rawBytes,
+          auto_deep_analysis_queued: auto_deep_queued,
         }, corsHeaders);
       }
 
@@ -3469,10 +3662,15 @@ export default {
       }
 
       // ─── Opus trend analysis over multi-year earnings archive ─────
-      // POST /api/earnings/archive/analyze  { ticker, force? }
+      // POST /api/earnings/archive/analyze  { ticker, force?, deep? }
       // Loads up to N most recent docs from R2 (10-K + 10-Q + transcripts),
       // truncates each, concatenates, calls Claude Opus and returns structured
       // JSON. Caches result in app_config keyed by ticker+date.
+      //
+      // NEW (2026-04-09): if body.deep === true, runs the multi-stage Deep
+      // Dividend Analyzer pipeline instead (Extractor → Historian → Analyzer
+      // → Devil's Advocate → Cross-Validation), with full track record stored
+      // in deep_dividend_analysis + agent_predictions tables.
       if (path === "/api/earnings/archive/analyze" && request.method === "POST") {
         await ensureMigrations(env);
         const unauth = ytRequireToken(request, env);
@@ -3484,8 +3682,21 @@ export default {
         catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
         const ticker = String(body.ticker || "").trim().toUpperCase();
         const force = !!body.force;
+        const useDeep = !!body.deep;
         if (!ticker) return json({ error: "ticker required" }, corsHeaders, 400);
 
+        // ── NEW DEEP PIPELINE (2026-04-09) ──
+        if (useDeep) {
+          try {
+            const result = await runDeepDividendPipeline(env, { ticker, force });
+            return json(result, corsHeaders, result.ok ? 200 : 404);
+          } catch (e) {
+            console.error(`[deep-dividend] pipeline failed for ${ticker}:`, e.message);
+            return json({ ok: false, error: `Deep pipeline failed: ${e.message}` }, corsHeaders, 500);
+          }
+        }
+
+        // ── LEGACY MONOLITHIC PATH (kept for backwards compatibility) ──
         const cacheKey = `earnings_archive_analysis:${ticker}`;
         const today = new Date().toISOString().slice(0, 10);
 
@@ -3598,42 +3809,16 @@ Schema exacto:
 
         const userPrompt = `Ticker: ${ticker}\nDocumentos analizados: ${segments.length}\n\n${segments.join("\n\n")}`;
 
-        let claudeResp;
-        try {
-          claudeResp = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-api-key": env.ANTHROPIC_API_KEY,
-              "anthropic-version": "2023-06-01",
-            },
-            body: JSON.stringify({
-              model: "claude-opus-4-20250514",
-              max_tokens: 2000,
-              system: systemPrompt,
-              messages: [{ role: "user", content: userPrompt }],
-            }),
-          });
-        } catch (e) {
-          return json({ error: `Claude API fetch failed: ${String(e)}` }, corsHeaders, 502);
-        }
-        if (!claudeResp.ok) {
-          const errText = await claudeResp.text();
-          return json({ error: `Claude API ${claudeResp.status}: ${errText}` }, corsHeaders, 502);
-        }
-        let claudeJson;
-        try {
-          claudeJson = await claudeResp.json();
-        } catch (e) {
-          return json({ error: `Claude returned non-JSON: ${String(e)}` }, corsHeaders, 502);
-        }
-        const rawText = claudeJson.content?.[0]?.text || "";
+        // BUG FIX (2026-04-09): use callAgentClaude for retry on 429/5xx/529
+        // (was raw fetch, no retry — caused mid-cron failures)
         let analysis;
         try {
-          const cleaned = rawText.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-          analysis = JSON.parse(cleaned);
+          analysis = await callAgentClaude(env, systemPrompt, userPrompt, {
+            model: "claude-opus-4-20250514",
+            maxTokens: 2000,
+          });
         } catch (e) {
-          return json({ error: "Failed to parse Claude response", raw: rawText.slice(0, 500) }, corsHeaders, 500);
+          return json({ error: `Claude API failed: ${String(e.message || e)}` }, corsHeaders, 502);
         }
 
         // Cache
@@ -3649,9 +3834,316 @@ Schema exacto:
           cached: false,
           docs_used: segments.length,
           total_chars: totalChars,
-          tokens_in: claudeJson.usage?.input_tokens,
-          tokens_out: claudeJson.usage?.output_tokens,
           analysis,
+        }, corsHeaders);
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // DEEP DIVIDEND ANALYZER endpoints (2026-04-09)
+      // ═══════════════════════════════════════════════════════════
+
+      // POST /api/deep-dividend/run  { ticker, force? }
+      // Direct run of the deep pipeline (alternative to analyze?deep=1)
+      if (path === "/api/deep-dividend/run" && request.method === "POST") {
+        await ensureMigrations(env);
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        if (!env.EARNINGS_R2) return json({ error: "R2 not configured" }, corsHeaders, 500);
+        if (!env.ANTHROPIC_API_KEY) return json({ error: "ANTHROPIC_API_KEY not set" }, corsHeaders, 500);
+        let body;
+        try { body = await request.json(); }
+        catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const ticker = String(body.ticker || "").trim().toUpperCase();
+        const force = !!body.force;
+        if (!ticker) return json({ error: "ticker required" }, corsHeaders, 400);
+        try {
+          const result = await runDeepDividendPipeline(env, { ticker, force });
+          return json(result, corsHeaders, result.ok ? 200 : 404);
+        } catch (e) {
+          return json({ ok: false, error: String(e.message || e) }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/deep-dividend/list?verdict=TRIM&since=2025-01-01
+      // Lists all stored deep analyses, ordered by created_at desc.
+      if (path === "/api/deep-dividend/list" && request.method === "GET") {
+        await ensureMigrations(env);
+        const verdict = url.searchParams.get('verdict');
+        const since = url.searchParams.get('since');
+        const limit = Math.min(parseInt(url.searchParams.get('limit') || '200', 10) || 200, 1000);
+        const conditions = [];
+        const binds = [];
+        if (verdict) { conditions.push("verdict = ?"); binds.push(verdict); }
+        if (since) {
+          const ts = Math.floor(new Date(since).getTime() / 1000);
+          if (!isNaN(ts)) { conditions.push("created_at >= ?"); binds.push(ts); }
+        }
+        const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+        const sql = `SELECT id, ticker, quarter, sector_bucket, safety_score, growth_score, honesty_score,
+                            composite_score, verdict, confidence, cut_probability_3y, raise_probability_12m,
+                            red_flags_count, green_flags_count, created_at
+                     FROM deep_dividend_analysis ${where}
+                     ORDER BY created_at DESC LIMIT ?`;
+        binds.push(limit);
+        const rs = await env.DB.prepare(sql).bind(...binds).all();
+        return json({ ok: true, count: rs.results?.length || 0, rows: rs.results || [] }, corsHeaders);
+      }
+
+      // GET /api/deep-dividend/get?id=42  OR  ?ticker=KHC&quarter=2025Q4
+      // Returns the full analysis JSON including devils advocate + cross-validation.
+      if (path === "/api/deep-dividend/get" && request.method === "GET") {
+        await ensureMigrations(env);
+        const id = url.searchParams.get('id');
+        const ticker = url.searchParams.get('ticker');
+        const quarter = url.searchParams.get('quarter');
+        let row;
+        if (id) {
+          row = await env.DB.prepare(`SELECT * FROM deep_dividend_analysis WHERE id = ?`).bind(id).first();
+        } else if (ticker) {
+          if (quarter) {
+            row = await env.DB.prepare(
+              `SELECT * FROM deep_dividend_analysis WHERE ticker = ? AND quarter = ? ORDER BY created_at DESC LIMIT 1`
+            ).bind(ticker.toUpperCase(), quarter).first();
+          } else {
+            row = await env.DB.prepare(
+              `SELECT * FROM deep_dividend_analysis WHERE ticker = ? ORDER BY created_at DESC LIMIT 1`
+            ).bind(ticker.toUpperCase()).first();
+          }
+        } else {
+          return json({ error: "id or ticker required" }, corsHeaders, 400);
+        }
+        if (!row) return json({ error: "not found" }, corsHeaders, 404);
+        try {
+          row.result_json = JSON.parse(row.result_json);
+          row.devils_advocate_json = row.devils_advocate_json ? JSON.parse(row.devils_advocate_json) : null;
+          row.cross_validation_json = row.cross_validation_json ? JSON.parse(row.cross_validation_json) : null;
+        } catch {}
+        return json({ ok: true, analysis: row }, corsHeaders);
+      }
+
+      // GET /api/deep-dividend/extractions?ticker=KHC
+      if (path === "/api/deep-dividend/extractions" && request.method === "GET") {
+        await ensureMigrations(env);
+        const ticker = (url.searchParams.get('ticker') || '').toUpperCase();
+        if (!ticker) return json({ error: "ticker required" }, corsHeaders, 400);
+        const rs = await env.DB.prepare(`
+          SELECT id, ticker, source_doc_id, doc_type, fiscal_year, fiscal_quarter, filing_date, model, created_at
+          FROM deep_extractions WHERE ticker = ?
+          ORDER BY (fiscal_year IS NULL), fiscal_year DESC, fiscal_quarter DESC
+          LIMIT 100
+        `).bind(ticker).all();
+        return json({ ok: true, count: rs.results?.length || 0, rows: rs.results || [] }, corsHeaders);
+      }
+
+      // GET /api/deep-dividend/prompts                  → list active prompts
+      // POST /api/deep-dividend/prompts                 → create new version
+      if (path === "/api/deep-dividend/prompts" && request.method === "GET") {
+        await ensureMigrations(env);
+        const rs = await env.DB.prepare(`
+          SELECT id, prompt_key, version, notes, is_active, created_by, created_at
+          FROM prompt_versions ORDER BY prompt_key, version DESC
+        `).all();
+        return json({ ok: true, prompts: rs.results || [] }, corsHeaders);
+      }
+      if (path === "/api/deep-dividend/prompts" && request.method === "POST") {
+        await ensureMigrations(env);
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        let body;
+        try { body = await request.json(); }
+        catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const promptKey = String(body.prompt_key || '').trim();
+        const promptBody = String(body.body || '').trim();
+        if (!promptKey || !promptBody) return json({ error: "prompt_key and body required" }, corsHeaders, 400);
+        // Get next version number
+        const last = await env.DB.prepare(
+          `SELECT MAX(version) as v FROM prompt_versions WHERE prompt_key = ?`
+        ).bind(promptKey).first();
+        const nextVersion = (last?.v || 0) + 1;
+        const activate = body.activate !== false; // default true
+        if (activate) {
+          await env.DB.prepare(
+            `UPDATE prompt_versions SET is_active = 0 WHERE prompt_key = ?`
+          ).bind(promptKey).run();
+        }
+        const ins = await env.DB.prepare(`
+          INSERT INTO prompt_versions (prompt_key, version, body, notes, is_active, created_by, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          promptKey, nextVersion, promptBody,
+          body.notes || null, activate ? 1 : 0, body.created_by || 'user',
+          Math.floor(Date.now() / 1000)
+        ).run();
+        return json({ ok: true, id: ins.meta?.last_row_id, version: nextVersion }, corsHeaders);
+      }
+
+      // GET /api/deep-dividend/calibration
+      // Returns hit rates by verdict and confidence, brier score, agreement stats
+      if (path === "/api/deep-dividend/calibration" && request.method === "GET") {
+        await ensureMigrations(env);
+        const days = Math.min(parseInt(url.searchParams.get('days') || '365', 10) || 365, 730);
+        const since = Math.floor(Date.now() / 1000) - days * 86400;
+        const rs = await env.DB.prepare(`
+          SELECT verdict, confidence,
+                 cut_probability_3y, raise_probability_12m,
+                 div_outcome_30d, div_outcome_90d, div_outcome_180d, div_outcome_365d,
+                 cut_correct, raise_correct, brier_score, total_return_365d
+          FROM agent_predictions
+          WHERE agent_name = 'deep_dividend' AND prediction_date >= ? AND evaluated_at IS NOT NULL
+        `).bind(since).all();
+        const rows = rs.results || [];
+        const byVerdict = {};
+        for (const r of rows) {
+          const k = r.verdict;
+          if (!byVerdict[k]) byVerdict[k] = { n: 0, correct: 0 };
+          byVerdict[k].n++;
+          if (r.cut_correct === 1 || r.raise_correct === 1) byVerdict[k].correct++;
+        }
+        const byConfidence = {};
+        for (const r of rows) {
+          const k = r.confidence || 'unknown';
+          if (!byConfidence[k]) byConfidence[k] = { n: 0, correct: 0 };
+          byConfidence[k].n++;
+          if (r.cut_correct === 1 || r.raise_correct === 1) byConfidence[k].correct++;
+        }
+        // Brier scores
+        const validBrier = rows.filter(r => r.brier_score !== null).map(r => r.brier_score);
+        const avgBrier = validBrier.length ? validBrier.reduce((s, v) => s + v, 0) / validBrier.length : null;
+        return json({
+          ok: true,
+          window_days: days,
+          n_evaluated: rows.length,
+          by_verdict: byVerdict,
+          by_confidence: byConfidence,
+          avg_brier_score: avgBrier,
+          baseline_brier_random: 0.25,
+        }, corsHeaders);
+      }
+
+      // GET /api/deep-dividend/dashboard
+      // Returns the data needed for the front-page dashboard:
+      //   - portfolio overview (counts by verdict)
+      //   - action required list (top urgency)
+      //   - rotation opportunities
+      //   - earnings this week (placeholder for now)
+      //   - track record summary
+      if (path === "/api/deep-dividend/dashboard" && request.method === "GET") {
+        await ensureMigrations(env);
+        // Latest analysis per ticker
+        const latestRs = await env.DB.prepare(`
+          SELECT dda.* FROM deep_dividend_analysis dda
+          JOIN (
+            SELECT ticker, MAX(created_at) AS mc FROM deep_dividend_analysis GROUP BY ticker
+          ) lat ON lat.ticker = dda.ticker AND lat.mc = dda.created_at
+          ORDER BY dda.composite_score ASC
+        `).all();
+        const latest = latestRs.results || [];
+
+        // Counts by verdict
+        const byVerdict = { STRONG_BUY: 0, BUY: 0, ACCUMULATE: 0, HOLD: 0, TRIM: 0, SELL: 0 };
+        for (const r of latest) {
+          if (byVerdict[r.verdict] !== undefined) byVerdict[r.verdict]++;
+        }
+
+        // Action required: TRIM/SELL ordered by urgency (composite ASC)
+        const actionRequired = latest
+          .filter(r => ['TRIM', 'SELL'].includes(r.verdict))
+          .slice(0, 10)
+          .map(r => ({
+            ticker: r.ticker,
+            quarter: r.quarter,
+            verdict: r.verdict,
+            confidence: r.confidence,
+            composite_score: r.composite_score,
+            cut_probability_3y: r.cut_probability_3y,
+            red_flags_count: r.red_flags_count,
+          }));
+
+        // Top compounders (BUY/ACCUMULATE high composite)
+        const topOpportunities = latest
+          .filter(r => ['STRONG_BUY', 'BUY', 'ACCUMULATE'].includes(r.verdict))
+          .sort((a, b) => b.composite_score - a.composite_score)
+          .slice(0, 10)
+          .map(r => ({
+            ticker: r.ticker,
+            quarter: r.quarter,
+            verdict: r.verdict,
+            confidence: r.confidence,
+            composite_score: r.composite_score,
+            raise_probability_12m: r.raise_probability_12m,
+          }));
+
+        // Stale: analyses older than 90 days
+        const ninetyDaysAgo = Math.floor(Date.now() / 1000) - 90 * 86400;
+        const staleCount = latest.filter(r => r.created_at < ninetyDaysAgo).length;
+
+        // Coverage: how many portfolio positions have a deep analysis
+        const portfolioCount = await env.DB.prepare(`SELECT COUNT(*) as n FROM positions WHERE shares > 0`).first();
+        const analyzedCount = latest.length;
+
+        return json({
+          ok: true,
+          counts: { total_analyzed: analyzedCount, portfolio_total: portfolioCount?.n || 0, by_verdict: byVerdict },
+          stale_count: staleCount,
+          action_required: actionRequired,
+          top_opportunities: topOpportunities,
+          generated_at: new Date().toISOString(),
+        }, corsHeaders);
+      }
+
+      // POST /api/deep-dividend/backtest  { ticker, as_of_quarter }
+      // Runs the pipeline using only documents available BEFORE as_of_quarter,
+      // for walk-forward backtest validation.
+      if (path === "/api/deep-dividend/backtest" && request.method === "POST") {
+        await ensureMigrations(env);
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        let body;
+        try { body = await request.json(); }
+        catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const ticker = String(body.ticker || '').trim().toUpperCase();
+        const asOfDate = String(body.as_of_date || ''); // YYYY-MM-DD
+        if (!ticker || !asOfDate) return json({ error: "ticker and as_of_date required" }, corsHeaders, 400);
+        // For backtest, manually load docs older than as_of_date
+        // (the pipeline uses .ORDER BY filing_date DESC LIMIT 12 normally; here we filter)
+        const rs = await env.DB.prepare(`
+          SELECT id, doc_type, fiscal_year, fiscal_quarter, filing_date, r2_key
+          FROM earnings_documents
+          WHERE ticker = ? AND filing_date < ?
+          ORDER BY filing_date DESC LIMIT 12
+        `).bind(ticker, asOfDate).all();
+        const docs = rs.results || [];
+        if (docs.length === 0) return json({ error: `No pre-${asOfDate} documents for ${ticker}` }, corsHeaders, 404);
+
+        // Get sector
+        const pos = await env.DB.prepare(`SELECT sector FROM positions WHERE ticker = ?`).bind(ticker).first();
+        const sector_bucket = pickSectorBucket(pos?.sector || '', ticker);
+
+        // Run the pipeline manually with the filtered docs
+        const extractions = [];
+        for (const doc of docs) {
+          try {
+            const ex = await deepDividendExtractor(env, ticker, doc, sector_bucket, { force: true });
+            extractions.push(ex.json);
+          } catch (e) { /* skip */ }
+        }
+        if (extractions.length === 0) return json({ error: "No extractions produced" }, corsHeaders, 500);
+
+        const historian = await deepDividendHistorian(env, ticker, sector_bucket, extractions);
+        const baseline = { latest_quarter: `as_of_${asOfDate}` };
+        const analyzer_output = await deepDividendAnalyzer(env, ticker, sector_bucket, extractions, historian, baseline);
+        const devils_advocate = await deepDividendDevilsAdvocate(env, ticker, analyzer_output);
+
+        return json({
+          ok: true,
+          ticker,
+          as_of_date: asOfDate,
+          n_docs: docs.length,
+          n_extractions: extractions.length,
+          verdict: analyzer_output?.["7_verdict"]?.action,
+          confidence: analyzer_output?.["7_verdict"]?.confidence,
+          cut_probability_3y: analyzer_output?.["4_thesis_impact"]?.dividend_cut_probability_3y,
+          full: { extractions, historian, analyzer_output, devils_advocate },
         }, corsHeaders);
       }
 
@@ -10495,6 +10987,955 @@ async function storeInsights(env, agentName, fecha, insights) {
   });
   if (batch.length) await env.DB.batch(batch);
   return batch.length;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DEEP DIVIDEND ANALYZER — Multi-stage pipeline (2026-04-09)
+// ═══════════════════════════════════════════════════════════════
+//
+// Pipeline overview:
+//   Stage 1 — Extractor (Haiku): per-document forensic extraction
+//             → cached in deep_extractions
+//   Stage 2 — Historian (Haiku): cross-quarter pattern detection
+//             → ephemeral, used by Analyzer
+//   Stage 3 — Analyzer (Opus): multi-investor verdict synthesis
+//             → stored in deep_dividend_analysis
+//   Stage 4 — Devil's Advocate (Opus): anti-confirmation
+//             → stored alongside Analyzer output
+//
+// Sector routing: REIT / UTILITY / BANK / GENERAL with custom checklists.
+// Cross-validation: cross-checks against dividend_cut_warning agent + analyst grades.
+// Track record: every verdict written to agent_predictions for postmortem.
+//
+// User context: China fiscal resident, 10% WHT on US dividends, dividend grower
+// philosophy. NEVER recommend SELL on temporary dips on quality companies.
+// Cutting dividend to pay debt CAN be bullish (KHC pattern).
+// ═══════════════════════════════════════════════════════════════
+
+const DEEP_DIVIDEND_USER_WHT = 0.10; // China resident, US dividends WHT
+const DEEP_DIVIDEND_TRUNC = { "10-K": 30000, "10-Q": 15000, "TRANSCRIPT": 60000, "20-F": 30000 };
+const DEEP_DIVIDEND_MAX_TOTAL = 380000; // ~95k tokens, safe for Opus 200k context
+
+// REIT detection regex used across the pipeline
+const REIT_SECTOR_RE = /real.?estate|reit/i;
+const BANK_SECTOR_RE = /bank|financial.?services/i;
+const UTILITY_SECTOR_RE = /utilities/i;
+
+// Sector router — pick checklist + metric set
+function pickSectorBucket(sectorRaw, ticker) {
+  const sector = String(sectorRaw || "").trim();
+  // FCF carve-outs already in worker — REITs, BDCs, MLPs use FFO/AFFO not FCF
+  if (REIT_SECTOR_RE.test(sector)) return "REIT";
+  if (UTILITY_SECTOR_RE.test(sector)) return "UTILITY";
+  if (BANK_SECTOR_RE.test(sector)) return "BANK";
+  return "GENERAL";
+}
+
+// Sector-specific metric / checklist hints injected into the Analyzer prompt
+const SECTOR_CHECKLISTS = {
+  GENERAL: `
+SECTOR CHECKLIST — GENERAL EQUITY (Consumer, Industrial, Tech, Healthcare):
+- FCF Owner Earnings = NetIncome + D&A - maintenance CapEx - WC changes
+- Payout target: <70% sano | 70-85% vigilar | >85% riesgo
+- Interest Coverage: >4x sano | 2-4x vigilar | <2x crítico
+- Debt/EBITDA: <2.5x sano | 2.5-4x vigilar | >4x crítico
+- Margin trends 4-quarter (gross, operating, net)
+- ROIC trend (better proxy than ROE for capital quality)
+- Buybacks at fair value vs at peak (capital allocation discipline)
+- Watch: stock-based comp as % of FCF (hidden dilution cost)`,
+
+  REIT: `
+SECTOR CHECKLIST — REIT (use FFO/AFFO, NOT FCF):
+- Métrica principal: FFO = NetIncome + D&A real estate - gains/losses on sales
+- Métrica oro: AFFO = FFO - maintenance CapEx - straight-line rents
+- Payout AFFO: <85% sano | 85-95% vigilar | >95% crítico
+- Same-Store NOI growth: positivo y estable = sano
+- Occupancy trend (no level absolute) — declining = warning
+- Debt-to-assets: <50% generally; debt maturity ladder spread
+- NAV vs precio: descuento >20% = oportunidad, prima >10% = sobrevalorado
+- Tenant concentration: top 3 tenants <40% of rent
+- Red flag específico: dilución por equity raises para financiar dividendos
+- Red flag específico: cambios frecuentes en cómo calculan AFFO
+- Red flag específico: silencio del management sobre seguridad del dividendo
+  cuando payout >85%`,
+
+  UTILITY: `
+SECTOR CHECKLIST — UTILITY:
+- Allowed ROE vs achieved ROE (regulatory return)
+- Rate base growth y rate cases pendientes (predictable growth)
+- CapEx plan vs rate base growth (debe ir parejo)
+- Dividend coverage por OCF, no por net income
+- Regulated vs unregulated mix
+- Wildfire / catastrophic risk exposure (CA, FL utilities)`,
+
+  BANK: `
+SECTOR CHECKLIST — BANK / FINANCIAL:
+- CET1 ratio (>11% sano, regulatorio + safety margin)
+- NIM trend (expansión/compresión y por qué)
+- Loan loss provisions (¿anticipándose o reactivos?)
+- Deposit beta y guidance sobre tasas
+- NPL ratio y cobertura
+- Tangible Book Value growth
+- Stress test results (DFAST/CCAR for US banks)`,
+};
+
+// ─── Stage 1: Extractor (Haiku) ───────────────────────────────────
+// Reads ONE document (transcript or 10-K/10-Q), produces structured JSON.
+// Caches result in deep_extractions table to avoid re-processing.
+async function deepDividendExtractor(env, ticker, doc, sector_bucket, opts = {}) {
+  // Check cache first
+  if (!opts.force) {
+    const cached = await env.DB.prepare(
+      `SELECT id, extraction_json, model FROM deep_extractions WHERE ticker = ? AND source_doc_id = ?`
+    ).bind(ticker, doc.id).first();
+    if (cached?.extraction_json) {
+      try {
+        return { cached: true, id: cached.id, json: JSON.parse(cached.extraction_json), model: cached.model };
+      } catch { /* fall through to re-extract */ }
+    }
+  }
+
+  // Load doc body from R2
+  if (!env.EARNINGS_R2) throw new Error("R2 binding EARNINGS_R2 not configured");
+  const obj = await env.EARNINGS_R2.get(doc.r2_key);
+  if (!obj) throw new Error(`R2 key not found: ${doc.r2_key}`);
+  const text = await obj.text();
+  const limit = DEEP_DIVIDEND_TRUNC[doc.doc_type] || 20000;
+  const clipped = text.slice(0, limit);
+
+  const systemPrompt = `You are a forensic earnings-call extractor for a dividend-focused family
+office. Your ONLY job is to extract structured facts, verbatim quotes, and tone signals from a
+single financial document. You do NOT analyze, opine, or recommend. Synthesis happens in a
+downstream stage.
+
+RULES (non-negotiable):
+1. Quotes MUST be verbatim. Maximum 15 words per quote, in original language.
+2. Never paraphrase. Never invent. If not present, use null.
+3. For REITs, prioritize: FFO, AFFO, SS NOI, occupancy, NAV, debt-to-assets, AFFO payout.
+   For BANKS: CET1, NIM, loan loss provisions, deposit beta, NPLs.
+   For UTILITIES: regulated ROE, rate base, allowed return, capex plan.
+   For GENERAL: revenue, gross/operating margin, FCF, owner earnings, net debt, interest coverage.
+4. "Adjusted" / "non-GAAP" metrics must be tagged is_adjusted=true.
+5. Tone signals must include exact verbatim phrases.
+
+THE 10 LIES TO DETECT (lie_id 1-10):
+1. non_recurring_recurs   — "non-recurring items" that recur every quarter
+2. transitory_macro       — "transitory" / "challenging environment" repeated 3+ Q
+3. optimizing_capital     — "optimizing capital allocation" (preludio a cut)
+4. conservative_guidance  — "conservative guidance" then lowered
+5. adjusted_sustainable   — "adjusted payout sustainable" with FCF not covering
+6. never_stronger         — "business never been stronger" while metrics deteriorating
+7. evaluating_options     — "evaluating all options" / strategic review
+8. metric_redefinition    — sudden change in how a KPI is calculated
+9. qa_evasion_dividend    — CEO/CFO vague when asked about dividend
+10. moat_buzzword         — "we have a strong moat" without concrete examples
+
+THE 10 TRUTHS (positive signals, truth_id 1-10):
+1. specific_reinvestment    — reinvestment with specific ROI/IRR numbers
+2. fcf_growing_faster       — FCF growth > dividend growth, math explicit
+3. margin_expansion_concrete — margin gains with specific drivers
+4. disciplined_buybacks     — buybacks at low valuations with specific prices
+5. organic_acceleration     — same-store / organic growth accelerating
+6. honest_admission         — explicit error admission with corrective plan
+7. competitive_wins         — named clients, specific market share data
+8. share_count_decreasing   — real reduction (not just offset of dilution)
+9. roic_trending_up         — ROIC explicitly improving
+10. owner_operator          — significant insider ownership, mentioned
+
+OUTPUT: ONLY valid JSON matching the schema. No prose, no markdown.`;
+
+  const userContent = `<company>
+Ticker: ${ticker}
+Sector bucket: ${sector_bucket}
+Doc type: ${doc.doc_type}
+Fiscal period: FY${doc.fiscal_year || '?'}${doc.fiscal_quarter ? ' Q' + doc.fiscal_quarter : ''}
+Filing date: ${doc.filing_date || 'unknown'}
+</company>
+
+<document>
+${clipped}
+</document>
+
+<output_schema>
+{
+  "metadata": {
+    "ticker": "${ticker}",
+    "doc_type": "${doc.doc_type}",
+    "fiscal_year": ${doc.fiscal_year || 'null'},
+    "fiscal_quarter": ${doc.fiscal_quarter || 'null'},
+    "filing_date": "${doc.filing_date || ''}",
+    "speakers_identified": ["..."]
+  },
+  "financials_cited": [
+    {"metric": "...", "value": "...", "yoy_change": "...", "is_adjusted": false, "quote": "verbatim ≤15w"}
+  ],
+  "dividend_statements": [
+    {"topic": "amount|coverage|policy|sustainability", "quote": "verbatim", "context": "prepared|qa"}
+  ],
+  "guidance_given": [
+    {"metric": "...", "period": "...", "value": "...", "direction_vs_prior": "raised|lowered|maintained|new", "quote": "verbatim"}
+  ],
+  "tone_indicators": {
+    "evasive_phrases": [{"phrase": "verbatim", "context": "..."}],
+    "admissions_of_error": [{"phrase": "verbatim", "what_failed": "..."}],
+    "macro_deflections": [{"phrase": "verbatim", "deflected_from": "..."}],
+    "confidence_markers": ["..."],
+    "hedging_markers": ["..."]
+  },
+  "qa_analysis": {
+    "total_questions": 0,
+    "questions_answered_directly": 0,
+    "questions_deflected": 0,
+    "flagged_exchanges": [
+      {"analyst_firm": "...", "question_summary": "≤30w", "response_quality": "direct|partial|deflected", "concern": "..."}
+    ],
+    "topics_avoided_unusual": ["dividend safety", "..."]
+  },
+  "capital_allocation_statements": [
+    {"topic": "dividend|buybacks|capex|m_a|deleveraging", "quote": "verbatim", "stated_priority": "high|medium|low|null"}
+  ],
+  "ten_lies_detected": [
+    {"lie_id": 1, "lie_name": "non_recurring_recurs", "evidence_quote": "verbatim ≤15w", "severity_hint": "low|medium|high"}
+  ],
+  "ten_truths_detected": [
+    {"truth_id": 1, "truth_name": "specific_reinvestment", "evidence_quote": "verbatim ≤15w", "specificity": "vague|moderate|specific_with_numbers"}
+  ],
+  "ceo_change_signal": null,
+  "auditor_change_signal": null
+}
+</output_schema>`;
+
+  const result = await callAgentClaude(env, systemPrompt, userContent, {
+    model: "claude-haiku-4-5-20251001",
+    maxTokens: 4000,
+  });
+
+  // Cache to D1
+  const insertResult = await env.DB.prepare(
+    `INSERT OR REPLACE INTO deep_extractions
+     (ticker, source_doc_id, doc_type, fiscal_year, fiscal_quarter, filing_date,
+      extraction_json, model, tokens_in, tokens_out, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    ticker,
+    doc.id,
+    doc.doc_type,
+    doc.fiscal_year || null,
+    doc.fiscal_quarter || null,
+    doc.filing_date || null,
+    JSON.stringify(result),
+    "claude-haiku-4-5-20251001",
+    null, // tokens_in (callAgentClaude doesn't expose, future)
+    null,
+    Math.floor(Date.now() / 1000)
+  ).run();
+
+  return { cached: false, id: insertResult.meta?.last_row_id, json: result, model: "claude-haiku-4-5-20251001" };
+}
+
+// ─── Stage 2: Historian (Haiku) ──────────────────────────────────
+// Takes array of extractor outputs (most recent first), produces cross-quarter patterns.
+// Ephemeral — not cached because it's cheap and depends on which extractions are passed.
+async function deepDividendHistorian(env, ticker, sector_bucket, extractions) {
+  if (!Array.isArray(extractions) || extractions.length === 0) {
+    return { error: "No extractions provided", consistency_score: null };
+  }
+
+  const systemPrompt = `You are a forensic earnings-call historian for a dividend-focused family
+office. You receive structured extractions from multiple quarters of the SAME company. Your job is
+to detect patterns, drifts, and lies that only become visible across time. You do NOT opine on
+dividend safety — that is a downstream stage's job.
+
+RULES:
+1. Quotes must be verbatim from the extractions provided.
+2. Quantify everything you can. "3 of last 5 calls" beats "frequently".
+3. Cross-reference: did the CEO say X in Q3 2024 and X' in Q1 2025? Flag it.
+4. For guidance tracking: if extraction N says "we expect 5-7% growth FY25" and extraction N+1
+   reports actual growth, store BOTH and label outcome.
+5. Honesty signal: count error admissions across quarters. If zero in 6+ calls, that itself is
+   a red flag.
+
+Output ONLY valid JSON. No prose.`;
+
+  const userContent = `<company>
+Ticker: ${ticker}
+Sector bucket: ${sector_bucket}
+N extractions provided: ${extractions.length}
+</company>
+
+<extractions sorted_most_recent_first="true">
+${JSON.stringify(extractions, null, 2)}
+</extractions>
+
+<output_schema>
+{
+  "ticker": "${ticker}",
+  "n_calls_analyzed": ${extractions.length},
+  "consistency_score": 0,
+  "consistency_notes": "≤60 words",
+  "serial_overpromiser": {
+    "is_overpromiser": true,
+    "evidence": [{"quarter_promised": "...", "metric": "...", "promised": "...", "delivered": "...", "miss_severity": "minor|material|severe"}],
+    "n_misses_last_8q": 0
+  },
+  "language_drift": [
+    {"topic": "...", "before_quarter": "...", "before_quote": "verbatim", "after_quarter": "...", "after_quote": "verbatim", "implication": "≤30w"}
+  ],
+  "metric_redefinitions": [],
+  "recurring_excuses": [
+    {"excuse": "...", "n_quarters": 0, "first_seen": "...", "last_seen": "..."}
+  ],
+  "dividend_narrative_evolution": {
+    "earliest_tone": "verbatim",
+    "earliest_quarter": "...",
+    "latest_tone": "verbatim",
+    "latest_quarter": "...",
+    "softening_detected": false,
+    "silence_detected": false,
+    "new_optionality_language": []
+  },
+  "error_admissions": {
+    "n_total": 0,
+    "n_quarters_with_admissions": 0,
+    "examples": [{"quarter": "...", "quote": "verbatim", "what_failed": "..."}]
+  },
+  "guidance_tracking_records": [
+    {"quarter_promised": "...", "metric": "...", "promised_value": "...", "promised_quote": "verbatim", "quarter_target": "...", "delivered_value": "...", "delivered_quote": "verbatim", "outcome": "MET|BEAT|MISSED|PENDING"}
+  ],
+  "ten_lies_recurrence": [
+    {"lie_id": 1, "lie_name": "...", "n_quarters_present": 0, "quarters": ["..."], "severity": "low|medium|high|critical"}
+  ],
+  "ten_truths_consistency": [
+    {"truth_id": 1, "truth_name": "...", "n_quarters_present": 0, "consistency": "rare|occasional|consistent"}
+  ],
+  "ceo_change_in_window": false,
+  "ceo_change_quarter": null,
+  "delta_summary": {
+    "vs_previous_quarter": "≤80w",
+    "key_new_risks": [],
+    "key_resolved_concerns": []
+  }
+}
+</output_schema>`;
+
+  return await callAgentClaude(env, systemPrompt, userContent, {
+    model: "claude-haiku-4-5-20251001",
+    maxTokens: 4000,
+  });
+}
+
+// ─── Stage 3: Analyzer (Opus) — multi-investor synthesis ─────────
+async function deepDividendAnalyzer(env, ticker, sector_bucket, extractions, historian, baseline) {
+  const checklist = SECTOR_CHECKLISTS[sector_bucket] || SECTOR_CHECKLISTS.GENERAL;
+
+  const systemPrompt = `Eres el analista senior de dividendos de un family office. 25 años de experiencia.
+Reportas a un inversor exigente que valora la verdad cruda sobre la diplomacia. Tu trabajo NO es ser
+optimista. Es detectar si el management está intentando engañar al accionista y si el dividendo es
+sostenible a 5-10-20 años, Y si hay potencial de crecimiento del dividendo no priceado.
+
+Combinas las filosofías de:
+- Buffett + Munger → candor, owner earnings, evitar estupidez, incentivos
+- Philip Fisher → calidad humana del management, scuttlebutt
+- Howard Marks → second-level thinking, psicología, ciclos
+- Seth Klarman → margen de seguridad, protección downside
+- Peter Lynch → ¿entiendes realmente el negocio?
+- Greenblatt + Damodaran → retorno sobre capital tangible, valoración
+
+REGLAS NO NEGOCIABLES:
+1. Nunca seas diplomático cuando los datos exigen claridad.
+2. Si la honestidad del management falla (filtro 1), TODO lo demás es sospechoso.
+3. Cita textualmente al management cuando acuses. Sin citas, sin acusaciones.
+4. Cuantifica todo lo que puedas. "3 de últimas 5 calls" > "frecuentemente".
+5. RECUERDA LA FILOSOFÍA DEL USUARIO: dividendo creciente a décadas, no swing trading.
+   Cortar dividendo para pagar deuda PUEDE ser bullish (patrón KHC).
+   No confundas restructuración con declive estructural.
+6. El usuario es residente fiscal en China — dividendos US pagan 10% WHT.
+   Calcula yield NETO cuando relevante.
+7. NUNCA recomiendes SELL en quality companies por dips temporales.
+
+${checklist}
+
+LOS 7 FILTROS (en orden, parar si fallan):
+
+FILTRO 1 — HONESTIDAD DEL MANAGEMENT (eliminatorio)
+- ¿Admiten errores explícitamente? (cero en 6+ calls = red flag fuerte)
+- Frases evasivas recurrentes que aparecen quarter tras quarter
+- Q&A: ¿responden o deflectan a macro/competencia/clima?
+- Guidance: ¿cumplieron lo prometido o lo cambiaron sutilmente?
+- consistency_score del historian < 60 → bandera roja
+- SILENCIO sobre dividendo cuando payout >85% = bandera
+
+FILTRO 2 — SOSTENIBILIDAD REAL DEL DIVIDENDO (sector-specific)
+FILTRO 3 — CAPITAL ALLOCATION DISCIPLINADO
+FILTRO 4 — CALIDAD DE EARNINGS (GAAP vs non-GAAP)
+FILTRO 5 — MOAT REAL VS BUZZWORDS
+FILTRO 6 — SECOND-LEVEL THINKING (consensus vs management gap)
+FILTRO 7 — PATRÓN HISTÓRICO (datos del historian)
+
+FILTRO 8 — POTENCIAL DE CRECIMIENTO (Lynch + Fisher upside)
+- ¿FCF growing > div growing? Si sí, hay room to raise.
+- ¿Payout actual deja headroom (>30% headroom = ample)?
+- Catalizadores específicos con números > buzzwords?
+- Pricing power demostrable año tras año?
+- ¿Es serial under-promiser-over-deliverer? Cruza con guidance_track_record.
+
+OUTPUT: SOLO objeto JSON válido. Sin markdown. Sin code fences.
+Idioma: TODO en español, EXCEPTO citas textuales del management que van en su idioma original entre comillas.`;
+
+  const userContent = `<inputs>
+
+<extracted_facts n="${extractions.length}">
+${JSON.stringify(extractions, null, 2)}
+</extracted_facts>
+
+<historical_patterns>
+${JSON.stringify(historian, null, 2)}
+</historical_patterns>
+
+<quantitative_baseline>
+${JSON.stringify(baseline, null, 2)}
+</quantitative_baseline>
+
+</inputs>
+
+<output_schema>
+{
+  "ticker": "${ticker}",
+  "quarter": "${baseline.latest_quarter || 'unknown'}",
+  "sector_bucket": "${sector_bucket}",
+  "analysis_date": "${new Date().toISOString().slice(0,10)}",
+
+  "1_executive_summary": "3-4 frases. Empezar con el veredicto. Sin adornos.",
+
+  "2_dividend_safety": {
+    "score": 1,
+    "rationale": "60-100 palabras con datos cuantitativos Y cualitativos",
+    "key_metrics": {
+      "fcf_payout_ttm": 0.0,
+      "fcf_coverage_ttm": 0.0,
+      "interest_coverage": 0.0,
+      "debt_ebitda": 0.0,
+      "streak_years": 0,
+      "cut_warning_severity": "none|low|medium|high|critical"
+    },
+    "red_flags_quantitative": ["..."],
+    "honesty_score": 1,
+    "honesty_rationale": "≤60 palabras",
+    "evasive_phrases_count_last_4q": 0,
+    "error_admissions_count_last_4q": 0
+  },
+
+  "2b_dividend_growth": {
+    "score": 1,
+    "rationale": "60-100 palabras",
+    "expected_5y_cagr": "string e.g. '4-6%'",
+    "expected_5y_cagr_low": 0.0,
+    "expected_5y_cagr_high": 0.0,
+    "confidence_in_estimate": "high|medium|low",
+    "growth_acceleration_signal": "accelerating|stable|decelerating|reversing",
+    "growth_catalysts": [
+      {"catalyst": "≤30 palabras", "quote": "verbatim ≤15w", "source_quarter": "...", "specificity": "vague|moderate|specific_with_numbers"}
+    ],
+    "growth_constraints": [{"constraint": "≤30w", "severity": "low|medium|high"}],
+    "fcf_dividend_gap": {
+      "fcf_growth_5y_cagr": 0.0,
+      "div_growth_5y_cagr": 0.0,
+      "gap_pct": 0.0,
+      "interpretation": "room_to_raise|aligned|tight|unsustainable"
+    },
+    "payout_room": {
+      "current_payout": 0.0,
+      "headroom_for_growth": "ample|moderate|tight|none"
+    },
+    "underrated_grower_flag": false,
+    "underrated_reason": null
+  },
+
+  "3_red_and_green_flags": {
+    "red": [
+      {
+        "category": "candor|capital_allocation|earnings_quality|moat|leverage|guidance|tenant_concentration|demand|operational",
+        "severity": "HIGH|MEDIUM|LOW",
+        "description": "≤30 palabras",
+        "quote": "verbatim ≤15 palabras",
+        "source_quarter": "...",
+        "lie_pattern_id": null,
+        "why_matters": "≤30 palabras"
+      }
+    ],
+    "green": [
+      {"category": "...", "description": "≤30w", "quote": "verbatim", "source_quarter": "...", "why_matters": "..."}
+    ]
+  },
+
+  "4_thesis_impact": {
+    "horizon_5y": "≤80 palabras",
+    "horizon_10y": "≤80 palabras",
+    "dividend_cut_probability_3y": 0.0,
+    "dividend_freeze_probability_3y": 0.0,
+    "dividend_raise_probability_12m": 0.0,
+    "next_raise_eta_quarter": null,
+    "raise_magnitude_estimate": "small_0_3|moderate_3_7|large_7_plus|special_dividend|null",
+    "near_term_catalysts": [
+      {"type": "hike_likely|guidance_raise_likely|earnings_beat_likely|special_div_likely|m_a_close|debt_target_hit", "eta": "...", "magnitude": "...", "confidence": "high|medium|low", "evidence_quote": "verbatim"}
+    ]
+  },
+
+  "5_questions_for_management": [
+    "5 preguntas cuantitativas específicas, no genéricas"
+  ],
+
+  "6_portfolio_context": {
+    "vs_peers": "≤80 palabras",
+    "better_alternatives_in_sector": ["TICKER1", "TICKER2"],
+    "rotation_recommendation": "ninguna|considerar|recomendada"
+  },
+
+  "7_verdict": {
+    "action": "STRONG_BUY|BUY|ACCUMULATE|HOLD|TRIM|SELL",
+    "confidence": "high|medium|low",
+    "tactical_opportunity": null,
+    "tactical_rationale": null,
+    "price_trigger_buy_more": null,
+    "price_trigger_trim": null,
+    "reasoning": "≤100 palabras"
+  },
+
+  "investor_lens_synthesis": {
+    "buffett_munger": "≤40 palabras",
+    "marks": "≤40 palabras",
+    "klarman": "≤40 palabras"
+  },
+
+  "tax_adjusted_for_user": {
+    "current_yield_gross": 0.0,
+    "current_yield_net_china_wht": 0.0,
+    "buyback_yield": 0.0,
+    "total_shareholder_yield_net": 0.0,
+    "tax_efficiency_note": "..."
+  },
+
+  "meta": {
+    "filters_applied": [1,2,3,4,5,6,7,8],
+    "filter_1_passed": true,
+    "extractions_used_n": ${extractions.length},
+    "historian_used": true,
+    "checklist_version": "v1.0"
+  }
+}
+</output_schema>`;
+
+  return await callAgentClaude(env, systemPrompt, userContent, {
+    model: "claude-opus-4-20250514",
+    maxTokens: 8000,
+  });
+}
+
+// ─── Stage 4: Devil's Advocate (Opus) — anti-confirmation ────────
+async function deepDividendDevilsAdvocate(env, ticker, analyzer_output) {
+  const systemPrompt = `Eres un Devil's Advocate de inversiones. Tu único propósito es atacar la
+conclusión del analyst con la evidencia más fuerte posible. NO eres optimista. NO eres pesimista.
+Eres el contrario sistemático del verdict que recibes.
+
+Si el verdict es BUY/ACCUMULATE → tu trabajo es construir el caso SELL más fuerte posible.
+Si el verdict es TRIM/SELL → tu trabajo es construir el caso BUY más fuerte posible.
+Si el verdict es HOLD → tu trabajo es articular ambos extremos y forzar una decisión.
+
+NO inventes datos. Usa SOLO los que están en el analyzer_output.
+Cita evidencia específica del propio analyzer_output cuando sea posible.
+
+OUTPUT: JSON válido SOLO. Sin markdown.`;
+
+  const userContent = `<analyzer_verdict>
+${JSON.stringify(analyzer_output, null, 2)}
+</analyzer_verdict>
+
+<output_schema>
+{
+  "original_verdict": "${analyzer_output?.["7_verdict"]?.action || 'unknown'}",
+  "contrarian_case": {
+    "thesis": "≤100 palabras articulando la posición opuesta",
+    "strongest_arguments": [
+      {"argument": "≤30 palabras", "evidence_from_analyzer": "specific field reference", "weight": "high|medium|low"}
+    ],
+    "weakest_links_in_original_verdict": [
+      {"weakness": "≤30 palabras", "why_problematic": "≤30 palabras"}
+    ]
+  },
+  "calibration_recommendation": {
+    "should_lower_confidence": false,
+    "should_change_verdict": false,
+    "suggested_confidence": "high|medium|low",
+    "suggested_verdict": "STRONG_BUY|BUY|ACCUMULATE|HOLD|TRIM|SELL",
+    "reasoning": "≤80 palabras"
+  },
+  "user_must_decide": [
+    "2-3 specific questions the user must answer to break the tie"
+  ]
+}
+</output_schema>`;
+
+  return await callAgentClaude(env, systemPrompt, userContent, {
+    model: "claude-opus-4-20250514",
+    maxTokens: 3000,
+  });
+}
+
+// ─── Cross-validation: agree with deterministic agents? ──────────
+// Compares the deep_dividend verdict against:
+//   - dividend_cut_warning agent (deterministic FCF math)
+//   - analyst_downgrade agent (FMP grades)
+//   - insider_radar agent (cluster activity)
+//   - quality_safety_scores (numerical)
+async function deepDividendCrossValidate(env, ticker, deepVerdict, deepCutProb) {
+  const today = new Date().toISOString().slice(0, 10);
+  // Look back 30 days for cross-validation signals
+  const lookback = new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10);
+
+  const sources = {};
+
+  // 1. dividend_cut_warning (deterministic)
+  try {
+    const cw = await env.DB.prepare(
+      `SELECT severity, details FROM agent_insights WHERE agent_name = 'dividend_cut_warning' AND ticker = ? AND fecha >= ? ORDER BY fecha DESC LIMIT 1`
+    ).bind(ticker, lookback).first();
+    sources.dividend_cut_warning = cw ? { severity: cw.severity, present: true } : { present: false };
+  } catch { sources.dividend_cut_warning = { error: true }; }
+
+  // 2. analyst_downgrade
+  try {
+    const ad = await env.DB.prepare(
+      `SELECT severity, details FROM agent_insights WHERE agent_name = 'analyst_downgrade' AND ticker = ? AND fecha >= ? ORDER BY fecha DESC LIMIT 1`
+    ).bind(ticker, lookback).first();
+    sources.analyst_downgrade = ad ? { severity: ad.severity, present: true } : { present: false };
+  } catch { sources.analyst_downgrade = { error: true }; }
+
+  // 3. insider radar
+  try {
+    const ins = await env.DB.prepare(
+      `SELECT severity, details FROM agent_insights WHERE agent_name = 'insider' AND ticker = ? AND fecha >= ? ORDER BY fecha DESC LIMIT 1`
+    ).bind(ticker, lookback).first();
+    sources.insider = ins ? { severity: ins.severity, present: true } : { present: false };
+  } catch { sources.insider = { error: true }; }
+
+  // 4. quality_safety_scores
+  try {
+    const qs = await env.DB.prepare(
+      `SELECT quality_score, safety_score FROM quality_safety_scores WHERE ticker = ? ORDER BY snapshot_date DESC LIMIT 1`
+    ).bind(ticker).first();
+    sources.quality_safety = qs ? { q: qs.quality_score, s: qs.safety_score, present: true } : { present: false };
+  } catch { sources.quality_safety = { error: true }; }
+
+  // Compute agreement score
+  // Logic: if deep verdict is TRIM/SELL, count how many other sources also say "stress"
+  // If deep verdict is BUY/ACCUMULATE, count how many other sources also say "healthy"
+  const isDeepNegative = ["TRIM", "SELL"].includes(deepVerdict);
+  const isDeepPositive = ["STRONG_BUY", "BUY", "ACCUMULATE"].includes(deepVerdict);
+
+  let agreementCount = 0;
+  let totalSources = 0;
+
+  // dividend_cut_warning: severity high/critical = stress
+  if (sources.dividend_cut_warning?.present) {
+    totalSources++;
+    const stressed = ["high", "critical"].includes(sources.dividend_cut_warning.severity);
+    if (isDeepNegative === stressed) agreementCount++;
+  }
+
+  if (sources.analyst_downgrade?.present) {
+    totalSources++;
+    const stressed = ["high", "critical"].includes(sources.analyst_downgrade.severity);
+    if (isDeepNegative === stressed) agreementCount++;
+  }
+
+  if (sources.insider?.present) {
+    totalSources++;
+    // insider HIGH severity often means cluster sell = bearish
+    const bearish = ["high", "critical"].includes(sources.insider.severity);
+    if (isDeepNegative === bearish) agreementCount++;
+  }
+
+  if (sources.quality_safety?.present) {
+    totalSources++;
+    const healthy = (sources.quality_safety.s || 0) >= 70 && (sources.quality_safety.q || 0) >= 70;
+    if (isDeepPositive === healthy) agreementCount++;
+  }
+
+  return {
+    sources,
+    agreement_count: agreementCount,
+    total_sources: totalSources,
+    agreement_pct: totalSources > 0 ? agreementCount / totalSources : null,
+    conflict_detected: totalSources > 0 && (agreementCount / totalSources) < 0.5,
+  };
+}
+
+// ─── Pipeline orchestrator ───────────────────────────────────────
+// Loads docs from R2, runs all 4 stages, stores result, returns full output.
+async function runDeepDividendPipeline(env, opts = {}) {
+  const ticker = String(opts.ticker || "").trim().toUpperCase();
+  if (!ticker) throw new Error("ticker required");
+  const force = !!opts.force;
+  const maxDocs = opts.maxDocs || 12;
+  const today = new Date().toISOString().slice(0, 10);
+
+  // 1. Look up ticker in positions to get sector
+  const pos = await env.DB.prepare(
+    `SELECT ticker, sector, name, last_price, div_ttm, div_yield, shares, usd_value, market_value FROM positions WHERE ticker = ? LIMIT 1`
+  ).bind(ticker).first();
+  const sector_bucket = pickSectorBucket(pos?.sector || "", ticker);
+
+  // 2. Fetch most recent docs from R2 metadata
+  const rs = await env.DB.prepare(`
+    SELECT id, doc_type, fiscal_year, fiscal_quarter, filing_date, r2_key, title
+    FROM earnings_documents
+    WHERE ticker = ?
+    ORDER BY (filing_date IS NULL), filing_date DESC, id DESC
+    LIMIT ?
+  `).bind(ticker, maxDocs).all();
+  const docs = rs.results || [];
+  if (docs.length === 0) {
+    return { ok: false, error: `No documents archived for ${ticker}` };
+  }
+
+  // Determine the latest quarter for cache key
+  const latestDoc = docs[0];
+  const latestQuarter = latestDoc.fiscal_quarter
+    ? `${latestDoc.fiscal_year}Q${latestDoc.fiscal_quarter}`
+    : `${latestDoc.fiscal_year}FY`;
+
+  // 3. Cache check on deep_dividend_analysis (24h TTL unless force)
+  if (!force) {
+    const cached = await env.DB.prepare(
+      `SELECT id, result_json, created_at FROM deep_dividend_analysis WHERE ticker = ? AND quarter = ? ORDER BY created_at DESC LIMIT 1`
+    ).bind(ticker, latestQuarter).first();
+    if (cached) {
+      const ageHours = (Date.now() / 1000 - (cached.created_at || 0)) / 3600;
+      if (ageHours < 24) {
+        try {
+          return {
+            ok: true,
+            ticker,
+            quarter: latestQuarter,
+            cached: true,
+            cached_at: new Date((cached.created_at || 0) * 1000).toISOString(),
+            result: JSON.parse(cached.result_json),
+            stored_id: cached.id,
+          };
+        } catch { /* fall through to re-run */ }
+      }
+    }
+  }
+
+  // 4. Stage 1: Extract each doc
+  const extractions = [];
+  let totalCharsExtracted = 0;
+  for (const doc of docs) {
+    if (totalCharsExtracted >= DEEP_DIVIDEND_MAX_TOTAL) break;
+    try {
+      const ex = await deepDividendExtractor(env, ticker, doc, sector_bucket, { force });
+      extractions.push(ex.json);
+      totalCharsExtracted += (DEEP_DIVIDEND_TRUNC[doc.doc_type] || 20000);
+    } catch (e) {
+      console.error(`[deep-dividend] extract failed for ${ticker} doc ${doc.id}:`, e.message);
+    }
+  }
+  if (extractions.length === 0) {
+    return { ok: false, error: `Could not extract any documents for ${ticker}` };
+  }
+
+  // 5. Stage 2: Historian
+  let historian = null;
+  try {
+    historian = await deepDividendHistorian(env, ticker, sector_bucket, extractions);
+  } catch (e) {
+    console.error(`[deep-dividend] historian failed for ${ticker}:`, e.message);
+    historian = { error: e.message };
+  }
+
+  // 6. Build quantitative baseline
+  let baseline = { latest_quarter: latestQuarter };
+  try {
+    const fmpFin = await env.DB.prepare(`SELECT data FROM fmp_financials_cache WHERE ticker = ?`).bind(ticker).first();
+    if (fmpFin?.data) {
+      const trend = JSON.parse(fmpFin.data)?.trend || {};
+      baseline.trendRevenue6Q = (trend.revenue || []).slice(0, 6);
+      baseline.trendFCF6Q = (trend.fcf || []).slice(0, 6);
+      baseline.trendDebt4Q = (trend.debt || []).slice(0, 4);
+      baseline.trendDivPaid4Q = (trend.dividendsPaid || []).slice(0, 4);
+      baseline.trendNetIncome6Q = (trend.netIncome || []).slice(0, 6);
+    }
+  } catch { /* baseline best-effort */ }
+
+  try {
+    const qs = await env.DB.prepare(`SELECT quality_score, safety_score, inputs_json FROM quality_safety_scores WHERE ticker = ? ORDER BY snapshot_date DESC LIMIT 1`).bind(ticker).first();
+    if (qs) {
+      baseline.qualityScore = qs.quality_score;
+      baseline.safetyScore = qs.safety_score;
+      try {
+        const inputs = JSON.parse(qs.inputs_json || '{}');
+        baseline.fcfTTM = inputs.fcfTTM;
+        baseline.dividendsPaidTTM = inputs.dividendsPaidTTM;
+        baseline.fcfCoverageTTM = inputs.fcfCoverageTTM;
+        baseline.payoutRatioWorst = inputs.payoutRatioWorst;
+        baseline.debtEbitda = inputs.debtEbitda;
+        baseline.streakYears = inputs.streakYears;
+      } catch {}
+    }
+  } catch {}
+
+  if (pos) {
+    baseline.position = {
+      sector: pos.sector,
+      name: pos.name,
+      last_price: pos.last_price,
+      div_yield_gross: pos.div_yield,
+      div_yield_net_china_wht: pos.div_yield ? pos.div_yield * (1 - DEEP_DIVIDEND_USER_WHT) : null,
+      shares: pos.shares,
+      usd_value: pos.usd_value || pos.market_value,
+    };
+  }
+
+  // 7. Stage 3: Analyzer (Opus)
+  let analyzer_output = null;
+  try {
+    analyzer_output = await deepDividendAnalyzer(env, ticker, sector_bucket, extractions, historian, baseline);
+  } catch (e) {
+    console.error(`[deep-dividend] analyzer failed for ${ticker}:`, e.message);
+    return { ok: false, error: `Analyzer failed: ${e.message}`, partial: { extractions: extractions.length, historian: !!historian } };
+  }
+
+  // 8. Stage 4: Devil's Advocate (Opus)
+  let devils_advocate = null;
+  try {
+    devils_advocate = await deepDividendDevilsAdvocate(env, ticker, analyzer_output);
+  } catch (e) {
+    console.error(`[deep-dividend] devils_advocate failed for ${ticker}:`, e.message);
+    devils_advocate = { error: e.message };
+  }
+
+  // 9. Cross-validation
+  const verdict_action = analyzer_output?.["7_verdict"]?.action || "HOLD";
+  const cut_prob = analyzer_output?.["4_thesis_impact"]?.dividend_cut_probability_3y || 0;
+  const raise_prob = analyzer_output?.["4_thesis_impact"]?.dividend_raise_probability_12m || 0;
+  let cross_validation = null;
+  try {
+    cross_validation = await deepDividendCrossValidate(env, ticker, verdict_action, cut_prob);
+  } catch (e) {
+    cross_validation = { error: e.message };
+  }
+
+  // 10. Compute composite score
+  const safety = analyzer_output?.["2_dividend_safety"]?.score || 5;
+  const growth = analyzer_output?.["2b_dividend_growth"]?.score || 5;
+  const honesty = analyzer_output?.["2_dividend_safety"]?.honesty_score || 5;
+  // Composite weights: safety 50%, growth 30%, honesty 20%
+  const composite = Math.round((safety * 0.5 + growth * 0.3 + honesty * 0.2) * 10) / 10;
+
+  // 11. Apply Devil's Advocate calibration
+  let final_verdict = verdict_action;
+  let final_confidence = analyzer_output?.["7_verdict"]?.confidence || "medium";
+  if (devils_advocate?.calibration_recommendation?.should_lower_confidence && final_confidence === "high") {
+    final_confidence = "medium";
+  }
+  if (devils_advocate?.calibration_recommendation?.should_change_verdict && devils_advocate?.calibration_recommendation?.suggested_verdict) {
+    // Only auto-apply if the change is conservative (towards HOLD/TRIM, not towards more aggressive BUY)
+    const fromAggression = ["STRONG_BUY", "BUY", "ACCUMULATE"].indexOf(verdict_action);
+    const toAggression = ["STRONG_BUY", "BUY", "ACCUMULATE"].indexOf(devils_advocate.calibration_recommendation.suggested_verdict);
+    if (fromAggression >= 0 && toAggression < fromAggression) {
+      final_verdict = devils_advocate.calibration_recommendation.suggested_verdict;
+    }
+  }
+
+  // 12. Auto-lower confidence if cross-validation conflict
+  if (cross_validation?.conflict_detected && final_confidence === "high") {
+    final_confidence = "medium";
+  }
+
+  // Inject final calibrated verdict back into output
+  if (analyzer_output?.["7_verdict"]) {
+    analyzer_output["7_verdict"]._original_verdict = verdict_action;
+    analyzer_output["7_verdict"]._original_confidence = analyzer_output["7_verdict"].confidence;
+    analyzer_output["7_verdict"].action = final_verdict;
+    analyzer_output["7_verdict"].confidence = final_confidence;
+  }
+
+  const red_flags_count = (analyzer_output?.["3_red_and_green_flags"]?.red || []).length;
+  const green_flags_count = (analyzer_output?.["3_red_and_green_flags"]?.green || []).length;
+  const moat_score = analyzer_output?.["2_dividend_safety"]?.moat_score || null;
+
+  // 13. Store in deep_dividend_analysis
+  const now = Math.floor(Date.now() / 1000);
+  let stored_id = null;
+  try {
+    const ins = await env.DB.prepare(`
+      INSERT OR REPLACE INTO deep_dividend_analysis
+      (ticker, quarter, sector_bucket, safety_score, growth_score, honesty_score,
+       moat_score, capital_alloc_score, composite_score, verdict, confidence,
+       cut_probability_3y, raise_probability_12m, red_flags_count, green_flags_count,
+       result_json, devils_advocate_json, cross_validation_json,
+       extraction_ids, model_extractor, model_historian, model_analyzer, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      ticker, latestQuarter, sector_bucket,
+      safety, growth, honesty,
+      moat_score, null, composite,
+      final_verdict, final_confidence,
+      cut_prob, raise_prob,
+      red_flags_count, green_flags_count,
+      JSON.stringify(analyzer_output),
+      JSON.stringify(devils_advocate),
+      JSON.stringify(cross_validation),
+      JSON.stringify(extractions.map((_, i) => i)),
+      "claude-haiku-4-5-20251001",
+      "claude-haiku-4-5-20251001",
+      "claude-opus-4-20250514",
+      now
+    ).run();
+    stored_id = ins.meta?.last_row_id;
+  } catch (e) {
+    console.error(`[deep-dividend] D1 insert failed for ${ticker}:`, e.message);
+  }
+
+  // 14. Track in agent_predictions for postmortem
+  try {
+    await env.DB.prepare(`
+      INSERT OR REPLACE INTO agent_predictions
+      (agent_name, ticker, prediction_date, verdict, confidence, safety_score, growth_score,
+       cut_probability_3y, raise_probability_12m, prediction_json)
+      VALUES ('deep_dividend', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      ticker, now, final_verdict, final_confidence,
+      safety, growth, cut_prob, raise_prob,
+      JSON.stringify({ verdict: final_verdict, scores: { safety, growth, honesty, composite } })
+    ).run();
+  } catch (e) {
+    console.error(`[deep-dividend] agent_predictions insert failed:`, e.message);
+  }
+
+  return {
+    ok: true,
+    ticker,
+    quarter: latestQuarter,
+    sector_bucket,
+    cached: false,
+    pipeline: {
+      extractions_run: extractions.length,
+      historian_run: !!historian && !historian.error,
+      analyzer_run: !!analyzer_output,
+      devils_advocate_run: !!devils_advocate && !devils_advocate.error,
+      cross_validation_agreement: cross_validation?.agreement_pct,
+      cross_validation_conflict: !!cross_validation?.conflict_detected,
+    },
+    scores: { safety, growth, honesty, composite, moat: moat_score },
+    verdict: { action: final_verdict, confidence: final_confidence },
+    cut_probability_3y: cut_prob,
+    raise_probability_12m: raise_prob,
+    result: analyzer_output,
+    devils_advocate,
+    cross_validation,
+    stored_id,
+  };
 }
 
 // ─── Helper: Enrich Position Sectors ────────────────────────────
