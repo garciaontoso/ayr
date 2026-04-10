@@ -11,7 +11,9 @@
 //
 // Backend: /api/deep-dividend/* + /api/smart-alerts/* + /api/daily-briefing
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { API_URL } from '../../constants/index.js';
+import InstitutionalReportPDF from './InstitutionalReportPDF.jsx';
 
 const VERDICT_COLORS = {
   STRONG_BUY: { bg: 'rgba(34,197,94,.25)', fg: '#22c55e', border: '#22c55e', label: 'STRONG BUY' },
@@ -403,7 +405,7 @@ function SafetyGrowthMatrix({ rows, onClick }) {
   const x = (g) => M + (g / xMax) * (W - 2 * M);
   const y = (s) => H - M - (s / yMax) * (H - 2 * M);
   return (
-    <svg width={W} height={H} style={{ background: 'rgba(255,255,255,.02)', borderRadius: 8 }}>
+    <svg width={W} height={H} style={{ background: 'var(--subtle-bg, rgba(255,255,255,.02))', borderRadius: 8 }}>
       {/* Quadrant fills */}
       <rect x={M} y={M} width={(W - 2*M)/2} height={(H-2*M)/2} fill="rgba(212,175,55,.04)" />
       <rect x={M+(W-2*M)/2} y={M} width={(W-2*M)/2} height={(H-2*M)/2} fill="rgba(34,197,94,.06)" />
@@ -592,6 +594,7 @@ function TrackRecordPanel({ data }) {
 function DeepAnalysisModal({ ticker, data, onClose, onRun, runStatus }) {
   // TDZ-safe: declare all state hooks BEFORE any early returns or effects.
   const [showFullReport, setShowFullReport] = useState(false);
+  const [showPDF, setShowPDF] = useState(false);
   if (!ticker) return null;
   const r = data?.result_json;
   const safety = r?.["2_dividend_safety"] || {};
@@ -604,7 +607,11 @@ function DeepAnalysisModal({ ticker, data, onClose, onRun, runStatus }) {
   const dvls = data?.devils_advocate_json;
   const cv = data?.cross_validation_json;
 
-  return (
+  // Render to document.body via portal so CSS `zoom` on parent #root wrapper
+  // (from the app-level zoom controls) doesn't scale the fixed modal beyond
+  // the viewport and break scrolling. This is a load-bearing fix for users
+  // who have increased page zoom above 100%.
+  return createPortal((
     <div
       onClick={onClose}
       style={{
@@ -618,16 +625,17 @@ function DeepAnalysisModal({ ticker, data, onClose, onRun, runStatus }) {
       <div
         onClick={e => e.stopPropagation()}
         style={{
-          background: '#0d1117',
-          border: '1px solid #30363d',
+          background: 'var(--card, var(--bg, #0d1117))',
+          border: '1px solid var(--border, #30363d)',
           borderRadius: 12,
           maxWidth: 900,
           width: '100%',
           maxHeight: '90vh',
           overflow: 'auto',
           padding: 24,
-          boxShadow: '0 20px 60px rgba(0,0,0,0.8), 0 0 0 1px rgba(212,175,55,0.15)',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(212,175,55,0.15)',
           position: 'relative',
+          color: 'var(--text-primary)',
         }}
       >
         {/* Header */}
@@ -677,10 +685,10 @@ function DeepAnalysisModal({ ticker, data, onClose, onRun, runStatus }) {
         )}
 
         {r && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
             {/* Summary card */}
-            <div style={{ gridColumn: '1 / -1', padding: 12, background: 'rgba(255,255,255,.02)', borderRadius: 6 }}>
-              <div style={{ display: 'flex', gap: 16, marginBottom: 8 }}>
+            <div style={{ gridColumn: '1 / -1', padding: 12, background: 'var(--subtle-bg, rgba(255,255,255,.02))', borderRadius: 6 }}>
+              <div style={{ display: 'flex', gap: 16, marginBottom: 8, flexWrap: 'wrap' }}>
                 <VerdictBadge verdict={data?.verdict} confidence={data?.confidence} large />
                 <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
                   Safety <strong style={{ color: scoreColor(data?.safety_score) }}>{data?.safety_score}</strong>/10 ·
@@ -689,12 +697,98 @@ function DeepAnalysisModal({ ticker, data, onClose, onRun, runStatus }) {
                 </div>
               </div>
               <div style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.5 }}>
-                {r["1_executive_summary"]}
+                {typeof r["1_executive_summary"] === 'string'
+                  ? r["1_executive_summary"]
+                  : (r["1_executive_summary"]?.summary || '')}
               </div>
             </div>
 
+            {/* 📄 Informe Extenso — moved to top so it's reachable without scrolling the structured sections */}
+            {data?.result_md && (
+              <div style={{ gridColumn: '1 / -1' }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => setShowFullReport(v => !v)}
+                    style={{
+                      flex: '1 1 220px',
+                      padding: '12px 14px',
+                      background: showFullReport ? 'rgba(200,164,78,.22)' : 'rgba(200,164,78,.12)',
+                      border: '1px solid var(--gold, #c8a44e)',
+                      color: 'var(--gold, #c8a44e)',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      fontWeight: 700,
+                      letterSpacing: 0.4,
+                      textAlign: 'center',
+                      transition: 'background .15s',
+                    }}
+                  >
+                    {showFullReport ? '▲ Ocultar' : '📄 Ver'} informe institucional completo ({Math.round(data.result_md.length / 1024)}k chars)
+                  </button>
+                  <button
+                    onClick={() => setShowPDF(true)}
+                    style={{
+                      padding: '12px 14px',
+                      background: 'rgba(200,164,78,.12)',
+                      border: '1px solid var(--gold, #c8a44e)',
+                      color: 'var(--gold, #c8a44e)',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      whiteSpace: 'nowrap',
+                    }}
+                    title="Ver informe institucional en formato PDF imprimible (con glosario + resumen simple + portada)"
+                  >
+                    📥 PDF
+                  </button>
+                  <button
+                    onClick={() => {
+                      const blob = new Blob([data.result_md], { type: 'text/markdown' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `${ticker}-${new Date().toISOString().slice(0, 10)}.md`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                    style={{
+                      padding: '12px 14px',
+                      background: 'transparent',
+                      border: '1px solid var(--border)',
+                      color: 'var(--text-secondary)',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      whiteSpace: 'nowrap',
+                    }}
+                    title="Descargar informe como archivo .md (raw markdown)"
+                  >
+                    ⬇ .md
+                  </button>
+                </div>
+                {showFullReport && (
+                  <div style={{
+                    marginTop: 12,
+                    padding: '16px 18px',
+                    background: 'var(--subtle-bg, rgba(255,255,255,.02))',
+                    border: '1px solid var(--border)',
+                    borderRadius: 10,
+                    fontSize: 13,
+                    lineHeight: 1.65,
+                    color: 'var(--text-primary)',
+                    overflow: 'auto',
+                  }}>
+                    {renderMarkdown(data.result_md)}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Safety detail */}
-            <div style={{ padding: 12, background: 'rgba(255,255,255,.02)', borderRadius: 6 }}>
+            <div style={{ padding: 12, background: 'var(--subtle-bg, rgba(255,255,255,.02))', borderRadius: 6 }}>
               <h4 style={{ margin: '0 0 6px', fontSize: 12, color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>
                 Dividend Safety {safety.score}/10
               </h4>
@@ -711,7 +805,7 @@ function DeepAnalysisModal({ ticker, data, onClose, onRun, runStatus }) {
             </div>
 
             {/* Growth detail */}
-            <div style={{ padding: 12, background: 'rgba(255,255,255,.02)', borderRadius: 6 }}>
+            <div style={{ padding: 12, background: 'var(--subtle-bg, rgba(255,255,255,.02))', borderRadius: 6 }}>
               <h4 style={{ margin: '0 0 6px', fontSize: 12, color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>
                 Dividend Growth {growth.score}/10
               </h4>
@@ -727,7 +821,7 @@ function DeepAnalysisModal({ ticker, data, onClose, onRun, runStatus }) {
             </div>
 
             {/* Red flags */}
-            <div style={{ padding: 12, background: 'rgba(255,255,255,.02)', borderRadius: 6 }}>
+            <div style={{ padding: 12, background: 'var(--subtle-bg, rgba(255,255,255,.02))', borderRadius: 6 }}>
               <h4 style={{ margin: '0 0 6px', fontSize: 12, color: '#ef4444', textTransform: 'uppercase' }}>
                 Red Flags ({(flags.red || []).length})
               </h4>
@@ -735,7 +829,7 @@ function DeepAnalysisModal({ ticker, data, onClose, onRun, runStatus }) {
                 {(flags.red || []).slice(0, 5).map((f, i) => {
                   const sev = SEVERITY_COLORS[f.severity] || SEVERITY_COLORS.MEDIUM;
                   return (
-                    <div key={i} style={{ fontSize: 11, padding: 6, borderLeft: `2px solid ${sev.fg}`, background: 'rgba(255,255,255,.02)' }}>
+                    <div key={i} style={{ fontSize: 11, padding: 6, borderLeft: `2px solid ${sev.fg}`, background: 'var(--subtle-bg, rgba(255,255,255,.02))' }}>
                       <div style={{ color: 'var(--text-primary)' }}>
                         <span style={{ color: sev.fg, fontWeight: 600 }}>{f.severity}</span> · {f.description}
                       </div>
@@ -747,13 +841,13 @@ function DeepAnalysisModal({ ticker, data, onClose, onRun, runStatus }) {
             </div>
 
             {/* Green flags */}
-            <div style={{ padding: 12, background: 'rgba(255,255,255,.02)', borderRadius: 6 }}>
+            <div style={{ padding: 12, background: 'var(--subtle-bg, rgba(255,255,255,.02))', borderRadius: 6 }}>
               <h4 style={{ margin: '0 0 6px', fontSize: 12, color: '#22c55e', textTransform: 'uppercase' }}>
                 Green Flags ({(flags.green || []).length})
               </h4>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {(flags.green || []).slice(0, 5).map((f, i) => (
-                  <div key={i} style={{ fontSize: 11, padding: 6, borderLeft: '2px solid #22c55e', background: 'rgba(255,255,255,.02)' }}>
+                  <div key={i} style={{ fontSize: 11, padding: 6, borderLeft: '2px solid #22c55e', background: 'var(--subtle-bg, rgba(255,255,255,.02))' }}>
                     <div style={{ color: 'var(--text-primary)' }}>{f.description}</div>
                     {f.quote && <div style={{ marginTop: 2, fontStyle: 'italic', color: 'var(--text-tertiary)' }}>"{f.quote}"</div>}
                   </div>
@@ -762,7 +856,7 @@ function DeepAnalysisModal({ ticker, data, onClose, onRun, runStatus }) {
             </div>
 
             {/* Thesis impact */}
-            <div style={{ gridColumn: '1 / -1', padding: 12, background: 'rgba(255,255,255,.02)', borderRadius: 6 }}>
+            <div style={{ gridColumn: '1 / -1', padding: 12, background: 'var(--subtle-bg, rgba(255,255,255,.02))', borderRadius: 6 }}>
               <h4 style={{ margin: '0 0 6px', fontSize: 12, color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>
                 Thesis Impact
               </h4>
@@ -804,7 +898,7 @@ function DeepAnalysisModal({ ticker, data, onClose, onRun, runStatus }) {
 
             {/* Multi-investor lens */}
             {lens && Object.keys(lens).length > 0 && (
-              <div style={{ gridColumn: '1 / -1', padding: 12, background: 'rgba(255,255,255,.02)', borderRadius: 6 }}>
+              <div style={{ gridColumn: '1 / -1', padding: 12, background: 'var(--subtle-bg, rgba(255,255,255,.02))', borderRadius: 6 }}>
                 <h4 style={{ margin: '0 0 6px', fontSize: 12, color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>
                   Multi-investor lens
                 </h4>
@@ -846,7 +940,7 @@ function DeepAnalysisModal({ ticker, data, onClose, onRun, runStatus }) {
 
             {/* Cross-validation */}
             {cv && cv.sources && (
-              <div style={{ gridColumn: '1 / -1', padding: 12, background: 'rgba(255,255,255,.02)', borderRadius: 6 }}>
+              <div style={{ gridColumn: '1 / -1', padding: 12, background: 'var(--subtle-bg, rgba(255,255,255,.02))', borderRadius: 6 }}>
                 <h4 style={{ margin: '0 0 6px', fontSize: 12, color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>
                   Cross-validation con otras señales
                   {cv.conflict_detected && <span style={{ color: '#ef4444', marginLeft: 8 }}>⚠️ CONFLICTO</span>}
@@ -858,7 +952,7 @@ function DeepAnalysisModal({ ticker, data, onClose, onRun, runStatus }) {
             )}
 
             {/* Verdict reasoning */}
-            <div style={{ gridColumn: '1 / -1', padding: 12, background: 'rgba(255,255,255,.02)', borderRadius: 6 }}>
+            <div style={{ gridColumn: '1 / -1', padding: 12, background: 'var(--subtle-bg, rgba(255,255,255,.02))', borderRadius: 6 }}>
               <h4 style={{ margin: '0 0 6px', fontSize: 12, color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>
                 Verdict reasoning
               </h4>
@@ -875,80 +969,16 @@ function DeepAnalysisModal({ ticker, data, onClose, onRun, runStatus }) {
             </div>
           </div>
         )}
-
-        {/* 📄 Informe Extenso (long-form markdown report) */}
-        {data?.markdown_report && (
-          <div style={{
-            marginTop: 20,
-            paddingTop: 16,
-            borderTop: '1px solid var(--border)',
-          }}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
-              <button
-                onClick={() => setShowFullReport(v => !v)}
-                style={{
-                  flex: 1,
-                  padding: '10px 14px',
-                  background: showFullReport ? 'rgba(200,164,78,.18)' : 'rgba(200,164,78,.10)',
-                  border: '1px solid var(--gold, #c8a44e)',
-                  color: 'var(--gold, #c8a44e)',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  letterSpacing: 0.4,
-                  textAlign: 'center',
-                  transition: 'background .15s',
-                }}
-              >
-                {showFullReport ? '▲ Ocultar' : '▼ Ver'} informe completo ({Math.round(data.markdown_report.length / 1024)}k chars)
-              </button>
-              <button
-                onClick={() => {
-                  const blob = new Blob([data.markdown_report], { type: 'text/markdown' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `${ticker}-${new Date().toISOString().slice(0, 10)}.md`;
-                  a.click();
-                  URL.revokeObjectURL(url);
-                }}
-                style={{
-                  padding: '10px 14px',
-                  background: 'transparent',
-                  border: '1px solid var(--border)',
-                  color: 'var(--text-secondary)',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  fontWeight: 500,
-                  whiteSpace: 'nowrap',
-                }}
-                title="Descargar informe como archivo .md"
-              >
-                ⬇ Descargar .md
-              </button>
-            </div>
-            {showFullReport && (
-              <div style={{
-                marginTop: 16,
-                padding: '16px 20px',
-                background: 'var(--card, rgba(255,255,255,.02))',
-                border: '1px solid var(--border)',
-                borderRadius: 10,
-                maxWidth: 820,
-                fontSize: 13,
-                lineHeight: 1.65,
-                color: 'var(--text-primary)',
-              }}>
-                {renderMarkdown(data.markdown_report)}
-              </div>
-            )}
-          </div>
-        )}
       </div>
+      {showPDF && (
+        <InstitutionalReportPDF
+          ticker={ticker}
+          data={data}
+          onClose={() => setShowPDF(false)}
+        />
+      )}
     </div>
-  );
+  ), document.body);
 }
 
 // ─── Main component ──────────────────────────────────────────────
@@ -1080,7 +1110,7 @@ export default function DeepDividendTab() {
 
       {/* Top stats row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8, marginBottom: 16 }}>
-        <div style={{ padding: 10, background: 'rgba(255,255,255,.02)', borderRadius: 6 }}>
+        <div style={{ padding: 10, background: 'var(--subtle-bg, rgba(255,255,255,.02))', borderRadius: 6 }}>
           <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>ANALIZADOS</div>
           <strong style={{ fontSize: 16 }}>{totalAnalyzed} <span style={{ fontSize: 10, color: 'var(--text-tertiary)', fontWeight: 400 }}>/ {portfolioTotal}</span></strong>
         </div>
@@ -1096,7 +1126,7 @@ export default function DeepDividendTab() {
       <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 16 }}>
         {/* LEFT: Action Required + Top Opportunities + Alerts */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <section style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+          <section style={{ background: 'var(--subtle-bg, rgba(255,255,255,.02))', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
             <header style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', background: 'rgba(239,68,68,.04)' }}>
               <strong style={{ fontSize: 12, color: '#fb923c' }}>⚠️ ACCIÓN REQUERIDA</strong>
               {dashboard?.action_required?.length > 0 && (
@@ -1108,7 +1138,7 @@ export default function DeepDividendTab() {
             <ActionRequiredPanel items={dashboard?.action_required} onClick={openDrill} />
           </section>
 
-          <section style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+          <section style={{ background: 'var(--subtle-bg, rgba(255,255,255,.02))', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
             <header style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', background: 'rgba(34,197,94,.04)' }}>
               <strong style={{ fontSize: 12, color: '#86efac' }}>⭐ TOP OPORTUNIDADES</strong>
               {dashboard?.top_opportunities?.length > 0 && (
@@ -1120,7 +1150,7 @@ export default function DeepDividendTab() {
             <TopOpportunitiesPanel items={dashboard?.top_opportunities} onClick={openDrill} />
           </section>
 
-          <section style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+          <section style={{ background: 'var(--subtle-bg, rgba(255,255,255,.02))', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
             <header style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', background: 'rgba(212,175,55,.04)' }}>
               <strong style={{ fontSize: 12, color: '#d4af37' }}>🔔 SMART ALERTS</strong>
               <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-tertiary)' }}>
@@ -1135,7 +1165,7 @@ export default function DeepDividendTab() {
 
         {/* RIGHT: 2x2 matrix + track record */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <section style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+          <section style={{ background: 'var(--subtle-bg, rgba(255,255,255,.02))', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
             <header style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
               <strong style={{ fontSize: 12, color: 'var(--text-secondary)' }}>📊 SAFETY × GROWTH MATRIX</strong>
             </header>
@@ -1144,7 +1174,7 @@ export default function DeepDividendTab() {
             </div>
           </section>
 
-          <section style={{ background: 'rgba(255,255,255,.02)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+          <section style={{ background: 'var(--subtle-bg, rgba(255,255,255,.02))', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
             <header style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
               <strong style={{ fontSize: 12, color: 'var(--text-secondary)' }}>🎯 TRACK RECORD</strong>
             </header>

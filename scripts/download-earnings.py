@@ -130,7 +130,30 @@ def http_post_json(url, payload, headers=None, timeout=120, retries=3):
 
 
 # ─── HTML → text ─────────────────────────────────────────────────────
-class _TextExtractor(HTMLParser):
+#
+# v2 (2026-04-09): modern SEC filings are inline-XBRL wrapped HTML. The old
+# HTMLParser approach pulled ALL visible text including financial tables and
+# XBRL metadata, which drowned narrative sections (MD&A, Risk Factors,
+# Business Description). The new approach uses BeautifulSoup to:
+#   - UNWRAP <ix:nonFraction> / <ix:nonNumeric> / <ix:continuation> (preserve
+#     the visible text content including numbers)
+#   - DECOMPOSE <us-gaap:*> / <dei:*> / <srt:*> / <xbrli:*> (pure metadata)
+#   - DECOMPOSE <table> elements with >55% numeric content (financial tables)
+#   - STRIP <script> / <style> / <svg> / <head>
+# Falls back to the old naive stripper only if bs4 isn't installed.
+#
+# This function is used for SEC filings. FMP transcripts use a different path
+# (they come as clean JSON from FMP) so no change needed there.
+
+try:
+    from bs4 import BeautifulSoup  # noqa: F401
+    _HAS_BS4 = True
+except ImportError:
+    _HAS_BS4 = False
+
+
+class _LegacyTextExtractor(HTMLParser):
+    """Fallback when bs4 is not installed. Naive — produces XBRL-heavy text."""
     def __init__(self):
         super().__init__()
         self._skip_depth = 0
@@ -151,9 +174,81 @@ class _TextExtractor(HTMLParser):
             self.parts.append(data)
 
 
+def _is_numeric_heavy_table(text, threshold=0.55):
+    stripped = re.sub(r"\s+", "", text)
+    if len(stripped) < 20:
+        return False
+    num = sum(1 for c in stripped if c in "0123456789$().,-%")
+    return num / len(stripped) > threshold
+
+
+def _html_to_text_v2(html):
+    """v2 SEC extractor — strips inline XBRL + numeric-heavy tables, preserves narrative."""
+    from bs4 import BeautifulSoup
+    soup = BeautifulSoup(html, "html.parser")
+
+    # Strip obvious noise
+    for tag in soup.find_all(["script", "style", "noscript", "head", "svg", "img"]):
+        tag.decompose()
+
+    UNWRAP_IX = {"ix:nonfraction", "ix:nonnumeric", "ix:continuation", "ix:exclude", "ix:fraction"}
+    DECOMPOSE_IX = {"ix:header", "ix:references", "ix:resources", "ix:hidden"}
+    DECOMPOSE_PREFIXES = ("xbrli", "xbrl", "us-gaap", "dei", "srt", "link", "xlink", "xbrldi")
+
+    to_unwrap = []
+    to_remove = []
+    for tag in list(soup.find_all(True)):
+        try:
+            name = (tag.name or "").lower()
+        except Exception:
+            continue
+        if name in DECOMPOSE_IX:
+            to_remove.append(tag); continue
+        if name in UNWRAP_IX:
+            to_unwrap.append(tag); continue
+        if ":" in name and name.split(":")[0] in DECOMPOSE_PREFIXES:
+            to_remove.append(tag); continue
+        if name.startswith("ix:"):
+            to_unwrap.append(tag); continue
+        # display:none wrappers (often used for XBRL)
+        try:
+            attrs = getattr(tag, "attrs", None) or {}
+            style = (attrs.get("style") or "").lower() if isinstance(attrs, dict) else ""
+        except Exception:
+            style = ""
+        if "display:none" in style or "display: none" in style:
+            to_remove.append(tag)
+
+    for tag in to_remove:
+        try: tag.decompose()
+        except Exception: pass
+    for tag in to_unwrap:
+        try: tag.unwrap()
+        except Exception: pass
+
+    # Strip financial tables (>55% numeric)
+    for tbl in list(soup.find_all("table")):
+        try:
+            txt = tbl.get_text(" ", strip=True)
+            if _is_numeric_heavy_table(txt):
+                tbl.decompose()
+        except Exception:
+            pass
+
+    text = soup.get_text("\n", strip=True)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 def html_to_text(html):
+    if _HAS_BS4:
+        try:
+            return _html_to_text_v2(html)
+        except Exception as e:
+            log(f"  v2 extractor failed ({e}) — falling back to legacy")
     try:
-        p = _TextExtractor()
+        p = _LegacyTextExtractor()
         p.feed(html)
         text = "".join(p.parts)
     except Exception:

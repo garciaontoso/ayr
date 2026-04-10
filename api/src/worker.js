@@ -4476,6 +4476,11 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           green_flags = (r.green || []).length;
         } catch {}
 
+        // Optional long-form markdown report (institutional-quality research)
+        // stored in the result_md column (already exists in schema). Frontend
+        // renders it as an expandable "Informe Extenso" section.
+        const result_md = typeof body.result_md === 'string' ? body.result_md : null;
+
         const now = Math.floor(Date.now() / 1000);
         let stored_id = null;
         try {
@@ -4484,9 +4489,9 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             (ticker, quarter, sector_bucket, safety_score, growth_score, honesty_score,
              moat_score, capital_alloc_score, composite_score, verdict, confidence,
              cut_probability_3y, raise_probability_12m, red_flags_count, green_flags_count,
-             result_json, devils_advocate_json, cross_validation_json,
+             result_json, result_md, devils_advocate_json, cross_validation_json,
              extraction_ids, model_extractor, model_historian, model_analyzer, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).bind(
             ticker, quarter, sector_bucket,
             safety_score, growth_score, honesty_score,
@@ -4495,6 +4500,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             cut_prob, raise_prob,
             red_flags, green_flags,
             JSON.stringify(body.result_json),
+            result_md,
             body.devils_advocate_json ? JSON.stringify(body.devils_advocate_json) : null,
             body.cross_validation_json ? JSON.stringify(body.cross_validation_json) : null,
             body.extraction_ids ? JSON.stringify(body.extraction_ids) : null,
