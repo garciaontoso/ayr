@@ -8,7 +8,7 @@
 ## URLs
 - **Production**: https://ayr.onto-so.com (custom domain → Cloudflare Pages)
 - **Pages preview**: https://ayr-196.pages.dev
-- **API**: https://aar-api.garciaontoso.workers.dev
+- **API**: https://api.onto-so.com (custom domain — replaces aar-api.garciaontoso.workers.dev which uses blocked CF IPs 188.114.96.x)
 - FMP API Key: stored as Cloudflare Worker secret (env.FMP_KEY)
 
 ## CORS

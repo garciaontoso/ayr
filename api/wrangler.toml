@@ -2,6 +2,15 @@ name = "aar-api"
 main = "src/worker.js"
 compatibility_date = "2024-01-01"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+# Custom domain — avoids the workers.dev IP range (188.114.96.x)
+# which is blocked/unreachable from some ISPs (Spain, China).
+# Custom domains use Cloudflare's main CDN IPs (104.21.x.x / 172.67.x.x)
+# which are reachable everywhere.
+routes = [
+  { pattern = "api.onto-so.com", custom_domain = true }
+]
 
 [[d1_databases]]
 binding = "DB"

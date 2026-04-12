@@ -1793,7 +1793,29 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
-    await ensureMigrations(env);
+    // Ping endpoint — responds without touching D1 or any async work.
+    // Used to diagnose whether the worker runtime itself is alive vs D1 hanging.
+    if (path === "/api/ping") {
+      return new Response(JSON.stringify({ ok: true, ts: Date.now(), version: "2026-04-11" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ensureMigrations runs ~50 sequential D1 queries (CREATE TABLE IF NOT EXISTS).
+    // All tables exist in production since months ago. Wrap in try/catch with a
+    // 5-second timeout so a slow/degraded D1 doesn't hang the entire worker.
+    if (!_migrated) {
+      try {
+        const migrationTimeout = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("migration timeout")), 5000)
+        );
+        await Promise.race([ensureMigrations(env), migrationTimeout]);
+      } catch (e) {
+        console.error("[worker] ensureMigrations failed (non-fatal):", e.message);
+        // Continue — tables already exist. Set flag to avoid retrying on next request.
+        _migrated = true;
+      }
+    }
 
     try {
       // ─── RUTAS ─────────────────────────────────

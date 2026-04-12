@@ -83,7 +83,7 @@ export const TABS = [
 // ago. The individual routes still resolve via App.jsx content dict but
 // nothing renders them. Audit B identified this as critical dead code.
 
-export const API_URL = "https://aar-api.garciaontoso.workers.dev";
+export const API_URL = "https://api.onto-so.com";
 
 // HOME_TAB_GROUPS — 2-level navigation (added 2026-04-08).
 // 21 flat tabs are now grouped into 6 logical categories.

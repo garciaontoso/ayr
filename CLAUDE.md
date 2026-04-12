@@ -17,7 +17,7 @@
 
 ## URLs
 - **Production**: https://ayr.onto-so.com
-- **API**: https://aar-api.garciaontoso.workers.dev
+- **API**: https://api.onto-so.com (custom domain, replaces workers.dev which uses blocked IPs)
 - **Pages**: https://ayr-196.pages.dev
 
 ## Current Version: v3.2 (commit a775e8d)
