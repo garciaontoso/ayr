@@ -5746,6 +5746,59 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return json({ success: true, inserted, skipped, total: allDivs.length }, corsHeaders);
       }
 
+      // POST /api/dividendos/fix-shares — fill in missing shares from bruto/dps of other entries
+      if (path === "/api/dividendos/fix-shares" && request.method === "POST") {
+        // Get all dividends without shares
+        const { results: missing } = await env.DB.prepare(
+          "SELECT id, ticker, fecha, bruto FROM dividendos WHERE (shares IS NULL OR shares = 0) AND bruto > 0"
+        ).all();
+        // Build DPS lookup from entries that DO have shares: ticker → dps_gross
+        const { results: withShares } = await env.DB.prepare(
+          "SELECT ticker, bruto, shares FROM dividendos WHERE shares > 0 AND bruto > 0"
+        ).all();
+        const dpsMap = {};
+        for (const d of withShares) {
+          const dps = Math.round((d.bruto / d.shares) * 10000) / 10000;
+          if (!dpsMap[d.ticker]) dpsMap[d.ticker] = [];
+          dpsMap[d.ticker].push({ dps, shares: d.shares });
+        }
+
+        let fixed = 0, unfixable = 0;
+        const stmts = [];
+        for (const m of missing) {
+          const entries = dpsMap[m.ticker];
+          if (!entries || entries.length === 0) { unfixable++; continue; }
+          // Try each known DPS to see if bruto divides evenly
+          let bestShares = 0;
+          for (const e of entries) {
+            const calc = Math.round(m.bruto / e.dps);
+            if (calc > 0 && Math.abs(calc * e.dps - m.bruto) < 0.05) {
+              bestShares = calc;
+              break;
+            }
+          }
+          if (bestShares === 0) {
+            // Fallback: use most common shares count for this ticker
+            const shareCounts = {};
+            for (const e of entries) { shareCounts[e.shares] = (shareCounts[e.shares] || 0) + 1; }
+            const mostCommon = Object.entries(shareCounts).sort((a, b) => b[1] - a[1])[0];
+            if (mostCommon) bestShares = parseInt(mostCommon[0]);
+          }
+          if (bestShares > 0) {
+            const dps = Math.round((m.bruto / bestShares) * 10000) / 10000;
+            stmts.push(env.DB.prepare("UPDATE dividendos SET shares = ?, dps_gross = ? WHERE id = ?").bind(bestShares, dps, m.id));
+            fixed++;
+          } else {
+            unfixable++;
+          }
+        }
+        // Execute in batches
+        for (let i = 0; i < stmts.length; i += 80) {
+          await env.DB.batch(stmts.slice(i, i + 80));
+        }
+        return json({ success: true, fixed, unfixable, total_missing: missing.length }, corsHeaders);
+      }
+
       // DELETE /api/costbasis/:id
       if (path.startsWith("/api/costbasis/") && request.method === "DELETE") {
         const id = validateId(path.split("/").pop());
@@ -6881,6 +6934,62 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         }
       }
 
+      // POST /api/ib-flex-sync — full Flex sync: request statement from IB, download, process, store
+      // This replaces the Mac cron — callable from the UI with one click
+      if (path === "/api/ib-flex-sync" && request.method === "POST") {
+        try {
+          const FLEX_TOKEN = env.IB_FLEX_TOKEN || "187746530027081663959936";
+          const QUERY_ID = "1452278";
+
+          // Step 1: Request Flex statement
+          const sendResp = await fetch(`https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService/SendRequest?t=${FLEX_TOKEN}&q=${QUERY_ID}&v=3`);
+          const sendText = await sendResp.text();
+          const refMatch = sendText.match(/<ReferenceCode>([^<]+)<\/ReferenceCode>/);
+          if (!refMatch) return json({ error: "IB SendRequest failed", detail: sendText.slice(0, 300) }, corsHeaders, 502);
+          const refCode = refMatch[1];
+
+          // Step 2: Wait for statement to be ready (IB needs ~10s)
+          await new Promise(r => setTimeout(r, 12000));
+
+          // Step 3: Download statement
+          const getResp = await fetch(`https://gdcdyn.interactivebrokers.com/AccountManagement/FlexWebService/GetStatement?t=${FLEX_TOKEN}&q=${refCode}&v=3`);
+          const xml = await getResp.text();
+          if (!xml.includes("<FlexQueryResponse")) {
+            // Retry once after 5 more seconds
+            await new Promise(r => setTimeout(r, 5000));
+            const retry = await fetch(`https://gdcdyn.interactivebrokers.com/AccountManagement/FlexWebService/GetStatement?t=${FLEX_TOKEN}&q=${refCode}&v=3`);
+            const retryXml = await retry.text();
+            if (!retryXml.includes("<FlexQueryResponse")) {
+              return json({ error: "Statement not ready after 17s", detail: retryXml.slice(0, 200) }, corsHeaders, 502);
+            }
+            // Forward to the import handler by re-dispatching internally
+            const importReq = new Request(request.url.replace("/ib-flex-sync", "/ib-flex-import"), {
+              method: "POST", headers: { "Content-Type": "application/xml" }, body: retryXml,
+            });
+            return env.self ? env.self.fetch(importReq) : await handleFlexImport(retryXml, env, corsHeaders);
+          }
+
+          // Forward to import handler
+          const importReq = new Request(request.url.replace("/ib-flex-sync", "/ib-flex-import"), {
+            method: "POST", headers: { "Content-Type": "application/xml" }, body: xml,
+          });
+          // Can't self-dispatch easily, so inline the same import logic below
+          // Instead, just re-call this worker's ib-flex-import by forwarding
+          // Simplest: just call the import URL directly
+          const importResp = await fetch(`https://api.onto-so.com/api/ib-flex-import`, {
+            method: "POST", headers: { "Content-Type": "application/xml" }, body: xml,
+          });
+          const importResult = await importResp.json();
+
+          // Step 4: Also sync dividends to cost_basis
+          await fetch(`https://api.onto-so.com/api/costbasis/sync-dividends`, { method: "POST" });
+
+          return json({ ...importResult, flex_ref: refCode, source: "cloud-sync" }, corsHeaders);
+        } catch (e) {
+          return json({ error: "Flex sync error: " + e.message }, corsHeaders, 500);
+        }
+      }
+
       // POST /api/ib-flex-import — receive Flex XML from local script, parse and store in D1
       if (path === "/api/ib-flex-import" && request.method === "POST") {
         try {
@@ -6919,6 +7028,14 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           // opt_credit_total (-netCash, so STO shows positive credit, BTC negative debit).
           // Without these the rows are present but show contracts=0/credit=0 which breaks
           // the CS reconciliation join. Bug was discovered in session 2026-04-09.
+          // Dedup: load existing (fecha, ticker, tipo, shares, precio, coste) combos for fast lookup
+          const { results: existingTrades } = await env.DB.prepare(
+            "SELECT fecha, ticker, tipo, shares, precio, coste FROM cost_basis WHERE fecha >= date('now', '-90 days')"
+          ).all();
+          const tradeSet = new Set(existingTrades.map(t =>
+            `${t.fecha}|${t.ticker}|${t.tipo}|${Math.round((t.shares||0)*1000)}|${Math.round((t.precio||0)*100)}|${Math.round((t.coste||0)*100)}`
+          ));
+
           let tradesInserted = 0, tradesSkipped = 0;
           const tradeStmts = [];
           for (const t of trades) {
@@ -6936,8 +7053,13 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             const optCreditTotal = isOpt ? -netCash : 0; // STO: negative netCash → positive credit
             const optCreditPerShare = isOpt && qty !== 0 ? optCreditTotal / (Math.abs(qty) * 100) : 0;
 
+            // Dedup check: skip if (fecha, ticker, tipo, shares, precio, coste) already exists
+            const dedupKey = `${fecha}|${ticker}|${tipo}|${Math.round(qty*1000)}|${Math.round(price*100)}|${Math.round(netCash*100)}`;
+            if (tradeSet.has(dedupKey)) { tradesSkipped++; continue; }
+            tradeSet.add(dedupKey); // prevent intra-batch dupes too
+
             tradeStmts.push(env.DB.prepare(
-              "INSERT OR IGNORE INTO cost_basis (ticker, fecha, tipo, shares, precio, comision, coste, opt_strike, opt_expiry, opt_tipo, opt_contracts, opt_credit, opt_credit_total) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+              "INSERT INTO cost_basis (ticker, fecha, tipo, shares, precio, comision, coste, opt_strike, opt_expiry, opt_tipo, opt_contracts, opt_credit, opt_credit_total) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
             ).bind(ticker, fecha, tipo, qty, price, commission, netCash, t.strike || null, expiry, t.putCall || null, optContracts, optCreditPerShare, optCreditTotal));
           }
           // Execute in batches of 80
@@ -6948,6 +7070,13 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
           // Import dividends — aggregate by (settleDate, symbol) across accounts
           // Dividends/PIL → bruto, Withholding Tax → wht
+          // Extract shares from description "CASH DIVIDEND USD X.XX PER SHARE"
+          // Dedup: load ALL existing (fecha, ticker, bruto) combos for fast lookup
+          const { results: existingDivs } = await env.DB.prepare(
+            "SELECT fecha, ticker, bruto FROM dividendos"
+          ).all();
+          const divSet = new Set(existingDivs.map(d => `${d.fecha}|${d.ticker}|${Math.round((d.bruto||0)*100)}`));
+
           let divsInserted = 0, divsSkipped = 0;
           const divAgg = {};
           for (const c of cashTxns) {
@@ -6963,11 +7092,18 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             const amount = parseFloat(c.amount) || 0;
             const key = `${fecha}|${ticker}`;
             const fxRate = parseFloat(c.fxRateToBase) || 1;
-            if (!divAgg[key]) divAgg[key] = { ticker, fecha, bruto: 0, wht: 0, divisa: c.currency || "USD", fxRate };
+            if (!divAgg[key]) divAgg[key] = { ticker, fecha, bruto: 0, wht: 0, divisa: c.currency || "USD", fxRate, shares: 0 };
             if (type.includes("withholding")) {
               divAgg[key].wht += amount; // negative
             } else {
               divAgg[key].bruto += amount;
+              // Extract DPS from description to calculate shares: "CASH DIVIDEND USD 0.14 PER SHARE"
+              const desc = c.description || "";
+              const dpsMatch = desc.match(/(?:DIVIDEND|PAYMENT IN LIEU)[^0-9]*([0-9]+\.?[0-9]*)\s*PER SHARE/i);
+              if (dpsMatch && parseFloat(dpsMatch[1]) > 0) {
+                const dps = parseFloat(dpsMatch[1]);
+                divAgg[key].shares += Math.round(amount / dps);
+              }
             }
           }
           const divStmts = [];
@@ -6982,11 +7118,16 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             const fxUSD = d.divisa === "USD" ? 1 : (d.fxRate || 1);
             const brutoUSD = Math.round(bruto * fxUSD * 100) / 100;
             const netoUSD = Math.round(neto * fxUSD * 100) / 100;
+            const shares = d.shares || 0;
+            const dpsGross = shares > 0 ? Math.round((bruto / shares) * 10000) / 10000 : 0;
+            // Dedup check using pre-loaded Set
+            const divDedupKey = `${d.fecha}|${d.ticker}|${Math.round(bruto*100)}`;
+            if (divSet.has(divDedupKey)) { divsSkipped++; continue; }
+            divSet.add(divDedupKey);
             divStmts.push(env.DB.prepare(
-              `INSERT INTO dividendos (ticker, fecha, bruto, neto, divisa, wht_rate, wht_amount, broker, notas, bruto_usd, neto_usd, fx_to_usd)
-               SELECT ?,?,?,?,?,?,?,'IB',?,?,?,?
-               WHERE NOT EXISTS (SELECT 1 FROM dividendos WHERE ticker=? AND fecha=? AND ABS(bruto - ?) < 0.05)`
-            ).bind(d.ticker, d.fecha, bruto, neto, d.divisa, whtRate, whtAmount, `IB Flex sync`, brutoUSD, netoUSD, fxUSD, d.ticker, d.fecha, bruto));
+              `INSERT INTO dividendos (ticker, fecha, bruto, neto, divisa, wht_rate, wht_amount, broker, notas, bruto_usd, neto_usd, fx_to_usd, shares, dps_gross)
+               VALUES (?,?,?,?,?,?,?,'IB','IB Flex sync',?,?,?,?,?)`
+            ).bind(d.ticker, d.fecha, bruto, neto, d.divisa, whtRate, whtAmount, brutoUSD, netoUSD, fxUSD, shares, dpsGross));
           }
           for (let i = 0; i < divStmts.length; i += 80) {
             const batch = divStmts.slice(i, i + 80);

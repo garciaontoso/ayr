@@ -24,3 +24,6 @@ api/.wrangler/
 
 # Backup of old monolith
 frontend/ar_v10_2.jsx
+
+# SEC narrative source files (314MB, used by ayr-dividend-analyst locally)
+docs/sec-narrative/

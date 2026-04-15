@@ -17,26 +17,33 @@ export default function TradesTab() {
   const [syncMsg, setSyncMsg] = useState(null);
 
   const syncIB = async () => {
-    setSyncing(true); setSyncMsg(null);
+    setSyncing(true); setSyncMsg("Sincronizando con IB...");
     try {
-      // Try IB auto-sync first (OAuth — works from cloud)
+      // IB OAuth sync: trades (7 dias), posiciones, NLV
       const r1 = await fetch(`${API_URL}/api/ib-auto-sync`, { method: "POST" });
       const d1 = await r1.json();
       const oauthTrades = d1.trades_imported || 0;
 
-      // Also try Flex import (only works if Mac ran sync-flex.sh recently)
-      // The Flex data might already be in D1 from the Mac cron
-      let msg = `Sync: ${oauthTrades} trades via IB`;
-      if (d1.nlv_updated) msg += " · NLV actualizado";
-      setSyncMsg(msg);
+      // Sync dividendos → cost_basis para que aparezcan aqui
+      const r2 = await fetch(`${API_URL}/api/costbasis/sync-dividends`, { method: "POST" });
+      const d2 = await r2.json();
+      const newDivs = d2.inserted || 0;
+
+      let parts = [];
+      if (oauthTrades > 0) parts.push(`${oauthTrades} trades nuevos`);
+      if (newDivs > 0) parts.push(`${newDivs} dividendos sincronizados`);
+      if (d1.nlv_updated) parts.push("NLV actualizado");
+      if (oauthTrades === 0 && newDivs === 0) parts.push("Todo al dia");
+      if (d1.errors?.length) parts.push(`${d1.errors.length} avisos`);
+      setSyncMsg("✅ " + parts.join(" · "));
 
       // Reload trades
       loadTrades(tradesFilter, 0);
     } catch (e) {
-      setSyncMsg("Error sincronizando: " + e.message);
+      setSyncMsg("❌ Error: " + e.message);
     }
     setSyncing(false);
-    setTimeout(() => setSyncMsg(null), 6000);
+    setTimeout(() => setSyncMsg(null), 8000);
   };
 
   // Load trades data from API
@@ -145,7 +152,7 @@ export default function TradesTab() {
           style={{padding:"7px 12px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:11,cursor:"pointer",fontFamily:"var(--fm)"}}>✕ Limpiar</button>}
       <button onClick={syncIB} disabled={syncing}
         style={{padding:"7px 14px",borderRadius:8,border:"1px solid rgba(100,210,255,.4)",background:"rgba(100,210,255,.08)",color:"#64d2ff",fontSize:11,fontWeight:700,cursor:syncing?"wait":"pointer",fontFamily:"var(--fm)",transition:"all .15s"}}>
-        {syncing ? "⏳ Sincronizando..." : "📡 Sync IB"}
+        {syncing ? "⏳ Sincronizando trades y dividendos..." : "📡 Sincronizar IB (trades + dividendos)"}
       </button>
       <div style={{marginLeft:"auto",fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{total.toLocaleString()} resultados</div>
     </div>

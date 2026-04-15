@@ -4,7 +4,7 @@
 
 FLEX_TOKEN="187746530027081663959936"
 QUERY_ID="1452278"
-API_URL="https://aar-api.garciaontoso.workers.dev"
+API_URL="https://api.onto-so.com"
 
 echo "📡 Requesting Flex Query $QUERY_ID..."
 SEND_RESP=$(curl -s "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService/SendRequest?t=$FLEX_TOKEN&q=$QUERY_ID&v=3")
@@ -35,6 +35,11 @@ if echo "$STATEMENT" | grep -q "FlexQueryResponse"; then
     --data-binary @/tmp/ib-flex-statement.xml | python3 -m json.tool
 
   rm /tmp/ib-flex-statement.xml
+
+  # Sync dividends to cost_basis so they appear in Trades tab
+  echo "🔄 Syncing dividends to cost_basis..."
+  curl -s -X POST "$API_URL/api/costbasis/sync-dividends" | python3 -m json.tool
+
   echo "🎉 Done!"
 else
   echo "❌ Statement not ready: $(echo "$STATEMENT" | head -5)"
