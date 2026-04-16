@@ -153,8 +153,9 @@ export default function TradesTab() {
           style={{padding:"7px 12px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:11,cursor:"pointer",fontFamily:"var(--fm)"}}>✕ Limpiar</button>}
       <button onClick={syncIB} disabled={syncing}
         style={{padding:"7px 14px",borderRadius:8,border:"1px solid rgba(100,210,255,.4)",background:"rgba(100,210,255,.08)",color:"#64d2ff",fontSize:11,fontWeight:700,cursor:syncing?"wait":"pointer",fontFamily:"var(--fm)",transition:"all .15s"}}>
-        {syncing ? "⏳ Sincronizando trades y dividendos..." : "📡 Sincronizar IB (trades + dividendos)"}
+        {syncing ? "⏳ Sincronizando trades y dividendos..." : "📡 Sync D1"}
       </button>
+      <span title="Importa trades (últimos 7 días vía IB OAuth) y sincroniza dividendos a esta tabla.\nPara historial completo, el cron Flex corre a las 8:30 AM (Mac encendido)." style={{fontSize:10,color:"var(--text-tertiary)",cursor:"help",marginLeft:2}}>ℹ️</span>
       <div style={{marginLeft:"auto",fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{total.toLocaleString()} resultados</div>
     </div>
     {syncMsg && (

@@ -1124,11 +1124,13 @@ export default function HomeView() {
           {DISPLAY_CCYS.map(ccy=><option key={ccy} value={ccy}>{CURRENCIES[ccy]?.symbol || ccy}</option>)}
         </select>
 
-        {/* IB */}
+        {/* IB Live — reads current positions/NLV from IB OAuth (no writes to D1) */}
         <button onClick={loadIBData} disabled={ibLoading}
-          title={ibLoaded ? `IB · NLV $${Math.round(ibNlv).toLocaleString()} · ${(ibData?.positions||[]).length} pos.${ibAlerts.length ? "\n"+ibAlerts.join(" · ") : ""}` : "Sincronizar IB"}
+          title={ibLoaded
+            ? `IB Live · NLV $${Math.round(ibNlv).toLocaleString()} · ${(ibData?.positions||[]).length} pos.\nLee posiciones en tiempo real desde IB (no guarda en D1).${ibAlerts.length ? "\n"+ibAlerts.join(" · ") : ""}`
+            : "Cargar posiciones IB en tiempo real (OAuth, solo lectura)"}
           style={{padding:"4px 8px",borderRadius:6,border:`1px solid ${ibColor}33`,background:`${ibColor}0F`,color:ibColor,fontSize:10,cursor:ibLoading?"wait":"pointer",fontFamily:"var(--fm)",fontWeight:600,transition:"all .15s"}}>
-          {ibLoading ? "⏳" : ibLoaded ? `📡${ibAlerts.length?" ⚠":""}` : "IB"}
+          {ibLoading ? "⏳" : ibLoaded ? `📡 Live${ibAlerts.length?" ⚠":""}` : "📡 IB Live"}
         </button>
         {ibSyncMsg && <span style={{fontSize:9,color:"var(--text-tertiary)",whiteSpace:"nowrap",animation:"fadeIn .3s"}}>{ibSyncMsg}</span>}
 
@@ -1184,7 +1186,7 @@ export default function HomeView() {
           try { const sr=await fetch(API+"/api/data-status"); status=await sr.json(); } catch{}
           setHealthData({loading:false,results,status});
         }}
-          title="Health Check"
+          title="Health Check — Verifica conexión con IB, D1, precios Yahoo, FX y todos los endpoints del sistema"
           style={{padding:"4px 7px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer"}}>🩺</button>
 
         {/* Offline mode — download all data for airplane */}
