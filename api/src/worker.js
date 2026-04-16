@@ -1440,23 +1440,28 @@ async function performAutoSync(env) {
     for (const t of allTrades) {
       if (!t.symbol || !t.trade_time_r) continue;
       const fecha = new Date(t.trade_time_r).toISOString().slice(0, 10);
-      const qty = parseFloat(t.size) || 0;
+      // CRITICAL: IB OAuth /iserver/account/trades returns size as POSITIVE for both buys and sells.
+      // The direction is in t.side ("B" for buy, "S" for sell). Without this adjustment,
+      // sells were being stored as positive shares (i.e., as buys). Bug discovered 2026-04-15.
+      const rawQty = parseFloat(t.size) || 0;
+      const side = (t.side || "").toUpperCase();
+      const qty = (side === "S" || side === "SLD") ? -Math.abs(rawQty) : Math.abs(rawQty);
       const price = parseFloat(t.price) || 0;
       const commission = parseFloat(t.comission) || 0; // IB typo
       const netAmount = parseFloat(t.net_amount) || 0;
       const secType = t.sec_type || "STK";
       const tipo = secType === "OPT" ? "OPTION" : "EQUITY";
 
-      // Dedup: INSERT OR IGNORE with unique constraint, or check manually
+      // Dedup: check fecha+ticker+signed shares+precio+coste to avoid both Flex+OAuth duplicates
       tradeStmts.push(env.DB.prepare(
         `INSERT INTO cost_basis (ticker, fecha, tipo, shares, precio, comision, coste)
          SELECT ?,?,?,?,?,?,?
          WHERE NOT EXISTS (
            SELECT 1 FROM cost_basis
-           WHERE ticker=? AND fecha=? AND ABS(shares - ?) < 0.001 AND ABS(precio - ?) < 0.001
+           WHERE ticker=? AND fecha=? AND ABS(shares - ?) < 0.001 AND ABS(precio - ?) < 0.01 AND ABS(coste - ?) < 0.5
          )`
       ).bind(t.symbol, fecha, tipo, qty, price, commission, netAmount,
-             t.symbol, fecha, qty, price));
+             t.symbol, fecha, qty, price, netAmount));
     }
 
     for (let i = 0; i < tradeStmts.length; i += 80) {
@@ -7040,6 +7045,12 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const tradeStmts = [];
           for (const t of trades) {
             if (!t.symbol || !t.tradeDate) continue;
+            // Skip IB allocation duplicates: when trades are allocated between accounts,
+            // IB reports the same execution twice — once with notes="P" (primary) and once
+            // with notes="IA;P" (IB allocated). Same ibOrderID, same quantity, same price.
+            // Keep only the primary "P" record. Bug discovered 2026-04-15.
+            const notes = (t.notes || "").toUpperCase();
+            if (notes.includes("IA")) { tradesSkipped++; continue; }
             const ticker = mapTicker(t.symbol);
             const fecha = `${t.tradeDate.slice(0,4)}-${t.tradeDate.slice(4,6)}-${t.tradeDate.slice(6,8)}`;
             const qty = parseFloat(t.quantity) || 0;
