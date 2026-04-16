@@ -492,6 +492,7 @@ export default function PortfolioTab() {
 
   useEffect(() => { localStorage.setItem(COLS_KEY, JSON.stringify(visibleCols)); }, [visibleCols]);
 
+
   useEffect(() => {
     const handler = (e) => { if (colPickerRef.current && !colPickerRef.current.contains(e.target)) setShowColPicker(false); };
     if (showColPicker) document.addEventListener("mousedown", handler);
@@ -584,6 +585,21 @@ export default function PortfolioTab() {
     } catch(e) { console.error("DGR load error:", e); }
     setDgrLoading(false);
   }, [portfolioTotals?.positions]);
+
+  // Auto-load fundamentals + DGR on mount if cache is stale or empty.
+  // FMP data is cached 24h in both localStorage (frontend) and D1 (worker),
+  // so this only makes real FMP API calls once per day.
+  useEffect(() => {
+    if (Object.keys(fundData).length === 0 && !fundLoading && portfolioTotals?.positions?.length) {
+      loadFundamentals();
+    }
+  }, [portfolioTotals?.positions?.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (Object.keys(dgrData).length === 0 && !dgrLoading && portfolioTotals?.positions?.length) {
+      loadDGR();
+    }
+  }, [portfolioTotals?.positions?.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Refresh everything: prices + Q&S + fundamentals + DGR.
   // Invalidates caches first so the next fetch comes fresh.
