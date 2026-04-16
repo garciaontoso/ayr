@@ -934,14 +934,17 @@ export default function DividendosTab() {
                         const bg = `rgba(200,164,78,${0.08 + intensity * 0.5})`;
                         return (
                           <td key={m} style={{padding:"2px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)"}}>
-                            <div title={`${y}-${m}: $${_sf(v,0)}`} style={{borderRadius:4,background:bg,padding:"4px 1px",fontSize:9,fontWeight:700,color:intensity>.5?"var(--gold)":"var(--text-secondary)",fontFamily:"var(--fm)"}}>
+                            <div title={`${y}-${m}: $${_sf(v,0)} — click para ver detalle`}
+                              onClick={()=>{setDivFilter(p=>({...p,year:y,month:`${y}-${m}`,ticker:""})); setTimeout(()=>document.getElementById("div-detail-table")?.scrollIntoView({behavior:"smooth",block:"start"}),100);}}
+                              style={{borderRadius:4,background: divFilter.month===`${y}-${m}` ? "var(--gold)" : bg, padding:"4px 1px",fontSize:9,fontWeight:700,color: divFilter.month===`${y}-${m}` ? "#000" : intensity>.5?"var(--gold)":"var(--text-secondary)",fontFamily:"var(--fm)",cursor:"pointer",transition:"all .15s",boxShadow: divFilter.month===`${y}-${m}` ? "0 0 8px rgba(200,164,78,.5)" : "none"}}>
                               {v>=1000?_sf(v/1000,1)+"K":_sf(v,0)}
                             </div>
                           </td>);
                       })}
                       <td style={{padding:"2px 4px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)",borderLeft:"2px solid var(--border)"}}>
                         <div style={{display:"flex",flexDirection:"column",alignItems:"center"}}>
-                          <span style={{fontSize:11,fontWeight:800,color:yi===0?"var(--gold)":"var(--text-primary)",fontFamily:"var(--fm)"}}>${annTotals[y]>=1000?_sf(annTotals[y]/1000,1)+"K":_sf(annTotals[y],0)}</span>
+                          <span onClick={()=>{setDivFilter(p=>({...p,year:y,month:"all",ticker:""})); setTimeout(()=>document.getElementById("div-detail-table")?.scrollIntoView({behavior:"smooth",block:"start"}),100);}}
+                            style={{fontSize:11,fontWeight:800,color:divFilter.year===y&&divFilter.month==="all"?"#000":"(yi===0?'var(--gold)':'var(--text-primary)')",fontFamily:"var(--fm)",cursor:"pointer",background:divFilter.year===y&&divFilter.month==="all"?"var(--gold)":"transparent",padding:"1px 4px",borderRadius:3}}>${annTotals[y]>=1000?_sf(annTotals[y]/1000,1)+"K":_sf(annTotals[y],0)}</span>
                           {yoyPct!=null && <span style={{fontSize:8,fontWeight:600,color:yoyPct>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)"}}>{yoyPct>=0?"+":""}{_sf(yoyPct,0)}%</span>}
                         </div>
                       </td>
@@ -990,7 +993,7 @@ export default function DividendosTab() {
       </div>)}
 
       {/* ── Row 4: Top Payers + Filters + Form en una línea ── */}
-      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+      <div id="div-detail-table" style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
         <select value={divFilter.year} onChange={e=>setDivFilter(p=>({...p,year:e.target.value,month:"all"}))} style={{padding:"5px 8px",background:"var(--subtle-border)",border:"1px solid var(--border)",borderRadius:6,color:"var(--text-primary)",fontSize:10,fontFamily:"var(--fm)"}}>
           <option value="all">Todos los años</option>
           {[...new Set(divLog.map(d=>d.date?.slice(0,4)).filter(Boolean))].sort().reverse().map(y=><option key={y} value={y}>{y}</option>)}
