@@ -4627,6 +4627,14 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return json({ ok: true, analysis: row }, corsHeaders);
       }
 
+      // DELETE /api/deep-dividend/delete?id=42
+      if (path === "/api/deep-dividend/delete" && request.method === "DELETE") {
+        const id = validateId(url.searchParams.get('id'));
+        if (!id) return validationError("id required", corsHeaders);
+        await env.DB.prepare("DELETE FROM deep_dividend_analysis WHERE id = ?").bind(id).run();
+        return json({ ok: true, deleted: id }, corsHeaders);
+      }
+
       // GET /api/deep-dividend/extractions?ticker=KHC
       if (path === "/api/deep-dividend/extractions" && request.method === "GET") {
         await ensureMigrations(env);

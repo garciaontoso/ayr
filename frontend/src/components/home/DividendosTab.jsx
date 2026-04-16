@@ -235,11 +235,11 @@ function CalendarioSection({ divLog, POS_STATIC, ownedTickers, soloActuales }) {
       {/* Month KPIs */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {[
-          { l: "GROSS", v: `$${monthStats.gross >= 1000 ? _sf(monthStats.gross / 1000, 1) + "K" : _sf(monthStats.gross, 0)}`, c: "var(--gold)" },
-          { l: "NET", v: `$${monthStats.net >= 1000 ? _sf(monthStats.net / 1000, 1) + "K" : _sf(monthStats.net, 0)}`, c: "var(--green)" },
+          { l: "GROSS", v: privacyMode ? "•••" : `$${monthStats.gross >= 1000 ? _sf(monthStats.gross / 1000, 1) + "K" : _sf(monthStats.gross, 0)}`, c: "var(--gold)" },
+          { l: "NET", v: privacyMode ? "•••" : `$${monthStats.net >= 1000 ? _sf(monthStats.net / 1000, 1) + "K" : _sf(monthStats.net, 0)}`, c: "var(--green)" },
           { l: "COBROS", v: monthStats.count, c: "var(--text-primary)" },
           { l: "TICKERS", v: monthStats.tickers, c: "var(--text-secondary)" },
-          ...(monthStats.projGross > 0 ? [{ l: "ESTIMADO", v: `$${monthStats.projGross >= 1000 ? _sf(monthStats.projGross / 1000, 1) + "K" : _sf(monthStats.projGross, 0)}`, c: "#64d2ff" }] : []),
+          ...(monthStats.projGross > 0 ? [{ l: "ESTIMADO", v: privacyMode ? "•••" : `$${monthStats.projGross >= 1000 ? _sf(monthStats.projGross / 1000, 1) + "K" : _sf(monthStats.projGross, 0)}`, c: "#64d2ff" }] : []),
         ].map((k, i) => (
           <div key={i} style={{ flex: "1 1 80px", padding: "10px 14px", background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12 }}>
             <div style={{ fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)", letterSpacing: .5, fontWeight: 600 }}>{k.l}</div>
@@ -261,8 +261,8 @@ function CalendarioSection({ divLog, POS_STATIC, ownedTickers, soloActuales }) {
                 <div key={mi} onClick={() => { setCalMonth({ year, month: mi }); setViewMode("month"); }}
                   style={{ padding: 12, borderRadius: 10, border: `1px solid ${isCurrentMonth ? "var(--gold)" : "var(--border)"}`, background: total > 0 ? `rgba(200,164,78,${0.03 + intensity * 0.12})` : "var(--row-alt)", cursor: "pointer", transition: "all .15s" }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: isCurrentMonth ? "var(--gold)" : "var(--text-secondary)", fontFamily: "var(--fm)", marginBottom: 6 }}>{MNAMES[mi].slice(0, 3)}</div>
-                  {md.gross > 0 && <div style={{ fontSize: 15, fontWeight: 700, color: "var(--gold)", fontFamily: "var(--fm)" }}>${md.gross >= 1000 ? _sf(md.gross / 1000, 1) + "K" : _sf(md.gross, 0)}</div>}
-                  {md.projGross > 0 && md.gross === 0 && <div style={{ fontSize: 15, fontWeight: 700, color: "#64d2ff", fontFamily: "var(--fm)", opacity: .7 }}>~${md.projGross >= 1000 ? _sf(md.projGross / 1000, 1) + "K" : _sf(md.projGross, 0)}</div>}
+                  {md.gross > 0 && <div style={{ fontSize: 15, fontWeight: 700, color: "var(--gold)", fontFamily: "var(--fm)" }}>{privacyMode ? "•••" : `$${md.gross >= 1000 ? _sf(md.gross / 1000, 1) + "K" : _sf(md.gross, 0)}`}</div>}
+                  {md.projGross > 0 && md.gross === 0 && <div style={{ fontSize: 15, fontWeight: 700, color: "#64d2ff", fontFamily: "var(--fm)", opacity: .7 }}>{privacyMode ? "•••" : `~$${md.projGross >= 1000 ? _sf(md.projGross / 1000, 1) + "K" : _sf(md.projGross, 0)}`}</div>}
                   {md.count > 0 && <div style={{ fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)", marginTop: 2 }}>{md.count} cobros · {md.tickers.size} tickers</div>}
                   {md.count === 0 && md.projGross > 0 && <div style={{ fontSize: 9, color: "rgba(100,210,255,.5)", fontFamily: "var(--fm)", marginTop: 2 }}>{md.tickers.size} estimados</div>}
                 </div>
@@ -273,8 +273,8 @@ function CalendarioSection({ divLog, POS_STATIC, ownedTickers, soloActuales }) {
           <div style={{ marginTop: 12, padding: "10px 14px", background: "rgba(200,164,78,.05)", borderRadius: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", fontFamily: "var(--fm)" }}>Total {year}</span>
             <div style={{ display: "flex", gap: 16 }}>
-              <span style={{ fontSize: 16, fontWeight: 700, color: "var(--gold)", fontFamily: "var(--fm)" }}>${yearData.reduce((s, m) => s + m.gross, 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-              {yearData.some(m => m.projGross > 0) && <span style={{ fontSize: 14, fontWeight: 600, color: "#64d2ff", fontFamily: "var(--fm)", opacity: .7 }}>+~${yearData.reduce((s, m) => s + m.projGross, 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} est.</span>}
+              <span style={{ fontSize: 16, fontWeight: 700, color: "var(--gold)", fontFamily: "var(--fm)" }}>{privacyMode ? "•••" : `$${yearData.reduce((s, m) => s + m.gross, 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}</span>
+              {yearData.some(m => m.projGross > 0) && <span style={{ fontSize: 14, fontWeight: 600, color: "#64d2ff", fontFamily: "var(--fm)", opacity: .7 }}>{privacyMode ? "" : `+~$${yearData.reduce((s, m) => s + m.projGross, 0).toLocaleString(undefined, { maximumFractionDigits: 0 })} est.`}</span>}
             </div>
           </div>
         </div>
@@ -317,7 +317,7 @@ function CalendarioSection({ divLog, POS_STATIC, ownedTickers, soloActuales }) {
                         <span style={{ fontSize: 11, fontWeight: isToday ? 800 : 500, color: isToday ? "var(--gold)" : "var(--text-secondary)", fontFamily: "var(--fm)",
                           ...(isToday ? { background: "var(--gold)", color: "#000", borderRadius: "50%", width: 20, height: 20, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10 } : {})
                         }}>{day}</span>
-                        {dayTotal > 0 && <span style={{ fontSize: 8, fontWeight: 700, color: projEntries.length > 0 && realEntries.length === 0 ? "#64d2ff" : "var(--gold)", fontFamily: "var(--fm)" }}>${dayTotal >= 1000 ? _sf(dayTotal / 1000, 1) + "K" : _sf(dayTotal, 0)}</span>}
+                        {dayTotal > 0 && <span style={{ fontSize: 8, fontWeight: 700, color: projEntries.length > 0 && realEntries.length === 0 ? "#64d2ff" : "var(--gold)", fontFamily: "var(--fm)" }}>{privacyMode ? "•" : `$${dayTotal >= 1000 ? _sf(dayTotal / 1000, 1) + "K" : _sf(dayTotal, 0)}`}</span>}
                       </div>
                       {/* Ticker badges: gold=cobrado, green=ex-date real, blue=proyectado */}
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
@@ -351,7 +351,7 @@ function CalendarioSection({ divLog, POS_STATIC, ownedTickers, soloActuales }) {
                   <span key={i} style={{ width: 12, height: 10, borderRadius: 2, background: `rgba(200,164,78,${op})` }} />
                 ))}
               </span>
-              <span style={{ fontSize: 9, fontWeight: 600, color: "var(--gold)" }}>${maxDayAmount >= 1000 ? _sf(maxDayAmount / 1000, 1) + "K" : _sf(maxDayAmount, 0)}</span>
+              <span style={{ fontSize: 9, fontWeight: 600, color: "var(--gold)" }}>{privacyMode ? "•••" : `$${maxDayAmount >= 1000 ? _sf(maxDayAmount / 1000, 1) + "K" : _sf(maxDayAmount, 0)}`}</span>
             </span>
           </div>
         </div>
@@ -368,17 +368,17 @@ function CalendarioSection({ divLog, POS_STATIC, ownedTickers, soloActuales }) {
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: e.projected ? "rgba(100,210,255,.04)" : "rgba(200,164,78,.04)", borderRadius: 8, border: `1px solid ${e.projected ? "rgba(100,210,255,.12)" : "rgba(200,164,78,.12)"}` }}>
                 <div style={{ width: 42, height: 24, borderRadius: 6, background: e.projected ? "rgba(100,210,255,.1)" : "rgba(200,164,78,.1)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 800, color: e.projected ? "#64d2ff" : "var(--gold)", fontFamily: "var(--fm)" }}>{e.ticker?.slice(0, 5)}</div>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-primary)", fontFamily: "var(--fm)" }}>${_sf(e.gross || 0, 2)}</div>
-                  {e.net != null && !e.projected && <div style={{ fontSize: 9, color: "var(--green)", fontFamily: "var(--fm)" }}>Net: ${_sf(e.net, 2)} · Tax: {e.gross > 0 ? _sf((1 - e.net / e.gross) * 100, 0) : 0}%</div>}
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-primary)", fontFamily: "var(--fm)" }}>{privacyMode ? "•••" : `$${_sf(e.gross || 0, 2)}`}</div>
+                  {e.net != null && !e.projected && <div style={{ fontSize: 9, color: "var(--green)", fontFamily: "var(--fm)" }}>{privacyMode ? "•••" : `Net: $${_sf(e.net, 2)} · Tax: ${e.gross > 0 ? _sf((1 - e.net / e.gross) * 100, 0) : 0}%`}</div>}
                 </div>
                 {e.projected && <span style={{ fontSize: 8, padding: "2px 6px", borderRadius: 4, background: "rgba(100,210,255,.1)", color: "#64d2ff", fontFamily: "var(--fm)", fontWeight: 600 }}>ESTIMADO</span>}
-                {e.shares && !e.projected && <span style={{ fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>{e.shares} sh · ${_sf((e.gross || 0) / e.shares, 4)}/sh</span>}
+                {e.shares && !e.projected && <span style={{ fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>{privacyMode ? "•••" : `${e.shares} sh · $${_sf((e.gross || 0) / e.shares, 4)}/sh`}</span>}
               </div>
             ))}
           </div>
           <div style={{ marginTop: 8, padding: "8px 12px", background: "rgba(200,164,78,.04)", borderRadius: 8, display: "flex", justifyContent: "space-between" }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-secondary)", fontFamily: "var(--fm)" }}>Total del día</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: "var(--gold)", fontFamily: "var(--fm)" }}>${selectedEntries.reduce((s, e) => s + (e.gross || 0), 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: "var(--gold)", fontFamily: "var(--fm)" }}>{privacyMode ? "•••" : `$${selectedEntries.reduce((s, e) => s + (e.gross || 0), 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`}</span>
           </div>
         </div>
       )}
@@ -399,7 +399,7 @@ function CalendarioSection({ divLog, POS_STATIC, ownedTickers, soloActuales }) {
           <div style={{ background: "var(--card)", border: "1px solid rgba(100,210,255,.15)", borderRadius: 14, padding: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: "#64d2ff", fontFamily: "var(--fd)" }}>🔮 Próximos Dividendos Estimados</div>
-              <div style={{ fontSize: 10, color: "#64d2ff", fontFamily: "var(--fm)", opacity: .7 }}>30d: ~${next30total.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+              <div style={{ fontSize: 10, color: "#64d2ff", fontFamily: "var(--fm)", opacity: .7 }}>{privacyMode ? "" : `30d: ~$${next30total.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}</div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {upcoming.slice(0, 20).map((u, i) => {
@@ -408,7 +408,7 @@ function CalendarioSection({ divLog, POS_STATIC, ownedTickers, soloActuales }) {
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderRadius: 6, background: "rgba(100,210,255,.02)" }}>
                     <span style={{ fontSize: 10, fontWeight: 600, color: daysAway <= 7 ? "var(--green)" : "#64d2ff", fontFamily: "var(--fm)", minWidth: 75 }}>{u.date}</span>
                     <span style={{ fontSize: 9, fontWeight: 700, color: "var(--gold)", fontFamily: "var(--fm)", minWidth: 40 }}>{u.ticker}</span>
-                    <span style={{ fontSize: 10, fontWeight: 600, color: "var(--text-primary)", fontFamily: "var(--fm)" }}>~${_sf(u.gross, 2)}</span>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: "var(--text-primary)", fontFamily: "var(--fm)" }}>{privacyMode ? "•••" : `~$${_sf(u.gross, 2)}`}</span>
                     <span style={{ fontSize: 8, color: "var(--text-tertiary)", fontFamily: "var(--fm)", marginLeft: "auto" }}>en {daysAway}d</span>
                   </div>
                 );
@@ -501,6 +501,7 @@ export default function DividendosTab() {
     DIV_BY_YEAR, DIV_BY_MONTH,
     portfolioTotals, FORWARD_DIV,
     GASTOS_MONTH, ibData, fxRates, CTRL_DATA,
+    privacyMode, hide,
   } = useHome();
 
   // ── Canonical FIRE metrics (single source of truth via hooks) ──────
@@ -717,8 +718,8 @@ export default function DividendosTab() {
             const mName = MNAMES[parseInt(monthLabel,10)-1] || monthLabel;
             return (
               <div key={m.month} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%",gap:2}}>
-                <div style={{fontSize:8,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)"}}>${netAmt>=1000?_sf(netAmt/1000,1)+"K":_sf(netAmt,0)}</div>
-                <div style={{fontSize:9,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>${m.amount>=1000?_sf(m.amount/1000,1)+"K":_sf(m.amount,0)}</div>
+                <div style={{fontSize:8,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":`$${netAmt>=1000?_sf(netAmt/1000,1)+"K":_sf(netAmt,0)}`}</div>
+                <div style={{fontSize:9,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":`$${m.amount>=1000?_sf(m.amount/1000,1)+"K":_sf(m.amount,0)}`}</div>
                 <div style={{width:"100%",maxWidth:40,position:"relative",height:`${Math.max(h,3)}%`}}>
                   <div style={{position:"absolute",bottom:0,width:"100%",height:"100%",background:"rgba(200,164,78,0.25)",borderRadius:"4px 4px 0 0"}}/>
                   <div style={{position:"absolute",bottom:0,width:"100%",height:`${h>0?hNet/h*100:0}%`,background:"rgba(48,209,88,0.5)",borderRadius:"4px 4px 0 0"}}/>
@@ -750,12 +751,12 @@ export default function DividendosTab() {
                 return (
                   <tr key={t.ticker} style={{background:i%2?"var(--row-alt)":"transparent"}}>
                     <td style={{padding:"5px 10px",fontFamily:"var(--fm)",fontWeight:600,color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>{t.ticker}</td>
-                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)"}}>${_sf(t.dps,2)}</td>
-                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{t.shares?.toLocaleString()}</td>
+                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)"}}>{privacyMode?"•••":`$${_sf(t.dps,2)}`}</td>
+                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{privacyMode?"•••":t.shares?.toLocaleString()}</td>
                     <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{freqLabel}</td>
-                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",fontWeight:700,color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)"}}>${fDol(t.annual)}</td>
-                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",fontWeight:700,color:"var(--green)",borderBottom:"1px solid var(--subtle-bg)"}} title={`WHT: ${_sf(tWht,1)}%`}>${fDol(t.annual*tRate)}</td>
-                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--green)",borderBottom:"1px solid var(--subtle-bg)"}}>${fDol(t.monthly_avg*tRate)}</td>
+                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",fontWeight:700,color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)"}}>{privacyMode?"•••":`$${fDol(t.annual)}`}</td>
+                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",fontWeight:700,color:"var(--green)",borderBottom:"1px solid var(--subtle-bg)"}} title={`WHT: ${_sf(tWht,1)}%`}>{privacyMode?"•••":`$${fDol(t.annual*tRate)}`}</td>
+                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--green)",borderBottom:"1px solid var(--subtle-bg)"}}>{privacyMode?"•••":`$${fDol(t.monthly_avg*tRate)}`}</td>
                     <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{_sf(pct,1)}%</td>
                   </tr>
                 );
@@ -788,7 +789,7 @@ export default function DividendosTab() {
         <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:14}}>
           <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
             <span style={{fontSize:12,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)"}}>Top Payers (12m)</span>
-            <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Total: <b style={{color:"var(--gold)"}}>${fDol(totalG)}</b></span>
+            <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Total: <b style={{color:"var(--gold)"}}>{privacyMode?"•••":`$${fDol(totalG)}`}</b></span>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:3}}>
             {topAll.slice(0,25).map(([t,d],i)=>{
@@ -802,7 +803,7 @@ export default function DividendosTab() {
                 <div style={{flex:1,height:10,background:"var(--subtle-bg)",borderRadius:3,overflow:"hidden"}}>
                   <div style={{width:`${pct}%`,height:"100%",background:"linear-gradient(90deg,var(--gold),rgba(200,164,78,.2))",borderRadius:3}}/>
                 </div>
-                <span style={{width:55,fontSize:10,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",textAlign:"right"}}>${d.g>=1000?_sf(d.g/1000,1)+"K":_sf(d.g,0)}</span>
+                <span style={{width:55,fontSize:10,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",textAlign:"right"}}>{privacyMode?"•••":`$${d.g>=1000?_sf(d.g/1000,1)+"K":_sf(d.g,0)}`}</span>
                 <span style={{width:20,fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"right"}}>{d.c}</span>
               </div>;
             })}
@@ -819,13 +820,13 @@ export default function DividendosTab() {
                 <div style={{flex:1}}>
                   <div style={{display:"flex",justifyContent:"space-between",fontSize:10,fontFamily:"var(--fm)",marginBottom:2}}>
                     <span style={{fontWeight:600,color:"var(--text-primary)"}}>{cc} · {d.c} cobros</span>
-                    <span><b style={{color:"var(--text-primary)"}}>${fDol(d.g)}</b> <span style={{color:"var(--text-tertiary)"}}>({_sf(pct,1)}%)</span></span>
+                    <span><b style={{color:"var(--text-primary)"}}>{privacyMode?"•••":`$${fDol(d.g)}`}</b> <span style={{color:"var(--text-tertiary)"}}>({_sf(pct,1)}%)</span></span>
                   </div>
                   <div style={{height:6,background:"var(--subtle-bg)",borderRadius:3,overflow:"hidden"}}>
                     <div style={{width:`${pct}%`,height:"100%",background:"var(--gold)",borderRadius:3}}/>
                   </div>
                   <div style={{display:"flex",justifyContent:"space-between",fontSize:9,fontFamily:"var(--fm)",marginTop:2,color:"var(--text-tertiary)"}}>
-                    <span>Neto: <b style={{color:"var(--green)"}}>${fDol(d.n)}</b></span>
+                    <span>Neto: <b style={{color:"var(--green)"}}>{privacyMode?"•••":`$${fDol(d.n)}`}</b></span>
                     <span>Ret: <b style={{color:"var(--red)"}}>{_sf(whtPct,1)}%</b></span>
                   </div>
                 </div>
@@ -885,10 +886,10 @@ export default function DividendosTab() {
       {/* ── Row 1: KPIs compactos ── */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(100px, 1fr))",gap:6}}>
         {[
-          {l:isNeto?"NETO TTM":"BRUTO TTM",v:"$"+fDol(isNeto?net12m:gross12m),c:isNeto?"var(--green)":"var(--gold)"},
-          {l:isNeto?"BRUTO TTM":"NETO TTM",v:"$"+fDol(isNeto?gross12m:net12m),c:isNeto?"var(--gold)":"var(--green)"},
+          {l:isNeto?"NETO TTM":"BRUTO TTM",v:privacyMode?"•••":"$"+fDol(isNeto?net12m:gross12m),c:isNeto?"var(--green)":"var(--gold)"},
+          {l:isNeto?"BRUTO TTM":"NETO TTM",v:privacyMode?"•••":"$"+fDol(isNeto?gross12m:net12m),c:isNeto?"var(--gold)":"var(--green)"},
           {l:"WHT",v:_sf(taxRate12m,0)+"%",c:"var(--red)"},
-          {l:isNeto?"NETO/MES":"BRUTO/MES",v:"$"+fDol(isNeto?avgNetMonth:gross12m/12),c:(isNeto?avgNetMonth:gross12m/12)>=fireTarget?"var(--green)":"var(--orange)"},
+          {l:isNeto?"NETO/MES":"BRUTO/MES",v:privacyMode?"•••":"$"+fDol(isNeto?avgNetMonth:gross12m/12),c:(isNeto?avgNetMonth:gross12m/12)>=fireTarget?"var(--green)":"var(--orange)"},
           {l:"COBROS TTM",v:last12m.length,c:"var(--text-primary)"},
           {l:"FIRE",v:_sf(firePct,0)+"%",c:firePct>=100?"var(--green)":"var(--orange)"},
         ].map((k,i)=>(
@@ -934,17 +935,17 @@ export default function DividendosTab() {
                         const bg = `rgba(200,164,78,${0.08 + intensity * 0.5})`;
                         return (
                           <td key={m} style={{padding:"2px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)"}}>
-                            <div title={`${y}-${m}: $${_sf(v,0)} — click para ver detalle`}
+                            <div title={privacyMode?"•••":`${y}-${m}: $${_sf(v,0)} — click para ver detalle`}
                               onClick={()=>{setDivFilter(p=>({...p,year:y,month:`${y}-${m}`,ticker:""})); setTimeout(()=>document.getElementById("div-detail-table")?.scrollIntoView({behavior:"smooth",block:"start"}),100);}}
                               style={{borderRadius:4,background: divFilter.month===`${y}-${m}` ? "var(--gold)" : bg, padding:"4px 1px",fontSize:9,fontWeight:700,color: divFilter.month===`${y}-${m}` ? "#000" : intensity>.5?"var(--gold)":"var(--text-secondary)",fontFamily:"var(--fm)",cursor:"pointer",transition:"all .15s",boxShadow: divFilter.month===`${y}-${m}` ? "0 0 8px rgba(200,164,78,.5)" : "none"}}>
-                              {v>=1000?_sf(v/1000,1)+"K":_sf(v,0)}
+                              {privacyMode?"•":v>=1000?_sf(v/1000,1)+"K":_sf(v,0)}
                             </div>
                           </td>);
                       })}
                       <td style={{padding:"2px 4px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)",borderLeft:"2px solid var(--border)"}}>
                         <div style={{display:"flex",flexDirection:"column",alignItems:"center"}}>
                           <span onClick={()=>{setDivFilter(p=>({...p,year:y,month:"all",ticker:""})); setTimeout(()=>document.getElementById("div-detail-table")?.scrollIntoView({behavior:"smooth",block:"start"}),100);}}
-                            style={{fontSize:11,fontWeight:800,color:divFilter.year===y&&divFilter.month==="all"?"#000":"(yi===0?'var(--gold)':'var(--text-primary)')",fontFamily:"var(--fm)",cursor:"pointer",background:divFilter.year===y&&divFilter.month==="all"?"var(--gold)":"transparent",padding:"1px 4px",borderRadius:3}}>${annTotals[y]>=1000?_sf(annTotals[y]/1000,1)+"K":_sf(annTotals[y],0)}</span>
+                            style={{fontSize:11,fontWeight:800,color:divFilter.year===y&&divFilter.month==="all"?"#000":"(yi===0?'var(--gold)':'var(--text-primary)')",fontFamily:"var(--fm)",cursor:"pointer",background:divFilter.year===y&&divFilter.month==="all"?"var(--gold)":"transparent",padding:"1px 4px",borderRadius:3}}>{privacyMode?"•••":`$${annTotals[y]>=1000?_sf(annTotals[y]/1000,1)+"K":_sf(annTotals[y],0)}`}</span>
                           {yoyPct!=null && <span style={{fontSize:8,fontWeight:600,color:yoyPct>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)"}}>{yoyPct>=0?"+":""}{_sf(yoyPct,0)}%</span>}
                         </div>
                       </td>
@@ -976,15 +977,15 @@ export default function DividendosTab() {
           const coveragePct = fwd.annual_projected > 0 ? (ttmGross / fwd.annual_projected * 100) : 0;
           return <div style={{display:"flex",flexDirection:"column",gap:8}}>
             <div style={{display:"flex",gap:12,flexWrap:"wrap",fontSize:11,fontFamily:"var(--fm)"}}>
-              <span>Cobrado: <b style={{color:"var(--green)"}}>${fDol(ttmGross)}</b></span>
-              <span>Esperado: <b style={{color:"var(--gold)"}}>${fDol(fwd.annual_projected||0)}</b></span>
+              <span>Cobrado: <b style={{color:"var(--green)"}}>{privacyMode?"•••":`$${fDol(ttmGross)}`}</b></span>
+              <span>Esperado: <b style={{color:"var(--gold)"}}>{privacyMode?"•••":`$${fDol(fwd.annual_projected||0)}`}</b></span>
               <span>Cobertura: <b style={{color:coveragePct>=80?"var(--green)":"var(--orange)"}}>{_sf(coveragePct,0)}%</b></span>
               <span style={{color:"var(--green)"}}>{onTrack.length} on track</span>
             </div>
             {missing.length > 0 && (
               <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
                 {missing.slice(0,15).map(c=>(
-                  <span key={c.t} style={{padding:"2px 6px",borderRadius:4,background:"rgba(255,159,10,.06)",border:"1px solid rgba(255,159,10,.12)",fontSize:8,fontFamily:"var(--fm)",color:"var(--orange)"}}>{c.t} ${fDol(c.expected)}</span>
+                  <span key={c.t} style={{padding:"2px 6px",borderRadius:4,background:"rgba(255,159,10,.06)",border:"1px solid rgba(255,159,10,.12)",fontSize:8,fontFamily:"var(--fm)",color:"var(--orange)"}}>{c.t} {privacyMode?"•••":`$${fDol(c.expected)}`}</span>
                 ))}
               </div>
             )}
@@ -1051,9 +1052,9 @@ export default function DividendosTab() {
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <span style={{fontSize:12,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fd)"}}>Cobros · {sorted.length}</span>
               <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>
-                Bruto <b style={{color:"var(--text-primary)"}}>${fDol(sorted.reduce((s,d)=>s+(d.gross||0),0))}</b>
-                {" · "}Neto <b style={{color:"var(--green)"}}>${fDol(sorted.reduce((s,d)=>s+(d.net||0),0))}</b>
-                {" · "}Ret <b style={{color:"var(--red)"}}>${fDol(sorted.reduce((s,d)=>s+((d.whtAmount||0)>0?d.whtAmount:(d.gross||0)-(d.net||0)),0))}</b>
+                Bruto <b style={{color:"var(--text-primary)"}}>{privacyMode?"•••":`$${fDol(sorted.reduce((s,d)=>s+(d.gross||0),0))}`}</b>
+                {" · "}Neto <b style={{color:"var(--green)"}}>{privacyMode?"•••":`$${fDol(sorted.reduce((s,d)=>s+(d.net||0),0))}`}</b>
+                {" · "}Ret <b style={{color:"var(--red)"}}>{privacyMode?"•••":`$${fDol(sorted.reduce((s,d)=>s+((d.whtAmount||0)>0?d.whtAmount:(d.gross||0)-(d.net||0)),0))}`}</b>
               </span>
             </div>
             <DividendosCountryPills
@@ -1079,12 +1080,12 @@ export default function DividendosTab() {
                   <td style={{...td0,color:"var(--text-primary)"}}>{d.date}</td>
                   <td style={{...td0,textAlign:"center",fontSize:12}}>{flag}</td>
                   <td style={{...td0,fontWeight:600,color:"var(--gold)"}}>{d.ticker}</td>
-                  <td style={{...td0,textAlign:"right",fontWeight:600,color:"var(--text-primary)"}}>${_sf(d.gross||0,2)}</td>
+                  <td style={{...td0,textAlign:"right",fontWeight:600,color:"var(--text-primary)"}}>{privacyMode?"•••":`$${_sf(d.gross||0,2)}`}</td>
                   <td style={{...td0,textAlign:"right",color:d.taxPct>0?"var(--red)":"var(--text-tertiary)"}}>{d.taxPct>0?d.taxPct+"%":"0%"}</td>
-                  <td style={{...td0,textAlign:"right",color:"var(--red)",opacity:.7}}>{wht>0.01?"-$"+_sf(wht,2):"—"}</td>
-                  <td style={{...td0,textAlign:"right",fontWeight:600,color:"var(--green)"}}>${_sf(d.net||0,2)}</td>
-                  <td style={{...td0,textAlign:"right",color:"var(--text-secondary)"}}>{d.shares||""}</td>
-                  <td style={{...td0,textAlign:"right",color:"var(--gold)"}}>{dps>0?"$"+_sf(dps,3):""}</td>
+                  <td style={{...td0,textAlign:"right",color:"var(--red)",opacity:.7}}>{privacyMode?"•••":wht>0.01?"-$"+_sf(wht,2):"—"}</td>
+                  <td style={{...td0,textAlign:"right",fontWeight:600,color:"var(--green)"}}>{privacyMode?"•••":`$${_sf(d.net||0,2)}`}</td>
+                  <td style={{...td0,textAlign:"right",color:"var(--text-secondary)"}}>{privacyMode?"•••":d.shares||""}</td>
+                  <td style={{...td0,textAlign:"right",color:"var(--gold)"}}>{privacyMode?"•••":dps>0?"$"+_sf(dps,3):""}</td>
                 </tr>);
               })}</tbody>
             </table>

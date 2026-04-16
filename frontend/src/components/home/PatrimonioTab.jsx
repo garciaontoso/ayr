@@ -310,14 +310,14 @@ function SnapshotsSection() {
             return <tr key={c.id||i} style={{background:i%2?"var(--row-alt)":"transparent"}}
               onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"} onMouseLeave={e=>e.currentTarget.style.background=i%2?"var(--row-alt)":"transparent"}>
               <td style={{padding:"6px 10px",fontFamily:"var(--fm)",color:"var(--text-primary)",fontWeight:600,borderBottom:"1px solid var(--subtle-bg)"}}>{c.d}</td>
-              <td style={{...td0,fontWeight:700,color:"var(--text-primary)"}}>${(c.pu||0).toLocaleString()}</td>
+              <td style={{...td0,fontWeight:700,color:"var(--text-primary)"}}>{privacyMode?"•••":`$${(c.pu||0).toLocaleString()}`}</td>
               <td style={{...td0,color:"var(--text-tertiary)",fontSize:10}}>{c.fx?.toFixed(3)}</td>
-              <td style={{...td0,color:"var(--text-secondary)"}}>€{(c.pe||0).toLocaleString()}</td>
+              <td style={{...td0,color:"var(--text-secondary)"}}>{privacyMode?"•••":`€${(c.pe||0).toLocaleString()}`}</td>
               <td style={{...td0,fontWeight:600,color:chg>=0?"var(--green)":"var(--red)"}}>{chg?`${chg>=0?"+":""}${_sf(chg,1)}%`:""}</td>
-              <td style={{...td0,color:"#30d158"}}>${(c.br||0).toLocaleString()}</td>
-              <td style={{...td0,color:"#2563eb"}}>€{(c.bk||0).toLocaleString()}</td>
-              <td style={{...td0,color:"#c8a44e"}}>{c.goldEur ? `€${Math.round(c.goldEur).toLocaleString()}` : "—"}</td>
-              <td style={{...td0,color:"#ff9f0a"}}>{c.btcEur ? `€${Math.round(c.btcEur).toLocaleString()}` : "—"}</td>
+              <td style={{...td0,color:"#30d158"}}>{privacyMode?"•••":`$${(c.br||0).toLocaleString()}`}</td>
+              <td style={{...td0,color:"#2563eb"}}>{privacyMode?"•••":`€${(c.bk||0).toLocaleString()}`}</td>
+              <td style={{...td0,color:"#c8a44e"}}>{privacyMode?"•••":c.goldEur ? `€${Math.round(c.goldEur).toLocaleString()}` : "—"}</td>
+              <td style={{...td0,color:"#ff9f0a"}}>{privacyMode?"•••":c.btcEur ? `€${Math.round(c.btcEur).toLocaleString()}` : "—"}</td>
               <td style={{padding:"6px 10px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)"}}>
                 <button onClick={()=>startEdit(c)} style={{border:"none",background:"none",color:"var(--text-tertiary)",cursor:"pointer",fontSize:11,padding:"2px 4px"}} title="Editar">✏️</button>
                 <button onClick={()=>{if(window.confirm(`¿Eliminar snapshot ${c.d}?`))deleteCtrlEntry(c.id)}} style={{border:"none",background:"none",color:"var(--text-tertiary)",cursor:"pointer",fontSize:11,padding:"2px 4px",marginLeft:2}} title="Eliminar">🗑️</button>
@@ -1089,13 +1089,13 @@ return (
     <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:16}}>
       <div>
         <div style={{fontSize:10,color:"var(--gold)",fontFamily:"var(--fm)",letterSpacing:1.5,fontWeight:700,marginBottom:8,opacity:.7}}>PATRIMONIO NETO</div>
-        <div style={{fontSize:42,fontWeight:800,fontFamily:"var(--fm)",color:"var(--text-primary)",lineHeight:1,letterSpacing:-1}}>${(latest.pu||0).toLocaleString(undefined,{maximumFractionDigits:0})}</div>
-        <div style={{fontSize:18,fontWeight:500,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginTop:4}}>€{(latest.pe||0).toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+        <div style={{fontSize:42,fontWeight:800,fontFamily:"var(--fm)",color:"var(--text-primary)",lineHeight:1,letterSpacing:-1}}>{privacyMode?"•••":`$${(latest.pu||0).toLocaleString(undefined,{maximumFractionDigits:0})}`}</div>
+        <div style={{fontSize:18,fontWeight:500,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginTop:4}}>{privacyMode?"•••":`€${(latest.pe||0).toLocaleString(undefined,{maximumFractionDigits:0})}`}</div>
       </div>
       <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6}}>
         <div style={{padding:"6px 14px",borderRadius:10,background:monthDeltaPct>=0?"rgba(48,209,88,.1)":"rgba(255,69,58,.1)",border:`1px solid ${monthDeltaPct>=0?"rgba(48,209,88,.2)":"rgba(255,69,58,.2)"}`}}>
           <span style={{fontSize:16,fontWeight:700,color:retCol(monthDeltaPct),fontFamily:"var(--fm)"}}>{monthDeltaPct>=0?"▲":"▼"} {retFmt(monthDeltaPct)}</span>
-          <span style={{fontSize:11,color:retCol(monthDeltaPct),fontFamily:"var(--fm)",marginLeft:6,opacity:.7}}>({monthDeltaUsd>=0?"+":"−"}${fDol(Math.abs(monthDeltaUsd))})</span>
+          <span style={{fontSize:11,color:retCol(monthDeltaPct),fontFamily:"var(--fm)",marginLeft:6,opacity:.7}}>{privacyMode?"":(`(${monthDeltaUsd>=0?"+":"−"}$${fDol(Math.abs(monthDeltaUsd))})`)}</span>
         </div>
         {spark.length > 2 && <div style={{opacity:.7}}>
           <svg width={sparkW+20} height={sparkH+8} viewBox={`-2 -2 ${sparkW+4} ${sparkH+4}`} style={{overflow:"visible"}}>
@@ -1120,8 +1120,8 @@ return (
           {otherPct > 1 && <div style={{width:`${otherPct}%`,background:"var(--border-hover)"}}/>}
         </div>
         <div style={{display:"flex",gap:16,marginTop:6,fontSize:10,fontFamily:"var(--fm)"}}>
-          <span style={{color:"var(--gold)"}}>● Brokers ${fDol(latest.br||0)} ({_sf(brokerPct,0)}%)</span>
-          <span style={{color:"#64d2ff"}}>● Bancos €{fDol(latest.bk||0)} ({_sf(bankPct,0)}%)</span>
+          <span style={{color:"var(--gold)"}}>● Brokers {privacyMode?"•••":`$${fDol(latest.br||0)}`} ({_sf(brokerPct,0)}%)</span>
+          <span style={{color:"#64d2ff"}}>● Bancos {privacyMode?"•••":`€${fDol(latest.bk||0)}`} ({_sf(bankPct,0)}%)</span>
         </div>
       </div>;
     })()}
@@ -1166,7 +1166,7 @@ return (
         <div style={{display:"flex",gap:0}}>
           <div style={{display:"flex",flexDirection:"column",justifyContent:"space-between",height:chartH,paddingRight:8,flexShrink:0}}>
             {[...ySteps].reverse().map(v => (
-              <div key={v} style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"right",width:40,lineHeight:"1"}}>{v >= 1e6 ? `$${_sf(v/1e6,1)}M` : `$${_sf(v/1e3,0)}K`}</div>
+              <div key={v} style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"right",width:40,lineHeight:"1"}}>{privacyMode?"•":(v >= 1e6 ? `$${_sf(v/1e6,1)}M` : `$${_sf(v/1e3,0)}K`)}</div>
             ))}
           </div>
           <div style={{flex:1,position:"relative"}}>
@@ -1191,7 +1191,7 @@ return (
                         {d.mReturnUsd!=null && <div style={{color:d.mReturnUsd>=0?"var(--green)":"var(--red)",fontWeight:600}}>Mes: {retFmt(d.mReturnUsd)}</div>}
                       </div>
                     )}
-                    {showLabel && <div style={{fontSize:8,fontWeight:600,color:isLast?"var(--gold)":"var(--text-secondary)",fontFamily:"var(--fm)",marginBottom:2,whiteSpace:"nowrap"}}>{d.pu>=1e6?`$${_sf(d.pu/1e6,2)}M`:`$${_sf(d.pu/1e3,0)}K`}</div>}
+                    {showLabel && <div style={{fontSize:8,fontWeight:600,color:isLast?"var(--gold)":"var(--text-secondary)",fontFamily:"var(--fm)",marginBottom:2,whiteSpace:"nowrap"}}>{privacyMode?"•":(d.pu>=1e6?`$${_sf(d.pu/1e6,2)}M`:`$${_sf(d.pu/1e3,0)}K`)}</div>}
                     <div style={{width:"100%",maxWidth:16,height:`${Math.max(h,2)}%`,background:hoveredBar===i?"var(--gold)":barColor,borderRadius:"2px 2px 0 0",transition:"all .15s"}}/>
                   </div>
                 );

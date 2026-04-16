@@ -12,7 +12,7 @@ export PATH="/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:$PATH"
 set -u
 set -o pipefail
 
-API_URL="https://aar-api.garciaontoso.workers.dev"
+API_URL="https://api.onto-so.com"
 LOG_FILE="$HOME/Library/Logs/ayr-sync-funds.log"
 
 mkdir -p "$(dirname "$LOG_FILE")"

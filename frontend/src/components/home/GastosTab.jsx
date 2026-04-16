@@ -90,7 +90,7 @@ const CategoryDonut = ({segments, size=150, strokeW=18}) => {
 };
 
 /* ── 12-month Trend Area Chart ── */
-const TrendAreaChart = ({monthData, w=320, h=120}) => {
+const TrendAreaChart = ({monthData, w=320, h=120, privacyMode=false}) => {
   // monthData: [{key:"2026-03", eur:1234}, ...] sorted ascending, up to 12
   if(monthData.length < 2) return null;
   const mNames = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
@@ -139,7 +139,7 @@ const TrendAreaChart = ({monthData, w=320, h=120}) => {
         {/* value on last point */}
         {pts.length > 0 && (() => {
           const last = pts[pts.length-1];
-          return <text x={last.x} y={last.y-7} fill="var(--text-primary)" fontSize={8} fontWeight="600" fontFamily="var(--fm)" textAnchor="end">{"\u20AC"}{Math.round(last.v).toLocaleString()}</text>;
+          return <text x={last.x} y={last.y-7} fill="var(--text-primary)" fontSize={8} fontWeight="600" fontFamily="var(--fm)" textAnchor="end">{privacyMode ? "•••" : `€${Math.round(last.v).toLocaleString()}`}</text>;
         })()}
       </svg>
     </div>
@@ -152,7 +152,9 @@ export default function GastosTab() {
     gastosForm, setGastosForm, gastosFilter, setGastosFilter,
     gastosSort, setGastosSort, addGasto, deleteGasto,
     GASTO_CAT_LIST, fxRates, isOffline,
+    privacyMode,
   } = useHome();
+  const pm = (v) => privacyMode ? "•••" : v;
 
   const csvRef = useRef(null);
   const [csvToast, setCsvToast] = useState(null);
@@ -456,8 +458,8 @@ export default function GastosTab() {
               {[6,12,24].map(n=><button key={n} onClick={()=>{setAvgPeriod(n);localStorage.setItem("gastos_avgPeriod",n);}} style={{padding:"1px 5px",borderRadius:4,border:`1px solid ${avgPeriod===n?"var(--gold)":"var(--border)"}`,background:avgPeriod===n?"var(--gold-dim)":"transparent",color:avgPeriod===n?"var(--gold)":"var(--text-tertiary)",fontSize:8,cursor:"pointer",fontFamily:"var(--fm)",fontWeight:avgPeriod===n?700:400}}>{n}m</button>)}
               <button onClick={()=>{const v=!avgExcludeChina;setAvgExcludeChina(v);localStorage.setItem("gastos_avgExcludeChina",v);}} style={{padding:"1px 5px",borderRadius:4,border:`1px solid ${avgExcludeChina?"#ef4444":"var(--border)"}`,background:avgExcludeChina?"rgba(239,68,68,.08)":"transparent",color:avgExcludeChina?"#ef4444":"var(--text-tertiary)",fontSize:8,cursor:"pointer",fontFamily:"var(--fm)",fontWeight:avgExcludeChina?700:400}}>{avgExcludeChina?"🇨🇳 sin China":"🇨🇳 con China"}</button>
             </div>
-            <div style={{fontSize:22,fontWeight:800,color:"var(--gold)",fontFamily:"var(--fm)"}}>€{recentAvg.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
-            <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>€{(recentAvg*12).toLocaleString(undefined,{maximumFractionDigits:0})}/año · últimos {recentMonths.length} meses</div>
+            <div style={{fontSize:22,fontWeight:800,color:"var(--gold)",fontFamily:"var(--fm)"}}>{pm(`€${recentAvg.toLocaleString(undefined,{maximumFractionDigits:0})}`)}</div>
+            <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{pm(`€${(recentAvg*12).toLocaleString(undefined,{maximumFractionDigits:0})}/año`)} · últimos {recentMonths.length} meses</div>
           </div>
           <div onTouchStart={()=>{window._secTimer=setTimeout(()=>{setGastosFilter(p=>({...p,showSecretos:!p.showSecretos}));if(navigator.vibrate)navigator.vibrate(30);window._secTimer='fired';},1000);}} onTouchEnd={()=>{if(window._secTimer!=='fired')clearTimeout(window._secTimer);window._secTimer=null;}} onTouchMove={()=>{clearTimeout(window._secTimer);window._secTimer=null;}} onMouseDown={()=>{window._secTimer=setTimeout(()=>{setGastosFilter(p=>({...p,showSecretos:!p.showSecretos}));window._secTimer='fired';},1000);}} onMouseUp={()=>{if(window._secTimer!=='fired')clearTimeout(window._secTimer);window._secTimer=null;}} style={{cursor:"default",userSelect:"none",WebkitUserSelect:"none"}}><div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>REGISTROS</div><div style={{fontSize:20,fontWeight:700,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{filtered.length}</div></div>
         </div>
@@ -521,7 +523,7 @@ export default function GastosTab() {
           {trendData.length >= 2 && (
             <div style={{padding:"14px 16px",background:"var(--row-alt)",borderRadius:12,border:"1px solid var(--subtle-border)",flex:"1 1 320px",minWidth:280}}>
               <div style={{fontSize:9,fontWeight:600,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:10}}>TENDENCIA MENSUAL</div>
-              <TrendAreaChart monthData={trendData} w={320} h={120}/>
+              <TrendAreaChart monthData={trendData} w={320} h={120} privacyMode={privacyMode}/>
             </div>
           )}
         </div>
@@ -559,13 +561,13 @@ export default function GastosTab() {
               <div key={m} style={{padding:"8px 10px",background:"var(--row-alt)",borderRadius:8,border:"1px solid var(--subtle-border)"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:2}}>
                   <span style={{fontSize:10,fontWeight:600,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>{mNames[mi]} {yr}</span>
-                  <span style={{fontSize:14,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>€{(d.eur||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>
+                  <span style={{fontSize:14,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{pm(`€${(d.eur||0).toLocaleString(undefined,{maximumFractionDigits:0})}`)}</span>
                 </div>
                 {hasElim && <div style={{display:"flex",justifyContent:"flex-end",marginBottom:3}}>
-                  <span style={{fontSize:9,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fm)"}} title="Sin gastos eliminables (China)">🎯 €{(d.sinElim||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>
+                  <span style={{fontSize:9,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fm)"}} title="Sin gastos eliminables (China)">🎯 {pm(`€${(d.sinElim||0).toLocaleString(undefined,{maximumFractionDigits:0})}`)}</span>
                 </div>}
                 {/* stacked bar */}
-                <div style={{height:6,background:"var(--subtle-border)",borderRadius:3,overflow:"hidden",display:"flex",marginBottom:4}} title={`EUR: €${Math.round(d.eurNat)} | CNY: €${Math.round(d.cny)} | USD: €${Math.round(d.usd)}`}>
+                <div style={{height:6,background:"var(--subtle-border)",borderRadius:3,overflow:"hidden",display:"flex",marginBottom:4}} title={privacyMode?"•••":`EUR: €${Math.round(d.eurNat)} | CNY: €${Math.round(d.cny)} | USD: €${Math.round(d.usd)}`}>
                   {d.eurNat > 0 && <div style={{width:`${pctEur}%`,height:"100%",background:"#2563eb",opacity:.7,transition:"width .4s ease"}}/>}
                   {d.cny > 0 && <div style={{width:`${pctCny}%`,height:"100%",background:"#ff453a",opacity:.7,transition:"width .4s ease"}}/>}
                   {d.usd > 0 && <div style={{width:`${pctUsd}%`,height:"100%",background:"#30d158",opacity:.7,transition:"width .4s ease"}}/>}
@@ -574,7 +576,7 @@ export default function GastosTab() {
                 <div style={{height:3,background:"var(--subtle-bg)",borderRadius:2,overflow:"hidden"}}>
                   <div style={{width:`${pctTotal}%`,height:"100%",background:"var(--gold)",opacity:.3,borderRadius:2,transition:"width .4s ease"}}/>
                 </div>
-                {(d.cny > 0 || d.usd > 0) && <div style={{display:"flex",gap:3,marginTop:4,flexWrap:"wrap"}}>
+                {(d.cny > 0 || d.usd > 0) && !privacyMode && <div style={{display:"flex",gap:3,marginTop:4,flexWrap:"wrap"}}>
                   {d.eurNat > 0 && <span style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(37,99,235,.08)",color:"#2563eb",fontFamily:"var(--fm)"}}>EUR €{(d.eurNat||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
                   {d.cny > 0 && <span style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(255,69,58,.08)",color:"#ff453a",fontFamily:"var(--fm)"}}>CNY €{(d.cny||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
                   {d.usd > 0 && <span style={{fontSize:7,padding:"1px 4px",borderRadius:3,background:"rgba(48,209,88,.08)",color:"#30d158",fontFamily:"var(--fm)"}}>USD €{(d.usd||0).toLocaleString(undefined,{maximumFractionDigits:0})}</span>}
@@ -595,7 +597,7 @@ export default function GastosTab() {
             <div style={{flex:1,height:6,background:"var(--subtle-border)",borderRadius:3,overflow:"hidden"}}>
               <div style={{width:`${val/maxCat*100}%`,height:"100%",background:catColor(cat),borderRadius:3,opacity:.5,transition:"width .4s ease"}}/>
             </div>
-            <span style={{fontSize:9,color:"var(--text-secondary)",fontFamily:"var(--fm)",width:60,textAlign:"right"}}>€{val.toLocaleString(undefined,{maximumFractionDigits:0})}</span>
+            <span style={{fontSize:9,color:"var(--text-secondary)",fontFamily:"var(--fm)",width:60,textAlign:"right"}}>{pm(`€${val.toLocaleString(undefined,{maximumFractionDigits:0})}`)}</span>
             <span style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",width:30,textAlign:"right"}}>{(() => {const t=topCats.reduce((s,[,v])=>s+v,0); return t?Math.round(val/t*100):0;})()}%</span>
           </div>
         ))}
@@ -646,11 +648,11 @@ export default function GastosTab() {
                           return (
                             <td key={m} style={{padding:"2px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)"}}>
                               <div
-                                title={`${y}-${m}: €${Math.round(v).toLocaleString()} — click para ver detalle`}
+                                title={privacyMode?"•••":`${y}-${m}: €${Math.round(v).toLocaleString()} — click para ver detalle`}
                                 onClick={() => { setGastosFilter(p => ({...p, year:y, month:`${y}-${m}`})); setTimeout(() => document.getElementById("gastos-detail-table")?.scrollIntoView({behavior:"smooth",block:"start"}), 100); }}
                                 style={{borderRadius:4,background:isSelected?"var(--gold)":bg,padding:"4px 1px",fontSize:9,fontWeight:700,color:isSelected?"#000":intensity>.5?"var(--gold)":"var(--text-secondary)",fontFamily:"var(--fm)",cursor:"pointer",transition:"all .15s",boxShadow:isSelected?"0 0 8px rgba(200,164,78,.5)":"none"}}
                               >
-                                {v>=1000?`${_sf(v/1000,1)}K`:_sf(v,0)}
+                                {privacyMode?"•":v>=1000?`${_sf(v/1000,1)}K`:_sf(v,0)}
                               </div>
                             </td>
                           );
@@ -660,7 +662,7 @@ export default function GastosTab() {
                             <span
                               onClick={() => { setGastosFilter(p => ({...p, year:y, month:"all"})); setTimeout(() => document.getElementById("gastos-detail-table")?.scrollIntoView({behavior:"smooth",block:"start"}), 100); }}
                               style={{fontSize:11,fontWeight:800,color:gastosFilter.year===y&&gastosFilter.month==="all"?"#000":yi===0?"var(--gold)":"var(--text-primary)",fontFamily:"var(--fm)",cursor:"pointer",background:gastosFilter.year===y&&gastosFilter.month==="all"?"var(--gold)":"transparent",padding:"1px 4px",borderRadius:3}}
-                            >€{hmTotals[y]>=1000?`${_sf(hmTotals[y]/1000,1)}K`:_sf(hmTotals[y],0)}</span>
+                            >{privacyMode?"•••":`€${hmTotals[y]>=1000?`${_sf(hmTotals[y]/1000,1)}K`:_sf(hmTotals[y],0)}`}</span>
                             {yoyPct!=null && <span style={{fontSize:8,fontWeight:600,color:yoyPct>=0?"var(--red)":"var(--green)",fontFamily:"var(--fm)"}}>{yoyPct>=0?"+":""}{_sf(yoyPct,0)}%</span>}
                           </div>
                         </td>
@@ -763,7 +765,7 @@ export default function GastosTab() {
           return <>
             <div style={{padding:"6px 12px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid var(--border)"}}>
               <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{filteredRows.length} gastos</span>
-              <span style={{fontSize:11,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>Total: €{filtTotal.toLocaleString(undefined,{maximumFractionDigits:0})}</span>
+              <span style={{fontSize:11,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>Total: {pm(`€${filtTotal.toLocaleString(undefined,{maximumFractionDigits:0})}`)}</span>
             </div>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:750}}>
             <thead><tr>
@@ -788,9 +790,9 @@ export default function GastosTab() {
                     <td style={{padding:"5px 10px",fontFamily:"var(--fm)",color:"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>{g.date}</td>
                     <td style={{padding:"3px 6px",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)",maxWidth:160,cursor:"pointer"}} onClick={()=>setEditingCell({id:g.id,field:"cat",value:g.catCode||g.cat})}>{editingCell?.id===g.id&&editingCell?.field==="cat"?<select autoFocus value={editingCell.value} onChange={e=>{saveInlineEdit(g,"cat",e.target.value);}} onBlur={()=>setEditingCell(null)} style={{padding:"2px 4px",background:"var(--surface)",border:"1px solid var(--gold)",borderRadius:4,color:"var(--text-primary)",fontSize:10,fontFamily:"var(--fm)",outline:"none",width:"100%"}}>{GASTO_CAT_LIST.map(c=><option key={c} value={c}>{c}</option>)}</select>:<>{g.cat}{g.secreto?<span style={{fontSize:7,marginLeft:4,padding:"1px 4px",borderRadius:3,background:"rgba(99,102,241,.08)",color:"#6366f1",verticalAlign:"middle"}}>🔒</span>:""}{g.recur?<span style={{fontSize:7,marginLeft:3,padding:"1px 4px",borderRadius:3,background:"rgba(255,159,10,.08)",color:"var(--orange)",verticalAlign:"middle"}}>REC</span>:""}</>}</td>
                     <td style={{padding:"3px 4px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)",whiteSpace:"nowrap"}}>{(()=>{const tag=getLugar(g);const color=LUGAR_COLORS[tag]||"var(--text-tertiary)";return <button onClick={()=>cycleLugar(g)} title="Click para cambiar: — → China → Barco → Casa → —" style={{fontSize:8,padding:"4px 8px",borderRadius:5,border:`1px solid ${tag?color+"80":"var(--border)"}`,background:tag?color+"18":"transparent",color:tag?color:"var(--text-tertiary)",cursor:"pointer",fontWeight:tag?700:400,fontFamily:"var(--fm)",transition:"all .25s ease",minWidth:55}}>{tag?LUGAR_DISPLAY[tag]:"—"}</button>})()}</td>
-                    <td style={{padding:"3px 6px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:g.amount>0?"var(--green)":"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)",cursor:"pointer"}} onClick={()=>setEditingCell({id:g.id,field:"amount",value:Math.abs(g.amount||0)})}>{editingCell?.id===g.id&&editingCell?.field==="amount"?<input autoFocus type="number" step="0.01" value={editingCell.value} onChange={e=>setEditingCell(p=>({...p,value:e.target.value}))} onBlur={()=>saveInlineEdit(g,"amount",editingCell.value)} onKeyDown={e=>{if(e.key==="Enter")saveInlineEdit(g,"amount",editingCell.value);if(e.key==="Escape")setEditingCell(null);}} style={{padding:"2px 4px",background:"var(--surface)",border:"1px solid var(--gold)",borderRadius:4,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)",outline:"none",width:80,textAlign:"right"}}/>:<>{_ccyFlag(ccy)} {g.amount>0?"+":""}{_ccySym(ccy)}{Math.abs(g.amount||0).toLocaleString(undefined,{minimumFractionDigits:ccy==="CNY"?0:2,maximumFractionDigits:2})}</>}</td>
+                    <td style={{padding:"3px 6px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:g.amount>0?"var(--green)":"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)",cursor:"pointer"}} onClick={()=>!privacyMode&&setEditingCell({id:g.id,field:"amount",value:Math.abs(g.amount||0)})}>{privacyMode?"•••":editingCell?.id===g.id&&editingCell?.field==="amount"?<input autoFocus type="number" step="0.01" value={editingCell.value} onChange={e=>setEditingCell(p=>({...p,value:e.target.value}))} onBlur={()=>saveInlineEdit(g,"amount",editingCell.value)} onKeyDown={e=>{if(e.key==="Enter")saveInlineEdit(g,"amount",editingCell.value);if(e.key==="Escape")setEditingCell(null);}} style={{padding:"2px 4px",background:"var(--surface)",border:"1px solid var(--gold)",borderRadius:4,color:"var(--text-primary)",fontSize:11,fontFamily:"var(--fm)",outline:"none",width:80,textAlign:"right"}}/>:<>{_ccyFlag(ccy)} {g.amount>0?"+":""}{_ccySym(ccy)}{Math.abs(g.amount||0).toLocaleString(undefined,{minimumFractionDigits:ccy==="CNY"?0:2,maximumFractionDigits:2})}</>}</td>
                     <td style={{padding:"3px 4px",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>{isNonEur && <span style={{fontSize:8,padding:"1px 5px",borderRadius:3,background:"var(--subtle-border)",color:"var(--text-tertiary)"}}>{ccy}</span>}</td>
-                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:isNonEur?"var(--text-secondary)":"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)",fontSize:isNonEur?11:10.5}}>{isNonEur ? `€${eurVal.toLocaleString(undefined,{maximumFractionDigits:0})}` : `€${_sf(Math.abs(g.amount||0),2)}`}</td>
+                    <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:isNonEur?"var(--text-secondary)":"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)",fontSize:isNonEur?11:10.5}}>{privacyMode?"•••":isNonEur ? `€${eurVal.toLocaleString(undefined,{maximumFractionDigits:0})}` : `€${_sf(Math.abs(g.amount||0),2)}`}</td>
                     <td style={{padding:"3px 6px",fontFamily:"var(--fm)",color:"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)",fontSize:10,maxWidth:240,cursor:"pointer"}} onClick={()=>setEditingCell({id:g.id,field:"detail",value:g.detail||""})}>{editingCell?.id===g.id&&editingCell?.field==="detail"?<input autoFocus value={editingCell.value} onChange={e=>setEditingCell(p=>({...p,value:e.target.value}))} onBlur={()=>saveInlineEdit(g,"detail",editingCell.value)} onKeyDown={e=>{if(e.key==="Enter")saveInlineEdit(g,"detail",editingCell.value);if(e.key==="Escape")setEditingCell(null);}} style={{padding:"2px 4px",background:"var(--surface)",border:"1px solid var(--gold)",borderRadius:4,color:"var(--text-primary)",fontSize:10,fontFamily:"var(--fm)",outline:"none",width:"100%"}}/>:<span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"}}>{g.detail||"—"}</span>}</td>
                     <td style={{padding:"3px 4px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)"}}>
                       {(() => {

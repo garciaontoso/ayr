@@ -215,7 +215,7 @@ export default function ARApp() {
   // v10.2: New FMP data (rating, DCF, estimates, price targets, key metrics, financial growth)
   const [fmpExtra, setFmpExtra] = useState({ rating: {}, dcf: {}, estimates: [], priceTarget: {}, keyMetrics: [], finGrowth: [], grades: {}, ownerEarnings: [], revSegments: [], geoSegments: [], peers: [], earnings: [], ptSummary: {}, profile: {} });
   const [showSettings, setShowSettings] = useState(false);
-  const [privacyMode, setPrivacyMode] = useState(false);
+  const [privacyMode, setPrivacyMode] = useState(() => localStorage.getItem("ayr_privacy") === "1");
   const [theme, setTheme] = useState(() => localStorage.getItem("ayr_theme") || "dark");
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);

@@ -1145,8 +1145,9 @@ export default function HomeView() {
           {theme==="dark"?"☀️":"🌙"}
         </button>
 
-        <button onClick={()=>setPrivacyMode(!privacyMode)}
-          style={{padding:"4px 7px",borderRadius:6,border:`1px solid ${privacyMode?"var(--gold)":"var(--border)"}`,background:privacyMode?"var(--gold-dim)":"transparent",color:privacyMode?"var(--gold)":"var(--text-tertiary)",fontSize:10,cursor:"pointer",transition:"all .15s"}}>
+        <button onClick={()=>{const next=!privacyMode;setPrivacyMode(next);try{localStorage.setItem("ayr_privacy",next?"1":"0");}catch(e){}}}
+          style={{padding:"4px 7px",borderRadius:6,border:`1px solid ${privacyMode?"var(--gold)":"var(--border)"}`,background:privacyMode?"var(--gold-dim)":"transparent",color:privacyMode?"var(--gold)":"var(--text-tertiary)",fontSize:10,cursor:"pointer",transition:"all .15s"}}
+          title={privacyMode?"Mostrar importes (Modo Privado ON)":"Ocultar importes (Modo Privado)"}>
           {privacyMode?"🙈":"👁"}
         </button>
 

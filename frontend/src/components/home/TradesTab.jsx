@@ -9,6 +9,7 @@ export default function TradesTab() {
     tradesData, setTradesData, tradesLoading, setTradesLoading,
     tradesFilter, setTradesFilter, tradesPage, setTradesPage,
     openAnalysis, openCostBasis,
+    privacyMode,
   } = useHome();
 
   const [sortCol, setSortCol] = useState("fecha");
@@ -192,14 +193,14 @@ export default function TradesTab() {
                 <td style={{padding:"5px 10px",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>
                   <span style={{fontSize:9,padding:"2px 8px",borderRadius:4,background:`${tColor}15`,color:tColor,fontWeight:600}}>{typeLabels[r.tipo]||r.tipo}</span>
                 </td>
-                <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:isNeg?"var(--red)":"var(--text-primary)",fontWeight:isNeg?600:400,borderBottom:"1px solid var(--subtle-bg)"}}>{r.shares||""}</td>
-                <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)"}}>{r.precio?`$${_sf(r.precio,2)}`:""}</td>
-                <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--red)",borderBottom:"1px solid var(--subtle-bg)",opacity:.5,fontSize:10}}>{r.comision?`$${_sf(r.comision,2)}`:""}</td>
-                <td style={{padding:"5px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:r.coste>0?"var(--green)":r.coste<0?"var(--red)":"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{r.coste!=null?`$${_sf(r.coste,0)}`:""}</td>
-                <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)",fontSize:10}}>{r.dps?`$${_sf(r.dps,4)}`:""}</td>
-                <td style={{padding:"5px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:"var(--green)",borderBottom:"1px solid var(--subtle-bg)"}}>{r.div_total?`$${_sf(r.div_total,2)}`:""}</td>
-                <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"#64d2ff",borderBottom:"1px solid var(--subtle-bg)"}}>{r.opt_credit_total?`$${_sf(r.opt_credit_total,2)}`:""}</td>
-                <td style={{padding:"5px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:r.balance>=0?"var(--green)":"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{r.balance!=null&&r.balance!==0?`$${_sf(r.balance,0)}`:""}</td>
+                <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:isNeg?"var(--red)":"var(--text-primary)",fontWeight:isNeg?600:400,borderBottom:"1px solid var(--subtle-bg)"}}>{privacyMode?(r.shares?"•••":""):r.shares||""}</td>
+                <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)"}}>{privacyMode?(r.precio?"•••":""):(r.precio?`$${_sf(r.precio,2)}`:"")} </td>
+                <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--red)",borderBottom:"1px solid var(--subtle-bg)",opacity:.5,fontSize:10}}>{privacyMode?(r.comision?"•••":""):(r.comision?`$${_sf(r.comision,2)}`:"")}</td>
+                <td style={{padding:"5px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:r.coste>0?"var(--green)":r.coste<0?"var(--red)":"var(--text-tertiary)",borderBottom:"1px solid var(--subtle-bg)"}}>{privacyMode?(r.coste!=null?"•••":""):(r.coste!=null?`$${_sf(r.coste,0)}`:"")}</td>
+                <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--text-secondary)",borderBottom:"1px solid var(--subtle-bg)",fontSize:10}}>{privacyMode?(r.dps?"•••":""):(r.dps?`$${_sf(r.dps,4)}`:"")}</td>
+                <td style={{padding:"5px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:"var(--green)",borderBottom:"1px solid var(--subtle-bg)"}}>{privacyMode?(r.div_total?"•••":""):(r.div_total?`$${_sf(r.div_total,2)}`:"")}</td>
+                <td style={{padding:"5px 10px",textAlign:"right",fontFamily:"var(--fm)",color:"#64d2ff",borderBottom:"1px solid var(--subtle-bg)"}}>{privacyMode?(r.opt_credit_total?"•••":""):(r.opt_credit_total?`$${_sf(r.opt_credit_total,2)}`:"")}</td>
+                <td style={{padding:"5px 10px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:r.balance>=0?"var(--green)":"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{privacyMode?(r.balance!=null&&r.balance!==0?"•••":""):(r.balance!=null&&r.balance!==0?`$${_sf(r.balance,0)}`:"")}</td>
               </tr>);
             })}
           </tbody>

@@ -490,6 +490,7 @@ export default function FireTab() {
     CTRL_DATA, INCOME_DATA, GASTOS_MONTH,
     ibData,
     FI_TRACK, DIV_BY_YEAR, portfolioTotals,
+    privacyMode,
   } = useHome();
 
   // === FX RATES (centralized via useFxRates hook) ===
@@ -663,12 +664,12 @@ return (
     {/* KPI grid */}
     <div style={{display:"grid",gridTemplateColumns:"repeat(3, 1fr)",gap:8}}>
       {[
-        {l:"PATRIMONIO",v:`$${fDol(patUSD)}`,c:"var(--text-primary)",sub:`FIRE: $${fK(swr35)} (${_sf(patUSD/swr35*100,0)}%)`},
-        {l:"DIV NETO TTM",v:`$${fDol(divNet12mUSD)}`,c:"var(--green)",sub:`$${_sf(divNetMUSD,0)}/mes · $${_sf(divNetMUSD/30,1)}/dia`},
-        {l:"GASTOS TTM",v:`$${fDol(toDisp(avgEur,avgCny,avgUsd)*12)}`,c:"var(--red)",sub:`$${_sf(toDisp(avgEur,avgCny,avgUsd),0)}/mes`},
-        {l:"GAP MENSUAL",v:`${activeGapM>=0?"+":"-"}$${_sf(Math.abs(activeGapM),0)}`,c:activeGapM>=0?"var(--green)":"var(--red)",sub:activeGapM>=0?"superavit":"deficit mensual"},
+        {l:"PATRIMONIO",v:privacyMode?"•••":`$${fDol(patUSD)}`,c:"var(--text-primary)",sub:privacyMode?"•••":`FIRE: $${fK(swr35)} (${_sf(patUSD/swr35*100,0)}%)`},
+        {l:"DIV NETO TTM",v:privacyMode?"•••":`$${fDol(divNet12mUSD)}`,c:"var(--green)",sub:privacyMode?"•••":`$${_sf(divNetMUSD,0)}/mes · $${_sf(divNetMUSD/30,1)}/dia`},
+        {l:"GASTOS TTM",v:privacyMode?"•••":`$${fDol(toDisp(avgEur,avgCny,avgUsd)*12)}`,c:"var(--red)",sub:privacyMode?"•••":`$${_sf(toDisp(avgEur,avgCny,avgUsd),0)}/mes`},
+        {l:"GAP MENSUAL",v:privacyMode?"•••":`${activeGapM>=0?"+":"-"}$${_sf(Math.abs(activeGapM),0)}`,c:activeGapM>=0?"var(--green)":"var(--red)",sub:activeGapM>=0?"superavit":"deficit mensual"},
         {l:"TASA DE AHORRO",v:`${_sf(savingsRate,0)}%`,c:savingsRate>30?"var(--green)":savingsRate>15?"var(--gold)":"var(--red)",sub:`div+sueldo-gastos`},
-        {l:"FIRE NUMBER @3.5%",v:`$${fK(swr35)}`,c:"var(--gold)",sub:`${_sf(patUSD/swr35*100,0)}% patrimonio`},
+        {l:"FIRE NUMBER @3.5%",v:privacyMode?"•••":`$${fK(swr35)}`,c:"var(--gold)",sub:`${_sf(patUSD/swr35*100,0)}% patrimonio`},
       ].map((k,i)=>(
         <div key={i} style={{padding:"10px 12px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:10}}>
           <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,fontWeight:600}}>{k.l}</div>
@@ -693,8 +694,8 @@ return (
         <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.8,marginBottom:4,fontWeight:600}}>{s.l}</div>
         <div style={{fontSize:36,fontWeight:800,color:s.pct>=100?"var(--green)":s.pct>=70?"var(--gold)":"var(--red)",fontFamily:"var(--fm)",lineHeight:1}}>{_sf(s.pct,0)}%</div>
         <div style={{maxWidth:180,margin:"8px auto",height:5,background:"var(--subtle-bg2)",borderRadius:3,overflow:"hidden"}}><div style={{width:`${Math.min(s.pct,100)}%`,height:"100%",background:s.pct>=100?"var(--green)":"var(--gold)",borderRadius:3}}/></div>
-        <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>${_sf(s.m,0)}/mes</div>
-        <div style={{fontSize:10,fontWeight:700,color:gap>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)",marginTop:4}}>{gap>=0?"+":""}${_sf(gap,0)}/mes</div>
+        <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":`$${_sf(s.m,0)}/mes`}</div>
+        <div style={{fontSize:10,fontWeight:700,color:gap>=0?"var(--green)":"var(--red)",fontFamily:"var(--fm)",marginTop:4}}>{privacyMode?"•••":`${gap>=0?"+":""}$${_sf(gap,0)}/mes`}</div>
         <div style={{fontSize:7,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2,fontStyle:"italic"}}>{s.sub}</div>
       </div>;
     })}
@@ -746,10 +747,10 @@ return (
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:6,marginBottom:10}}>
         <div style={{padding:"6px 10px",background:"var(--subtle-bg)",borderRadius:6,fontSize:9,fontFamily:"var(--fm)"}}>
-          <span style={{color:"var(--text-tertiary)"}}>Media gastos: </span><b style={{color:"var(--red)"}}>${_sf(avgGAll,0)}/mes</b>
+          <span style={{color:"var(--text-tertiary)"}}>Media gastos: </span><b style={{color:"var(--red)"}}>{privacyMode?"•••":`$${_sf(avgGAll,0)}/mes`}</b>
         </div>
         <div style={{padding:"6px 10px",background:"var(--subtle-bg)",borderRadius:6,fontSize:9,fontFamily:"var(--fm)"}}>
-          <span style={{color:"var(--text-tertiary)"}}>Media div neto: </span><b style={{color:"var(--green)"}}>${_sf(avgDiv,0)}/mes</b>
+          <span style={{color:"var(--text-tertiary)"}}>Media div neto: </span><b style={{color:"var(--green)"}}>{privacyMode?"•••":`$${_sf(avgDiv,0)}/mes`}</b>
         </div>
         <div style={{padding:"6px 10px",background:"var(--subtle-bg)",borderRadius:6,fontSize:9,fontFamily:"var(--fm)"}}>
           <span style={{color:"var(--text-tertiary)"}}>Cobertura media: </span><b style={{color:avgGAll>0&&avgDiv/avgGAll>=1?"var(--green)":"var(--gold)"}}>{avgGAll>0?_sf(avgDiv/avgGAll*100,0):0}%</b>
@@ -771,12 +772,12 @@ return (
               <div style={{display:"flex",gap:2,alignItems:"flex-end",width:"100%",justifyContent:"center",height:160}}>
                 {/* Div bar */}
                 <div style={{width:"42%",maxWidth:28,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%"}}>
-                  <div style={{fontSize:8,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)",marginBottom:1,whiteSpace:"nowrap"}}>${r.dNet>=1000?_sf(r.dNet/1000,1)+"K":_sf(r.dNet,0)}</div>
+                  <div style={{fontSize:8,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)",marginBottom:1,whiteSpace:"nowrap"}}>{privacyMode?"•":r.dNet>=1000?`$${_sf(r.dNet/1000,1)}K`:`$${_sf(r.dNet,0)}`}</div>
                   <div style={{width:"100%",height:Math.max(hD,3),background:"rgba(48,209,88,.65)",borderRadius:"3px 3px 0 0"}}/>
                 </div>
                 {/* Gastos bar */}
                 <div style={{width:"42%",maxWidth:28,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%"}}>
-                  <div style={{fontSize:8,fontWeight:700,color:"var(--red)",fontFamily:"var(--fm)",marginBottom:1,whiteSpace:"nowrap"}}>${r.totalAll>=1000?_sf(r.totalAll/1000,1)+"K":_sf(r.totalAll,0)}</div>
+                  <div style={{fontSize:8,fontWeight:700,color:"var(--red)",fontFamily:"var(--fm)",marginBottom:1,whiteSpace:"nowrap"}}>{privacyMode?"•":r.totalAll>=1000?`$${_sf(r.totalAll/1000,1)}K`:`$${_sf(r.totalAll,0)}`}</div>
                   <div style={{width:"100%",height:Math.max(hG,3),background:"rgba(255,69,58,.45)",borderRadius:"3px 3px 0 0"}}/>
                 </div>
               </div>
@@ -804,12 +805,12 @@ return (
               const mi = parseInt(r.m.slice(5,7))-1;
               return <tr key={r.m} style={{background:i%2?"var(--row-alt)":"transparent"}}>
                 <td style={{...td,fontWeight:600,color:"var(--text-secondary)"}}>{mNames[mi]} {r.m.slice(2,4)}</td>
-                <td style={{...td,textAlign:"right",color:r.eur>0?"var(--text-primary)":"var(--text-tertiary)"}}>€{_sf(r.eur,0)}</td>
-                <td style={{...td,textAlign:"right",color:r.cny>0?"var(--text-primary)":"var(--text-tertiary)"}}>¥{_sf(r.cny,0)}</td>
-                <td style={{...td,textAlign:"right",color:r.usd>0?"var(--text-primary)":"var(--text-tertiary)"}}>{r.usd>0?`$${_sf(r.usd,0)}`:"-"}</td>
-                <td style={{...td,textAlign:"right",fontWeight:700,color:"var(--red)"}}>${_sf(r.totalAll,0)}</td>
-                <td style={{...td,textAlign:"right",color:"var(--orange)"}}>${_sf(r.totalSinChina,0)}</td>
-                <td style={{...td,textAlign:"right",fontWeight:700,color:"var(--green)"}}>${_sf(r.dNet,0)}</td>
+                <td style={{...td,textAlign:"right",color:r.eur>0?"var(--text-primary)":"var(--text-tertiary)"}}>{privacyMode?"•••":`€${_sf(r.eur,0)}`}</td>
+                <td style={{...td,textAlign:"right",color:r.cny>0?"var(--text-primary)":"var(--text-tertiary)"}}>{privacyMode?"•••":`¥${_sf(r.cny,0)}`}</td>
+                <td style={{...td,textAlign:"right",color:r.usd>0?"var(--text-primary)":"var(--text-tertiary)"}}>{privacyMode?"•••":r.usd>0?`$${_sf(r.usd,0)}`:"-"}</td>
+                <td style={{...td,textAlign:"right",fontWeight:700,color:"var(--red)"}}>{privacyMode?"•••":`$${_sf(r.totalAll,0)}`}</td>
+                <td style={{...td,textAlign:"right",color:"var(--orange)"}}>{privacyMode?"•••":`$${_sf(r.totalSinChina,0)}`}</td>
+                <td style={{...td,textAlign:"right",fontWeight:700,color:"var(--green)"}}>{privacyMode?"•••":`$${_sf(r.dNet,0)}`}</td>
                 <td style={{...td,textAlign:"right",fontWeight:700,color:r.covAll>=100?"var(--green)":r.covAll>=50?"var(--gold)":"var(--red)"}}>{_sf(r.covAll,0)}%</td>
                 <td style={{...td,textAlign:"right",fontWeight:600,color:r.covSinCN>=100?"var(--green)":r.covSinCN>=50?"var(--gold)":"var(--text-secondary)"}}>{_sf(r.covSinCN,0)}%</td>
               </tr>;
@@ -832,7 +833,7 @@ return (
         const divPct=f.fn>0?(divNet12mUSD/(f.fn*0.035)*100):0;
         return <div key={i} style={{padding:12,background:"var(--row-alt)",borderRadius:10,border:"1px solid var(--subtle-border)"}}>
           <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,marginBottom:4}}>{f.l}{f.sub?` (${f.sub})`:""}</div>
-          <div style={{fontSize:16,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>${fK(f.fn)}</div>
+          <div style={{fontSize:16,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>{privacyMode?"•••":`$${fK(f.fn)}`}</div>
           <div style={{height:5,background:"var(--subtle-bg2)",borderRadius:3,marginTop:6,overflow:"hidden"}}><div style={{width:`${Math.min(pct,100)}%`,height:"100%",background:pct>=100?"var(--green)":"var(--gold)",borderRadius:3}}/></div>
           <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
             <span style={{fontSize:9,fontWeight:600,color:pct>=100?"var(--green)":"var(--gold)",fontFamily:"var(--fm)"}}>{_sf(pct,0)}% pat</span>
@@ -852,7 +853,7 @@ return (
         const prev=i>0?divByYear[divYK[i-1]].n:0; const gr=prev>0?((nV-prev)/prev*100):null;
         return <div key={y} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"flex-end",height:"100%"}}>
           {gr!=null&&<div style={{fontSize:7,fontWeight:600,color:retCol(gr),fontFamily:"var(--fm)",marginBottom:2}}>{gr>=0?"+":""}{_sf(gr,0)}%</div>}
-          <div style={{fontSize:9,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)",marginBottom:2}}>${fK(nV)}</div>
+          <div style={{fontSize:9,fontWeight:700,color:"var(--green)",fontFamily:"var(--fm)",marginBottom:2}}>{privacyMode?"•••":`$${fK(nV)}`}</div>
           <div style={{width:"100%",maxWidth:36,height:`${Math.max(h,4)}%`,background:"var(--green)",borderRadius:"4px 4px 0 0",opacity:.6}}/>
           <div style={{fontSize:9,fontWeight:600,color:"var(--text-secondary)",fontFamily:"var(--fm)",marginTop:3}}>{y}</div>
         </div>;
@@ -873,11 +874,11 @@ return (
         const fn=s.g/0.035; const pp=fn>0?(patUSD/fn*100):0; const dp=s.g>0?(divNet12mUSD/s.g*100):0; const gap=(divNet12mUSD-s.g)/12;
         return <tr key={i} style={{background:s.hl?"rgba(200,164,78,.06)":i%2?"var(--row-alt)":"transparent"}}>
           <td style={{padding:"5px 8px",fontWeight:s.hl?700:500,fontFamily:"var(--fm)",color:s.hl?"var(--gold)":"var(--text-primary)",borderBottom:"1px solid var(--subtle-bg)"}}>{s.l}</td>
-          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>${fK(s.g)}</td>
-          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)"}}>${fK(fn)}</td>
+          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{privacyMode?"•••":`$${fK(s.g)}`}</td>
+          <td style={{padding:"5px 8px",textAlign:"right",fontFamily:"var(--fm)",color:"var(--gold)",borderBottom:"1px solid var(--subtle-bg)"}}>{privacyMode?"•••":`$${fK(fn)}`}</td>
           <td style={{padding:"5px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:pp>=100?"var(--green)":"var(--orange)",borderBottom:"1px solid var(--subtle-bg)"}}>{_sf(pp,0)}%</td>
           <td style={{padding:"5px 8px",textAlign:"right",fontWeight:600,fontFamily:"var(--fm)",color:dp>=100?"var(--green)":"var(--orange)",borderBottom:"1px solid var(--subtle-bg)"}}>{_sf(dp,0)}%</td>
-          <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,fontFamily:"var(--fm)",color:gap>=0?"var(--green)":"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{gap>=0?"+":""}${_sf(Math.abs(gap),0)}</td>
+          <td style={{padding:"5px 8px",textAlign:"right",fontWeight:700,fontFamily:"var(--fm)",color:gap>=0?"var(--green)":"var(--red)",borderBottom:"1px solid var(--subtle-bg)"}}>{privacyMode?"•••":`${gap>=0?"+":""}$${_sf(Math.abs(gap),0)}`}</td>
         </tr>;
       })}
     </tbody></table></div>
