@@ -113,6 +113,7 @@ export const HOME_TAB_GROUPS = [
       {id:"advisor",lbl:"Advisor",ico:"🧭"},
       {id:"earnings-archive",lbl:"Archive",ico:"🗄"},
       {id:"deep-dividend",lbl:"Deep Dividend",ico:"🔬"},
+      {id:"peer-compare",lbl:"Comparar",ico:"⚖️"},
       {id:"watchlist",lbl:"Watchlist",ico:"👁"},
       {id:"historial",lbl:"Historial",ico:"📦"},
     ],

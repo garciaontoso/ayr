@@ -600,6 +600,79 @@ export default function GastosTab() {
           </div>
         ))}
       </div>}
+
+      {/* ── Gastos Año × Mes heatmap ── */}
+      {allExpenses.length > 0 && (() => {
+        const hmGrid = {};
+        allExpenses.forEach(g => {
+          const y = g.date?.slice(0,4);
+          const m = g.date?.slice(5,7);
+          if (!y || !m) return;
+          if (!hmGrid[y]) hmGrid[y] = {};
+          if (!hmGrid[y][m]) hmGrid[y][m] = 0;
+          hmGrid[y][m] += gToEur(g);
+        });
+        const hmYears = Object.keys(hmGrid).sort().reverse();
+        const allHmVals = hmYears.flatMap(y => Object.values(hmGrid[y]));
+        const hmMax = Math.max(...allHmVals, 1);
+        const hmTotals = {};
+        hmYears.forEach(y => { hmTotals[y] = Object.values(hmGrid[y]).reduce((s,v)=>s+v,0); });
+        const hmMNames = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+        const hmMonths = ["01","02","03","04","05","06","07","08","09","10","11","12"];
+        const thS = {padding:"4px 5px",fontSize:9,fontWeight:600,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textAlign:"center",borderBottom:"1px solid var(--border)"};
+        return (
+          <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:14}}>
+            <div style={{fontSize:12,fontWeight:600,color:"var(--gold)",fontFamily:"var(--fd)",marginBottom:8}}>Gastos Año × Mes</div>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",minWidth:600}}>
+                <thead><tr>
+                  <th style={{...thS,textAlign:"left",width:40}}>AÑO</th>
+                  {hmMNames.map(mn => <th key={mn} style={thS}>{mn}</th>)}
+                  <th style={{...thS,borderLeft:"2px solid var(--border)",width:70}}>TOTAL</th>
+                </tr></thead>
+                <tbody>
+                  {hmYears.map((y, yi) => {
+                    const prevY = hmYears[yi+1];
+                    const yoyPct = prevY && hmTotals[prevY] > 0 ? ((hmTotals[y] - hmTotals[prevY]) / hmTotals[prevY] * 100) : null;
+                    return (
+                      <tr key={y}>
+                        <td style={{padding:"3px 5px",fontSize:11,fontWeight:700,color:yi===0?"var(--gold)":"var(--text-secondary)",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>{y}</td>
+                        {hmMonths.map(m => {
+                          const v = hmGrid[y]?.[m] || 0;
+                          if (!v) return <td key={m} style={{padding:"2px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)"}}><span style={{fontSize:8,color:"var(--text-tertiary)",opacity:.2}}>—</span></td>;
+                          const intensity = Math.min(v / hmMax, 1);
+                          const bg = `rgba(200,164,78,${0.08 + intensity * 0.5})`;
+                          const isSelected = gastosFilter.month === `${y}-${m}`;
+                          return (
+                            <td key={m} style={{padding:"2px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)"}}>
+                              <div
+                                title={`${y}-${m}: €${Math.round(v).toLocaleString()} — click para ver detalle`}
+                                onClick={() => { setGastosFilter(p => ({...p, year:y, month:`${y}-${m}`})); setTimeout(() => document.getElementById("gastos-detail-table")?.scrollIntoView({behavior:"smooth",block:"start"}), 100); }}
+                                style={{borderRadius:4,background:isSelected?"var(--gold)":bg,padding:"4px 1px",fontSize:9,fontWeight:700,color:isSelected?"#000":intensity>.5?"var(--gold)":"var(--text-secondary)",fontFamily:"var(--fm)",cursor:"pointer",transition:"all .15s",boxShadow:isSelected?"0 0 8px rgba(200,164,78,.5)":"none"}}
+                              >
+                                {v>=1000?`${_sf(v/1000,1)}K`:_sf(v,0)}
+                              </div>
+                            </td>
+                          );
+                        })}
+                        <td style={{padding:"2px 4px",textAlign:"center",borderBottom:"1px solid var(--subtle-bg)",borderLeft:"2px solid var(--border)"}}>
+                          <div style={{display:"flex",flexDirection:"column",alignItems:"center"}}>
+                            <span
+                              onClick={() => { setGastosFilter(p => ({...p, year:y, month:"all"})); setTimeout(() => document.getElementById("gastos-detail-table")?.scrollIntoView({behavior:"smooth",block:"start"}), 100); }}
+                              style={{fontSize:11,fontWeight:800,color:gastosFilter.year===y&&gastosFilter.month==="all"?"#000":yi===0?"var(--gold)":"var(--text-primary)",fontFamily:"var(--fm)",cursor:"pointer",background:gastosFilter.year===y&&gastosFilter.month==="all"?"var(--gold)":"transparent",padding:"1px 4px",borderRadius:3}}
+                            >€{hmTotals[y]>=1000?`${_sf(hmTotals[y]/1000,1)}K`:_sf(hmTotals[y],0)}</span>
+                            {yoyPct!=null && <span style={{fontSize:8,fontWeight:600,color:yoyPct>=0?"var(--red)":"var(--green)",fontFamily:"var(--fm)"}}>{yoyPct>=0?"+":""}{_sf(yoyPct,0)}%</span>}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
     </>;
   })()}
 
@@ -637,7 +710,7 @@ export default function GastosTab() {
   )}
 
   {/* Gastos table (multi-currency aware) */}
-  <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
+  <div id="gastos-detail-table" style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,overflow:"hidden"}}>
     {gastosLoading ? (
       <InlineLoading message="Cargando gastos..." />
     ) : gastosLog.length === 0 ? (

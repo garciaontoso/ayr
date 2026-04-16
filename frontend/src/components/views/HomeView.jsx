@@ -28,6 +28,7 @@ import YouTubeTab, { fetchAllYouTubeForOffline } from '../home/YouTubeTab';
 import OpcionesTab from '../home/OpcionesTab';
 import EarningsArchiveTab from '../home/EarningsArchiveTab';
 import DeepDividendTab from '../home/DeepDividendTab';
+import PeerCompareTab from '../home/PeerCompareTab';
 import CurrencyTab from '../home/CurrencyTab';
 import MacroTab from '../home/MacroTab';
 import EarningsTab from '../home/EarningsTab';
@@ -1361,6 +1362,7 @@ export default function HomeView() {
       {homeTab==="videos-youtube" && <YouTubeTab />}
       {homeTab==="earnings-archive" && <EarningsArchiveTab />}
       {homeTab==="deep-dividend" && <DeepDividendTab />}
+      {homeTab==="peer-compare" && <PeerCompareTab />}
       {homeTab==="opciones-cs" && <OpcionesTab strategy="CS" view="list" />}
       {homeTab==="opciones-roc" && <OpcionesTab strategy="ROC" view="list" />}
       {homeTab==="opciones-rop" && <OpcionesTab strategy="ROP" view="list" />}
