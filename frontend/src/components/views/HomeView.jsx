@@ -1127,7 +1127,7 @@ export default function HomeView() {
         {/* IB Live — reads current positions/NLV from IB OAuth (no writes to D1) */}
         <button onClick={loadIBData} disabled={ibLoading}
           title={ibLoaded
-            ? `IB Live · NLV $${Math.round(ibNlv).toLocaleString()} · ${(ibData?.positions||[]).length} pos.\nLee posiciones en tiempo real desde IB (no guarda en D1).${ibAlerts.length ? "\n"+ibAlerts.join(" · ") : ""}`
+            ? `IB Live · NLV ${privacyMode ? "•••" : "$"+Math.round(ibNlv).toLocaleString()} · ${(ibData?.positions||[]).length} pos.\nLee posiciones en tiempo real desde IB (no guarda en D1).${ibAlerts.length ? "\n"+ibAlerts.join(" · ") : ""}`
             : "Cargar posiciones IB en tiempo real (OAuth, solo lectura)"}
           style={{padding:"4px 8px",borderRadius:6,border:`1px solid ${ibColor}33`,background:`${ibColor}0F`,color:ibColor,fontSize:10,cursor:ibLoading?"wait":"pointer",fontFamily:"var(--fm)",fontWeight:600,transition:"all .15s"}}>
           {ibLoading ? "⏳" : ibLoaded ? `📡 Live${ibAlerts.length?" ⚠":""}` : "📡 IB Live"}

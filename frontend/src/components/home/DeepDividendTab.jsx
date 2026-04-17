@@ -1109,7 +1109,7 @@ export default function DeepDividendTab() {
       )}
 
       {/* Top stats row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(90px, 1fr))', gap: 8, marginBottom: 16 }}>
         <div style={{ padding: 10, background: 'var(--subtle-bg, rgba(255,255,255,.02))', borderRadius: 6 }}>
           <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>ANALIZADOS</div>
           <strong style={{ fontSize: 16 }}>{totalAnalyzed} <span style={{ fontSize: 10, color: 'var(--text-tertiary)', fontWeight: 400 }}>/ {portfolioTotal}</span></strong>
@@ -1122,8 +1122,8 @@ export default function DeepDividendTab() {
         ))}
       </div>
 
-      {/* 2-column main layout */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 16 }}>
+      {/* 2-column main layout (responsive: stacks on narrow screens) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16 }}>
         {/* LEFT: Action Required + Top Opportunities + Alerts */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <section style={{ background: 'var(--subtle-bg, rgba(255,255,255,.02))', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
@@ -1170,7 +1170,7 @@ export default function DeepDividendTab() {
               <strong style={{ fontSize: 12, color: 'var(--text-secondary)' }}>📊 SAFETY × GROWTH MATRIX</strong>
             </header>
             <div style={{ padding: 12, display: 'flex', justifyContent: 'center' }}>
-              <SafetyGrowthMatrix rows={allRows.slice(0, 30)} onClick={openDrill} />
+              <SafetyGrowthMatrix rows={allRows} onClick={openDrill} />
             </div>
           </section>
 

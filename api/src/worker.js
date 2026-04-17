@@ -7463,6 +7463,30 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
       }
 
+      // POST /api/positions/reconcile — fix positions.shares from cost_basis trades + IB live
+      // For each position where `shares` and `ib_shares` disagree significantly,
+      // trust IB (ib_shares) because it's the broker's ground truth.
+      if (path === "/api/positions/reconcile" && request.method === "POST") {
+        try {
+          const { results: mismatches } = await env.DB.prepare(
+            `SELECT ticker, shares, ib_shares FROM positions
+             WHERE ib_shares > 0 AND ABS(shares - ib_shares) > 0.5`
+          ).all();
+          let fixed = 0;
+          const details = [];
+          for (const m of mismatches) {
+            await env.DB.prepare(
+              `UPDATE positions SET shares = ?, updated_at = datetime('now') WHERE ticker = ?`
+            ).bind(m.ib_shares, m.ticker).run();
+            details.push({ ticker: m.ticker, from: m.shares, to: m.ib_shares });
+            fixed++;
+          }
+          return json({ ok: true, fixed, details }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
       // POST /api/positions/sync-ib — update positions from IB data
       if (path === "/api/positions/sync-ib" && request.method === "POST") {
         try {
