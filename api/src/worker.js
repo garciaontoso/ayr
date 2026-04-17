@@ -8780,14 +8780,14 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             "SELECT SUM(ABS(coste)) as total FROM cost_basis WHERE fecha LIKE ? AND tipo='OPTION' AND coste > 0"
           ).bind(year + "%").first();
 
-          // Dividends received
+          // Dividends received — use bruto_usd when available (IB Flex rows), else bruto
           const divs = await env.DB.prepare(
-            "SELECT SUM(div_total) as gross, COUNT(*) as count FROM dividendos WHERE fecha LIKE ?"
+            "SELECT SUM(CASE WHEN bruto_usd > 0 THEN bruto_usd ELSE bruto END) as gross, COUNT(*) as count FROM dividendos WHERE fecha LIKE ?"
           ).bind(year + "%").first();
 
           // Dividends by ticker
           const divByTicker = await env.DB.prepare(
-            "SELECT ticker, SUM(div_total) as total, COUNT(*) as payments FROM dividendos WHERE fecha LIKE ? GROUP BY ticker ORDER BY total DESC"
+            "SELECT ticker, SUM(CASE WHEN bruto_usd > 0 THEN bruto_usd ELSE bruto END) as total, COUNT(*) as payments FROM dividendos WHERE fecha LIKE ? GROUP BY ticker ORDER BY total DESC"
           ).bind(year + "%").all();
 
           return json({
