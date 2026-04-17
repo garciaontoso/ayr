@@ -116,19 +116,19 @@ export default function DashTab() {
 
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:12}}>
           {[
-            {lbl:"FCF",val:fM(L.fcf),sub:`Margen: ${fP(L.fcfm)}`,rules:R.fcfm,rv:L.fcfm},
-            {lbl:"M. Bruto",val:fP(L.gm),rules:R.gm,rv:L.gm},
-            {lbl:"ROE",val:fP(L.roe),rules:R.roe,rv:L.roe},
-            {lbl:"ROIC",val:fP(L.roic),rules:R.roic,rv:L.roic},
-            {lbl:"Deuda/FCF",val:fX(L.d2fcf),rules:R.d2fcf,rv:L.d2fcf},
-            {lbl:"EV/EBITDA",val:fX(L.eve),rules:R.eve,rv:L.eve},
-            {lbl:"Piotroski",val:`${piotroski.score}/9`,rules:R.pio,rv:piotroski.score},
-            {lbl:"Div Yield",val:fP(cfg.price>0&&LD.dps>0?LD.dps/cfg.price:null),sub:`DPS: $${LD.dps?.toFixed(2)||"—"}`,rules:[{test:v=>v>.04,lbl:"Alto",c:"var(--green)",bg:"rgba(48,209,88,.1)",score:3},{test:v=>v>.025,lbl:"Medio",c:"var(--yellow)",bg:"rgba(255,214,10,.1)",score:2},{test:v=>v>.01,lbl:"Bajo",c:"var(--orange)",bg:"rgba(255,159,10,.1)",score:1},{test:()=>true,lbl:"Mínimo",c:"var(--text-tertiary)",bg:"#1a202c",score:0}],rv:cfg.price>0&&LD.dps>0?LD.dps/cfg.price:null},
-            {lbl:"WACC",val:fP(wacc.wacc),sub:`Ke:${fP(wacc.costEquity)} Kd:${fP(wacc.costDebt)}`},
+            {lbl:"FCF",val:fM(L.fcf),sub:`Margen: ${fP(L.fcfm)}`,rules:R.fcfm,rv:L.fcfm,trust:{src:"FMP /cash-flow-statement (TTM)",note:"Free Cash Flow = OpCF - CapEx"}},
+            {lbl:"M. Bruto",val:fP(L.gm),rules:R.gm,rv:L.gm,trust:{src:"FMP /income-statement (TTM)",note:"Gross Margin = Gross Profit / Revenue"}},
+            {lbl:"ROE",val:fP(L.roe),rules:R.roe,rv:L.roe,trust:{src:"FMP /key-metrics (TTM)",note:"Return on Equity"}},
+            {lbl:"ROIC",val:fP(L.roic),rules:R.roic,rv:L.roic,trust:{src:"FMP /key-metrics (TTM)",note:"Return on Invested Capital"}},
+            {lbl:"Deuda/FCF",val:fX(L.d2fcf),rules:R.d2fcf,rv:L.d2fcf,trust:{src:"FMP /balance-sheet + /cash-flow (TTM)",note:"Total Debt / Free Cash Flow"}},
+            {lbl:"EV/EBITDA",val:fX(L.eve),rules:R.eve,rv:L.eve,trust:{src:"FMP /key-metrics (TTM)",note:"Enterprise Value / EBITDA"}},
+            {lbl:"Piotroski",val:`${piotroski.score}/9`,rules:R.pio,rv:piotroski.score,trust:{src:"Calculado localmente sobre FMP financials",note:"F-Score: 9 criterios de salud financiera"}},
+            {lbl:"Div Yield",val:fP(cfg.price>0&&LD.dps>0?LD.dps/cfg.price:null),sub:`DPS: $${LD.dps?.toFixed(2)||"—"}`,rules:[{test:v=>v>.04,lbl:"Alto",c:"var(--green)",bg:"rgba(48,209,88,.1)",score:3},{test:v=>v>.025,lbl:"Medio",c:"var(--yellow)",bg:"rgba(255,214,10,.1)",score:2},{test:v=>v>.01,lbl:"Bajo",c:"var(--orange)",bg:"rgba(255,159,10,.1)",score:1},{test:()=>true,lbl:"Mínimo",c:"var(--text-tertiary)",bg:"#1a202c",score:0}],rv:cfg.price>0&&LD.dps>0?LD.dps/cfg.price:null,trust:{src:"FMP /key-metrics dividendYield + DPS TTM",note:"DPS TTM / precio actual"}},
+            {lbl:"WACC",val:fP(wacc.wacc),sub:`Ke:${fP(wacc.costEquity)} Kd:${fP(wacc.costDebt)}`,trust:{lvl:"unverified",src:"Calculado localmente (CAPM + spread)",note:"Beta × ERP + Rf para equity; spread crediticio para deuda. Estimado."}},
           ].map((m,i) => (
             <Card key={i}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
-                <span style={{fontSize:10,color:"var(--text-secondary)",fontWeight:600,textTransform:"uppercase",letterSpacing:.5,fontFamily:"var(--fm)"}}>{m.lbl}</span>
+                <span style={{fontSize:10,color:"var(--text-secondary)",fontWeight:600,textTransform:"uppercase",letterSpacing:.5,fontFamily:"var(--fm)",display:"flex",alignItems:"center",gap:3}}>{m.lbl}{m.trust && <TrustBadge level={m.trust.lvl||"fresh"} source={m.trust.src} updatedAt={freshnessDate("scores")||new Date().toISOString().slice(0,10)} note={m.trust.note}/>}</span>
                 {m.rules && <Badge val={m.rv} rules={m.rules}/>}
               </div>
               <div style={{fontSize:22,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",marginTop:2}}>{m.val}</div>
