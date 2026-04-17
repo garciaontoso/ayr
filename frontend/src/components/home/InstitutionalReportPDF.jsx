@@ -61,7 +61,11 @@ const GLOSSARY = [
 // ─── Print-optimized styles ──────────────────────────────────
 const pageStyles = `
 @media print {
-  @page { size: A4 portrait; margin: 1.5cm 1.2cm; }
+  /* A4 portrait — top/bottom left for the running footer content */
+  @page {
+    size: A4 portrait;
+    margin: 2cm 1.5cm 2.2cm;
+  }
 
   /* CRITICAL: neutralize any CSS zoom / transforms from the app-level
      wrapper (the "-"/"+" zoom buttons set zoom:1.3 on a div inside #root).
@@ -81,6 +85,7 @@ const pageStyles = `
     width: auto !important;
     height: auto !important;
     overflow: visible !important;
+    font-size: 10pt !important;
   }
 
   /* Overlay becomes a normal-flow block so the browser can paginate properly */
@@ -106,107 +111,336 @@ const pageStyles = `
     color: #0b0b0b !important;
   }
 
+  /* Running footer on every page via a fixed-position block that browsers
+     repeat. We simulate it with a bottom border on each page section. */
+  .pdf-page-footer {
+    display: block !important;
+    position: fixed !important;
+    bottom: 0.5cm !important;
+    left: 0 !important;
+    right: 0 !important;
+    text-align: center !important;
+    font-size: 7.5pt !important;
+    color: #999 !important;
+    border-top: 0.3pt solid #e0e0e0 !important;
+    padding-top: 3pt !important;
+    font-family: 'Helvetica Neue', Arial, sans-serif !important;
+  }
+
   /* Hide controls */
   .pdf-noprint, .pdf-controls { display: none !important; }
 
-  /* Page break rules — be conservative. Don't use page-break-inside:avoid
-     on large containers (.pdf-section) because if the section is taller
-     than a page the browser gives up and produces weird breaks. */
-  .pdf-cover { page-break-after: always; }
-  .pdf-section { page-break-inside: auto; }
-  h1, h2, h3 { page-break-after: avoid; }
-  h1, h2 { page-break-before: auto; }
-  table { page-break-inside: avoid; }
-  .pdf-flag, .pdf-glossary-item { page-break-inside: avoid; }
-  .pdf-simple-summary { page-break-inside: avoid; }
+  /* ── Page break rules ──
+     Cover gets its own page. Major PART sections always start fresh.
+     Keep headings attached to their following content. Never break inside
+     tables, flag cards, or metric grids. */
+  .pdf-cover { page-break-after: always !important; }
 
-  /* Slightly tighter print typography so more fits per page */
-  .pdf-content h1 { font-size: 18pt !important; }
-  .pdf-content h2 { font-size: 13pt !important; margin-top: 14pt !important; }
-  .pdf-content h3 { font-size: 11pt !important; }
-  .pdf-content p { font-size: 10pt !important; line-height: 1.4 !important; }
-  .pdf-content li { font-size: 10pt !important; }
+  /* PART sections (h2 with pdf-part class) each start a new page */
+  .pdf-part-break { page-break-before: always !important; }
+
+  /* The full institutional report section always starts a new page */
+  .pdf-institutional-start { page-break-before: always !important; }
+
+  /* Generic section wrapper — never force breaks, browser decides */
+  .pdf-section { page-break-inside: auto; }
+
+  /* Headings: keep attached to following paragraph */
+  h1, h2, h3, h4 {
+    page-break-after: avoid !important;
+    orphans: 3;
+    widows: 3;
+  }
+
+  /* Tables never break mid-row (page-break-inside on tr is what matters) */
+  table { page-break-inside: auto; border-collapse: collapse !important; }
+  thead { display: table-header-group; }
+  tr { page-break-inside: avoid; page-break-after: auto; }
+
+  /* Small contained elements — keep whole */
+  .pdf-flag, .pdf-glossary-item, .pdf-simple-summary,
+  .pdf-score-row, .pdf-metric-grid { page-break-inside: avoid !important; }
+
+  /* Print typography — tighter to maximise content per page */
+  .pdf-content h1 { font-size: 17pt !important; margin-bottom: 6pt !important; }
+  .pdf-content h2 { font-size: 12.5pt !important; margin-top: 12pt !important; margin-bottom: 5pt !important; }
+  .pdf-content h3 { font-size: 10.5pt !important; margin-top: 8pt !important; }
+  .pdf-content h4 { font-size: 10pt !important; margin-top: 6pt !important; }
+  .pdf-content p, .pdf-content li { font-size: 9.5pt !important; line-height: 1.45 !important; }
+  .pdf-content th, .pdf-content td { font-size: 8.5pt !important; padding: 3pt 6pt !important; }
+
+  /* Colours must print — force -webkit-print-color-adjust for Chrome */
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
 
   a { color: #0b0b0b !important; text-decoration: none !important; }
+
+  /* Score bars must render their background colours */
+  .pdf-score-bar-fill { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
 }
+
+/* ── Screen styles ── */
 .pdf-overlay {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.9); z-index: 10000;
+  background: rgba(0,0,0,0.92); z-index: 10000;
   overflow: auto;
-  padding: 30px 20px;
+  padding: 40px 20px 60px;
 }
 .pdf-content {
   background: #fff; color: #0b0b0b;
-  max-width: 800px; margin: 0 auto;
-  padding: 60px 50px;
+  max-width: 820px; margin: 0 auto;
+  padding: 64px 56px;
   font-family: 'Georgia', 'Times New Roman', serif;
-  font-size: 12pt; line-height: 1.55;
-  box-shadow: 0 20px 80px rgba(0,0,0,0.5);
+  font-size: 11pt; line-height: 1.6;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.55);
+  border-radius: 2px;
 }
-.pdf-content h1 { font-size: 22pt; margin: 0 0 8pt; color: #0b0b0b; font-family: 'Helvetica', 'Arial', sans-serif; }
-.pdf-content h2 { font-size: 16pt; margin: 24pt 0 10pt; color: #0b0b0b; font-family: 'Helvetica', 'Arial', sans-serif; border-bottom: 1.5pt solid #c8a44e; padding-bottom: 4pt; }
-.pdf-content h3 { font-size: 13pt; margin: 14pt 0 6pt; color: #444; font-family: 'Helvetica', 'Arial', sans-serif; }
-.pdf-content p { margin: 0 0 10pt; text-align: justify; }
-.pdf-content table { border-collapse: collapse; width: 100%; margin: 12pt 0; font-size: 10pt; }
-.pdf-content th, .pdf-content td { padding: 4pt 8pt; border: 0.5pt solid #ccc; text-align: left; }
-.pdf-content th { background: #f5f5f7; font-weight: 700; }
+
+/* ── Typography ── */
+.pdf-content h1 {
+  font-size: 21pt; margin: 0 0 8pt;
+  color: #0b0b0b;
+  font-family: 'Helvetica Neue', 'Arial', sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.3pt;
+}
+.pdf-content h2 {
+  font-size: 15pt; margin: 26pt 0 9pt;
+  color: #0b0b0b;
+  font-family: 'Helvetica Neue', 'Arial', sans-serif;
+  font-weight: 700;
+  border-bottom: 1.5pt solid #c8a44e;
+  padding-bottom: 5pt;
+}
+.pdf-content h3 {
+  font-size: 12pt; margin: 16pt 0 6pt;
+  color: #333;
+  font-family: 'Helvetica Neue', 'Arial', sans-serif;
+  font-weight: 600;
+}
+.pdf-content h4 {
+  font-size: 11pt; margin: 12pt 0 4pt;
+  color: #444;
+  font-family: 'Helvetica Neue', 'Arial', sans-serif;
+  font-weight: 600;
+}
+.pdf-content p { margin: 0 0 10pt; text-align: justify; hyphens: auto; }
+
+/* ── Tables ── */
+.pdf-content table {
+  border-collapse: collapse; width: 100%; margin: 14pt 0;
+  font-size: 9.5pt;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+}
+.pdf-content th, .pdf-content td {
+  padding: 4.5pt 8pt; border: 0.5pt solid #bbb; text-align: left;
+  vertical-align: top; word-break: break-word; overflow-wrap: break-word;
+}
+.pdf-content th {
+  background: #f2f2f2; font-weight: 700; color: #111;
+  border-bottom: 1pt solid #999;
+}
+.pdf-content tr:nth-child(even) td { background: #fafafa; }
+.pdf-content tr:first-child td { background: transparent; } /* tbody first row */
+
+/* ── Lists ── */
 .pdf-content ul, .pdf-content ol { margin: 8pt 0 10pt; padding-left: 20pt; }
 .pdf-content li { margin: 3pt 0; }
-.pdf-content blockquote { margin: 10pt 0; padding: 8pt 14pt; border-left: 3pt solid #c8a44e; background: #fafaf7; font-style: italic; }
-.pdf-content hr { border: none; border-top: 0.5pt solid #ddd; margin: 16pt 0; }
-.pdf-content a { color: #0b0b0b; text-decoration: underline; }
+
+/* ── Blockquote ── */
+.pdf-content blockquote {
+  margin: 12pt 0; padding: 9pt 16pt;
+  border-left: 3pt solid #c8a44e;
+  background: #fafaf5;
+  font-style: italic;
+  border-radius: 0 3pt 3pt 0;
+}
+
+/* ── Misc inline ── */
+.pdf-content hr { border: none; border-top: 0.5pt solid #ddd; margin: 18pt 0; }
+.pdf-content a { color: #1a56db; text-decoration: underline; }
 .pdf-content strong { font-weight: 700; }
-.pdf-content code { background: #f0f0f0; padding: 1pt 4pt; border-radius: 2pt; font-family: 'Courier', monospace; font-size: 10pt; }
-.pdf-cover { text-align: center; padding: 40pt 0 60pt; }
-.pdf-cover-logo { font-size: 32pt; font-weight: 800; color: #c8a44e; letter-spacing: 4pt; font-family: 'Georgia', serif; }
-.pdf-cover-subtitle { font-size: 9pt; color: #888; letter-spacing: 2pt; text-transform: uppercase; margin-top: 4pt; }
-.pdf-cover-ticker { font-size: 60pt; font-weight: 800; margin: 40pt 0 8pt; color: #0b0b0b; letter-spacing: 2pt; font-family: 'Helvetica', sans-serif; }
-.pdf-cover-name { font-size: 13pt; color: #555; margin-bottom: 30pt; }
-.pdf-verdict-big { display: inline-block; padding: 10pt 28pt; font-size: 18pt; font-weight: 700; border: 2pt solid; border-radius: 6pt; letter-spacing: 2pt; }
-.pdf-scores { display: grid; grid-template-columns: 1fr 1fr; gap: 12pt; margin: 30pt auto 0; max-width: 500px; }
+.pdf-content em { font-style: italic; }
+.pdf-content code {
+  background: #f0f0f0; padding: 1pt 5pt;
+  border-radius: 2pt;
+  font-family: 'Menlo', 'Courier New', monospace;
+  font-size: 9pt;
+}
+
+/* ── Cover page ── */
+.pdf-cover {
+  text-align: center;
+  padding: 48pt 0 56pt;
+  border-bottom: 2pt solid #e8e8e8;
+  margin-bottom: 40pt;
+}
+.pdf-cover-logo {
+  font-size: 11pt; font-weight: 800; color: #c8a44e;
+  letter-spacing: 6pt; font-family: 'Helvetica Neue', sans-serif;
+  text-transform: uppercase;
+}
+.pdf-cover-rule {
+  width: 40pt; height: 2pt; background: #c8a44e;
+  margin: 8pt auto 6pt;
+}
+.pdf-cover-subtitle {
+  font-size: 8.5pt; color: #999; letter-spacing: 2.5pt;
+  text-transform: uppercase; font-family: 'Helvetica Neue', sans-serif;
+}
+.pdf-cover-ticker {
+  font-size: 56pt; font-weight: 800; margin: 36pt 0 4pt;
+  color: #0b0b0b; letter-spacing: 3pt;
+  font-family: 'Helvetica Neue', 'Arial', sans-serif;
+  line-height: 1;
+}
+.pdf-cover-name {
+  font-size: 14pt; color: #444; margin-bottom: 6pt;
+  font-family: 'Georgia', serif;
+  font-style: italic;
+}
+.pdf-cover-meta {
+  font-size: 9pt; color: #888; margin-bottom: 28pt;
+  font-family: 'Helvetica Neue', sans-serif;
+}
+.pdf-verdict-big {
+  display: inline-block; padding: 10pt 30pt;
+  font-size: 17pt; font-weight: 700;
+  border: 2pt solid; border-radius: 4pt;
+  letter-spacing: 1.5pt;
+  font-family: 'Helvetica Neue', sans-serif;
+}
+.pdf-scores {
+  display: grid; grid-template-columns: 1fr 1fr 1fr;
+  gap: 14pt 20pt; margin: 32pt auto 0; max-width: 580px;
+}
 .pdf-score-row { text-align: left; }
-.pdf-score-label { font-size: 9pt; color: #888; text-transform: uppercase; letter-spacing: 1pt; margin-bottom: 2pt; }
-.pdf-score-bar-bg { height: 10pt; background: #eee; border-radius: 5pt; overflow: hidden; }
-.pdf-score-bar-fill { height: 100%; border-radius: 5pt; }
-.pdf-score-value { font-size: 11pt; font-weight: 700; margin-top: 3pt; }
-.pdf-cover-date { margin-top: 40pt; font-size: 10pt; color: #888; }
-.pdf-disclaimer { margin-top: 30pt; padding: 14pt; background: #fafaf7; border: 0.5pt solid #e5e5e5; font-size: 9pt; color: #666; border-radius: 4pt; line-height: 1.5; }
-.pdf-flag { padding: 10pt 14pt; margin: 6pt 0; border-left: 3pt solid; background: #fafaf7; border-radius: 0 4pt 4pt 0; font-size: 10pt; page-break-inside: avoid; }
+.pdf-score-label {
+  font-size: 8pt; color: #888; text-transform: uppercase;
+  letter-spacing: 0.8pt; margin-bottom: 3pt;
+  font-family: 'Helvetica Neue', sans-serif;
+}
+.pdf-score-bar-bg { height: 8pt; background: #e8e8e8; border-radius: 4pt; overflow: hidden; }
+.pdf-score-bar-fill { height: 100%; border-radius: 4pt; }
+.pdf-score-value {
+  font-size: 10.5pt; font-weight: 700; margin-top: 3pt;
+  font-family: 'Helvetica Neue', sans-serif;
+}
+.pdf-cover-date {
+  margin-top: 36pt; font-size: 9.5pt; color: #777;
+  font-family: 'Helvetica Neue', sans-serif;
+}
+.pdf-cover-confidence {
+  display: inline-block; margin-top: 6pt; padding: 3pt 10pt;
+  background: #f5f5f5; border-radius: 10pt;
+  font-size: 9pt; color: #555;
+  font-family: 'Helvetica Neue', sans-serif;
+  text-transform: uppercase; letter-spacing: 1pt;
+}
+
+/* ── Disclaimer box ── */
+.pdf-disclaimer {
+  margin-top: 32pt; padding: 14pt 18pt;
+  background: #fafaf7; border: 0.5pt solid #e0e0e0;
+  font-size: 8.5pt; color: #666; border-radius: 3pt;
+  line-height: 1.55;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* ── Flag cards ── */
+.pdf-flag {
+  padding: 9pt 14pt; margin: 5pt 0;
+  border-left: 3pt solid; border-radius: 0 3pt 3pt 0;
+  font-size: 9.5pt;
+}
 .pdf-flag-high { border-color: #ef4444; background: #fef2f2; }
 .pdf-flag-medium { border-color: #d4af37; background: #fefdf6; }
-.pdf-flag-low { border-color: #60a5fa; background: #f0f7ff; }
+.pdf-flag-low { border-color: #60a5fa; background: #f0f6ff; }
 .pdf-flag-green { border-color: #22c55e; background: #f0fdf4; }
-.pdf-flag-severity { font-weight: 700; text-transform: uppercase; font-size: 9pt; }
-.pdf-flag-quote { margin-top: 4pt; font-style: italic; color: #666; font-size: 9pt; }
-.pdf-metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8pt 16pt; margin: 10pt 0; font-size: 10pt; }
-.pdf-metric-key { color: #666; text-transform: capitalize; }
+.pdf-flag-severity {
+  font-weight: 700; text-transform: uppercase; font-size: 8pt;
+  font-family: 'Helvetica Neue', sans-serif; letter-spacing: 0.5pt;
+}
+.pdf-flag-quote { margin-top: 4pt; font-style: italic; color: #666; font-size: 8.5pt; }
+
+/* ── Metric grid ── */
+.pdf-metric-grid {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 7pt 18pt; margin: 10pt 0;
+  font-size: 9.5pt;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+}
+.pdf-metric-key { color: #666; }
 .pdf-metric-value { font-weight: 700; color: #0b0b0b; }
-.pdf-glossary-item { margin: 8pt 0; font-size: 10pt; page-break-inside: avoid; }
-.pdf-glossary-term { font-weight: 700; color: #c8a44e; }
+
+/* ── Glossary ── */
+.pdf-glossary-item { margin: 7pt 0; font-size: 9.5pt; }
+.pdf-glossary-term { font-weight: 700; color: #b8923e; }
+
+/* ── Simple summary callout ── */
 .pdf-simple-summary {
   background: #fffbeb;
-  border: 1pt solid #f4d77e;
+  border: 1pt solid #f0d060;
   padding: 14pt 18pt;
-  border-radius: 4pt;
+  border-radius: 3pt;
   margin: 14pt 0;
 }
-.pdf-simple-summary h3 { margin-top: 0; color: #946b1a; }
+.pdf-simple-summary h3 { margin-top: 0; color: #8a5e10; }
+
+/* ── Page footer (screen only — printed by fixed element above) ── */
+.pdf-page-footer {
+  display: none;
+}
+
+/* ── Floating controls ── */
 .pdf-controls {
-  position: fixed; top: 20px; right: 20px;
+  position: fixed; top: 16px; right: 20px;
   display: flex; gap: 10px; z-index: 10001;
 }
 .pdf-controls button {
-  padding: 10px 18px; border-radius: 6px; border: none;
+  padding: 10px 18px; border-radius: 5px; border: none;
   font-size: 13px; font-weight: 700; cursor: pointer;
-  font-family: -apple-system, sans-serif;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  font-family: -apple-system, 'Helvetica Neue', sans-serif;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  letter-spacing: 0.2px;
 }
 .pdf-btn-print { background: #c8a44e; color: #000; }
-.pdf-btn-close { background: #333; color: #fff; }
+.pdf-btn-print:hover { background: #b8903e; }
+.pdf-btn-close { background: #2a2a2a; color: #fff; }
+.pdf-btn-close:hover { background: #444; }
 `;
 
-// ─── Simple inline markdown renderer ────────────────────────
-// Handles: h1-h3, p, strong/em, ul/ol, tables, blockquote, hr, code
+// ─── Compiled inline regex (hoisted so it's not rebuilt per call) ────────────
+// Order matters: ** before * to avoid greedy single-star matching double-star.
+const INLINE_RE = /(\*\*(?:[^*]|\*(?!\*))+\*\*|\*(?:[^*])+\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/;
+
+// ─── Simple inline markdown renderer ─────────────────────────
+function renderInline(s) {
+  const parts = [];
+  let rem = s;
+  let key = 0;
+  while (rem) {
+    const m = rem.match(INLINE_RE);
+    if (!m) { parts.push(rem); break; }
+    if (m.index > 0) parts.push(rem.slice(0, m.index));
+    const t = m[0];
+    if (t.startsWith('**')) parts.push(<strong key={key++}>{t.slice(2, -2)}</strong>);
+    else if (t.startsWith('*')) parts.push(<em key={key++}>{t.slice(1, -1)}</em>);
+    else if (t.startsWith('`')) parts.push(<code key={key++}>{t.slice(1, -1)}</code>);
+    else {
+      const lm = t.match(/\[([^\]]+)\]\(([^)]+)\)/);
+      if (lm) parts.push(<a key={key++} href={lm[2]}>{lm[1]}</a>);
+    }
+    rem = rem.slice(m.index + t.length);
+  }
+  return parts;
+}
+
+// Reports use "## PART I --", "## PART II --" etc. as major section breaks.
+// Detect these to inject page-break-before class.
+const PART_HEADER_RE = /^#{1,2}\s+PART\s+[IVXLCDM]+\b/i;
+
+// ─── Block markdown renderer ─────────────────────────────────
+// Handles: h1-h6, p, strong/em, ul/ol, tables, blockquote, hr, code
 function renderMarkdownToPDF(md) {
   if (!md) return null;
   const lines = md.split('\n');
@@ -222,45 +456,30 @@ function renderMarkdownToPDF(md) {
     }
   };
 
-  const renderInline = (s) => {
-    // Bold **x**, italic *x*, code `x`, links [text](url)
-    const parts = [];
-    let rem = s;
-    let key = 0;
-    const re = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/;
-    while (rem) {
-      const m = rem.match(re);
-      if (!m) { parts.push(rem); break; }
-      if (m.index > 0) parts.push(rem.slice(0, m.index));
-      const t = m[0];
-      if (t.startsWith('**')) parts.push(<strong key={key++}>{t.slice(2, -2)}</strong>);
-      else if (t.startsWith('*')) parts.push(<em key={key++}>{t.slice(1, -1)}</em>);
-      else if (t.startsWith('`')) parts.push(<code key={key++}>{t.slice(1, -1)}</code>);
-      else if (t.startsWith('[')) {
-        const lm = t.match(/\[([^\]]+)\]\(([^)]+)\)/);
-        parts.push(<a key={key++} href={lm[2]}>{lm[1]}</a>);
-      }
-      rem = rem.slice(m.index + t.length);
-    }
-    return parts;
-  };
-
   while (i < lines.length) {
     const line = lines[i];
     const trimmed = line.trim();
 
-    // Headers
+    // ── Headers ──
     if (/^#{1,6} /.test(trimmed)) {
       flushPara();
       const level = trimmed.match(/^(#+)/)[1].length;
       const text = trimmed.replace(/^#+\s*/, '');
-      const Tag = `h${Math.min(level + 1, 6)}`; // Shift down 1 so MD h1 → PDF h2
-      out.push(React.createElement(Tag, { key: 'h' + out.length, className: 'pdf-section' }, renderInline(text)));
+      // MD h1 (#) → PDF h2; MD h2 (##) → PDF h3; etc. (max h5)
+      // EXCEPTION: PART headers (## PART I etc.) keep h2 and get page-break class.
+      const isPart = PART_HEADER_RE.test(trimmed);
+      const Tag = isPart ? 'h2' : `h${Math.min(level + 1, 5)}`;
+      const className = isPart ? 'pdf-part-break' : undefined;
+      out.push(React.createElement(
+        Tag,
+        { key: 'h' + out.length, ...(className ? { className } : {}) },
+        renderInline(text)
+      ));
       i++;
       continue;
     }
 
-    // HR
+    // ── HR ──
     if (/^---+$/.test(trimmed)) {
       flushPara();
       out.push(<hr key={'hr' + out.length} />);
@@ -268,7 +487,7 @@ function renderMarkdownToPDF(md) {
       continue;
     }
 
-    // Blockquote
+    // ── Blockquote ──
     if (trimmed.startsWith('>')) {
       flushPara();
       const quote = [];
@@ -276,11 +495,11 @@ function renderMarkdownToPDF(md) {
         quote.push(lines[i].trim().replace(/^>\s?/, ''));
         i++;
       }
-      out.push(<blockquote key={'q' + out.length}>{quote.join(' ')}</blockquote>);
+      out.push(<blockquote key={'q' + out.length}>{renderInline(quote.join(' '))}</blockquote>);
       continue;
     }
 
-    // Table
+    // ── Table ──
     if (/^\|.*\|$/.test(trimmed)) {
       flushPara();
       const rows = [];
@@ -289,9 +508,8 @@ function renderMarkdownToPDF(md) {
         i++;
       }
       if (rows.length >= 2 && /^[\s:|-]+$/.test(rows[1].join(''))) {
-        // Header row + separator + body
         out.push(
-          <table key={'t' + out.length} className="pdf-section">
+          <table key={'t' + out.length}>
             <thead>
               <tr>{rows[0].map((c, j) => <th key={j}>{renderInline(c)}</th>)}</tr>
             </thead>
@@ -306,19 +524,19 @@ function renderMarkdownToPDF(md) {
       continue;
     }
 
-    // Unordered list
-    if (/^[-*] /.test(trimmed)) {
+    // ── Unordered list ──
+    if (/^[-*+] /.test(trimmed)) {
       flushPara();
       const items = [];
-      while (i < lines.length && /^[-*] /.test(lines[i].trim())) {
-        items.push(lines[i].trim().replace(/^[-*]\s+/, ''));
+      while (i < lines.length && /^[-*+] /.test(lines[i].trim())) {
+        items.push(lines[i].trim().replace(/^[-*+]\s+/, ''));
         i++;
       }
       out.push(<ul key={'ul' + out.length}>{items.map((it, ii) => <li key={ii}>{renderInline(it)}</li>)}</ul>);
       continue;
     }
 
-    // Ordered list
+    // ── Ordered list ──
     if (/^\d+\. /.test(trimmed)) {
       flushPara();
       const items = [];
@@ -330,14 +548,14 @@ function renderMarkdownToPDF(md) {
       continue;
     }
 
-    // Empty line → paragraph break
+    // ── Empty line → paragraph break ──
     if (!trimmed) {
       flushPara();
       i++;
       continue;
     }
 
-    // Regular paragraph line
+    // ── Regular paragraph line ──
     buffer.push(trimmed);
     i++;
   }
@@ -428,20 +646,42 @@ export default function InstitutionalReportPDF({ ticker, data, onClose }) {
       </div>
 
       <div className="pdf-content" onClick={(e) => e.stopPropagation()}>
+
+        {/* ─── RUNNING PAGE FOOTER (prints on every page in Chrome/Edge) ─── */}
+        <div className="pdf-page-footer pdf-noprint">
+          {ticker} — A&amp;R Institutional Dividend Research v4.0 ·{' '}
+          {new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'short', day: 'numeric' })}
+        </div>
+
         {/* ─── COVER PAGE ─── */}
         <div className="pdf-cover">
-          <div className="pdf-cover-logo">A&R</div>
+          {/* Masthead */}
+          <div className="pdf-cover-logo">A&amp;R</div>
+          <div className="pdf-cover-rule" />
           <div className="pdf-cover-subtitle">Institutional Dividend Research</div>
+
+          {/* Company identity */}
           <div className="pdf-cover-ticker">{ticker}</div>
-          <div className="pdf-cover-name">
-            {data?.quarter ? `Q ${data.quarter}` : ''}
-            {data?.sector_bucket ? ` · ${data.sector_bucket}` : ''}
+          {data?.company_name && (
+            <div className="pdf-cover-name">{data.company_name}</div>
+          )}
+          <div className="pdf-cover-meta">
+            {[
+              data?.sector_bucket,
+              data?.quarter ? `Q${data.quarter}` : null,
+              data?.cfg?.price ? `Precio ref. $${data.cfg.price}` : null,
+            ].filter(Boolean).join('  ·  ')}
           </div>
 
-          <div className="pdf-verdict-big" style={{ color: VERDICT_COLOR(data?.verdict), borderColor: VERDICT_COLOR(data?.verdict) }}>
+          {/* Verdict badge */}
+          <div
+            className="pdf-verdict-big"
+            style={{ color: VERDICT_COLOR(data?.verdict), borderColor: VERDICT_COLOR(data?.verdict) }}
+          >
             {data?.verdict || '—'}
           </div>
 
+          {/* Score bars — 3 columns */}
           <div className="pdf-scores">
             <ScoreBar label="Dividend Safety" score={scores.safety} />
             <ScoreBar label="Dividend Growth" score={scores.growth} />
@@ -451,12 +691,16 @@ export default function InstitutionalReportPDF({ ticker, data, onClose }) {
             <ScoreBar label="Composite" score={scores.composite} color="#c8a44e" />
           </div>
 
+          {/* Date + confidence */}
           <div className="pdf-cover-date">
             {new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' })}
-            <br />Confidence: <strong>{data?.confidence || 'medium'}</strong>
+          </div>
+          <div className="pdf-cover-confidence">
+            Confidence: {data?.confidence || 'medium'}
           </div>
 
-          <div className="pdf-disclaimer">
+          {/* Cover disclaimer */}
+          <div className="pdf-disclaimer" style={{ marginTop: '32pt', textAlign: 'left' }}>
             <strong>Disclaimer:</strong> Este informe es investigación privada y no constituye asesoramiento
             financiero ni recomendación de inversión. Los datos provienen de filings de la SEC (EDGAR),
             Financial Modeling Prep, y transcripciones públicas de earnings calls. Las opiniones son del
@@ -605,11 +849,14 @@ export default function InstitutionalReportPDF({ ticker, data, onClose }) {
 
         {/* ─── FULL INSTITUTIONAL REPORT ─── */}
         {data?.result_md && (
-          <div className="pdf-section" style={{ pageBreakBefore: 'always' }}>
-            <h1 style={{ marginTop: 0, borderBottom: '2pt solid #c8a44e', paddingBottom: '8pt' }}>Informe Institucional Completo</h1>
-            <p style={{ fontSize: '10pt', color: '#666', fontStyle: 'italic' }}>
-              Research detallado con fuentes primarias (SEC 10-K/10-Q narrative, FMP 10y fundamentals).
-              Las secciones siguientes contienen el análisis completo con rigor institucional.
+          <div className="pdf-section pdf-institutional-start">
+            <h1 style={{ marginTop: 0, borderBottom: '2pt solid #c8a44e', paddingBottom: '8pt' }}>
+              Informe Institucional Completo
+            </h1>
+            <p style={{ fontSize: '9.5pt', color: '#666', fontStyle: 'italic', marginBottom: '20pt' }}>
+              Research detallado con fuentes primarias (SEC 10-K/10-Q narrative, FMP 10y fundamentals,
+              earnings call transcripts). Cada tabla y afirmación cuantitativa incluye la fuente de línea
+              en el filing original.
             </p>
             {renderMarkdownToPDF(data.result_md)}
           </div>
@@ -619,7 +866,7 @@ export default function InstitutionalReportPDF({ ticker, data, onClose }) {
         <div className="pdf-section pdf-disclaimer" style={{ marginTop: '40pt' }}>
           <strong>Fuentes utilizadas:</strong>
           <ul style={{ marginTop: '6pt' }}>
-            <li>SEC EDGAR — 10-K (annual), 10-Q (quarterly) — narrativa MD&A + Risk Factors + Business Description</li>
+            <li>SEC EDGAR — 10-K (annual), 10-Q (quarterly) — narrativa MD&amp;A + Risk Factors + Business Description</li>
             <li>Financial Modeling Prep — 10 años de datos financieros (income, cash flow, balance, key metrics, DCF, analyst targets)</li>
             <li>Transcripciones públicas de earnings calls (últimos 7 años vía FMP)</li>
             <li>Conocimiento histórico del analista (training corpus hasta 2025) como contexto suplementario</li>
@@ -632,7 +879,10 @@ export default function InstitutionalReportPDF({ ticker, data, onClose }) {
             <li>Análisis legal basado en la descripción del management en el 10-K, no en lectura primaria de los briefs</li>
           </ul>
           <br />
-          <em>Informe generado por A&R Research v4.0 · {new Date().toISOString().slice(0, 10)}</em>
+          <div style={{ borderTop: '0.5pt solid #ddd', marginTop: '10pt', paddingTop: '8pt', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '8pt', color: '#999' }}>
+            <span>Generado por <strong>A&amp;R Research v4.0</strong></span>
+            <span>{ticker} · {new Date().toISOString().slice(0, 10)}</span>
+          </div>
         </div>
       </div>
     </div>

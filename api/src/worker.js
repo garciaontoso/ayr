@@ -645,6 +645,16 @@ async function ensureMigrations(env) {
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_news_published ON news_items(published_at DESC)`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_news_severity ON news_items(severity)`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_news_relevance ON news_items(relevance_score DESC)`).run();
+    // One-time migration: normalize space-separated published_at values to ISO T-format.
+    // FMP historically returned "2026-04-17 16:55:39"; new inserts use "2026-04-17T16:55:39.000Z".
+    // Mixed formats break string comparison in ORDER BY / WHERE >= queries.
+    // INSTR check limits this UPDATE to only rows that need it — safe to run every cold start.
+    try {
+      await env.DB.prepare(
+        `UPDATE news_items SET published_at = REPLACE(published_at, ' ', 'T') || 'Z'
+          WHERE INSTR(published_at, 'T') = 0 AND INSTR(published_at, ' ') > 0`
+      ).run();
+    } catch (_) { /* non-fatal */ }
 
     // ─── Company Narratives (transcript summary + business model) ───
     // One row per (ticker, narrative_type). UPSERT on regenerate.
@@ -1141,6 +1151,31 @@ async function ensureMigrations(env) {
     )`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_qss_ticker ON quality_safety_scores(ticker)`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_qss_date ON quality_safety_scores(snapshot_date DESC)`).run();
+
+    // ─── Daily Briefing (2026-04-17) ───
+    // Persists each generated Opus briefing for history, cost tracking and feedback.
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS daily_briefings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      briefing_date TEXT NOT NULL UNIQUE,
+      generated_at TEXT NOT NULL,
+      briefing_md TEXT NOT NULL,
+      tldr TEXT,
+      word_count INTEGER,
+      sections_present_json TEXT,
+      actions_count INTEGER DEFAULT 0,
+      inputs_summary_json TEXT,
+      opus_cost_usd REAL,
+      input_tokens INTEGER,
+      output_tokens INTEGER,
+      email_sent INTEGER DEFAULT 0,
+      email_sent_at TEXT,
+      in_app_read INTEGER DEFAULT 0,
+      in_app_read_at TEXT,
+      feedback_rating INTEGER,
+      feedback_text TEXT,
+      feedback_at TEXT
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_db_date ON daily_briefings(briefing_date DESC)`).run();
 
     _migrated = true;
   } catch(e) {
@@ -3407,9 +3442,16 @@ export default {
       }
 
       // ═══════════════════════════════════════════════════════════════════
-      // Daily Briefing — one-page morning snapshot for a dividend investor
-      // GET  /api/briefing/daily            → aggregated briefing (cached 1h)
-      // POST /api/briefing/generate-summary → Opus 4-6 paragraph commentary
+      // Daily Briefing — full end-to-end briefing system
+      //
+      // GET  /api/briefing/daily            → raw data aggregation (cached 1h)
+      // POST /api/briefing/generate         → full Opus briefing in 6-section markdown
+      //                                       persists to daily_briefings table
+      // GET  /api/briefing/today            → today's saved briefing (or 404)
+      // GET  /api/briefing/history?days=30  → list of past briefings
+      // POST /api/briefing/rate             → store user feedback (rating 1-5)
+      // POST /api/briefing/generate-summary → LEGACY: 4-6 paragraph commentary
+      //                                       kept for frontend back-compat
       // ═══════════════════════════════════════════════════════════════════
       if (path === "/api/briefing/daily" && request.method === "GET") {
         await ensureMigrations(env);
@@ -3609,6 +3651,31 @@ export default {
         }
         const pendingActions = Array.from(pendingMap.values());
 
+        // Top news — last 24h, portfolio tickers only, relevance >= 0.5 (= design doc's 50/100)
+        // This is the primary integration point described in the news-agent design doc.
+        let topNews = [];
+        try {
+          const yesterday = new Date(Date.now() - 86400000).toISOString();
+          const newsRs = await env.DB.prepare(
+            `SELECT id, title, summary, source, published_at, tickers_json, severity, relevance_score, category
+               FROM news_items
+              WHERE published_at >= ? AND relevance_score >= 0.5
+              ORDER BY relevance_score DESC, published_at DESC
+              LIMIT 30`
+          ).bind(yesterday).all();
+          topNews = (newsRs.results || []).map(r => ({
+            id: r.id,
+            title: r.title,
+            summary: r.summary,
+            source: r.source,
+            published_at: r.published_at,
+            tickers: (() => { try { return JSON.parse(r.tickers_json || '[]'); } catch (_) { return []; } })(),
+            severity: r.severity,
+            relevance_score: r.relevance_score,
+            category: r.category,
+          }));
+        } catch (e) { /* non-fatal — news table may be empty */ }
+
         const briefing = {
           ok: true,
           generated_at: new Date().toISOString(),
@@ -3634,6 +3701,7 @@ export default {
           new_filings: newFilings,
           upcoming_dividends: upcomingDividends,
           pending_actions: pendingActions,
+          top_news: topNews,
           opus_summary: null,
         };
 
@@ -5088,6 +5156,9 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       }
 
       if (path === "/api/funds/refresh" && request.method === "POST") {
+        // AUTH: protects FMP quota. Allowed origin skips check; other callers need token.
+        const _fundsRefreshAuth = (isAllowed && origin) ? null : ytRequireToken(request, env);
+        if (_fundsRefreshAuth) return _fundsRefreshAuth;
         const FMP_KEY = env.FMP_KEY;
         if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
         const onlyFundId = url.searchParams.get('fund_id');
@@ -9784,8 +9855,10 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return json({ since, until: today, count: items.length, items }, corsHeaders);
       }
 
-      // DELETE /api/news/all — clear all news items (development reset)
+      // DELETE /api/news/all — clear all news items (development reset, auth required)
       if (path === "/api/news/all" && request.method === "DELETE") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
         try {
           await env.DB.prepare("DELETE FROM news_items").run();
           return json({ ok: true }, corsHeaders);
@@ -9805,6 +9878,8 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // Manual refresh only (no cron). Haiku classification costs ~$0.05/run.
 
       if (path === "/api/news/refresh" && request.method === "POST") {
+        const unauthNews = ytRequireToken(request, env);
+        if (unauthNews) return unauthNews;
         const key = env.FMP_KEY;
         if (!key) return json({ error: "no FMP key" }, corsHeaders, 500);
         if (!env.ANTHROPIC_API_KEY) return json({ error: "no ANTHROPIC_API_KEY" }, corsHeaders, 500);
@@ -9849,7 +9924,16 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
                   title: String(r.title || "").slice(0, 500),
                   text: String(r.text || "").slice(0, 1000),
                   source: String(r.site || r.publisher || ""),
-                  published_at: String(r.publishedDate || r.published_at || new Date().toISOString()),
+                  // Normalize to ISO T-format so SQLite string comparison is consistent
+                  // (FMP returns "2026-04-17 16:55:39" with a space; new Date() gets Invalid Date)
+                  published_at: (() => {
+                    const raw = String(r.publishedDate || r.published_at || '');
+                    if (!raw) return new Date().toISOString();
+                    // Replace space separator with T and append Z if no timezone present
+                    const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T') + 'Z';
+                    const d = new Date(normalized);
+                    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+                  })(),
                   ticker: ourT,
                   image_url: String(r.image || ""),
                 });
@@ -9923,7 +10007,7 @@ OUTPUT: JSON array EXACTO con un objeto por item del input, en el mismo orden. S
             const category = String(c.category || "general").slice(0, 32);
             const summary = String(c.summary_es || it.text.slice(0, 200) || "").slice(0, 600);
             try {
-              await env.DB.prepare(
+              const insertMeta = await env.DB.prepare(
                 `INSERT INTO news_items (url, title, summary, source, published_at, tickers_json, severity, sentiment_score, relevance_score, category, image_url)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(url) DO NOTHING`
@@ -9932,7 +10016,8 @@ OUTPUT: JSON array EXACTO con un objeto por item del input, en el mismo orden. S
                 JSON.stringify(it._tickers),
                 severity, sentiment, relevance, category, it.image_url || ""
               ).run();
-              totalInserted++;
+              // meta.changes is 0 when ON CONFLICT DO NOTHING silently skipped
+              if (insertMeta?.meta?.changes > 0) totalInserted++;
             } catch (e) {
               console.warn(`[news/refresh] insert error: ${e.message}`);
             }
@@ -11514,6 +11599,172 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
           return json(result, corsHeaders);
         } catch(e) {
           return json({ error: "Auto-snapshot error: " + e.message }, corsHeaders, 500);
+        }
+      }
+
+      // ─── Discovery Engine ──────────────────────────────────────────────────────
+      // GET /api/discovery/scan
+      // Joins quality_safety_scores + deep_dividend_analysis + positions table to
+      // surface candidates not already in the active portfolio. Returns each
+      // ticker with its composite discovery_score (0-100) and a breakdown of which
+      // "sources" triggered it, per the design-doc formula:
+      //
+      //   discovery_score =
+      //     35 × source_convergence_norm   (# sources that fired / 5, capped 1)
+      //   + 25 × quality_score / 100
+      //   + 15 × safety_score / 100
+      //   + 15 × deep_score_norm           (deep_dividend composite_score / 10, 0-10 scale)
+      //   + 10 × yield_bonus_norm          (yield ≥ 3% → 1, ≥ 2% → 0.6, ≥ 1% → 0.3)
+      //
+      // Query params: limit (default 50), minQuality, minSafety, minYield,
+      //               minScore, sector, excludePortfolio (default true)
+      if (path === "/api/discovery/scan" && request.method === "GET") {
+        try {
+          await ensureMigrations(env);
+
+          const limit = Math.min(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 200);
+          const minQuality = parseFloat(url.searchParams.get("minQuality") || "0") || 0;
+          const minSafety = parseFloat(url.searchParams.get("minSafety") || "0") || 0;
+          const minYield = parseFloat(url.searchParams.get("minYield") || "0") || 0;
+          const minScore = parseFloat(url.searchParams.get("minScore") || "0") || 0;
+          const sectorFilter = url.searchParams.get("sector") || "";
+          const excludePortfolio = url.searchParams.get("excludePortfolio") !== "false";
+
+          // 1. Fetch latest Q+S scores for all scored tickers
+          const { results: qssRows } = await env.DB.prepare(
+            `SELECT qss.ticker, qss.quality_score, qss.safety_score, qss.snapshot_date,
+                    qss.q_dividend_track, qss.s_coverage, qss.inputs_json
+             FROM quality_safety_scores qss
+             INNER JOIN (
+               SELECT ticker, MAX(snapshot_date) AS max_date
+               FROM quality_safety_scores GROUP BY ticker
+             ) latest ON qss.ticker = latest.ticker AND qss.snapshot_date = latest.max_date
+             ORDER BY qss.quality_score DESC`
+          ).all();
+
+          if (!qssRows || qssRows.length === 0) {
+            return json({ ok: true, candidates: [], count: 0, message: "No Q+S scores computed yet. Run POST /api/scores/compute?all=1 first." }, corsHeaders);
+          }
+
+          // 2. Fetch latest deep-dividend analysis per ticker
+          const { results: ddRows } = await env.DB.prepare(
+            `SELECT dda.ticker, dda.composite_score, dda.safety_score AS dd_safety,
+                    dda.growth_score, dda.verdict, dda.sector_bucket,
+                    dda.cut_probability_3y, dda.raise_probability_12m, dda.created_at
+             FROM deep_dividend_analysis dda
+             INNER JOIN (
+               SELECT ticker, MAX(created_at) AS max_at
+               FROM deep_dividend_analysis GROUP BY ticker
+             ) latest ON dda.ticker = latest.ticker AND dda.created_at = latest.max_at`
+          ).all();
+          const ddMap = {};
+          for (const r of (ddRows || [])) ddMap[r.ticker] = r;
+
+          // 3. Fetch portfolio tickers (list='portfolio', shares > 0)
+          const { results: portRows } = await env.DB.prepare(
+            `SELECT ticker FROM positions WHERE list = 'portfolio' AND shares > 0`
+          ).all();
+          const portfolioSet = new Set((portRows || []).map(r => r.ticker));
+
+          // 4. Build candidates from Q+S tickers
+          const candidates = [];
+          for (const row of qssRows) {
+            const ticker = row.ticker;
+
+            // Skip portfolio tickers if requested
+            if (excludePortfolio && portfolioSet.has(ticker)) continue;
+
+            const quality = row.quality_score || 0;
+            const safety = row.safety_score || 0;
+
+            // Apply pre-score filters
+            if (quality < minQuality) continue;
+            if (safety < minSafety) continue;
+
+            // Parse fundamentals snapshot from inputs_json for yield + sector
+            let yieldPct = 0;
+            let sector = "";
+            let peForward = null;
+            let divYears = null;
+            try {
+              const inp = JSON.parse(row.inputs_json || "{}");
+              yieldPct = inp.safety?.divYield || inp.quality?.divYield || 0;
+              sector = inp.quality?.sector || inp.safety?.sector || "";
+              peForward = inp.quality?.peForward || null;
+              divYears = inp.quality?.dividendYears || null;
+            } catch {}
+
+            if (yieldPct < minYield) continue;
+            if (sectorFilter && sector && sector !== sectorFilter) continue;
+
+            const dd = ddMap[ticker];
+
+            // ── Source convergence: count how many independent signals fire ──
+            const sources = [];
+            // Source A: High quality + safety (Tier A)
+            if (quality >= 80 && safety >= 75) sources.push({ id: "quality_high", label: "High Quality + Safety", tier: "A" });
+            // Source B: Deep Dividend analyzed (has institutional-level report)
+            if (dd) sources.push({ id: "deep_dividend", label: `Deep Dividend: ${dd.verdict}`, tier: "A" });
+            // Source C: Dividend track record strong (q_dividend_track subcomponent)
+            if ((row.q_dividend_track || 0) >= 80) sources.push({ id: "div_track", label: "Strong dividend track", tier: "B" });
+            // Source D: Safety coverage solid (s_coverage subcomponent)
+            if ((row.s_coverage || 0) >= 75) sources.push({ id: "cov_solid", label: "FCF coverage solid", tier: "B" });
+            // Source E: Yield attractive
+            if (yieldPct >= 3) sources.push({ id: "yield_attractive", label: `Yield ${yieldPct.toFixed(1)}%`, tier: "B" });
+            // Source F: Deep dividend shows raise probability > 60%
+            if (dd && (dd.raise_probability_12m || 0) >= 0.60) sources.push({ id: "raise_likely", label: `Raise likely ${Math.round((dd.raise_probability_12m||0)*100)}%`, tier: "A" });
+            // Source G: Deep dividend cut probability low < 10%
+            if (dd && dd.cut_probability_3y != null && dd.cut_probability_3y <= 0.10) sources.push({ id: "cut_safe", label: `Cut risk low ${Math.round((dd.cut_probability_3y||0)*100)}%`, tier: "A" });
+
+            // Need at least 1 source to appear as candidate
+            if (sources.length === 0) continue;
+
+            // ── Composite score ──
+            const sourceConvergenceNorm = Math.min(sources.length / 5, 1);
+            // deep_dividend_analysis.composite_score is on a 0-10 scale (not 0-100)
+            const deepScoreNorm = dd ? Math.min((dd.composite_score || 0) / 10, 1) : 0;
+            const yieldBonusNorm = yieldPct >= 3 ? 1 : yieldPct >= 2 ? 0.6 : yieldPct >= 1 ? 0.3 : 0;
+
+            const discoveryScore = Math.round(
+              35 * sourceConvergenceNorm +
+              25 * (quality / 100) +
+              15 * (safety / 100) +
+              15 * deepScoreNorm +
+              10 * yieldBonusNorm
+            );
+
+            if (discoveryScore < minScore) continue;
+
+            candidates.push({
+              ticker,
+              discovery_score: discoveryScore,
+              quality_score: quality,
+              safety_score: safety,
+              source_count: sources.length,
+              sources,
+              sector: sector || dd?.sector_bucket || "",
+              yield_pct: yieldPct,
+              pe_forward: peForward,
+              div_years: divYears,
+              deep_dividend: dd ? {
+                composite_score: dd.composite_score,
+                verdict: dd.verdict,
+                safety_score: dd.dd_safety,
+                growth_score: dd.growth_score,
+                cut_probability_3y: dd.cut_probability_3y,
+                raise_probability_12m: dd.raise_probability_12m,
+              } : null,
+              tier: discoveryScore >= 85 ? "HOT" : discoveryScore >= 70 ? "STRONG" : discoveryScore >= 55 ? "WATCH" : "RADAR",
+            });
+          }
+
+          // Sort by discovery_score desc, then by quality desc
+          candidates.sort((a, b) => b.discovery_score - a.discovery_score || b.quality_score - a.quality_score);
+
+          const paged = candidates.slice(0, limit);
+          return json({ ok: true, candidates: paged, count: candidates.length, returned: paged.length, portfolio_excluded: excludePortfolio, portfolio_size: portfolioSet.size }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
         }
       }
 
@@ -13338,6 +13589,30 @@ async function buildDailyBriefing(env) {
     WHERE agent_name = 'deep_dividend' AND brier_score IS NOT NULL
   `).first();
 
+  // 8. Top news last 24h (design-doc integration: relevance >= 0.5 = 50/100)
+  let topNews = [];
+  try {
+    const yesterday = new Date(Date.now() - 86400000).toISOString();
+    const newsRs = await env.DB.prepare(`
+      SELECT id, title, summary, source, published_at, tickers_json, severity, relevance_score, category
+        FROM news_items
+       WHERE published_at >= ? AND relevance_score >= 0.5
+       ORDER BY relevance_score DESC, published_at DESC
+       LIMIT 30
+    `).bind(yesterday).all();
+    topNews = (newsRs.results || []).map(r => ({
+      id: r.id,
+      title: r.title,
+      summary: r.summary,
+      source: r.source,
+      published_at: r.published_at,
+      tickers: (() => { try { return JSON.parse(r.tickers_json || '[]'); } catch (_) { return []; } })(),
+      severity: r.severity,
+      relevance_score: r.relevance_score,
+      category: r.category,
+    }));
+  } catch (_) { /* non-fatal */ }
+
   return {
     ok: true,
     date: today,
@@ -13348,6 +13623,7 @@ async function buildDailyBriefing(env) {
       earnings_this_week: (recentTranscripts.results || []).map(r => r.ticker),
       top_opportunities: topOps.results || [],
       cross_validation_conflicts: conflictsScanner.conflicts || [],
+      top_news: topNews,
       track_record: {
         n_total_evaluated: trackRecord?.n_total || 0,
         n_cut_correct: trackRecord?.n_cut_correct || 0,

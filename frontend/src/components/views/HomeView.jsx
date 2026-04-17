@@ -34,6 +34,7 @@ import MacroTab from '../home/MacroTab';
 import EarningsTab from '../home/EarningsTab';
 import NewsTab from '../home/NewsTab';
 import DailyBriefingTab from '../home/DailyBriefingTab';
+import DiscoveryTab from '../home/DiscoveryTab';
 
 // Combined Income tab with sub-tabs
 function IncomeTab() {
@@ -1355,6 +1356,7 @@ export default function HomeView() {
       {homeTab==="watchlist" && <WatchlistTab />}
       {homeTab==="historial" && <HistorialTab />}
       {homeTab==="advisor" && <AdvisorTab />}
+      {homeTab==="discovery" && <DiscoveryTab />}
       {homeTab==="research" && <ResearchTab />}
       {homeTab==="agentes" && <AgentesTab />}
       {homeTab==="income" && <IncomeTab />}

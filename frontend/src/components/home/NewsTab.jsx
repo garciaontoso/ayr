@@ -88,7 +88,11 @@ export default function NewsTab() {
     setRefreshing(true);
     setRefreshStats(null);
     try {
-      const r = await fetch(`${API_URL}/api/news/refresh`, { method: 'POST' });
+      const token = localStorage.getItem('ayr_token') || '';
+      const r = await fetch(`${API_URL}/api/news/refresh`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
       setRefreshStats(j);
