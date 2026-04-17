@@ -380,7 +380,6 @@ const ACTION_META = {
   WAIT:  { label: 'ESPERAR', color: 'var(--gold)'   },
 };
 
-const STATUS_OPTIONS = ['pending', 'done', 'ignored'];
 const STATUS_META = {
   pending: { label: 'Pendiente', color: 'var(--text-secondary)' },
   done:    { label: 'Hecho',     color: 'var(--green)'           },
@@ -414,7 +413,6 @@ function parseQtyFromImpact(impact) {
 function buildIBOrderString(action) {
   const { ticker, action: side, triggerPrice, impact } = action;
   const isSell = side === 'SELL' || side === 'TRIM';
-  const isBuy  = side === 'BUY'  || side === 'ADD' || side === 'WAIT';
 
   let qty;
   if (isSell || side === 'TRIM') {
@@ -551,12 +549,38 @@ function ActionCard({ action, status, onStatusChange, onTickerClick, copyFeedbac
           {action.reason}
         </div>
 
-        {/* Impact */}
-        <div style={{
-          fontSize: 10, color: 'var(--text-tertiary)',
-          fontFamily: 'var(--fm)', letterSpacing: '.2px',
-        }}>
-          {action.impact}
+        {/* Impact + IB order button row */}
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+          <div style={{
+            fontSize: 10, color: 'var(--text-tertiary)',
+            fontFamily: 'var(--fm)', letterSpacing: '.2px', flex: 1,
+          }}>
+            {action.impact}
+          </div>
+          {/* IB Order button */}
+          <button
+            onClick={() => onCopy(action)}
+            title="Copiar orden IB al portapapeles"
+            style={{
+              flexShrink: 0,
+              padding: '3px 9px',
+              borderRadius: 5,
+              border: copyFeedback === action.id
+                ? '1px solid var(--green)'
+                : '1px solid var(--border)',
+              background: copyFeedback === action.id
+                ? 'rgba(48,209,88,.10)'
+                : 'var(--subtle-bg)',
+              color: copyFeedback === action.id
+                ? 'var(--green)'
+                : 'var(--text-tertiary)',
+              fontSize: 9, fontWeight: 600, fontFamily: 'var(--fm)',
+              cursor: 'pointer', letterSpacing: '.3px',
+              transition: 'all .2s',
+            }}
+          >
+            {copyFeedback === action.id ? 'Copiado ✓' : 'Copiar orden IB'}
+          </button>
         </div>
       </div>
     </div>
@@ -565,11 +589,15 @@ function ActionCard({ action, status, onStatusChange, onTickerClick, copyFeedbac
 
 // ── Main component ───────────────────────────────────────────────────────────
 export default function ActionPlanTab() {
-  // All useState BEFORE any useCallback/useMemo (TDZ safety)
+  // All useState/useRef BEFORE any useCallback/useMemo (TDZ safety)
   const [statuses, setStatuses] = useState(() => loadStatuses());
   const [filter, setFilter] = useState('all'); // all | pending | done | ignored
   const [sectionFilter, setSectionFilter] = useState('all'); // all | urgent | buy_add | opportunistic
   const [searchQ, setSearchQ] = useState('');
+  const [copyFeedback, setCopyFeedback] = useState(null); // action.id of last copied
+  const [basketFeedback, setBasketFeedback] = useState(false);
+  const copyTimerRef = useRef(null);
+  const basketTimerRef = useRef(null);
 
   const handleStatusChange = useCallback((id, next) => {
     setStatuses(prev => {
@@ -582,6 +610,32 @@ export default function ActionPlanTab() {
   const handleTickerClick = useCallback((ticker) => {
     // Dispatch custom event that App.jsx listens to for opening analysis
     window.dispatchEvent(new CustomEvent('open-company', { detail: { ticker } }));
+  }, []);
+
+  const handleCopyIBOrder = useCallback((action) => {
+    const orderStr = buildIBOrderString(action);
+    navigator.clipboard.writeText(orderStr).catch(() => {
+      // Fallback for non-secure contexts
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = orderStr;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch {}
+    });
+    setCopyFeedback(action.id);
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = setTimeout(() => setCopyFeedback(null), 1800);
+  }, []);
+
+  const handleExportBasket = useCallback((actionList) => {
+    const csv = buildBasketCSV(actionList);
+    downloadCSV(csv, `ib-basket-${new Date().toISOString().slice(0, 10)}.csv`);
+    setBasketFeedback(true);
+    if (basketTimerRef.current) clearTimeout(basketTimerRef.current);
+    basketTimerRef.current = setTimeout(() => setBasketFeedback(false), 2000);
   }, []);
 
   const filteredActions = useMemo(() => {
@@ -649,6 +703,26 @@ export default function ActionPlanTab() {
                 <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontWeight: 700, letterSpacing: '.5px' }}>{b.label}</div>
               </div>
             ))}
+            {/* IB Basket CSV export — exports all visible filtered actions */}
+            <button
+              onClick={() => handleExportBasket(filteredActions)}
+              title="Descargar CSV para IB Basket Trader con todas las acciones visibles"
+              style={{
+                padding: '6px 12px', borderRadius: 8, cursor: 'pointer',
+                border: basketFeedback
+                  ? '1px solid var(--green)'
+                  : '1px solid var(--border)',
+                background: basketFeedback
+                  ? 'rgba(48,209,88,.10)'
+                  : 'var(--subtle-bg)',
+                color: basketFeedback ? 'var(--green)' : 'var(--text-secondary)',
+                fontSize: 10, fontWeight: 700, fontFamily: 'var(--fm)',
+                letterSpacing: '.3px', transition: 'all .2s',
+                alignSelf: 'flex-start',
+              }}
+            >
+              {basketFeedback ? 'Descargado ✓' : 'Basket CSV'}
+            </button>
           </div>
         </div>
 
@@ -763,6 +837,8 @@ export default function ActionPlanTab() {
                   status={statuses[a.id] || 'pending'}
                   onStatusChange={handleStatusChange}
                   onTickerClick={handleTickerClick}
+                  copyFeedback={copyFeedback}
+                  onCopy={handleCopyIBOrder}
                 />
               ))}
             </div>

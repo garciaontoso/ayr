@@ -2288,6 +2288,10 @@ function buildPositionsFromCB() {
             onClick={e=>e.stopPropagation()}>
             <input autoFocus value={globalQuery} onChange={e=>setGlobalQuery(e.target.value)}
               placeholder="Buscar ticker, empresa, o pestaña..."
+              aria-label="Búsqueda global — ticker, empresa, o pestaña"
+              role="combobox"
+              aria-expanded={globalSearchResults.length > 0}
+              aria-autocomplete="list"
               style={{width:"100%",padding:"14px 18px",border:"none",borderBottom:"1px solid var(--border)",background:"transparent",color:"var(--text-primary)",fontSize:16,fontFamily:"var(--fm)",outline:"none",boxSizing:"border-box"}}/>
             {globalSearchResults.length > 0 && (
               <div style={{maxHeight:300,overflowY:"auto"}}>

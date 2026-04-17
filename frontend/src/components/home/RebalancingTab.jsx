@@ -7,6 +7,32 @@
 // Hook order (TDZ-safe): all useState/useRef BEFORE all useEffect.
 import { useState, useEffect, useRef, useCallback } from 'react';
 
+// ─── IB Order helpers (client-side only, no API needed) ───────────────────────
+
+function buildRebalanceBasketCSV(actions, nlv) {
+  const header = 'Action,Quantity,Symbol,SecType,Exchange,OrderType,LmtPrice,Tif,Notes';
+  const rows = actions.map(a => {
+    const dollar = (a.wt / 100) * nlv;
+    // Qty placeholder — user must fill price before importing
+    // For sells with pct, partial position notation in Notes
+    const notes = a.pct != null && a.pct < 100
+      ? `${a.pct}% de posicion. Estimado ${fmt$(dollar)}`
+      : `Estimado ${fmt$(dollar)}`;
+    return `${a.side},,${a.ticker},STK,SMART,LMT,,DAY,"${notes}"`;
+  });
+  return [header, ...rows].join('\n');
+}
+
+function downloadRebalanceCSV(content, filename) {
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const LS_TARGETS   = 'rebalance_targets_v1';
@@ -376,12 +402,42 @@ function ActionsTable({ actions, setActions, nlv }) {
 // ─── Section 3: Execution Order ───────────────────────────────────────────────
 
 function ExecutionOrder({ actions, nlv }) {
+  // useState/useRef before any logic (TDZ safety)
+  const [basketFeedback, setBasketFeedback] = useState(false);
+  const basketTimerRef = useRef(null);
+
   const checked = actions.filter(a => a.checked);
+
+  function handleExportBasket() {
+    const csv = buildRebalanceBasketCSV(checked, nlv);
+    downloadRebalanceCSV(csv, `ib-rebalance-${new Date().toISOString().slice(0, 10)}.csv`);
+    setBasketFeedback(true);
+    if (basketTimerRef.current) clearTimeout(basketTimerRef.current);
+    basketTimerRef.current = setTimeout(() => setBasketFeedback(false), 2000);
+  }
 
   return (
     <div>
-      <div style={{ fontSize:13, fontWeight:700, color:'var(--text-primary)', fontFamily:'var(--fd)', marginBottom:12 }}>
-        Plan de Ejecución
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+        <div style={{ fontSize:13, fontWeight:700, color:'var(--text-primary)', fontFamily:'var(--fd)' }}>
+          Plan de Ejecución
+        </div>
+        {checked.length > 0 && (
+          <button
+            onClick={handleExportBasket}
+            title="Exportar ordenes como Basket CSV para IB Basket Trader. Completa LmtPrice antes de importar."
+            style={{
+              padding:'5px 12px', borderRadius:7, cursor:'pointer',
+              border: basketFeedback ? '1px solid var(--green)' : '1px solid var(--border)',
+              background: basketFeedback ? 'rgba(48,209,88,.10)' : 'var(--subtle-bg)',
+              color: basketFeedback ? 'var(--green)' : 'var(--text-secondary)',
+              fontSize:10, fontWeight:700, fontFamily:'var(--fm)',
+              letterSpacing:'.3px', transition:'all .2s',
+            }}
+          >
+            {basketFeedback ? 'Descargado ✓' : 'Basket CSV IB'}
+          </button>
+        )}
       </div>
 
       {PHASES.map(phase => {

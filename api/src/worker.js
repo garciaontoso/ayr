@@ -9445,6 +9445,302 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return json(results, corsHeaders);
       }
 
+      // ── GET /api/dividend-forecast?years=5&scenario=base ──────────────────────
+      // Projects annual dividend income 2026-2030 (or N years) per ticker.
+      // scenario: base (DGR5y), bear (DGR5y * 0.5), bull (DGR5y * 1.3)
+      // DGR is computed from the dividendos D1 table (CAGR of annual totals).
+      // Falls back to FMP-cached dgr if local history is thin (< 3 years).
+      if (path === "/api/dividend-forecast" && request.method === "GET") {
+        try {
+          const years    = Math.min(Math.max(parseInt(url.searchParams.get("years") || "5", 10), 1), 15);
+          const scenario = url.searchParams.get("scenario") || "base"; // base | bear | bull
+          const startYear = new Date().getFullYear() + 1; // projections start next calendar year
+
+          // 1. Load active positions (shares > 0)
+          const { results: posRows } = await env.DB.prepare(
+            "SELECT ticker, shares, div_ttm, last_price, cost_basis FROM positions WHERE shares > 0 ORDER BY ticker"
+          ).all();
+          if (!posRows?.length) return json({ tickers: [], totals: [], meta: {} }, corsHeaders);
+
+          // Alias map: our DB ticker → dividend table ticker variants
+          const POS_TO_DIV_ALIASES = {
+            "BME:VIS":["VIS","VIS.D"],"BME:AMS":["AMS","AMS.D"],
+            "HKG:9618":["9618","JD"],"HKG:1052":["1052"],"HKG:1910":["1910"],
+            "HKG:2219":["2219"],"HKG:9616":["9616"],
+            "IIPR-PRA":["IIPR PRA","IIPRPRA"],
+          };
+          const tickerVariants = (t) => [t, ...(POS_TO_DIV_ALIASES[t] || [])];
+
+          // 2. Pull all dividend history from dividendos (past 12 years) once
+          const histRows = await env.DB.prepare(
+            `SELECT ticker, fecha, CASE WHEN bruto_usd > 0 THEN bruto_usd ELSE bruto END as bruto
+             FROM dividendos WHERE fecha >= '2012-01-01' ORDER BY ticker, fecha`
+          ).all();
+          // Group by ticker → year → total
+          const histByTicker = {};
+          for (const row of (histRows.results || [])) {
+            const y = parseInt((row.fecha || "").slice(0, 4));
+            if (y < 2012 || !row.bruto) continue;
+            // normalise to canonical ticker
+            let tk = row.ticker;
+            histByTicker[tk] = histByTicker[tk] || {};
+            histByTicker[tk][y] = (histByTicker[tk][y] || 0) + (row.bruto || 0);
+          }
+
+          // 3. Resolve each position's ticker to its dividend history (try aliases)
+          const resolveHistory = (ticker) => {
+            for (const v of tickerVariants(ticker)) {
+              if (histByTicker[v]) return histByTicker[v];
+            }
+            return null;
+          };
+
+          // 4. Compute CAGR-based DGR from annual history
+          const calcDGR5 = (byYear) => {
+            const sorted = Object.entries(byYear)
+              .map(([y, v]) => [parseInt(y), v])
+              .filter(([y, v]) => v > 0)
+              .sort((a, b) => a[0] - b[0]);
+            if (sorted.length < 2) return null;
+            const latest = sorted[sorted.length - 1];
+            // Find entry 5 years back (or best available ≥ 3y)
+            for (const n of [5, 4, 3]) {
+              const targetYear = latest[0] - n;
+              const entry = sorted.find(([y]) => y === targetYear);
+              if (entry && entry[1] > 0) {
+                return Math.pow(latest[1] / entry[1], 1 / n) - 1;
+              }
+            }
+            // Fallback: 1-year growth between last two consecutive years
+            const prev = sorted[sorted.length - 2];
+            const gap = latest[0] - prev[0];
+            if (gap > 0 && prev[1] > 0) return Math.pow(latest[1] / prev[1], 1 / gap) - 1;
+            return null;
+          };
+
+          // 5. Compute current annualised DPS from recent payment history
+          //    Mirrors the logic in /api/dividend-forward
+          const recentDate = new Date(Date.now() - 420 * 86400000).toISOString().slice(0, 10);
+          const { results: recentRows } = await env.DB.prepare(
+            `SELECT ticker, fecha, CASE WHEN bruto_usd > 0 THEN bruto_usd ELSE bruto END as bruto,
+                    shares, CASE WHEN bruto_usd > 0 THEN 'USD' ELSE COALESCE(divisa,'USD') END as divisa
+             FROM dividendos WHERE fecha >= ? ORDER BY fecha DESC`
+          ).bind(recentDate).all();
+          const recentByTicker = {};
+          for (const r of (recentRows || [])) {
+            if (!recentByTicker[r.ticker]) recentByTicker[r.ticker] = [];
+            recentByTicker[r.ticker].push(r);
+          }
+          const findRecent = (ticker) => {
+            for (const v of tickerVariants(ticker)) {
+              if (recentByTicker[v]?.length) return recentByTicker[v];
+            }
+            return [];
+          };
+
+          const detectFreq = (payments) => {
+            const byDate = {};
+            for (const p of payments) {
+              if (!byDate[p.fecha] || (p.bruto||0) > (byDate[p.fecha].bruto||0)) byDate[p.fecha] = p;
+            }
+            const deduped = Object.values(byDate).sort((a, b) => b.fecha.localeCompare(a.fecha));
+            if (deduped.length < 2) return { freq: "annual", n: 1 };
+            const ttmCutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+            const count = deduped.filter(p => p.fecha >= ttmCutoff).length;
+            if (count >= 11) return { freq: "monthly", n: 12 };
+            if (count >= 3)  return { freq: "quarterly", n: 4 };
+            if (deduped.length >= 2) {
+              const gap = Math.abs(new Date(deduped[0].fecha) - new Date(deduped[1].fecha)) / 86400000;
+              if (gap < 50)  return { freq: "monthly", n: 12 };
+              if (gap < 120) return { freq: "quarterly", n: 4 };
+              if (gap < 270) return { freq: "semiannual", n: 2 };
+              return { freq: "annual", n: 1 };
+            }
+            return { freq: "quarterly", n: 4 };
+          };
+
+          const getAnnualDPS = (ticker, posShares) => {
+            const payments = findRecent(ticker);
+            if (payments.length > 0) {
+              const { n } = detectFreq(payments);
+              const byDate = {};
+              for (const p of payments) {
+                if (!byDate[p.fecha] || (p.bruto||0) > (byDate[p.fecha].bruto||0)) byDate[p.fecha] = p;
+              }
+              const deduped = Object.values(byDate).sort((a, b) => b.fecha.localeCompare(a.fecha));
+              const last = deduped[0];
+              const maxShares = Math.max(...payments.filter(p => p.fecha === last.fecha).map(p => p.shares || 0));
+              const shares = maxShares > 0 ? maxShares : posShares;
+              if (shares > 0) {
+                const dpsPerPayment = last.bruto / shares;
+                return dpsPerPayment * n;
+              }
+            }
+            return null;
+          };
+
+          // 6. Load cached DGR from fundamentals as fallback
+          const { results: cachedDGR } = await env.DB.prepare(
+            "SELECT symbol, dgr FROM fundamentals WHERE dgr IS NOT NULL"
+          ).all();
+          const cachedDGRMap = {};
+          for (const r of (cachedDGR || [])) {
+            try { cachedDGRMap[r.symbol] = JSON.parse(r.dgr); } catch {}
+          }
+
+          // 7. Load monthly expenses from presupuesto for break-even
+          const { results: presuRows } = await env.DB.prepare(
+            "SELECT frecuencia, importe FROM presupuesto"
+          ).all();
+          let monthlyExpenses = 0;
+          for (const p of (presuRows || [])) {
+            const imp = p.importe || 0;
+            if (p.frecuencia === "MENSUAL")   monthlyExpenses += imp;
+            else if (p.frecuencia === "ANUAL") monthlyExpenses += imp / 12;
+            else if (p.frecuencia === "TRIMESTRAL") monthlyExpenses += imp / 3;
+            else if (p.frecuencia === "SEMESTRAL")  monthlyExpenses += imp / 6;
+          }
+          const annualExpenses = monthlyExpenses * 12;
+
+          // 8. Scenario multiplier
+          const scenarioMult = scenario === "bear" ? 0.5 : scenario === "bull" ? 1.3 : 1.0;
+
+          // 9. Per-ticker projection
+          const projectedTickers = [];
+          let currentTotalAnnual = 0;
+
+          for (const pos of posRows) {
+            const { ticker, shares, div_ttm, cost_basis } = pos;
+            if (!shares || shares <= 0) continue;
+
+            // Current annualised DPS
+            const dpsCurrent = getAnnualDPS(ticker, shares) || div_ttm || 0;
+            if (dpsCurrent <= 0) continue;
+
+            // DGR: from local history first, then FMP cache, then 0
+            const history = resolveHistory(ticker);
+            let dgr5 = history ? calcDGR5(history) : null;
+            if (dgr5 === null) {
+              const fmpKey = toFMP(ticker);
+              const cached = cachedDGRMap[fmpKey] || cachedDGRMap[ticker];
+              dgr5 = cached?.dgr5 ?? null;
+            }
+            if (dgr5 === null) dgr5 = 0;
+
+            // Clamp DGR to reasonable range [-0.20, 0.30] to prevent compounding explosions
+            dgr5 = Math.max(-0.20, Math.min(0.30, dgr5));
+            const adjustedDGR = dgr5 * scenarioMult;
+
+            // Year-by-year projection
+            const yearlyIncome = {};
+            for (let i = 0; i < years; i++) {
+              const yr = startYear + i;
+              const dpsYr = dpsCurrent * Math.pow(1 + adjustedDGR, i + 1);
+              yearlyIncome[yr] = Math.round(dpsYr * shares * 100) / 100;
+            }
+
+            const currentAnnual = Math.round(dpsCurrent * shares * 100) / 100;
+            currentTotalAnnual += currentAnnual;
+
+            const yoc = cost_basis > 0 ? (dpsCurrent / (cost_basis / shares)) * 100 : 0;
+
+            projectedTickers.push({
+              ticker,
+              shares: Math.round(shares * 100) / 100,
+              dps_current: Math.round(dpsCurrent * 10000) / 10000,
+              dgr5_pct: Math.round(dgr5 * 10000) / 100, // as percent
+              adjusted_dgr_pct: Math.round(adjustedDGR * 10000) / 100,
+              current_annual: currentAnnual,
+              yoc_current: Math.round(yoc * 100) / 100,
+              yearly_income: yearlyIncome,
+              has_history: !!(history && Object.keys(history).length >= 3),
+            });
+          }
+
+          // Sort by current annual income descending
+          projectedTickers.sort((a, b) => b.current_annual - a.current_annual);
+
+          // 10. Aggregate totals per year
+          const totals = {};
+          const yocByYear = {};
+          const totalCostBasis = posRows.reduce((s, p) => s + (p.cost_basis || 0), 0);
+
+          for (let i = 0; i < years; i++) {
+            const yr = startYear + i;
+            const total = projectedTickers.reduce((s, t) => s + (t.yearly_income[yr] || 0), 0);
+            totals[yr] = Math.round(total * 100) / 100;
+            yocByYear[yr] = totalCostBasis > 0
+              ? Math.round((total / totalCostBasis) * 10000) / 100
+              : 0;
+          }
+
+          // 11. Break-even year: first year projected income >= annual expenses
+          let breakEvenYear = null;
+          if (annualExpenses > 0) {
+            for (let i = 0; i < years; i++) {
+              const yr = startYear + i;
+              if ((totals[yr] || 0) >= annualExpenses) { breakEvenYear = yr; break; }
+            }
+          }
+
+          // 12. Current YoC (cost-basis based)
+          const currentYoC = totalCostBasis > 0
+            ? Math.round((currentTotalAnnual / totalCostBasis) * 10000) / 100
+            : 0;
+
+          // 13. All-3-scenario totals (always returned for the chart)
+          const allScenarios = {};
+          for (const sc of ["bear", "base", "bull"]) {
+            const mult = sc === "bear" ? 0.5 : sc === "bull" ? 1.3 : 1.0;
+            allScenarios[sc] = {};
+            for (let i = 0; i < years; i++) {
+              const yr = startYear + i;
+              let total = 0;
+              for (const pos of posRows) {
+                const { ticker, shares, div_ttm, cost_basis: cb } = pos;
+                if (!shares || shares <= 0) continue;
+                const dpsCurrent = getAnnualDPS(ticker, shares) || div_ttm || 0;
+                if (!dpsCurrent) continue;
+                const history = resolveHistory(ticker);
+                let dgr = history ? calcDGR5(history) : null;
+                if (dgr === null) {
+                  const fmpKey = toFMP(ticker);
+                  const cached = cachedDGRMap[fmpKey] || cachedDGRMap[ticker];
+                  dgr = cached?.dgr5 ?? 0;
+                }
+                dgr = Math.max(-0.20, Math.min(0.30, dgr || 0));
+                const adjDGR = dgr * mult;
+                const dpsYr = dpsCurrent * Math.pow(1 + adjDGR, i + 1);
+                total += dpsYr * shares;
+              }
+              allScenarios[sc][yr] = Math.round(total * 100) / 100;
+            }
+          }
+
+          const finalYr = startYear + years - 1;
+          return json({
+            scenario,
+            years_range: Array.from({ length: years }, (_, i) => startYear + i),
+            tickers: projectedTickers,
+            totals,
+            yoc_by_year: yocByYear,
+            all_scenarios: allScenarios,
+            meta: {
+              current_annual: Math.round(currentTotalAnnual * 100) / 100,
+              current_yoc: currentYoC,
+              final_year: finalYr,
+              final_total_base: allScenarios.base[finalYr] || 0,
+              final_total_bear: allScenarios.bear[finalYr] || 0,
+              final_total_bull: allScenarios.bull[finalYr] || 0,
+              monthly_expenses: Math.round(monthlyExpenses * 100) / 100,
+              annual_expenses: Math.round(annualExpenses * 100) / 100,
+              break_even_year: breakEvenYear,
+              tickers_count: projectedTickers.length,
+            },
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
       // GET /api/earnings-batch?symbols=AAPL,MSFT,GOOG — batch earnings dates
       if (path === "/api/earnings-batch" && request.method === "GET") {
         const symbols = (url.searchParams.get("symbols") || "").split(",").filter(Boolean).slice(0, 50);
@@ -14046,6 +14342,271 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
             underperformers: underperformers.slice(0, 10),
             outperformers: outperformers.slice(0, 10),
             all_holdings: holdings.sort((a, b) => b.weight_pct - a.weight_pct),
+          };
+
+          await env.DB.prepare(
+            `INSERT OR REPLACE INTO analytics_cache (key, data, updated_at) VALUES (?, ?, datetime('now'))`
+          ).bind(CACHE_KEY, JSON.stringify(result)).run();
+
+          return json(result, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // ── GET /api/analytics/attribution ────────────────────────────────
+      // Performance Attribution: decomposes portfolio P&L by sector,
+      // currency, and strategy + top-10 contributors/detractors.
+      // ?period=ytd|3m|6m|12m  (default ytd)
+      // Uses FMP /historical-price-eod/light for start-of-period prices.
+      // Cached 24h in analytics_cache under key `attribution_{period}`.
+      if (path === "/api/analytics/attribution" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          await ensureMigrations(env);
+          const FMP_KEY = env.FMP_KEY;
+          if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
+
+          const period = (url.searchParams.get("period") || "ytd").toLowerCase();
+          const validPeriods = ["ytd", "3m", "6m", "12m"];
+          if (!validPeriods.includes(period)) {
+            return json({ error: `Invalid period '${period}'. Valid: ytd, 3m, 6m, 12m` }, corsHeaders, 400);
+          }
+          const forceRefresh = url.searchParams.get("refresh") === "1";
+          const CACHE_KEY = `attribution_${period}`;
+          const CACHE_TTL_MS = 24 * 3600 * 1000;
+
+          if (!forceRefresh) {
+            const cached = await env.DB.prepare(
+              `SELECT data, updated_at FROM analytics_cache WHERE key = ?`
+            ).bind(CACHE_KEY).first();
+            if (cached && cached.updated_at) {
+              const updatedIso = cached.updated_at.includes("T")
+                ? cached.updated_at
+                : cached.updated_at.replace(" ", "T") + "Z";
+              if (Date.now() - new Date(updatedIso).getTime() < CACHE_TTL_MS) {
+                return json(JSON.parse(cached.data), corsHeaders);
+              }
+            }
+          }
+
+          // ── Period start date ────────────────────────────────────────
+          const today = new Date();
+          let periodStart;
+          if (period === "ytd") {
+            periodStart = new Date(today.getFullYear(), 0, 1);
+          } else if (period === "3m") {
+            periodStart = new Date(today.getTime() - 91 * 86400000);
+          } else if (period === "6m") {
+            periodStart = new Date(today.getTime() - 183 * 86400000);
+          } else { // 12m
+            periodStart = new Date(today.getTime() - 365 * 86400000);
+          }
+          const periodStartStr = periodStart.toISOString().slice(0, 10);
+          // Fetch 7 days before period start to ensure we capture the nearest
+          // prior trading day even around weekends / holidays.
+          const fetchFrom = new Date(periodStart.getTime() - 7 * 86400000)
+            .toISOString().slice(0, 10);
+
+          // ── Load portfolio positions ──────────────────────────────────
+          const { results: posRows } = await env.DB.prepare(
+            `SELECT ticker, name, sector, strategy, currency, fx, usd_value, shares,
+                    cost_basis, avg_price, last_price
+             FROM positions WHERE list = 'portfolio' AND shares > 0
+             ORDER BY usd_value DESC`
+          ).all();
+          if (!posRows || posRows.length === 0) {
+            return json({ error: "No portfolio positions found" }, corsHeaders, 400);
+          }
+
+          const totalPortfolioValue = posRows.reduce((s, p) => s + (p.usd_value || 0), 0);
+          const FMP_BASE = "https://financialmodelingprep.com/stable";
+
+          // ── Helper: last EOD price on or before a given date ─────────
+          async function getStartPrice(fmpSym) {
+            try {
+              const r = await fetch(
+                `${FMP_BASE}/historical-price-eod/light?symbol=${encodeURIComponent(fmpSym)}&from=${fetchFrom}&to=${periodStartStr}&apikey=${FMP_KEY}`
+              );
+              if (!r.ok) return null;
+              const arr = await r.json();
+              const sorted = (Array.isArray(arr) ? arr : (arr?.historical || []))
+                .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+              if (!sorted.length) return null;
+              const entry = sorted[sorted.length - 1];
+              return entry.close ?? entry.price ?? null;
+            } catch { return null; }
+          }
+
+          // ── SPY benchmark return for the period ───────────────────────
+          let spyReturn = null;
+          try {
+            const spyStart = await getStartPrice("SPY");
+            if (spyStart) {
+              const bqR = await fetch(`${FMP_BASE}/batch-quote?symbols=SPY&apikey=${FMP_KEY}`);
+              if (bqR.ok) {
+                const bqArr = await bqR.json();
+                const spyNow = Array.isArray(bqArr) && bqArr.length ? bqArr[0].price : null;
+                if (spyNow) spyReturn = ((spyNow - spyStart) / spyStart) * 100;
+              }
+            }
+          } catch { /* non-critical — benchmark is informational */ }
+
+          // ── Per-position attribution in batches of 6 ─────────────────
+          const ATTR_BATCH = 6;
+          const holdings = [];
+          for (let i = 0; i < posRows.length; i += ATTR_BATCH) {
+            const batch = posRows.slice(i, i + ATTR_BATCH);
+            await Promise.all(batch.map(async (pos) => {
+              const fmpSym    = toFMP(pos.ticker);
+              const fxRate    = pos.fx || 1;
+              const currency  = (pos.currency || "USD").toUpperCase();
+              const shares    = pos.shares || 0;
+              const currPxUsd = (pos.last_price || 0) * fxRate;
+
+              let startPxLocal = await getStartPrice(fmpSym);
+              let startPxUsd   = startPxLocal != null ? startPxLocal * fxRate : null;
+              const usedHistorical = startPxUsd != null;
+
+              // Fallback to avg_price when no historical data available.
+              // This approximates P&L since position open (not since period
+              // start) for brand-new positions, but avoids silent omission.
+              if (!startPxUsd) {
+                startPxLocal = pos.avg_price || 0;
+                startPxUsd   = startPxLocal * fxRate;
+              }
+
+              const startValue   = startPxUsd * shares;
+              const currentValue = currPxUsd  * shares;
+              const pnlUsd       = currentValue - startValue;
+              const pnlPct       = startValue > 0 ? (pnlUsd / startValue) * 100 : 0;
+              const weightPct    = totalPortfolioValue > 0
+                ? (currentValue / totalPortfolioValue) * 100 : 0;
+
+              // FX decomposition: localReturnPct is the stock return in its
+              // home currency; fxImpactPct is the additional effect from
+              // USD/local FX movement.
+              let localReturnPct = null;
+              let fxImpactPct    = null;
+              if (currency !== "USD" && startPxLocal && pos.last_price) {
+                localReturnPct = ((pos.last_price - startPxLocal) / startPxLocal) * 100;
+                fxImpactPct    = pnlPct - localReturnPct;
+              }
+
+              holdings.push({
+                ticker:            pos.ticker,
+                name:              pos.name || pos.ticker,
+                sector:            pos.sector || "Unknown",
+                strategy:          pos.strategy || "YO",
+                currency,
+                shares,
+                start_price_usd:   Math.round(startPxUsd   * 100) / 100,
+                current_price_usd: Math.round(currPxUsd    * 100) / 100,
+                start_value:       Math.round(startValue),
+                current_value:     Math.round(currentValue),
+                pnl_usd:           Math.round(pnlUsd),
+                pnl_pct:           Math.round(pnlPct * 10) / 10,
+                weight_pct:        Math.round(weightPct * 10) / 10,
+                local_return_pct:  localReturnPct != null ? Math.round(localReturnPct * 10) / 10 : null,
+                fx_impact_pct:     fxImpactPct    != null ? Math.round(fxImpactPct    * 10) / 10 : null,
+                used_historical:   usedHistorical,
+              });
+            }));
+          }
+
+          // ── Aggregate by sector ───────────────────────────────────────
+          const sectorMap = {};
+          for (const h of holdings) {
+            const s = h.sector;
+            if (!sectorMap[s]) sectorMap[s] = { sector: s, pnl_usd: 0, start_value: 0, current_value: 0, count: 0 };
+            sectorMap[s].pnl_usd       += h.pnl_usd;
+            sectorMap[s].start_value   += h.start_value;
+            sectorMap[s].current_value += h.current_value;
+            sectorMap[s].count++;
+          }
+          const bySector = Object.values(sectorMap).map(s => ({
+            ...s,
+            pnl_pct: s.start_value > 0
+              ? Math.round(((s.pnl_usd / s.start_value) * 100) * 10) / 10 : 0,
+            contribution_pct: totalPortfolioValue > 0
+              ? Math.round((s.pnl_usd / totalPortfolioValue) * 1000) / 10 : 0,
+          })).sort((a, b) => b.pnl_usd - a.pnl_usd);
+
+          // ── Aggregate by currency ─────────────────────────────────────
+          const currencyMap = {};
+          for (const h of holdings) {
+            const c = h.currency;
+            if (!currencyMap[c]) currencyMap[c] = { currency: c, pnl_usd: 0, start_value: 0, current_value: 0, count: 0 };
+            currencyMap[c].pnl_usd       += h.pnl_usd;
+            currencyMap[c].start_value   += h.start_value;
+            currencyMap[c].current_value += h.current_value;
+            currencyMap[c].count++;
+          }
+          const byCurrency = Object.values(currencyMap).map(c => ({
+            ...c,
+            pnl_pct: c.start_value > 0
+              ? Math.round(((c.pnl_usd / c.start_value) * 100) * 10) / 10 : 0,
+          })).sort((a, b) => b.pnl_usd - a.pnl_usd);
+
+          // ── Aggregate by strategy ─────────────────────────────────────
+          const stratMap = {};
+          for (const h of holdings) {
+            const st = h.strategy;
+            if (!stratMap[st]) stratMap[st] = { strategy: st, pnl_usd: 0, start_value: 0, current_value: 0, count: 0 };
+            stratMap[st].pnl_usd       += h.pnl_usd;
+            stratMap[st].start_value   += h.start_value;
+            stratMap[st].current_value += h.current_value;
+            stratMap[st].count++;
+          }
+          const byStrategy = Object.values(stratMap).map(s => ({
+            ...s,
+            pnl_pct: s.start_value > 0
+              ? Math.round(((s.pnl_usd / s.start_value) * 100) * 10) / 10 : 0,
+          })).sort((a, b) => b.pnl_usd - a.pnl_usd);
+
+          // ── Top-10 contributors and detractors ────────────────────────
+          const holdingsSorted = [...holdings].sort((a, b) => b.pnl_usd - a.pnl_usd);
+          const top_contributors = holdingsSorted.slice(0, 10);
+          const top_detractors   = holdingsSorted.slice(-10).reverse();
+
+          // ── Portfolio-level summary ───────────────────────────────────
+          const totalPnl    = holdings.reduce((s, h) => s + h.pnl_usd, 0);
+          const totalStart  = holdings.reduce((s, h) => s + h.start_value, 0);
+          const totalReturn = totalStart > 0 ? (totalPnl / totalStart) * 100 : 0;
+          const nWithHist   = holdings.filter(h => h.used_historical).length;
+
+          // Portfolio-weighted FX drag (non-USD positions only)
+          const fxDrag = holdings.reduce((sum, h) => {
+            if (h.fx_impact_pct == null || totalStart === 0) return sum;
+            return sum + h.fx_impact_pct * (h.start_value / totalStart);
+          }, 0);
+
+          const result = {
+            ok:           true,
+            computed_at:  new Date().toISOString(),
+            period,
+            period_start: periodStartStr,
+            summary: {
+              total_pnl_usd:                  Math.round(totalPnl),
+              total_start_value:              Math.round(totalStart),
+              total_current_value:            Math.round(totalPortfolioValue),
+              total_return_pct:               Math.round(totalReturn * 10) / 10,
+              spy_return_pct:                 spyReturn != null ? Math.round(spyReturn * 10) / 10 : null,
+              vs_spy_pct:                     spyReturn != null
+                ? Math.round((totalReturn - spyReturn) * 10) / 10 : null,
+              fx_drag_pct:                    Math.round(fxDrag * 10) / 10,
+              positions_total:                holdings.length,
+              positions_with_historical_data: nWithHist,
+              data_coverage_pct:              holdings.length > 0
+                ? Math.round((nWithHist / holdings.length) * 1000) / 10 : 0,
+            },
+            by_sector:       bySector,
+            by_currency:     byCurrency,
+            by_strategy:     byStrategy,
+            top_contributors,
+            top_detractors,
+            all_holdings: holdings.sort((a, b) => b.pnl_usd - a.pnl_usd),
           };
 
           await env.DB.prepare(

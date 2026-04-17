@@ -47,6 +47,8 @@ const CartasSabiosTab    = lazy(() => import('../home/CartasSabiosTab'));
 const TaxOptimizationTab = lazy(() => import('../home/TaxOptimizationTab'));
 const BacktestTab        = lazy(() => import('../home/BacktestTab'));
 const AnalyticsTab       = lazy(() => import('../home/AnalyticsTab'));
+const AttributionTab     = lazy(() => import('../home/AttributionTab'));
+const AlertRulesTab      = lazy(() => import('../home/AlertRulesTab'));
 const RebalancingTab     = lazy(() => import('../home/RebalancingTab'));
 const ActionPlanTab      = lazy(() => import('../home/ActionPlanTab'));
 const NominaTab          = lazy(() => import('../home/NominaTab'));
@@ -846,7 +848,7 @@ function AirplaneMode({ portfolioList }) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: dlDone ? 0 : 6 }}>
           <span>{dlDone ? "✅" : "✈️"} {dlPhase}</span>
           {!dlDone && <span style={{ color: "var(--text-tertiary)", fontSize: 10 }}>{dlCurrent}/{dlTotal}</span>}
-          {dlDone && <button onClick={() => setDlOpen(false)} style={{ border: "none", background: "transparent", color: "var(--text-tertiary)", cursor: "pointer", fontSize: 12, marginLeft: 8 }}>✕</button>}
+          {dlDone && <button onClick={() => setDlOpen(false)} aria-label="Cerrar descarga offline" style={{ border: "none", background: "transparent", color: "var(--text-tertiary)", cursor: "pointer", fontSize: 12, marginLeft: 8 }}>✕</button>}
         </div>
         {!dlDone && (
           <div style={{ height: 3, background: "var(--subtle-bg2)", borderRadius: 2, overflow: "hidden" }}>
@@ -1144,6 +1146,7 @@ export default function HomeView() {
       <div className="ar-controls-group" style={{display:"flex",gap:4,alignItems:"center",flexShrink:0}}>
         {/* Currency selector */}
         <select value={displayCcy} onChange={e=>switchDisplayCcy(e.target.value)}
+          aria-label="Moneda de visualización"
           style={{padding:"4px 4px 4px 8px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--gold)",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)",outline:"none",minWidth:36}}>
           {DISPLAY_CCYS.map(ccy=><option key={ccy} value={ccy}>{CURRENCIES[ccy]?.symbol || ccy}</option>)}
         </select>
@@ -1160,28 +1163,32 @@ export default function HomeView() {
 
         {/* Alerts bell */}
         <button onClick={()=>{setShowAlertPanel(!showAlertPanel);if(alertsUnread>0)markAlertsRead();}}
+          aria-label={alertsUnread>0 ? `Alertas (${alertsUnread} sin leer)` : "Alertas"}
           style={{padding:"4px 7px",borderRadius:6,border:`1px solid ${alertsUnread>0?"rgba(255,214,10,.5)":"var(--border)"}`,background:alertsUnread>0?"rgba(255,214,10,.08)":"transparent",color:alertsUnread>0?"#ffd60a":"var(--text-tertiary)",fontSize:10,cursor:"pointer",transition:"all .15s",position:"relative"}}>
-          🔔{alertsUnread>0 && <span style={{position:"absolute",top:-4,right:-4,background:"var(--red)",color:"#fff",fontSize:7,fontWeight:700,borderRadius:6,padding:"1px 4px",minWidth:12,textAlign:"center"}}>{alertsUnread}</span>}
+          <span aria-hidden="true">🔔</span>
+          {alertsUnread>0 && <span aria-hidden="true" style={{position:"absolute",top:-4,right:-4,background:"var(--red)",color:"#fff",fontSize:7,fontWeight:700,borderRadius:6,padding:"1px 4px",minWidth:12,textAlign:"center"}}>{alertsUnread}</span>}
         </button>
 
         {/* Privacy */}
         {/* Theme toggle */}
         <button onClick={toggleTheme} title={theme==="dark"?"Modo claro":"Modo oscuro"}
+          aria-label={theme==="dark"?"Cambiar a modo claro":"Cambiar a modo oscuro"}
           style={{padding:"4px 7px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer",transition:"all .15s"}}>
-          {theme==="dark"?"☀️":"🌙"}
+          <span aria-hidden="true">{theme==="dark"?"☀️":"🌙"}</span>
         </button>
 
         <button onClick={()=>{const next=!privacyMode;setPrivacyMode(next);try{localStorage.setItem("ayr_privacy",next?"1":"0");}catch(e){}}}
           style={{padding:"4px 7px",borderRadius:6,border:`1px solid ${privacyMode?"var(--gold)":"var(--border)"}`,background:privacyMode?"var(--gold-dim)":"transparent",color:privacyMode?"var(--gold)":"var(--text-tertiary)",fontSize:10,cursor:"pointer",transition:"all .15s"}}
-          title={privacyMode?"Mostrar importes (Modo Privado ON)":"Ocultar importes (Modo Privado)"}>
-          {privacyMode?"🙈":"👁"}
+          title={privacyMode?"Mostrar importes (Modo Privado ON)":"Ocultar importes (Modo Privado)"}
+          aria-label={privacyMode?"Mostrar importes — Modo Privado activo":"Ocultar importes — Modo Privado"}>
+          <span aria-hidden="true">{privacyMode?"🙈":"👁"}</span>
         </button>
 
         {/* Zoom */}
-        <div style={{display:"flex",alignItems:"center",gap:1,border:"1px solid var(--border)",borderRadius:6,padding:"2px 3px"}}>
-          <button onClick={()=>changeZoom(uiZoom-10)} style={{padding:"1px 5px",border:"none",background:"transparent",color:"var(--text-tertiary)",fontSize:11,cursor:"pointer",fontWeight:700,lineHeight:1}}>−</button>
-          <span style={{fontSize:9,color:uiZoom!==100?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",minWidth:24,textAlign:"center",fontWeight:600,cursor:"pointer"}} onClick={()=>changeZoom(100)}>{uiZoom}%</span>
-          <button onClick={()=>changeZoom(uiZoom+10)} style={{padding:"1px 5px",border:"none",background:"transparent",color:"var(--text-tertiary)",fontSize:11,cursor:"pointer",fontWeight:700,lineHeight:1}}>+</button>
+        <div role="group" aria-label="Zoom de interfaz" style={{display:"flex",alignItems:"center",gap:1,border:"1px solid var(--border)",borderRadius:6,padding:"2px 3px"}}>
+          <button onClick={()=>changeZoom(uiZoom-10)} aria-label="Reducir zoom" style={{padding:"1px 5px",border:"none",background:"transparent",color:"var(--text-tertiary)",fontSize:11,cursor:"pointer",fontWeight:700,lineHeight:1}}>−</button>
+          <span style={{fontSize:9,color:uiZoom!==100?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",minWidth:24,textAlign:"center",fontWeight:600,cursor:"pointer"}} onClick={()=>changeZoom(100)} title="Restablecer zoom al 100%">{uiZoom}%</span>
+          <button onClick={()=>changeZoom(uiZoom+10)} aria-label="Aumentar zoom" style={{padding:"1px 5px",border:"none",background:"transparent",color:"var(--text-tertiary)",fontSize:11,cursor:"pointer",fontWeight:700,lineHeight:1}}>+</button>
         </div>
 
         {/* AI Agents run reminder — badge red if agents haven't run today */}
@@ -1216,7 +1223,7 @@ export default function HomeView() {
         {/* Offline mode — download all data for airplane */}
         <AirplaneMode portfolioList={portfolioList} />
 
-        <button onClick={()=>setShowSettings(!showSettings)} style={{padding:"4px 7px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer"}}>⚙</button>
+        <button onClick={()=>setShowSettings(!showSettings)} aria-label="Ajustes" title="Ajustes" style={{padding:"4px 7px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer"}}><span aria-hidden="true">⚙</span></button>
       </div>
     </div>
 
@@ -1280,7 +1287,7 @@ export default function HomeView() {
       <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:14,marginBottom:8,maxHeight:300,overflowY:"auto"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
           <div style={{fontSize:12,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)"}}>🔔 Alertas</div>
-          <button onClick={()=>setShowAlertPanel(false)} style={{border:"none",background:"transparent",color:"var(--text-tertiary)",cursor:"pointer",fontSize:12}}>✕</button>
+          <button onClick={()=>setShowAlertPanel(false)} aria-label="Cerrar panel de alertas" style={{border:"none",background:"transparent",color:"var(--text-tertiary)",cursor:"pointer",fontSize:12}}>✕</button>
         </div>
         {(!alerts || alerts.length === 0) ? (
           <div style={{textAlign:"center",padding:20,color:"var(--text-tertiary)",fontSize:11,fontFamily:"var(--fm)"}}>Sin alertas recientes</div>
@@ -1317,7 +1324,7 @@ export default function HomeView() {
               {healthData.results.filter(r=>r.ok).length}/{healthData.results.length} OK
             </span>}
           </div>
-          <button onClick={()=>setShowHealthCheck(false)} style={{border:"none",background:"transparent",color:"var(--text-tertiary)",cursor:"pointer",fontSize:14}}>✕</button>
+          <button onClick={()=>setShowHealthCheck(false)} aria-label="Cerrar health check" style={{border:"none",background:"transparent",color:"var(--text-tertiary)",cursor:"pointer",fontSize:14}}>✕</button>
         </div>
         {healthData.loading ? (
           <div style={{textAlign:"center",padding:20,color:"var(--text-tertiary)",fontSize:12,fontFamily:"var(--fm)"}}>Verificando sistemas...</div>
@@ -1411,6 +1418,7 @@ export default function HomeView() {
         {homeTab==="earnings" && <EarningsTab />}
         {homeTab==="news" && <NewsTab />}
         {homeTab==="track-record" && <AlertTrackRecordTab />}
+        {homeTab==="alert-rules" && <AlertRulesTab />}
       </Suspense>
     </ErrorBoundary>
 
