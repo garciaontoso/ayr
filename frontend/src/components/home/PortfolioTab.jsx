@@ -526,7 +526,7 @@ export default function PortfolioTab() {
         saveAlerts(alerts.map(x => x === a ? { ...x, fired: true } : x));
       }
     });
-  }, [portfolioTotals?.positions]);
+  }, [portfolioTotals?.positions, saveAlerts, alerts]);
 
   const loadFundamentals = useCallback(async () => {
     const tickers = (portfolioTotals?.positions || []).map(p=>p.ticker); // Worker FMP_MAP handles foreign tickers
