@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, Suspense, lazy } from 'react';
 import { API_URL } from '../../constants/index.js';
+import { FiveFiltersBadge } from '../ui/FiveFiltersBadge.jsx';
 
 const DiscoveryTab      = lazy(() => import('./DiscoveryTab'));
 const DividendScannerTab = lazy(() => import('./DividendScannerTab'));
@@ -158,8 +159,13 @@ function FeaturedCard({ c, onAction }) {
         </div>
       )}
 
+      {/* 5-Filter badge (partial — management derived from safety_score) */}
+      <div style={{ marginTop: 4 }}>
+        <FiveFiltersBadge filters={deriveFilters(c)} />
+      </div>
+
       {/* Actions */}
-      <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
         <button
           onClick={() => onAction(c, 'watchlist')}
           title="Promote to watchlist"
@@ -217,6 +223,9 @@ function CandidateRow({ c, rank, onAction, onDelete }) {
           {sources.slice(0, 3).map(s => <SourceBadge key={s} src={s} />)}
         </div>
       </td>
+      <td style={{ padding: '8px 6px' }}>
+        <FiveFiltersBadge filters={deriveFilters(c)} />
+      </td>
       <td style={{ padding: '8px 8px', whiteSpace: 'nowrap' }}>
         <div style={{ display: 'flex', gap: 4 }}>
           <button
@@ -246,14 +255,38 @@ function CandidateRow({ c, rank, onAction, onDelete }) {
   );
 }
 
+// ── Derive partial 5-filter scores from cantera DB fields ──────────────────
+// Only Management (F3) can be derived: safety_score is an 0-10 div-safety proxy.
+// All other filters require manual deep-dive analysis → null = pending.
+// conviction (F5) is always null (user-owned per A&R framework).
+function deriveFilters(c) {
+  const mgmt = c.safety_score != null ? Math.min(10, Math.max(0, Math.round(c.safety_score))) : null;
+  return {
+    business:   null,
+    moat:       null,
+    management: mgmt,
+    valuation:  null,
+    conviction: null,
+  };
+}
+
+// Composite of whatever non-null filters are available
+function filterComposite(c) {
+  const f = deriveFilters(c);
+  const vals = Object.values(f).filter(v => v !== null);
+  if (vals.length === 0) return 0;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+
 const SORT_KEYS = {
-  rank: null,
-  ticker: 'ticker',
-  score: 'priority_score',
-  yield: 'yield_pct',
-  dgr: 'dgr_5y',
-  payout: 'payout_ratio',
-  streak: 'streak_years',
+  rank:    null,
+  ticker:  'ticker',
+  score:   'priority_score',
+  yield:   'yield_pct',
+  dgr:     'dgr_5y',
+  payout:  'payout_ratio',
+  streak:  'streak_years',
+  safety:  'safety_score',
 };
 
 // ── Radar sub-view (former full CanteraTab body) ────────────────────────────
@@ -509,6 +542,7 @@ function RadarView() {
                   <SortTh label="Payout" sk="payout" />
                   <SortTh label="Streak" sk="streak" />
                   <th style={{ padding: '8px 6px', fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>Fuentes</th>
+                  <SortTh label="Safety(F3)" sk="safety" />
                   <th style={{ padding: '8px 8px', fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>Acciones</th>
                 </tr>
               </thead>
