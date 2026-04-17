@@ -1019,6 +1019,23 @@ async function ensureMigrations(env) {
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_dda_verdict ON deep_dividend_analysis(verdict)`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_dda_safety ON deep_dividend_analysis(safety_score)`).run();
 
+    // Sector Deep Dives table (2026-04-18) — institutional sector landscape reports
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS sector_deep_dives (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sector TEXT NOT NULL,
+      report_date TEXT NOT NULL,
+      title TEXT,
+      verdict_summary TEXT,
+      word_count INTEGER,
+      tickers_covered TEXT,
+      body_md TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER,
+      UNIQUE(sector, report_date)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_sdd_sector ON sector_deep_dives(sector)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_sdd_date ON sector_deep_dives(report_date DESC)`).run();
+
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS guidance_tracking (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       ticker TEXT NOT NULL,
@@ -4963,6 +4980,109 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       }
 
       // ═══════════════════════════════════════════════════════════
+      // SECTOR DEEP DIVES endpoints (2026-04-18)
+      // ═══════════════════════════════════════════════════════════
+
+      // GET /api/sector-deep-dive?sector=REITs
+      // Returns the latest sector deep-dive report for a given sector
+      if (path === "/api/sector-deep-dive" && request.method === "GET") {
+        await ensureMigrations(env);
+        const sector = (url.searchParams.get('sector') || '').trim();
+        if (!sector) return json({ error: "sector required (e.g. ?sector=REITs)" }, corsHeaders, 400);
+        const row = await env.DB.prepare(`
+          SELECT id, sector, report_date, title, verdict_summary, word_count, tickers_covered, body_md, created_at, updated_at
+          FROM sector_deep_dives
+          WHERE sector = ?
+          ORDER BY report_date DESC
+          LIMIT 1
+        `).bind(sector).first();
+        if (!row) {
+          return json({
+            ok: true,
+            found: false,
+            sector,
+            message: `No deep-dive report available for sector '${sector}'. Use POST /api/sector-deep-dive to upload.`,
+          }, corsHeaders);
+        }
+        return json({
+          ok: true,
+          found: true,
+          id: row.id,
+          sector: row.sector,
+          report_date: row.report_date,
+          title: row.title,
+          verdict_summary: row.verdict_summary,
+          word_count: row.word_count,
+          tickers_covered: row.tickers_covered ? JSON.parse(row.tickers_covered) : [],
+          body_md: row.body_md,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+        }, corsHeaders);
+      }
+
+      // GET /api/sector-deep-dive/list
+      // Returns all available sector deep-dives (without body_md for size)
+      if (path === "/api/sector-deep-dive/list" && request.method === "GET") {
+        await ensureMigrations(env);
+        const rs = await env.DB.prepare(`
+          SELECT id, sector, report_date, title, verdict_summary, word_count, tickers_covered, created_at
+          FROM sector_deep_dives
+          ORDER BY report_date DESC, sector ASC
+        `).all();
+        const rows = (rs.results || []).map(r => ({
+          ...r,
+          tickers_covered: r.tickers_covered ? JSON.parse(r.tickers_covered) : [],
+        }));
+        return json({ ok: true, count: rows.length, reports: rows }, corsHeaders);
+      }
+
+      // POST /api/sector-deep-dive
+      // Upload/update a sector deep-dive report. Requires auth token.
+      // Body: { sector, report_date (YYYY-MM-DD), title?, verdict_summary?, tickers_covered[], body_md }
+      if (path === "/api/sector-deep-dive" && request.method === "POST") {
+        await ensureMigrations(env);
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        let body;
+        try { body = await request.json(); }
+        catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const sector = String(body.sector || '').trim();
+        const reportDate = String(body.report_date || '').trim();
+        const bodyMd = String(body.body_md || '').trim();
+        if (!sector || !reportDate || !bodyMd) {
+          return json({ error: "sector, report_date, and body_md are required" }, corsHeaders, 400);
+        }
+        const wordCount = bodyMd.split(/\s+/).filter(Boolean).length;
+        const tickersJson = Array.isArray(body.tickers_covered) ? JSON.stringify(body.tickers_covered) : null;
+        const now = Math.floor(Date.now() / 1000);
+        // Upsert: replace if sector+date already exists
+        const existing = await env.DB.prepare(
+          `SELECT id FROM sector_deep_dives WHERE sector = ? AND report_date = ?`
+        ).bind(sector, reportDate).first();
+        if (existing) {
+          await env.DB.prepare(`
+            UPDATE sector_deep_dives
+            SET title = ?, verdict_summary = ?, word_count = ?, tickers_covered = ?, body_md = ?, updated_at = ?
+            WHERE id = ?
+          `).bind(
+            body.title || null, body.verdict_summary || null, wordCount, tickersJson,
+            bodyMd, now, existing.id
+          ).run();
+          return json({ ok: true, action: "updated", id: existing.id, word_count: wordCount }, corsHeaders);
+        } else {
+          const ins = await env.DB.prepare(`
+            INSERT INTO sector_deep_dives
+            (sector, report_date, title, verdict_summary, word_count, tickers_covered, body_md, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            sector, reportDate, body.title || null, body.verdict_summary || null,
+            wordCount, tickersJson, bodyMd, now, now
+          ).run();
+          return json({ ok: true, action: "created", id: ins.meta?.last_row_id, word_count: wordCount }, corsHeaders);
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════
       // SMART ALERTS endpoints (2026-04-09)
       // ═══════════════════════════════════════════════════════════
 
@@ -5802,8 +5922,8 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       if (path === "/api/cantera/refresh" && request.method === "POST") {
         await ensureMigrations(env);
-        const unauth = ytRequireToken(request, env);
-        if (unauth) return unauth;
+        const _canteraAuth = (isAllowed && origin) ? null : ytRequireToken(request, env);
+        if (_canteraAuth) return _canteraAuth;
         return await handleCanteraRefresh(request, env, corsHeaders);
       }
 

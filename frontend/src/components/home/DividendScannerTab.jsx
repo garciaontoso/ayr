@@ -199,10 +199,11 @@ export default function DividendScannerTab() {
   const [error, setError]   = useState(null);
   const [data, setData]     = useState(null);
 
-  // Filter state — defaults calibrated to the real Aristocrats universe:
-  // minDgr5y=5 because yield>3 + DGR>7 + FCFcov>1.2 simultaneously is rare.
-  const [minYield,  setMinYield]  = useState(3);
-  const [minDgr5y,  setMinDgr5y]  = useState(5);
+  // Filter state — defaults calibrated to the real Aristocrats universe.
+  // The classic yield/growth tradeoff means yield>3% + DGR>7% + FCFcov>1.2x
+  // simultaneously is very rare — lower defaults give a useful starting set.
+  const [minYield,  setMinYield]  = useState(2);
+  const [minDgr5y,  setMinDgr5y]  = useState(3);
   const [maxPayout, setMaxPayout] = useState(80);
   const [minFcfCov, setMinFcfCov] = useState(1.0);
   const [minStreak, setMinStreak] = useState(5);

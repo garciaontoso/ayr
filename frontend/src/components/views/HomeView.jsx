@@ -34,6 +34,7 @@ import MacroTab from '../home/MacroTab';
 import EarningsTab from '../home/EarningsTab';
 import NewsTab from '../home/NewsTab';
 import DailyBriefingTab from '../home/DailyBriefingTab';
+import CanteraTab from '../home/CanteraTab';
 import DiscoveryTab from '../home/DiscoveryTab';
 import DividendScannerTab from '../home/DividendScannerTab';
 import AlertTrackRecordTab from '../home/AlertTrackRecordTab';
@@ -1362,6 +1363,7 @@ export default function HomeView() {
       {homeTab==="watchlist" && <WatchlistTab />}
       {homeTab==="historial" && <HistorialTab />}
       {homeTab==="advisor" && <AdvisorTab />}
+      {homeTab==="cantera" && <CanteraTab />}
       {homeTab==="discovery" && <DiscoveryTab />}
       {homeTab==="div-scanner" && <DividendScannerTab />}
       {homeTab==="cartas-sabios" && <CartasSabiosTab />}
