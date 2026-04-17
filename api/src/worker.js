@@ -1791,7 +1791,7 @@ export default {
     const corsHeaders = {
       "Access-Control-Allow-Origin": corsOrigin,
       "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
     };
     
     if (request.method === "OPTIONS") {
@@ -8366,30 +8366,63 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return json({ deleted: symbol }, corsHeaders);
       }
 
-      // GET /api/peer-ratios?symbols=MSFT,GOOG — lightweight batch fetch of PE & EV/EBITDA for peers
+      // GET /api/peer-ratios?symbols=MSFT,GOOG — batch fetch PE & EV/EBITDA with D1 cache (6h TTL)
+      // Without cache this was 16 FMP calls per render; Peer Compare tab could burn quota fast.
       if (path === "/api/peer-ratios" && request.method === "GET") {
         const symbolsParam = url.searchParams.get("symbols");
         if (!symbolsParam) return json({ error: "Missing ?symbols=" }, corsHeaders);
         const symbols = symbolsParam.split(",").map(s => s.trim().toUpperCase()).filter(Boolean).slice(0, 8);
 
-        const results = await Promise.allSettled(
-          symbols.map(async sym => {
-            const fmpSym = toFMP(sym);
-            const [kmResp, profResp] = await Promise.allSettled([
-              fetch(`${FMP_BASE}/key-metrics?symbol=${fmpSym}&period=annual&limit=1&apikey=${FMP_KEY}`).then(r => r.json()),
-              fetch(`${FMP_BASE}/profile?symbol=${fmpSym}&apikey=${FMP_KEY}`).then(r => r.json()),
-            ]);
-            const km = kmResp.status === "fulfilled" ? (Array.isArray(kmResp.value) ? kmResp.value[0] : kmResp.value) : {};
-            const prof = profResp.status === "fulfilled" ? (Array.isArray(profResp.value) ? profResp.value[0] : profResp.value) : {};
-            return {
-              symbol: sym,
-              name: prof?.companyName || sym,
-              pe: km?.peRatio || prof?.pe || 0,
-              evEbitda: km?.evToEBITDA || km?.enterpriseValueOverEBITDA || 0,
-            };
-          })
-        );
-        return json(results.filter(r => r.status === "fulfilled").map(r => r.value), corsHeaders);
+        // Check cache
+        const sixHoursAgo = new Date(Date.now() - 6 * 3600 * 1000).toISOString();
+        const out = [];
+        const toFetch = [];
+        for (const sym of symbols) {
+          try {
+            const cached = await env.DB.prepare(
+              `SELECT symbol, name, pe, ev_ebitda FROM peer_ratios_cache WHERE symbol = ? AND updated_at > ?`
+            ).bind(sym, sixHoursAgo).first();
+            if (cached) {
+              out.push({ symbol: cached.symbol, name: cached.name, pe: cached.pe, evEbitda: cached.ev_ebitda });
+              continue;
+            }
+          } catch {} // table may not exist yet on first call
+          toFetch.push(sym);
+        }
+
+        // Fetch uncached symbols from FMP
+        if (toFetch.length > 0) {
+          // Ensure table exists
+          await env.DB.prepare(`CREATE TABLE IF NOT EXISTS peer_ratios_cache (
+            symbol TEXT PRIMARY KEY, name TEXT, pe REAL, ev_ebitda REAL,
+            updated_at TEXT DEFAULT (datetime('now'))
+          )`).run();
+
+          const fresh = await Promise.allSettled(
+            toFetch.map(async sym => {
+              const fmpSym = toFMP(sym);
+              const [kmResp, profResp] = await Promise.allSettled([
+                fetch(`${FMP_BASE}/key-metrics?symbol=${fmpSym}&period=annual&limit=1&apikey=${FMP_KEY}`).then(r => r.json()),
+                fetch(`${FMP_BASE}/profile?symbol=${fmpSym}&apikey=${FMP_KEY}`).then(r => r.json()),
+              ]);
+              const km = kmResp.status === "fulfilled" ? (Array.isArray(kmResp.value) ? kmResp.value[0] : kmResp.value) : {};
+              const prof = profResp.status === "fulfilled" ? (Array.isArray(profResp.value) ? profResp.value[0] : profResp.value) : {};
+              const row = {
+                symbol: sym,
+                name: prof?.companyName || sym,
+                pe: km?.peRatio || prof?.pe || 0,
+                evEbitda: km?.evToEBITDA || km?.enterpriseValueOverEBITDA || 0,
+              };
+              // Cache it
+              await env.DB.prepare(
+                `INSERT OR REPLACE INTO peer_ratios_cache (symbol, name, pe, ev_ebitda, updated_at) VALUES (?,?,?,?, datetime('now'))`
+              ).bind(row.symbol, row.name, row.pe, row.evEbitda).run();
+              return row;
+            })
+          );
+          for (const r of fresh) if (r.status === "fulfilled") out.push(r.value);
+        }
+        return json(out, corsHeaders);
       }
 
       // Auto-update holdings sector/industry when fundamentals are loaded
@@ -9207,7 +9240,10 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       }
 
       // POST /api/push-send — send push notification to all subscribers
+      // AUTH: prevents anyone from spamming subscribers. Added 2026-04-16.
       if (path === "/api/push-send" && request.method === "POST") {
+        const _pushAuth = (isAllowed && origin) ? null : ytRequireToken(request, env);
+        if (_pushAuth) return _pushAuth;
         const body = await parseBody(request);
         const { title, body: notifBody, url, tag } = body;
         if (!title) return json({ error: "Missing title" }, corsHeaders, 400);
@@ -10988,7 +11024,11 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
       }
 
       // POST /api/agent-run — manual trigger (single agent sync, or all in background)
+      // AUTH: requires token — endpoint costs ~$1.50 per full run (Claude API), publicly
+      // discoverable via frontend JS bundle. Added 2026-04-16 after security audit.
       if (path === "/api/agent-run" && request.method === "POST") {
+        const _agentAuth = (isAllowed && origin) ? null : ytRequireToken(request, env);
+        if (_agentAuth) return _agentAuth;
         await ensureMigrations(env);
         const agentParam = url.searchParams.get("agent");
         const fecha = new Date().toISOString().slice(0, 10);
@@ -13024,15 +13064,18 @@ async function process8KFilingsForTicker(env, ticker, cik) {
 
 // Cron-callable: scan all portfolio tickers for new 8-K events
 async function run8KMaterialEventsAgent(env) {
-  // Need ticker → CIK mapping. Use sec_filings_cik table (built by the existing
-  // sec_filings agent). Fall back to ticker-as-cik for already-cached entries.
+  // Need ticker → CIK mapping. The sec_filings agent stores CIK cache in
+  // agent_memory table under key "sec_cik_cache" (NOT in a sec_filings_cik table
+  // which doesn't exist). Bug discovered 2026-04-16 during full audit.
   let mapping = {};
   try {
-    const rs = await env.DB.prepare(`SELECT ticker, cik FROM sec_filings_cik WHERE cik IS NOT NULL`).all();
-    for (const r of (rs.results || [])) mapping[r.ticker] = r.cik;
+    const row = await env.DB.prepare(
+      `SELECT value FROM agent_memory WHERE key = 'sec_cik_cache'`
+    ).first();
+    if (row?.value) mapping = JSON.parse(row.value) || {};
   } catch {}
   if (Object.keys(mapping).length === 0) {
-    return { ok: false, reason: "no CIK mapping available" };
+    return { ok: false, reason: "no CIK mapping available (run sec_filings agent first)" };
   }
   // Iterate portfolio
   const positions = await env.DB.prepare(
