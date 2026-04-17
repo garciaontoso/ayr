@@ -8188,6 +8188,123 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
       }
 
+      // ═══════════════════════════════════════════════════════════════
+      // Custom Alert Rules Engine — /api/alert-rules/*
+      // ═══════════════════════════════════════════════════════════════
+
+      // GET /api/alert-rules/list — all rules (active + paused + triggered)
+      if (path === "/api/alert-rules/list" && request.method === "GET") {
+        try {
+          const statusFilter = url.searchParams.get("status"); // 'active'|'paused'|all
+          const tickerFilter = url.searchParams.get("ticker");
+          const conditions = [];
+          const params = [];
+          if (statusFilter) { conditions.push("status = ?"); params.push(statusFilter); }
+          if (tickerFilter) { conditions.push("ticker = ?"); params.push(tickerFilter.toUpperCase()); }
+          const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+          const { results: rules } = await env.DB.prepare(
+            `SELECT * FROM alert_rules ${where} ORDER BY created_at DESC LIMIT 200`
+          ).bind(...params).all();
+          // Attach recent trigger history from alerts table
+          const ruleIds = (rules || []).map(r => r.id);
+          let history = [];
+          if (ruleIds.length) {
+            const { results: histRows } = await env.DB.prepare(
+              `SELECT * FROM alerts WHERE tipo = 'RULE' ORDER BY created_at DESC LIMIT 100`
+            ).all();
+            history = histRows || [];
+          }
+          return json({ rules: rules || [], history }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // POST /api/alert-rules/add — create a new rule
+      if (path === "/api/alert-rules/add" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          const body = await request.json().catch(() => ({}));
+          const { ticker, rule_type, operator, threshold, unit, message } = body;
+          if (!ticker || typeof ticker !== "string") return json({ error: "ticker required" }, corsHeaders, 400);
+          if (!rule_type || typeof rule_type !== "string") return json({ error: "rule_type required" }, corsHeaders, 400);
+          const VALID_TYPES = new Set(['price_below','price_above','yield_above','yield_below','safety_below','dividend_cut','earnings_miss','custom']);
+          if (!VALID_TYPES.has(rule_type)) return json({ error: `Invalid rule_type. Valid: ${[...VALID_TYPES].join(', ')}` }, corsHeaders, 400);
+          if (threshold !== undefined && threshold !== null && isNaN(Number(threshold))) {
+            return json({ error: "threshold must be a number" }, corsHeaders, 400);
+          }
+          const { meta } = await env.DB.prepare(
+            `INSERT INTO alert_rules (ticker, rule_type, operator, threshold, unit, message, status)
+             VALUES (?, ?, ?, ?, ?, ?, 'active')`
+          ).bind(
+            ticker.toUpperCase(),
+            rule_type,
+            operator || null,
+            threshold !== undefined && threshold !== null ? Number(threshold) : null,
+            unit || null,
+            message || null
+          ).run();
+          const newRule = await env.DB.prepare(`SELECT * FROM alert_rules WHERE id = ?`).bind(meta.last_row_id).first();
+          return json({ ok: true, rule: newRule }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // PUT /api/alert-rules/:id — update an existing rule (ticker, threshold, message, status)
+      const alertRuleUpdateMatch = path.match(/^\/api\/alert-rules\/(\d+)$/);
+      if (alertRuleUpdateMatch && request.method === "PUT") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          const ruleId = parseInt(alertRuleUpdateMatch[1], 10);
+          const existing = await env.DB.prepare(`SELECT id FROM alert_rules WHERE id = ?`).bind(ruleId).first();
+          if (!existing) return json({ error: "Rule not found" }, corsHeaders, 404);
+          const body = await request.json().catch(() => ({}));
+          const fields = [];
+          const params = [];
+          // Only allow safe fields to be updated
+          const UPDATABLE = { rule_type: "TEXT", operator: "TEXT", threshold: "REAL", unit: "TEXT", message: "TEXT", status: "TEXT" };
+          for (const [k, type] of Object.entries(UPDATABLE)) {
+            if (body[k] !== undefined) {
+              if (k === "status" && !["active","paused"].includes(body[k])) {
+                return json({ error: "status must be 'active' or 'paused'" }, corsHeaders, 400);
+              }
+              fields.push(`${k} = ?`);
+              params.push(type === "REAL" ? Number(body[k]) : body[k]);
+            }
+          }
+          if (!fields.length) return json({ error: "No updatable fields provided" }, corsHeaders, 400);
+          // If re-activating a triggered rule, reset triggered_at so it can fire again immediately
+          if (body.status === "active") { fields.push("triggered_at = NULL"); }
+          params.push(ruleId);
+          await env.DB.prepare(`UPDATE alert_rules SET ${fields.join(", ")} WHERE id = ?`).bind(...params).run();
+          const updated = await env.DB.prepare(`SELECT * FROM alert_rules WHERE id = ?`).bind(ruleId).first();
+          return json({ ok: true, rule: updated }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // DELETE /api/alert-rules/:id
+      const alertRuleDeleteMatch = path.match(/^\/api\/alert-rules\/(\d+)$/);
+      if (alertRuleDeleteMatch && request.method === "DELETE") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          const ruleId = parseInt(alertRuleDeleteMatch[1], 10);
+          const existing = await env.DB.prepare(`SELECT id FROM alert_rules WHERE id = ?`).bind(ruleId).first();
+          if (!existing) return json({ error: "Rule not found" }, corsHeaders, 404);
+          await env.DB.prepare(`DELETE FROM alert_rules WHERE id = ?`).bind(ruleId).run();
+          return json({ ok: true, deleted: ruleId }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // POST /api/alert-rules/check — manually trigger rule evaluation (same as cron step)
+      if (path === "/api/alert-rules/check" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          const result = await evaluateAlertRules(env);
+          return json({ ok: true, ...result }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
       // ─── POSITIONS (D1 — replaces POS_STATIC) ───
 
       // GET /api/positions — all positions
@@ -14002,8 +14119,202 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         console.error("AI agents cron failed:", e.message);
       }
     })());
+    // Evaluate custom alert rules
+    try {
+      const rulesResult = await evaluateAlertRules(env);
+      console.log("Alert rules evaluation completed:", JSON.stringify(rulesResult));
+    } catch(e) {
+      console.error("Alert rules evaluation failed:", e.message);
+    }
   },
 };
+
+// ═══════════════════════════════════════════════════════════════
+// evaluateAlertRules — evaluate all active custom alert_rules against
+// current prices / yields / safety scores.  Called by cron (daily) and
+// by POST /api/alert-rules/check (manual trigger from UI).
+//
+// Idempotency: a rule that already triggered within the past 24 hours is
+// skipped — triggered_at is set on first fire, and we compare against
+// datetime('now', '-24 hours').  Recurring rules remain 'active' so they
+// re-fire on future days; they are never auto-paused.
+// ═══════════════════════════════════════════════════════════════
+async function evaluateAlertRules(env) {
+  // 1. Fetch all active rules
+  const { results: rules } = await env.DB.prepare(
+    `SELECT * FROM alert_rules WHERE status = 'active' ORDER BY id ASC`
+  ).all();
+  if (!rules?.length) return { checked: 0, triggered: 0, skipped: 0 };
+
+  // 2. Collect unique tickers that need a live price
+  const priceTickers = [...new Set(
+    rules
+      .filter(r => ['price_below','price_above'].includes(r.rule_type))
+      .map(r => r.ticker)
+  )];
+
+  // Fetch live quotes in one batch (fmpQuote handles chunking in batches of 50)
+  const quoteMap = priceTickers.length ? await fmpQuote(priceTickers, env) : {};
+
+  // 3. Fetch latest div_yield and safety_score from positions table
+  //    (refreshed daily by refreshDivTTM cron step)
+  const yieldTickers = [...new Set(
+    rules
+      .filter(r => ['yield_above','yield_below'].includes(r.rule_type))
+      .map(r => r.ticker)
+  )];
+  const safetyTickers = [...new Set(
+    rules
+      .filter(r => r.rule_type === 'safety_below')
+      .map(r => r.ticker)
+  )];
+  const allPosTickers = [...new Set([...yieldTickers, ...safetyTickers])];
+  const posMap = {};
+  if (allPosTickers.length) {
+    const ph = allPosTickers.map(() => '?').join(',');
+    const { results: posRows } = await env.DB.prepare(
+      `SELECT ticker, div_yield, last_price FROM positions WHERE ticker IN (${ph})`
+    ).bind(...allPosTickers).all();
+    for (const p of (posRows || [])) posMap[p.ticker] = p;
+  }
+
+  // For safety_below rules fetch latest quality_safety_scores snapshot
+  const safetyMap = {};
+  if (safetyTickers.length) {
+    const ph = safetyTickers.map(() => '?').join(',');
+    const { results: ssRows } = await env.DB.prepare(
+      `SELECT ticker, safety_score FROM quality_safety_scores
+       WHERE (ticker, snapshot_date) IN (
+         SELECT ticker, MAX(snapshot_date) FROM quality_safety_scores
+         WHERE ticker IN (${ph}) GROUP BY ticker
+       )`
+    ).bind(...safetyTickers).all();
+    for (const s of (ssRows || [])) safetyMap[s.ticker] = s.safety_score;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const cutoff24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString().replace('T',' ').slice(0,19);
+
+  let triggered = 0;
+  let skipped = 0;
+
+  for (const rule of rules) {
+    // Idempotency: skip if already triggered in the last 24h
+    if (rule.triggered_at && rule.triggered_at > cutoff24h) {
+      skipped++;
+      continue;
+    }
+
+    let currentValue = null;
+    let conditionMet = false;
+    let alertTitle = '';
+    let alertDetail = '';
+
+    try {
+      if (rule.rule_type === 'price_below') {
+        const q = quoteMap[rule.ticker];
+        currentValue = q?.price ?? null;
+        if (currentValue !== null && rule.threshold !== null) {
+          conditionMet = currentValue < rule.threshold;
+          alertTitle = `${rule.ticker} bajo $${rule.threshold}`;
+          alertDetail = rule.message || `Precio actual: $${currentValue.toFixed(2)} < umbral $${rule.threshold}`;
+        }
+
+      } else if (rule.rule_type === 'price_above') {
+        const q = quoteMap[rule.ticker];
+        currentValue = q?.price ?? null;
+        if (currentValue !== null && rule.threshold !== null) {
+          conditionMet = currentValue > rule.threshold;
+          alertTitle = `${rule.ticker} sobre $${rule.threshold}`;
+          alertDetail = rule.message || `Precio actual: $${currentValue.toFixed(2)} > umbral $${rule.threshold}`;
+        }
+
+      } else if (rule.rule_type === 'yield_above') {
+        const pos = posMap[rule.ticker];
+        currentValue = pos?.div_yield ?? null;
+        if (currentValue !== null && rule.threshold !== null) {
+          conditionMet = currentValue > rule.threshold;
+          alertTitle = `${rule.ticker} yield sobre ${rule.threshold}%`;
+          alertDetail = rule.message || `Yield actual: ${currentValue.toFixed(2)}% > umbral ${rule.threshold}%`;
+        }
+
+      } else if (rule.rule_type === 'yield_below') {
+        const pos = posMap[rule.ticker];
+        currentValue = pos?.div_yield ?? null;
+        if (currentValue !== null && rule.threshold !== null) {
+          conditionMet = currentValue < rule.threshold;
+          alertTitle = `${rule.ticker} yield bajo ${rule.threshold}%`;
+          alertDetail = rule.message || `Yield actual: ${currentValue.toFixed(2)}% < umbral ${rule.threshold}%`;
+        }
+
+      } else if (rule.rule_type === 'safety_below') {
+        currentValue = safetyMap[rule.ticker] ?? null;
+        if (currentValue !== null && rule.threshold !== null) {
+          conditionMet = currentValue < rule.threshold;
+          alertTitle = `${rule.ticker} Safety Score bajo ${rule.threshold}`;
+          alertDetail = rule.message || `Safety score: ${currentValue.toFixed(1)} < umbral ${rule.threshold}`;
+        }
+
+      } else {
+        // rule_types 'dividend_cut', 'earnings_miss', 'custom' — not auto-evaluated
+        // here (handled by their respective agents). Skip silently.
+        skipped++;
+        continue;
+      }
+
+      if (!conditionMet) continue;
+
+      // 4. Fire: insert into alerts table + update rule metadata
+      const now = new Date().toISOString().replace('T',' ').slice(0,19);
+
+      // Dedup: don't insert a duplicate alert for the same rule today
+      const existingAlert = await env.DB.prepare(
+        `SELECT id FROM alerts WHERE fecha = ? AND tipo = 'RULE' AND ticker = ? AND titulo = ? LIMIT 1`
+      ).bind(today, rule.ticker, alertTitle).first();
+
+      if (!existingAlert) {
+        await env.DB.prepare(
+          `INSERT INTO alerts (fecha, tipo, titulo, detalle, ticker, valor)
+           VALUES (?, 'RULE', ?, ?, ?, ?)`
+        ).bind(today, alertTitle, alertDetail, rule.ticker, currentValue ?? 0).run();
+      }
+
+      // Update rule: set triggered_at, increment counter
+      await env.DB.prepare(
+        `UPDATE alert_rules SET triggered_at = ?, triggered_count = triggered_count + 1 WHERE id = ?`
+      ).bind(now, rule.id).run();
+
+      // 5. Push notification (best-effort, no crash if no VAPID keys)
+      try {
+        const { results: subs } = await env.DB.prepare(
+          `SELECT * FROM push_subscriptions LIMIT 100`
+        ).all();
+        if (subs?.length) {
+          const payload = JSON.stringify({
+            title: `Alerta: ${alertTitle}`,
+            body: alertDetail,
+            url: '/?tab=alert-rules',
+            tag: `rule-${rule.id}-${today}`,
+          });
+          for (const sub of subs) {
+            try {
+              const res = await sendWebPush(env, sub, payload);
+              if (res.status === 410 || res.status === 404) {
+                await env.DB.prepare(`DELETE FROM push_subscriptions WHERE id = ?`).bind(sub.id).run();
+              }
+            } catch { /* push failure non-fatal */ }
+          }
+        }
+      } catch { /* no VAPID keys or other push error — non-fatal */ }
+
+      triggered++;
+    } catch (ruleErr) {
+      console.error(`[alert-rules] Error evaluating rule ${rule.id} (${rule.ticker}/${rule.rule_type}):`, ruleErr.message);
+    }
+  }
+
+  return { checked: rules.length, triggered, skipped };
+}
 
 // ═══════════════════════════════════════════════════════════════
 // refreshDivTTM — update div_ttm & div_yield in positions table

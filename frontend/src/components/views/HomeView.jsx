@@ -1,49 +1,68 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { CURRENCIES, DISPLAY_CCYS, APP_VERSION, API_URL, HOME_TAB_GROUPS } from '../../constants/index.js';
 import { saveCompanyToStorage } from '../../utils/storage.js';
-import { PortfolioTab } from '../home';
+// fetchAllYouTubeForOffline lives in its own tiny module so YouTubeTab can be lazy
+import { fetchAllYouTubeForOffline } from '../../utils/youtubeOffline.js';
+import { PortfolioTab } from '../home';  // PortfolioTab stays eager — it's the default tab
 import { ErrorBoundary } from '../ui';
+import SettingsPanel from '../home/SettingsPanel';  // tiny (122 lines), stays eager
 
-// ─── Direct imports (no lazy loading — ensures offline works) ───
-import ScreenerTab from '../home/ScreenerTab';
-import TradesTab from '../home/TradesTab';
-import PatrimonioTab from '../home/PatrimonioTab';
-import DashboardTab from '../home/DashboardTab';
-import DividendosTab from '../home/DividendosTab';
-import FireTab from '../home/FireTab';
-import GastosTab from '../home/GastosTab';
-import WatchlistTab from '../home/WatchlistTab';
-import HistorialTab from '../home/HistorialTab';
-import AdvisorTab from '../home/AdvisorTab';
-import ResearchTab from '../home/ResearchTab';
-import AgentesTab from '../home/AgentesTab';
-import CoveredCallsTab from '../home/CoveredCallsTab';
-import IncomeLabTab from '../home/IncomeLabTab';
+// ─── Lazy-loaded home tabs ─────────────────────────────────────────────────────
+// The AirplaneMode downloader already crawls all JS chunks from the entry bundle
+// and caches them via the Service Worker, so lazy tabs work offline correctly.
 // ProcesoTab deleted 2026-04-08: theses now live per-company inside the
 // analysis view (TesisTab). File removed entirely after audit B.
-import LibraryTab from '../home/LibraryTab';
-import SmartMoneyTab from '../home/SmartMoneyTab';
-import YouTubeTab, { fetchAllYouTubeForOffline } from '../home/YouTubeTab';
-import OpcionesTab from '../home/OpcionesTab';
-import EarningsArchiveTab from '../home/EarningsArchiveTab';
-import DeepDividendTab from '../home/DeepDividendTab';
-import PeerCompareTab from '../home/PeerCompareTab';
-import CurrencyTab from '../home/CurrencyTab';
-import MacroTab from '../home/MacroTab';
-import EarningsTab from '../home/EarningsTab';
-import NewsTab from '../home/NewsTab';
-import DailyBriefingTab from '../home/DailyBriefingTab';
-import CanteraTab from '../home/CanteraTab';
-import DiscoveryTab from '../home/DiscoveryTab';
-import DividendScannerTab from '../home/DividendScannerTab';
-import AlertTrackRecordTab from '../home/AlertTrackRecordTab';
-import CartasSabiosTab from '../home/CartasSabiosTab';
-import TaxOptimizationTab from '../home/TaxOptimizationTab';
-import BacktestTab from '../home/BacktestTab';
-import AnalyticsTab from '../home/AnalyticsTab';
+const ScreenerTab        = lazy(() => import('../home/ScreenerTab'));
+const TradesTab          = lazy(() => import('../home/TradesTab'));
+const PatrimonioTab      = lazy(() => import('../home/PatrimonioTab'));
+const DashboardTab       = lazy(() => import('../home/DashboardTab'));
+const DividendosTab      = lazy(() => import('../home/DividendosTab'));
+const FireTab            = lazy(() => import('../home/FireTab'));
+const GastosTab          = lazy(() => import('../home/GastosTab'));
+const WatchlistTab       = lazy(() => import('../home/WatchlistTab'));
+const HistorialTab       = lazy(() => import('../home/HistorialTab'));
+const AdvisorTab         = lazy(() => import('../home/AdvisorTab'));
+const ResearchTab        = lazy(() => import('../home/ResearchTab'));
+const AgentesTab         = lazy(() => import('../home/AgentesTab'));
+const CoveredCallsTab    = lazy(() => import('../home/CoveredCallsTab'));
+const IncomeLabTab       = lazy(() => import('../home/IncomeLabTab'));
+const LibraryTab         = lazy(() => import('../home/LibraryTab'));
+const SmartMoneyTab      = lazy(() => import('../home/SmartMoneyTab'));
+const YouTubeTab         = lazy(() => import('../home/YouTubeTab'));
+const OpcionesTab        = lazy(() => import('../home/OpcionesTab'));
+const EarningsArchiveTab = lazy(() => import('../home/EarningsArchiveTab'));
+const DeepDividendTab    = lazy(() => import('../home/DeepDividendTab'));
+const PeerCompareTab     = lazy(() => import('../home/PeerCompareTab'));
+const CurrencyTab        = lazy(() => import('../home/CurrencyTab'));
+const MacroTab           = lazy(() => import('../home/MacroTab'));
+const EarningsTab        = lazy(() => import('../home/EarningsTab'));
+const NewsTab            = lazy(() => import('../home/NewsTab'));
+const DailyBriefingTab   = lazy(() => import('../home/DailyBriefingTab'));
+const CanteraTab         = lazy(() => import('../home/CanteraTab'));
+const DiscoveryTab       = lazy(() => import('../home/DiscoveryTab'));
+const DividendScannerTab = lazy(() => import('../home/DividendScannerTab'));
+const AlertTrackRecordTab= lazy(() => import('../home/AlertTrackRecordTab'));
+const CartasSabiosTab    = lazy(() => import('../home/CartasSabiosTab'));
+const TaxOptimizationTab = lazy(() => import('../home/TaxOptimizationTab'));
+const BacktestTab        = lazy(() => import('../home/BacktestTab'));
+const AnalyticsTab       = lazy(() => import('../home/AnalyticsTab'));
+const RebalancingTab     = lazy(() => import('../home/RebalancingTab'));
+const ActionPlanTab      = lazy(() => import('../home/ActionPlanTab'));
+const NominaTab          = lazy(() => import('../home/NominaTab'));
+const PresupuestoTab     = lazy(() => import('../home/PresupuestoTab'));
 
-// Combined Income tab with sub-tabs
+// Tab skeleton shown while lazy chunks load
+const TabSkeleton = () => (
+  <div style={{padding:"24px",display:"flex",flexDirection:"column",gap:12}}>
+    {[0,1,2].map(i=>(
+      <div key={i} style={{height:60,background:"var(--card)",borderRadius:12,
+        animation:"pulse 1.5s infinite",animationDelay:`${i*0.15}s`}}/>
+    ))}
+  </div>
+);
+
+// Combined Income tab with sub-tabs (lazy sub-components, wrapped in Suspense)
 function IncomeTab() {
   const [sub, setSub] = useState(() => localStorage.getItem('income_sub') || 'cc');
   return <div>
@@ -57,14 +76,11 @@ function IncomeTab() {
         </button>
       )}
     </div>
-    {sub === "cc" ? <CoveredCallsTab /> : <IncomeLabTab />}
+    <Suspense fallback={<TabSkeleton />}>
+      {sub === "cc" ? <CoveredCallsTab /> : <IncomeLabTab />}
+    </Suspense>
   </div>;
 }
-import NominaTab from '../home/NominaTab';
-import PresupuestoTab from '../home/PresupuestoTab';
-import SettingsPanel from '../home/SettingsPanel';
-
-// No lazy loading — all tabs in main bundle for reliable offline support
 
 // ─── Semi-circle gauge SVG ───
 function MiniGauge({ value, min, max, colors, size = 80, label }) {
@@ -1352,46 +1368,50 @@ export default function HomeView() {
 
     {homeTab==="portfolio" && <PortfolioTab />}
     <ErrorBoundary>
-      {homeTab==="briefing" && <DailyBriefingTab />}
-      {homeTab==="screener" && <ScreenerTab />}
-      {homeTab==="trades" && <TradesTab />}
-      {homeTab==="patrimonio" && <PatrimonioTab />}
-      {homeTab==="dashboard" && <DashboardTab />}
-      {homeTab==="dividendos" && <DividendosTab />}
-      {homeTab==="fire" && <FireTab />}
-      {homeTab==="tax-opt" && <TaxOptimizationTab />}
-      {homeTab==="gastos" && <GastosTab />}
-      {homeTab==="watchlist" && <WatchlistTab />}
-      {homeTab==="historial" && <HistorialTab />}
-      {homeTab==="advisor" && <AdvisorTab />}
-      {homeTab==="cantera" && <CanteraTab />}
-      {homeTab==="discovery" && <DiscoveryTab />}
-      {homeTab==="div-scanner" && <DividendScannerTab />}
-      {homeTab==="cartas-sabios" && <CartasSabiosTab />}
-      {homeTab==="backtest" && <BacktestTab />}
-      {homeTab==="research" && <ResearchTab />}
-      {homeTab==="agentes" && <AgentesTab />}
-      {homeTab==="income" && <IncomeTab />}
-      {homeTab==="nomina" && <NominaTab />}
-      {homeTab==="presupuesto" && <PresupuestoTab />}
-      {homeTab==="library" && <LibraryTab />}
-      {homeTab==="smart-money" && <SmartMoneyTab />}
-      {homeTab==="videos-youtube" && <YouTubeTab />}
-      {homeTab==="earnings-archive" && <EarningsArchiveTab />}
-      {homeTab==="deep-dividend" && <DeepDividendTab />}
-      {homeTab==="peer-compare" && <PeerCompareTab />}
-      {homeTab==="analytics" && <AnalyticsTab />}
-      {homeTab==="opciones-cs" && <OpcionesTab strategy="CS" view="list" />}
-      {homeTab==="opciones-roc" && <OpcionesTab strategy="ROC" view="list" />}
-      {homeTab==="opciones-rop" && <OpcionesTab strategy="ROP" view="list" />}
-      {homeTab==="opciones-leaps" && <OpcionesTab strategy="LEAPS" view="list" />}
-      {homeTab==="opciones-resumen" && <OpcionesTab strategy="CS" view="summary" />}
-      {homeTab==="opciones-orphans" && <OpcionesTab strategy="CS" view="orphans" />}
-      {homeTab==="currency" && <CurrencyTab />}
-      {homeTab==="macro" && <MacroTab />}
-      {homeTab==="earnings" && <EarningsTab />}
-      {homeTab==="news" && <NewsTab />}
-      {homeTab==="track-record" && <AlertTrackRecordTab />}
+      <Suspense fallback={<TabSkeleton />}>
+        {homeTab==="action-plan" && <ActionPlanTab />}
+        {homeTab==="briefing" && <DailyBriefingTab />}
+        {homeTab==="screener" && <ScreenerTab />}
+        {homeTab==="trades" && <TradesTab />}
+        {homeTab==="patrimonio" && <PatrimonioTab />}
+        {homeTab==="dashboard" && <DashboardTab />}
+        {homeTab==="dividendos" && <DividendosTab />}
+        {homeTab==="fire" && <FireTab />}
+        {homeTab==="tax-opt" && <TaxOptimizationTab />}
+        {homeTab==="gastos" && <GastosTab />}
+        {homeTab==="watchlist" && <WatchlistTab />}
+        {homeTab==="historial" && <HistorialTab />}
+        {homeTab==="advisor" && <AdvisorTab />}
+        {homeTab==="cantera" && <CanteraTab />}
+        {homeTab==="discovery" && <DiscoveryTab />}
+        {homeTab==="div-scanner" && <DividendScannerTab />}
+        {homeTab==="cartas-sabios" && <CartasSabiosTab />}
+        {homeTab==="backtest" && <BacktestTab />}
+        {homeTab==="research" && <ResearchTab />}
+        {homeTab==="agentes" && <AgentesTab />}
+        {homeTab==="income" && <IncomeTab />}
+        {homeTab==="nomina" && <NominaTab />}
+        {homeTab==="presupuesto" && <PresupuestoTab />}
+        {homeTab==="library" && <LibraryTab />}
+        {homeTab==="smart-money" && <SmartMoneyTab />}
+        {homeTab==="videos-youtube" && <YouTubeTab />}
+        {homeTab==="earnings-archive" && <EarningsArchiveTab />}
+        {homeTab==="deep-dividend" && <DeepDividendTab />}
+        {homeTab==="peer-compare" && <PeerCompareTab />}
+        {homeTab==="analytics" && <AnalyticsTab />}
+        {homeTab==="rebalance" && <RebalancingTab />}
+        {homeTab==="opciones-cs" && <OpcionesTab strategy="CS" view="list" />}
+        {homeTab==="opciones-roc" && <OpcionesTab strategy="ROC" view="list" />}
+        {homeTab==="opciones-rop" && <OpcionesTab strategy="ROP" view="list" />}
+        {homeTab==="opciones-leaps" && <OpcionesTab strategy="LEAPS" view="list" />}
+        {homeTab==="opciones-resumen" && <OpcionesTab strategy="CS" view="summary" />}
+        {homeTab==="opciones-orphans" && <OpcionesTab strategy="CS" view="orphans" />}
+        {homeTab==="currency" && <CurrencyTab />}
+        {homeTab==="macro" && <MacroTab />}
+        {homeTab==="earnings" && <EarningsTab />}
+        {homeTab==="news" && <NewsTab />}
+        {homeTab==="track-record" && <AlertTrackRecordTab />}
+      </Suspense>
     </ErrorBoundary>
 
     {/* Settings Panel */}

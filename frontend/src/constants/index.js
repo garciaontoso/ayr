@@ -104,6 +104,7 @@ export const HOME_TAB_GROUPS = [
     lbl: "Cartera",
     ico: "💼",
     tabs: [
+      {id:"action-plan",lbl:"Acciones",ico:"🎯"},
       {id:"briefing",lbl:"Briefing",ico:"☀️"},
       {id:"portfolio",lbl:"Portfolio",ico:"💼"},
       {id:"agentes",lbl:"Agentes",ico:"🤖"},
@@ -115,6 +116,7 @@ export const HOME_TAB_GROUPS = [
       {id:"deep-dividend",lbl:"Deep Dividend",ico:"🔬"},
       {id:"peer-compare",lbl:"Comparar",ico:"⚖️"},
       {id:"analytics",lbl:"Analytics",ico:"📐"},
+      {id:"rebalance",lbl:"Rebalance",ico:"⚖️"},
       {id:"watchlist",lbl:"Watchlist",ico:"👁"},
       {id:"historial",lbl:"Historial",ico:"📦"},
     ],
