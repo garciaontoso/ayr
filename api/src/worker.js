@@ -1282,6 +1282,45 @@ async function ensureMigrations(env) {
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_iana_ticker ON ia_narrative_alerts(ticker, event_date DESC)`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_iana_severity ON ia_narrative_alerts(severity, leida)`).run();
 
+    // decision_journal table (trade rationale + review)
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS decision_journal (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      decision_date TEXT NOT NULL,
+      ticker TEXT NOT NULL,
+      action TEXT NOT NULL,
+      shares REAL,
+      price REAL,
+      thesis_1 TEXT,
+      thesis_2 TEXT,
+      thesis_3 TEXT,
+      target_price REAL,
+      stop_price REAL,
+      time_horizon TEXT,
+      conviction INTEGER,
+      review_date TEXT,
+      review_result TEXT,
+      review_notes TEXT,
+      review_completed_at TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_journal_review ON decision_journal(review_date, review_completed_at)`).run();
+
+    // ─── Weekly Digest (2026-04-17) ───
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS weekly_digests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      week_start TEXT NOT NULL UNIQUE,
+      md TEXT NOT NULL,
+      html TEXT NOT NULL DEFAULT '',
+      opus_intro TEXT DEFAULT '',
+      actions_json TEXT DEFAULT '[]',
+      inputs_summary_json TEXT DEFAULT '{}',
+      opus_cost_usd REAL DEFAULT 0,
+      email_sent INTEGER DEFAULT 0,
+      email_sent_at TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_weekly_digests_week ON weekly_digests(week_start DESC)`).run();
+
     _migrated = true;
   } catch(e) {
     console.error("Migration error:", e.message);
@@ -5301,6 +5340,57 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         try {
           const briefing = await buildDailyBriefing(env);
           return json(briefing, corsHeaders);
+        } catch (e) {
+          return json({ ok: false, error: String(e.message || e) }, corsHeaders, 500);
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      // Weekly Digest — Monday morning summary with 5 actions
+      //
+      // POST /api/digest/weekly/generate  → build + store digest for current week
+      // GET  /api/digest/weekly/latest    → fetch most recent stored digest
+      // GET  /api/digest/weekly/history   → list of past digests (id, week_start, created_at)
+      // ═══════════════════════════════════════════════════════════════
+
+      if (path === "/api/digest/weekly/generate" && request.method === "POST") {
+        await ensureMigrations(env);
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          const result = await buildWeeklyDigest(env);
+          return json(result, corsHeaders);
+        } catch (e) {
+          return json({ ok: false, error: String(e.message || e) }, corsHeaders, 500);
+        }
+      }
+
+      if (path === "/api/digest/weekly/latest" && request.method === "GET") {
+        await ensureMigrations(env);
+        try {
+          const row = await env.DB.prepare(
+            `SELECT id, week_start, md, html, opus_intro, actions_json, created_at, email_sent
+               FROM weekly_digests ORDER BY week_start DESC LIMIT 1`
+          ).first();
+          if (!row) return json({ ok: true, digest: null }, corsHeaders);
+          let actions = [];
+          try { actions = JSON.parse(row.actions_json || '[]'); } catch {}
+          return json({ ok: true, digest: { ...row, actions } }, corsHeaders);
+        } catch (e) {
+          return json({ ok: false, error: String(e.message || e) }, corsHeaders, 500);
+        }
+      }
+
+      if (path === "/api/digest/weekly/history" && request.method === "GET") {
+        await ensureMigrations(env);
+        try {
+          const limit = Math.min(parseInt(url.searchParams.get('limit') || '12', 10), 52);
+          const { results: rows } = await env.DB.prepare(
+            `SELECT id, week_start, created_at, email_sent,
+                    LENGTH(md) AS char_count
+               FROM weekly_digests ORDER BY week_start DESC LIMIT ?`
+          ).bind(limit).all();
+          return json({ ok: true, digests: rows || [] }, corsHeaders);
         } catch (e) {
           return json({ ok: false, error: String(e.message || e) }, corsHeaders, 500);
         }
@@ -15098,6 +15188,167 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         }
       }
 
+      // ═══ Decision Journal ═══════════════════════════════════════════════════
+      // POST /api/journal/add
+      if (path === "/api/journal/add" && request.method === "POST") {
+        await ensureMigrations(env);
+        let body;
+        try { body = await request.json(); }
+        catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const { decision_date, ticker, action, shares, price, thesis_1, thesis_2, thesis_3,
+                target_price, stop_price, time_horizon, conviction, review_date } = body;
+        if (!decision_date || !ticker || !action) {
+          return json({ error: "decision_date, ticker, action required" }, corsHeaders, 400);
+        }
+        const VALID_ACTIONS = ["BUY", "SELL", "TRIM", "ADD"];
+        if (!VALID_ACTIONS.includes(action)) {
+          return json({ error: `action must be one of: ${VALID_ACTIONS.join(", ")}` }, corsHeaders, 400);
+        }
+        if (conviction && (conviction < 1 || conviction > 10)) {
+          return json({ error: "conviction must be 1–10" }, corsHeaders, 400);
+        }
+        // Auto-compute review_date from time_horizon if not provided
+        let computedReviewDate = review_date || null;
+        if (!computedReviewDate && time_horizon) {
+          const base = new Date(decision_date);
+          const horizonMap = { "3m": 90, "6m": 180, "1y": 365, "3y": 1095, "5y": 1825 };
+          const days = horizonMap[time_horizon];
+          if (days) {
+            base.setDate(base.getDate() + days);
+            computedReviewDate = base.toISOString().slice(0, 10);
+          }
+        }
+        const r = await env.DB.prepare(`
+          INSERT INTO decision_journal
+            (decision_date, ticker, action, shares, price, thesis_1, thesis_2, thesis_3,
+             target_price, stop_price, time_horizon, conviction, review_date)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+        `).bind(
+          decision_date, ticker.toUpperCase(), action,
+          shares ?? null, price ?? null,
+          thesis_1 || null, thesis_2 || null, thesis_3 || null,
+          target_price ?? null, stop_price ?? null,
+          time_horizon || null, conviction ?? null, computedReviewDate
+        ).run();
+        return json({ ok: true, id: r.meta?.last_row_id }, corsHeaders);
+      }
+
+      // GET /api/journal/list?status=pending|reviewed|all
+      if (path === "/api/journal/list" && request.method === "GET") {
+        await ensureMigrations(env);
+        const status = url.searchParams.get("status") || "all";
+        let where = "";
+        const today = new Date().toISOString().slice(0, 10);
+        if (status === "pending") {
+          // Due for review (review_date <= today) AND not yet reviewed
+          where = `WHERE review_completed_at IS NULL AND review_date IS NOT NULL AND review_date <= '${today}'`;
+        } else if (status === "upcoming") {
+          // Not yet reviewed, review date in the future
+          where = `WHERE review_completed_at IS NULL AND (review_date IS NULL OR review_date > '${today}')`;
+        } else if (status === "reviewed") {
+          where = `WHERE review_completed_at IS NOT NULL`;
+        }
+        // else "all" — no filter
+        const rs = await env.DB.prepare(
+          `SELECT * FROM decision_journal ${where} ORDER BY decision_date DESC LIMIT 500`
+        ).all();
+        return json({ ok: true, decisions: rs.results || [] }, corsHeaders);
+      }
+
+      // PUT /api/journal/:id/review
+      if (path.match(/^\/api\/journal\/\d+\/review$/) && request.method === "PUT") {
+        await ensureMigrations(env);
+        const id = parseInt(path.split("/")[3], 10);
+        let body;
+        try { body = await request.json(); }
+        catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const { review_result, review_notes } = body;
+        const VALID_RESULTS = ["CORRECT", "WRONG", "PARTIAL", "INCONCLUSIVE"];
+        if (!VALID_RESULTS.includes(review_result)) {
+          return json({ error: `review_result must be one of: ${VALID_RESULTS.join(", ")}` }, corsHeaders, 400);
+        }
+        const existing = await env.DB.prepare(`SELECT id FROM decision_journal WHERE id = ?`).bind(id).first();
+        if (!existing) return json({ error: "Decision not found" }, corsHeaders, 404);
+        await env.DB.prepare(`
+          UPDATE decision_journal
+          SET review_result = ?, review_notes = ?, review_completed_at = datetime('now')
+          WHERE id = ?
+        `).bind(review_result, review_notes || null, id).run();
+        return json({ ok: true, id }, corsHeaders);
+      }
+
+      // GET /api/journal/stats
+      if (path === "/api/journal/stats" && request.method === "GET") {
+        await ensureMigrations(env);
+        const all = await env.DB.prepare(`SELECT * FROM decision_journal`).all();
+        const rows = all.results || [];
+        const reviewed = rows.filter(r => r.review_completed_at);
+        const pending = rows.filter(r => !r.review_completed_at && r.review_date);
+        const today = new Date().toISOString().slice(0, 10);
+        const overdue = pending.filter(r => r.review_date <= today);
+
+        // Hit rate
+        const correct = reviewed.filter(r => r.review_result === "CORRECT").length;
+        const partial = reviewed.filter(r => r.review_result === "PARTIAL").length;
+        const hitRate = reviewed.length > 0
+          ? Math.round(((correct + partial * 0.5) / reviewed.length) * 100)
+          : null;
+
+        // Conviction vs outcome — avg conviction for correct vs wrong
+        const correctConvictions = reviewed
+          .filter(r => r.review_result === "CORRECT" && r.conviction)
+          .map(r => r.conviction);
+        const wrongConvictions = reviewed
+          .filter(r => r.review_result === "WRONG" && r.conviction)
+          .map(r => r.conviction);
+        const avg = arr => arr.length ? (arr.reduce((s, v) => s + v, 0) / arr.length).toFixed(1) : null;
+
+        // By action type
+        const byAction = {};
+        for (const r of reviewed) {
+          if (!r.action) continue;
+          if (!byAction[r.action]) byAction[r.action] = { total: 0, correct: 0, partial: 0, wrong: 0 };
+          byAction[r.action].total++;
+          if (r.review_result === "CORRECT") byAction[r.action].correct++;
+          else if (r.review_result === "PARTIAL") byAction[r.action].partial++;
+          else if (r.review_result === "WRONG") byAction[r.action].wrong++;
+        }
+
+        // By conviction bucket
+        const hiConviction = reviewed.filter(r => r.conviction >= 8);
+        const hiCorrect = hiConviction.filter(r => r.review_result === "CORRECT" || r.review_result === "PARTIAL").length;
+        const hiHitRate = hiConviction.length > 0
+          ? Math.round((hiCorrect / hiConviction.length) * 100) : null;
+
+        // Best/worst tickers
+        const byTicker = {};
+        for (const r of reviewed) {
+          if (!byTicker[r.ticker]) byTicker[r.ticker] = { total: 0, correct: 0 };
+          byTicker[r.ticker].total++;
+          if (r.review_result === "CORRECT" || r.review_result === "PARTIAL") byTicker[r.ticker].correct++;
+        }
+        const tickerStats = Object.entries(byTicker)
+          .filter(([, v]) => v.total >= 2)
+          .map(([ticker, v]) => ({ ticker, total: v.total, hit_rate: Math.round((v.correct / v.total) * 100) }))
+          .sort((a, b) => b.hit_rate - a.hit_rate);
+
+        return json({
+          ok: true,
+          total: rows.length,
+          reviewed: reviewed.length,
+          pending: pending.length,
+          overdue: overdue.length,
+          hit_rate_pct: hitRate,
+          avg_conviction_correct: avg(correctConvictions),
+          avg_conviction_wrong: avg(wrongConvictions),
+          high_conviction_hit_rate_pct: hiHitRate,
+          high_conviction_n: hiConviction.length,
+          by_action: byAction,
+          best_tickers: tickerStats.slice(0, 5),
+          worst_tickers: tickerStats.slice(-5).reverse(),
+        }, corsHeaders);
+      }
+
       // 404
       return new Response(JSON.stringify({ error: "Not found", path }), {
         status: 404,
@@ -15174,6 +15425,21 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
       console.log("IA narrative scan completed:", JSON.stringify(iaScanResult));
     } catch(e) {
       console.error("IA narrative scan failed:", e.message);
+    }
+    // Weekly Digest — generate every Monday (day 1)
+    // Cron runs "0 6 * * 1" (06:00 UTC Mon = 08:00 Madrid summer / 07:00 winter)
+    // event.cron is the cron expression that triggered this run, or undefined for on-demand.
+    // We check day-of-week so a re-enabled daily cron still only builds digest on Mondays.
+    const todayUTC = new Date();
+    if (todayUTC.getUTCDay() === 1) {
+      ctx.waitUntil((async () => {
+        try {
+          const digestResult = await buildWeeklyDigest(env);
+          console.log("Weekly digest generated:", digestResult.week_start, "actions:", digestResult.actions?.length);
+        } catch(e) {
+          console.error("Weekly digest generation failed:", e.message);
+        }
+      })());
     }
   },
 };
@@ -20207,4 +20473,396 @@ async function handleCanteraRefresh(request, env, corsHeaders) {
     top_10: top10 || [],
     portfolio_excluded: portfolioSet.size,
   }, corsHeaders);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// callClaudeRawText — like callAgentClaude but returns plain text
+// instead of trying to JSON.parse the response.
+// Use this for narrative/markdown generation (digests, summaries).
+// ═══════════════════════════════════════════════════════════════
+async function callClaudeRawText(env, systemPrompt, userContent, opts = {}) {
+  const model = opts.model || "claude-opus-4-5";
+  const maxTokens = opts.maxTokens || 1500;
+  const body = JSON.stringify({
+    model,
+    max_tokens: maxTokens,
+    system: systemPrompt,
+    messages: [{ role: "user", content: typeof userContent === "string" ? userContent : JSON.stringify(userContent) }],
+  });
+  const RETRYABLE = new Set([429, 500, 502, 503, 504, 529]);
+  const BACKOFF_MS = [5000, 15000, 30000];
+  let lastErr = null;
+  let resp = null;
+  for (let attempt = 0; attempt <= BACKOFF_MS.length; attempt++) {
+    try {
+      resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": env.ANTHROPIC_API_KEY || "",
+          "anthropic-version": "2023-06-01",
+        },
+        body,
+      });
+      if (resp.ok) break;
+      if (!RETRYABLE.has(resp.status) || attempt === BACKOFF_MS.length) {
+        const errText = await resp.text();
+        throw new Error(`Claude API error ${resp.status}: ${errText}`);
+      }
+      console.warn(`[callClaudeRawText] ${resp.status} attempt ${attempt + 1}, retrying in ${BACKOFF_MS[attempt]}ms`);
+      await new Promise(r => setTimeout(r, BACKOFF_MS[attempt]));
+    } catch (e) {
+      lastErr = e;
+      if (attempt === BACKOFF_MS.length) throw e;
+      console.warn(`[callClaudeRawText] network error attempt ${attempt + 1}: ${e.message}`);
+      await new Promise(r => setTimeout(r, BACKOFF_MS[attempt]));
+    }
+  }
+  if (!resp || !resp.ok) throw lastErr || new Error("Claude API: all retries exhausted");
+  const result = await resp.json();
+  return (result.content?.[0]?.text || "").trim();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// buildWeeklyDigest — aggregates data, calls Claude Opus for intro,
+// renders markdown + HTML, stores in weekly_digests.
+// Returns { ok, week_start, md, html, actions, ... }
+// ═══════════════════════════════════════════════════════════════
+async function buildWeeklyDigest(env) {
+  // Compute Monday of current week (ISO 8601: week starts Monday)
+  const now = new Date();
+  const dayOfWeek = now.getUTCDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+  const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  const monday = new Date(now);
+  monday.setUTCDate(monday.getUTCDate() - daysToMonday);
+  const weekStart = monday.toISOString().slice(0, 10); // YYYY-MM-DD
+  const today = now.toISOString().slice(0, 10);
+  const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+  const sevenDaysAhead = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+
+  // ── 1. Portfolio delta week-over-week (nlv_history) ─────────
+  let nlvNow = null, nlvWeekAgo = null, nlvDeltaPct = null;
+  let divWeek = 0;
+  try {
+    const nlvCurrent = await env.DB.prepare(
+      `SELECT nlv FROM nlv_history ORDER BY fecha DESC LIMIT 1`
+    ).first();
+    nlvNow = nlvCurrent?.nlv ? Number(nlvCurrent.nlv) : null;
+
+    const nlvPrev = await env.DB.prepare(
+      `SELECT nlv FROM nlv_history WHERE fecha <= ? ORDER BY fecha DESC LIMIT 1`
+    ).bind(sevenDaysAgo).first();
+    nlvWeekAgo = nlvPrev?.nlv ? Number(nlvPrev.nlv) : null;
+
+    if (nlvNow && nlvWeekAgo && nlvWeekAgo > 0) {
+      nlvDeltaPct = ((nlvNow - nlvWeekAgo) / nlvWeekAgo) * 100;
+    }
+
+    // Dividends received this week
+    const divRs = await env.DB.prepare(
+      `SELECT COALESCE(SUM(bruto), 0) AS total FROM dividendos WHERE fecha >= ?`
+    ).bind(sevenDaysAgo).first();
+    divWeek = Number(divRs?.total || 0);
+  } catch (e) { console.warn("[digest] nlv/div query failed:", e.message); }
+
+  // ── 2. Top 3 pending actions (from agent_insights critical/warning) ──
+  let pendingActions = [];
+  try {
+    const { results: aRows } = await env.DB.prepare(
+      `SELECT ticker, agent_name, severity, title, summary
+         FROM agent_insights
+        WHERE severity IN ('critical','warning')
+          AND fecha >= ?
+        ORDER BY CASE severity WHEN 'critical' THEN 0 ELSE 1 END ASC, created_at DESC
+        LIMIT 10`
+    ).bind(sevenDaysAgo).all();
+    // Dedup by ticker, pick most severe
+    const seen = new Set();
+    for (const r of (aRows || [])) {
+      if (seen.has(r.ticker)) continue;
+      seen.add(r.ticker);
+      const lo = (r.summary || r.title || '').toLowerCase();
+      let actionType = 'REVIEW';
+      if (/sell|vender/.test(lo)) actionType = 'SELL';
+      else if (/trim|recortar/.test(lo)) actionType = 'TRIM';
+      else if (/add|comprar|accumulate/.test(lo)) actionType = 'BUY';
+      pendingActions.push({ ticker: r.ticker, action_type: actionType, reason: (r.summary || r.title || '').slice(0, 200), source: r.agent_name, severity: r.severity });
+      if (pendingActions.length >= 3) break;
+    }
+  } catch (e) { console.warn("[digest] pending actions query failed:", e.message); }
+
+  // ── 3. Top 3 Cantera candidates with recent priority_score changes ──
+  let canteraCandidates = [];
+  try {
+    const { results: cRows } = await env.DB.prepare(
+      `SELECT ticker, name, priority_score, yield_pct, dgr_5y, sources, reason_to_watch, updated_at
+         FROM cantera
+        WHERE status = 'radar' AND updated_at >= ?
+        ORDER BY priority_score DESC LIMIT 3`
+    ).bind(sevenDaysAgo).all();
+    canteraCandidates = cRows || [];
+  } catch (e) { console.warn("[digest] cantera query failed:", e.message); }
+
+  // ── 4. Alert rules triggered this week ──
+  let triggeredAlerts = [];
+  try {
+    const { results: alRows } = await env.DB.prepare(
+      `SELECT tipo, titulo, ticker, valor, fecha
+         FROM alerts
+        WHERE created_at >= ? AND tipo IN ('RULE','DIVIDEND','EARNINGS')
+        ORDER BY created_at DESC LIMIT 5`
+    ).bind(sevenDaysAgo).all();
+    triggeredAlerts = alRows || [];
+  } catch (e) { console.warn("[digest] triggered alerts query failed:", e.message); }
+
+  // ── 5. Upcoming ex-dividend dates next 7 days (from FMP via fundamentals) ──
+  // dividendos only has paid history; use fundamentals.dividends JSON cache for next ex-date
+  let upcomingDivs = [];
+  try {
+    const { results: fundRows } = await env.DB.prepare(
+      `SELECT f.symbol, f.dividends FROM fundamentals f
+         JOIN positions p ON p.ticker = f.symbol
+        WHERE p.shares > 0 AND f.dividends IS NOT NULL`
+    ).all();
+    for (const row of (fundRows || [])) {
+      try {
+        const divData = JSON.parse(row.dividends || '[]');
+        const arr = Array.isArray(divData) ? divData : (divData?.historical || []);
+        // FMP returns sorted DESC by date; find the most recent entry with an ex-date in next 7d
+        for (const d of arr) {
+          const exDate = d.date || d.exDividendDate || d.declarationDate;
+          if (!exDate) continue;
+          if (exDate >= today && exDate <= sevenDaysAhead) {
+            upcomingDivs.push({ ticker: row.symbol, ex_date: exDate, amount: d.dividend || d.adjDividend || 0 });
+            break;
+          }
+        }
+      } catch {}
+    }
+    upcomingDivs.sort((a, b) => a.ex_date.localeCompare(b.ex_date));
+    upcomingDivs = upcomingDivs.slice(0, 5);
+  } catch (e) { console.warn("[digest] upcoming divs query failed:", e.message); }
+
+  // ── 6. Upcoming earnings next 7 days ──
+  let upcomingEarnings = [];
+  try {
+    const { results: eRows } = await env.DB.prepare(
+      `SELECT ec.ticker, ec.earnings_date, ec.eps_estimate
+         FROM earnings_calendar ec
+         JOIN positions p ON p.ticker = ec.ticker
+        WHERE ec.earnings_date >= ? AND ec.earnings_date <= ?
+          AND COALESCE(p.shares,0) > 0
+        ORDER BY ec.earnings_date ASC LIMIT 7`
+    ).bind(today, sevenDaysAhead).all();
+    upcomingEarnings = eRows || [];
+  } catch (e) { console.warn("[digest] upcoming earnings query failed:", e.message); }
+
+  // ── 7. Red flags from Deep Dividend (TRIM/SELL verdicts) ──
+  let redFlags = [];
+  try {
+    const { results: rfRows } = await env.DB.prepare(
+      `SELECT ticker, verdict, composite_score, red_flags_count, confidence
+         FROM deep_dividend_analysis
+        WHERE verdict IN ('TRIM','SELL')
+        ORDER BY composite_score ASC, created_at DESC LIMIT 5`
+    ).all();
+    redFlags = rfRows || [];
+  } catch (e) { console.warn("[digest] red flags query failed:", e.message); }
+
+  // ── 8. Material 8-K events this week ──
+  let events8k = [];
+  try {
+    const weekStartTs = Math.floor(new Date(weekStart + 'T00:00:00Z').getTime() / 1000);
+    const { results: ekRows } = await env.DB.prepare(
+      `SELECT ticker, event_type, severity, filing_date
+         FROM material_events_8k
+        WHERE processed_at >= ?
+        ORDER BY processed_at DESC LIMIT 5`
+    ).bind(weekStartTs).all();
+    events8k = ekRows || [];
+  } catch (e) { console.warn("[digest] 8k query failed:", e.message); }
+
+  // ── 9. Build 5 actionable items ──
+  // Priority: 1=pending sell/trim, 2=cantera buy, 3=upcoming earnings, 4=triggered alert, 5=cantera radar
+  const fiveActions = [];
+
+  // Action 1: highest-severity pending action
+  if (pendingActions.length > 0) {
+    const a = pendingActions[0];
+    fiveActions.push({ label: a.action_type, ticker: a.ticker, description: a.reason.slice(0, 120), priority: 1 });
+  }
+
+  // Action 2: top cantera opportunity
+  if (canteraCandidates.length > 0) {
+    const c = canteraCandidates[0];
+    fiveActions.push({ label: 'CANTERA', ticker: c.ticker, description: `Score ${c.priority_score?.toFixed(1)}, yield ${c.yield_pct?.toFixed(1)}% · ${(c.reason_to_watch || '').slice(0, 80)}`, priority: 2 });
+  }
+
+  // Action 3: upcoming earnings to review
+  if (upcomingEarnings.length > 0) {
+    const e = upcomingEarnings[0];
+    fiveActions.push({ label: 'EARNINGS', ticker: e.ticker, description: `Reporta ${e.earnings_date}, EPS est. ${e.eps_estimate ?? '?'}`, priority: 3 });
+  }
+
+  // Action 4: triggered alert rule
+  if (triggeredAlerts.length > 0) {
+    const al = triggeredAlerts[0];
+    fiveActions.push({ label: 'ALERTA', ticker: al.ticker || '', description: al.titulo?.slice(0, 120) || '', priority: 4 });
+  }
+
+  // Action 5: red flag or upcoming dividend
+  if (redFlags.length > 0) {
+    const rf = redFlags[0];
+    fiveActions.push({ label: 'RIESGO', ticker: rf.ticker, description: `Veredicto ${rf.verdict}, score ${rf.composite_score?.toFixed(0)}, ${rf.red_flags_count} red flags`, priority: 5 });
+  } else if (upcomingDivs.length > 0) {
+    const d = upcomingDivs[0];
+    fiveActions.push({ label: 'DIVIDENDO', ticker: d.ticker, description: `Ex-date ${d.ex_date}, $${Number(d.amount).toFixed(3)}/acción`, priority: 5 });
+  }
+
+  // Pad to 5 if needed
+  while (fiveActions.length < 5) {
+    fiveActions.push({ label: 'INFO', ticker: '', description: 'Sin acción adicional esta semana', priority: fiveActions.length + 1 });
+  }
+
+  // ── 10. Call Claude Opus for 1-paragraph intro ──
+  let opusIntro = '';
+  let opusCostUsd = 0;
+  try {
+    const nlvStr = nlvNow ? `$${Math.round(nlvNow).toLocaleString('es-ES')}` : 'N/D';
+    const deltaStr = nlvDeltaPct != null ? `${nlvDeltaPct >= 0 ? '+' : ''}${nlvDeltaPct.toFixed(2)}%` : 'N/D';
+    const divStr = divWeek > 0 ? `$${divWeek.toFixed(2)}` : '$0';
+    const actionsCtx = fiveActions.slice(0, 5).map((a, i) => `${i + 1}. [${a.label}] ${a.ticker ? a.ticker + ': ' : ''}${a.description}`).join('\n');
+    const redFlagCtx = redFlags.length > 0 ? redFlags.map(r => `${r.ticker} (${r.verdict})`).join(', ') : 'ninguno';
+
+    opusIntro = await callClaudeRawText(env,
+      `Eres el asistente financiero personal de Ricardo, inversor en dividendos con cartera diversificada de ~89 posiciones, NLV ~$1.35M. Tu tono es directo, honesto, en español, sin florituras. Escribes exactamente 1 párrafo (4-6 frases) de resumen ejecutivo de la semana para el Weekly Digest de los lunes.`,
+      `Datos de la semana del ${weekStart}:
+- NLV actual: ${nlvStr} (${deltaStr} vs semana pasada)
+- Dividendos cobrados esta semana: ${divStr}
+- Red flags activos: ${redFlagCtx}
+- Eventos materiales 8-K esta semana: ${events8k.length}
+- Candidatas cantera actualizadas: ${canteraCandidates.map(c => c.ticker).join(', ') || 'ninguna'}
+
+Las 5 acciones prioritarias:
+${actionsCtx}
+
+Escribe el párrafo introductorio. Menciona los puntos más relevantes. No uses bullet points, solo prosa.`,
+      { model: "claude-opus-4-5", maxTokens: 400 }
+    );
+    // Rough cost estimate: Opus input ~$15/Mtok, output ~$75/Mtok
+    opusCostUsd = 0.015; // conservative flat estimate for ~500 tok input + ~200 tok output
+  } catch (e) {
+    console.warn("[digest] Opus intro failed:", e.message);
+    opusIntro = `Digest de la semana del ${weekStart}. NLV: ${nlvNow ? '$' + Math.round(nlvNow).toLocaleString('es-ES') : 'N/D'}.`;
+  }
+
+  // ── 11. Render Markdown ──
+  const fmtUSD = (v) => v != null ? `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : '—';
+  const fmtPct = (v) => v != null ? `${v >= 0 ? '+' : ''}${Number(v).toFixed(2)}%` : '—';
+
+  const eventsLines = [];
+  for (const e of upcomingEarnings) {
+    eventsLines.push(`- **${e.earnings_date}**: ${e.ticker} reporta earnings (EPS est. ${e.eps_estimate ?? '?'})`);
+  }
+  for (const d of upcomingDivs) {
+    eventsLines.push(`- **${d.ex_date}**: ${d.ticker} ex-dividend ($${Number(d.amount).toFixed(3)}/acción)`);
+  }
+  // Sort by date string (both are YYYY-MM-DD, safe to compare lexicographically)
+  eventsLines.sort();
+
+  const risk8kLines = events8k.slice(0, 3).map(e => `- **${e.ticker}** (${e.severity || 'INFO'}): ${e.event_type || 'Evento material 8-K'} — ${e.filing_date}`);
+  const redFlagLines = redFlags.slice(0, 3).map(r => `- **${r.ticker}**: veredicto ${r.verdict}, score ${r.composite_score?.toFixed(0)}, ${r.red_flags_count} red flags`);
+
+  const md = `# A&R Weekly Digest — Semana del ${weekStart}
+
+${opusIntro}
+
+## Portfolio esta semana
+- NLV: ${fmtUSD(nlvNow)} (${fmtPct(nlvDeltaPct)} vs lunes pasado)
+- Dividendos cobrados: ${fmtUSD(divWeek)}
+
+## 5 acciones esta semana
+${fiveActions.map((a, i) => `${i + 1}. **[${a.label}]** ${a.ticker ? `${a.ticker}: ` : ''}${a.description}`).join('\n')}
+
+## Riesgos nuevos
+${[...redFlagLines, ...risk8kLines].length > 0 ? [...redFlagLines, ...risk8kLines].join('\n') : '- Sin riesgos nuevos detectados esta semana'}
+
+## Proximos eventos (7 dias)
+${eventsLines.length > 0 ? eventsLines.join('\n') : '- Sin eventos registrados en los próximos 7 días'}
+
+---
+*Generado ${new Date().toISOString()} · A&R Weekly Digest*
+`;
+
+  // ── 12. Render simple HTML ──
+  const escHtml = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const mdToHtml = (text) => {
+    return text
+      .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+      .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/^- (.+)$/gm, '<li>$1</li>')
+      .replace(/^(\d+)\. (.+)$/gm, '<li><span class="num">$1.</span> $2</li>')
+      .replace(/^---$/gm, '<hr>')
+      .replace(/\n\n/g, '</p><p>')
+      .replace(/^(?!<[hlip]|<hr)(.+)$/gm, '<p>$1</p>');
+  };
+  const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>A&amp;R Weekly Digest — ${escHtml(weekStart)}</title>
+<style>
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0a0a0a;color:#e5e5e5;max-width:640px;margin:40px auto;padding:0 20px;line-height:1.6}
+  h1{color:#c8a44e;font-size:22px;margin-bottom:4px}
+  h2{color:#c8a44e;font-size:15px;text-transform:uppercase;letter-spacing:.05em;margin-top:28px;margin-bottom:8px;border-bottom:1px solid #2a2a2a;padding-bottom:6px}
+  li{margin:5px 0;color:#d4d4d4;list-style:none;padding-left:0}
+  li .num{color:#c8a44e;font-weight:700;margin-right:6px}
+  strong{color:#e5e5e5}
+  hr{border:none;border-top:1px solid #2a2a2a;margin:24px 0}
+  p{color:#a3a3a3;font-size:14px}
+</style>
+</head>
+<body>
+${mdToHtml(md)}
+</body>
+</html>`;
+
+  // ── 13. Persist to D1 ──
+  const actionsJson = JSON.stringify(fiveActions);
+  const inputsSummary = JSON.stringify({
+    nlv_now: nlvNow, nlv_week_ago: nlvWeekAgo, nlv_delta_pct: nlvDeltaPct,
+    div_week: divWeek, pending_actions_count: pendingActions.length,
+    cantera_count: canteraCandidates.length, earnings_count: upcomingEarnings.length,
+    divs_count: upcomingDivs.length, red_flags_count: redFlags.length,
+    events_8k_count: events8k.length,
+  });
+
+  await env.DB.prepare(`
+    INSERT INTO weekly_digests (week_start, md, html, opus_intro, actions_json, inputs_summary_json, opus_cost_usd)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(week_start) DO UPDATE SET
+      md = excluded.md, html = excluded.html,
+      opus_intro = excluded.opus_intro,
+      actions_json = excluded.actions_json,
+      inputs_summary_json = excluded.inputs_summary_json,
+      opus_cost_usd = excluded.opus_cost_usd,
+      created_at = datetime('now')
+  `).bind(weekStart, md, html, opusIntro, actionsJson, inputsSummary, opusCostUsd).run();
+
+  return {
+    ok: true,
+    week_start: weekStart,
+    md,
+    html,
+    opus_intro: opusIntro,
+    actions: fiveActions,
+    portfolio: { nlv: nlvNow, nlv_week_ago: nlvWeekAgo, nlv_delta_pct: nlvDeltaPct, div_week: divWeek },
+    upcoming_earnings: upcomingEarnings,
+    upcoming_dividends: upcomingDivs,
+    red_flags: redFlags,
+    events_8k: events8k,
+    generated_at: new Date().toISOString(),
+  };
 }

@@ -55,6 +55,7 @@ const PresupuestoTab     = lazy(() => import('../home/PresupuestoTab'));
 const DripTab            = lazy(() => import('../home/DripTab'));
 const ForecastTab            = lazy(() => import('../home/ForecastTab'));
 const OptionsOptimizerTab    = lazy(() => import('../home/OptionsOptimizerTab'));
+const DecisionJournalTab     = lazy(() => import('../home/DecisionJournalTab'));
 
 // Tab skeleton shown while lazy chunks load
 const TabSkeleton = () => (
@@ -1296,10 +1297,10 @@ export default function HomeView() {
         ) : (
           <div style={{display:"flex",flexDirection:"column",gap:4}}>
             {alerts.slice(0, 20).map((a, i) => {
-              const icons = { DIVIDEND: "💰", EARNINGS: "📊", DROP: "📉", OPTION_EXP: "⏰", MARGIN: "⚠️", MILESTONE: "🎉", DIV_CUT: "⚠️", DIV_RAISE: "📈" };
-              const colors = { DIVIDEND: "var(--gold)", EARNINGS: "#64d2ff", DROP: "var(--red)", OPTION_EXP: "#bf5af2", MARGIN: "#ffd60a", MILESTONE: "var(--green)", DIV_CUT: "var(--red)", DIV_RAISE: "var(--green)" };
-              const unreadBg = a.tipo==="DIV_CUT" ? "rgba(255,69,58,.06)" : a.tipo==="DIV_RAISE" ? "rgba(48,209,88,.06)" : "rgba(255,214,10,.03)";
-              const unreadBorder = a.tipo==="DIV_CUT" ? "rgba(255,69,58,.15)" : a.tipo==="DIV_RAISE" ? "rgba(48,209,88,.15)" : "rgba(255,214,10,.1)";
+              const icons = { DIVIDEND: "💰", EARNINGS: "📊", DROP: "📉", OPTION_EXP: "⏰", MARGIN: "⚠️", MILESTONE: "🎉", DIV_CUT: "⚠️", DIV_RAISE: "📈", ia_narrative: "🧠" };
+              const colors = { DIVIDEND: "var(--gold)", EARNINGS: "#64d2ff", DROP: "var(--red)", OPTION_EXP: "#bf5af2", MARGIN: "#ffd60a", MILESTONE: "var(--green)", DIV_CUT: "var(--red)", DIV_RAISE: "var(--green)", ia_narrative: "#bf5af2" };
+              const unreadBg = a.tipo==="DIV_CUT" ? "rgba(255,69,58,.06)" : a.tipo==="DIV_RAISE" ? "rgba(48,209,88,.06)" : a.tipo==="ia_narrative" ? "rgba(191,90,242,.06)" : "rgba(255,214,10,.03)";
+              const unreadBorder = a.tipo==="DIV_CUT" ? "rgba(255,69,58,.15)" : a.tipo==="DIV_RAISE" ? "rgba(48,209,88,.15)" : a.tipo==="ia_narrative" ? "rgba(191,90,242,.2)" : "rgba(255,214,10,.1)";
               return (
                 <div key={a.id || i} style={{padding:"6px 10px",borderRadius:8,background:a.leida?"transparent":unreadBg,border:`1px solid ${a.leida?"var(--subtle-bg)":unreadBorder}`,display:"flex",gap:8,alignItems:"center"}}>
                   <span style={{fontSize:14}}>{icons[a.tipo] || "🔔"}</span>
@@ -1424,6 +1425,7 @@ export default function HomeView() {
         {homeTab==="news" && <NewsTab />}
         {homeTab==="track-record" && <AlertTrackRecordTab />}
         {homeTab==="alert-rules" && <AlertRulesTab />}
+        {homeTab==="journal" && <DecisionJournalTab />}
       </Suspense>
     </ErrorBoundary>
 

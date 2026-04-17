@@ -3,11 +3,13 @@ import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { API_URL } from '../../constants/index.js';
 import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
+import { TrustBadge } from '../ui/TrustBadge.jsx';
 import { useFireMetrics } from '../../hooks/useFireMetrics.js';
 import { useFxRates } from '../../hooks/useFxRates.js';
 import { useNetLiquidationValue } from '../../hooks/useNetLiquidationValue.js';
 import { useMonthlyExpenses } from '../../hooks/useMonthlyExpenses.js';
 import { useDraggableOrder } from '../../hooks/useDraggableOrder.js';
+import { useFreshness } from '../../hooks/useFreshness.js';
 
 /* Charts removed — integrated inline in dashboard */
 /* ═══════════════════════════════════════════════════════════════
@@ -522,6 +524,9 @@ export default function DividendosTab() {
     annualDividendsNet: annualDivNetUSD,
   });
 
+  // Trust badges — data freshness (fetched once per session from /api/data-status)
+  const { getLevel, getSource, getUpdatedAt } = useFreshness();
+
   const [section, setSection] = useState("dashboard");
   const [soloActuales, setSoloActuales] = useState(true);
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('div_view') || "neto"); // "bruto" | "neto"
@@ -590,7 +595,7 @@ export default function DividendosTab() {
   <div style={{display:"grid",gridTemplateColumns:divTTM>0&&lastYearGross>0?"1fr 1fr":"1fr",gap:8}}>
   {divTTM > 0 && (
     <div style={{background:"var(--card)",border:"1px solid rgba(200,164,78,.2)",borderRadius:14,padding:"14px 18px"}}>
-      <div style={{fontSize:11,fontWeight:600,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:8}}>PROYECCIÓN ANUAL</div>
+      <div style={{fontSize:11,fontWeight:600,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:8,display:"flex",alignItems:"center",gap:4}}>PROYECCIÓN ANUAL<TrustBadge level={getLevel("dividendos")} source="portfolioTotals.totalDivUSD (FMP DPS × shares, 24h TTL)" updatedAt={getUpdatedAt("dividendos")} note="Forward annual estimate. Source of truth: IB Flex cobrado real."/></div>
       <div style={{display:"grid",gridTemplateColumns:`repeat(${timeUnits.length}, 1fr)`,gap:4}}>
         {timeUnits.map((t,i) => {
           const primary = isNeto ? divTTMnet : divTTM;
@@ -611,7 +616,7 @@ export default function DividendosTab() {
   {(currentYearGross > 0 || lastYearGross > 0) && (
     <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,padding:"14px 18px"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-        <span style={{fontSize:11,fontWeight:600,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5}}>COBRADO {currentYear} (YTD)</span>
+        <span style={{fontSize:11,fontWeight:600,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.5,display:"inline-flex",alignItems:"center",gap:4}}>COBRADO {currentYear} (YTD)<TrustBadge level={getLevel("dividendos")} source="D1 dividendos (IB Flex sync)" updatedAt={getUpdatedAt("dividendos")} note="Dividendos reales cobrados desde IB Flex XML."/></span>
         <span style={{fontSize:10,fontFamily:"var(--fm)"}}>
           <span style={{color:"var(--red)"}}>{currentYearGross>0?_sf((1-currentYearNet/currentYearGross)*100,1):avgWhtPct>0?_sf(avgWhtPct,1):"0"}% WHT</span>
           <span style={{color:"var(--text-tertiary)"}}> · {currentYearEntries.length} cobros</span>

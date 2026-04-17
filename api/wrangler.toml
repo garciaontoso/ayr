@@ -27,3 +27,8 @@ bucket_name = "ayr-earnings-archive"
 #
 # [triggers]
 # crons = ["0 9 * * 1-5"]
+
+# Weekly Digest cron — runs every Monday at 06:00 UTC (08:00 Madrid summer / 07:00 winter)
+# Only the buildWeeklyDigest() call inside scheduled() fires; agents are NOT re-enabled.
+[triggers]
+crons = ["0 6 * * 1"]

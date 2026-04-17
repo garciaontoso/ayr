@@ -1,10 +1,13 @@
 import { useAnalysis } from '../../context/AnalysisContext';
-import { Badge, BarChart, Card } from '../ui';
+import { Badge, BarChart, Card, TrustBadge } from '../ui';
 import { _sf, n, f1, f2, fP, fX, fC, fM, div } from '../../utils/formatters.js';
 import { R } from '../../utils/ratings.js';
+import { useFreshness } from '../../hooks/useFreshness.js';
 
 export default function DashTab() {
   const { CHART_YEARS, L, LD, altmanZ, capLabel, cfg, chartLabels, comp, dcf, fin, fmpExtra, marketCap, piotroski, priceChartData, roicWaccSpread, ssd, wacc, waterfall } = useAnalysis();
+  // Trust badges — useFreshness has its own useEffect so must be declared before render
+  const { getLevel: freshnessLevel, getUpdatedAt: freshnessDate, getSource: freshnessSource } = useFreshness();
     const revData = CHART_YEARS.map(y=>fin[y]?.revenue ?? null);
     const fcfData = CHART_YEARS.map(y=>comp[y]?.fcf ?? null);
     const epsData = CHART_YEARS.map(y=>fin[y]?.eps ?? null);
@@ -42,7 +45,7 @@ export default function DashTab() {
               </div>
             </div>
             <div style={{textAlign:"right"}}>
-              <div style={{fontSize:36,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{fC(cfg.price,cfg.currency==="EUR"?"€":"$")}</div>
+              <div style={{fontSize:36,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",display:"flex",alignItems:"center",justifyContent:"flex-end",gap:4}}>{fC(cfg.price,cfg.currency==="EUR"?"€":"$")}<TrustBadge level="fresh" source="FMP /historical-price-full (análisis) · Yahoo precios en vivo (portfolio)" updatedAt={new Date().toISOString().slice(0,10)} note="Precio del análisis se carga al abrir la empresa."/></div>
               {dcf && <div style={{fontSize:13,fontWeight:600,marginTop:4,color:dcf.mos>0?"var(--green)":"var(--red)"}}>
                 Intrínseco: {fC(dcf.iv)} ({dcf.mos>0?"↓":"↑"}{f1(Math.abs(dcf.mos)*100)}%)
               </div>}

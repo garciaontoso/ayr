@@ -81,6 +81,13 @@ export default function DailyBriefingTab() {
   const [opusSummary, setOpusSummary] = useState(null);
   const abortRef = useRef(null);
 
+  // Weekly Digest state — declared BEFORE the useEffects that reference them (TDZ rule)
+  const [digest, setDigest] = useState(null);
+  const [digestLoading, setDigestLoading] = useState(true);
+  const [digestError, setDigestError] = useState(null);
+  const [digestGenerating, setDigestGenerating] = useState(false);
+  const [digestGenError, setDigestGenError] = useState(null);
+
   const load = useCallback(async () => {
     if (abortRef.current) abortRef.current.abort();
     const ac = new AbortController();
@@ -105,6 +112,8 @@ export default function DailyBriefingTab() {
     return () => { if (abortRef.current) abortRef.current.abort(); };
   }, [load]);
 
+  useEffect(() => { loadDigest(); }, [loadDigest]);
+
   const generateOpus = useCallback(async () => {
     setOpusLoading(true);
     setOpusError(null);
@@ -127,6 +136,43 @@ export default function DailyBriefingTab() {
       setOpusLoading(false);
     }
   }, [data]);
+
+  const loadDigest = useCallback(async () => {
+    setDigestLoading(true);
+    setDigestError(null);
+    try {
+      const r = await fetch(`${API_URL}/api/digest/weekly/latest`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
+      setDigest(j.digest || null);
+    } catch (e) {
+      setDigestError(String(e.message || e));
+    } finally {
+      setDigestLoading(false);
+    }
+  }, []);
+
+  const generateDigest = useCallback(async () => {
+    setDigestGenerating(true);
+    setDigestGenError(null);
+    try {
+      const token = localStorage.getItem('ayr_worker_token') || '';
+      const r = await fetch(`${API_URL}/api/digest/weekly/generate`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`HTTP ${r.status}: ${t.slice(0, 200)}`);
+      }
+      const j = await r.json();
+      if (j.ok) setDigest(j);
+    } catch (e) {
+      setDigestGenError(String(e.message || e));
+    } finally {
+      setDigestGenerating(false);
+    }
+  }, []);
 
   // ─── Skeleton ─────────────────────────────────────────────────────
   if (loading && !data) {
@@ -154,6 +200,158 @@ export default function DailyBriefingTab() {
   // ─── Hero ─────────────────────────────────────────────────────────
   return (
     <div style={{ padding: 16, maxWidth: 1280, margin: '0 auto' }}>
+
+      {/* WEEKLY DIGEST */}
+      <div style={{
+        ...card,
+        background: 'linear-gradient(135deg, rgba(200,164,78,0.08), rgba(200,164,78,0.02))',
+        borderColor: 'rgba(200,164,78,0.4)',
+        marginBottom: 16,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+          <div>
+            <div style={title}>Digest Semanal (lunes)</div>
+            {digest?.week_start && (
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Semana del {digest.week_start}</div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={loadDigest}
+              disabled={digestLoading}
+              style={{
+                padding: '7px 14px', borderRadius: 6, border: '1px solid var(--border)',
+                background: 'transparent', color: 'var(--text-secondary)',
+                fontSize: 11, cursor: digestLoading ? 'wait' : 'pointer', fontFamily: 'var(--fb)',
+              }}
+            >{digestLoading ? 'Cargando…' : 'Actualizar'}</button>
+            <button
+              onClick={generateDigest}
+              disabled={digestGenerating}
+              style={{
+                padding: '7px 14px', borderRadius: 6,
+                border: '1px solid var(--gold)',
+                background: digestGenerating ? 'transparent' : 'var(--gold)',
+                color: digestGenerating ? 'var(--gold)' : '#0a0a0a',
+                fontSize: 11, fontWeight: 700,
+                cursor: digestGenerating ? 'wait' : 'pointer', fontFamily: 'var(--fb)',
+              }}
+            >{digestGenerating ? 'Generando…' : 'Regenerar digest'}</button>
+          </div>
+        </div>
+
+        {digestError && <div style={{ color: '#ef4444', fontSize: 12, marginBottom: 8 }}>Error: {digestError}</div>}
+        {digestGenError && <div style={{ color: '#ef4444', fontSize: 12, marginBottom: 8 }}>Error al generar: {digestGenError}</div>}
+
+        {digestLoading && !digest && (
+          <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>Cargando digest…</div>
+        )}
+
+        {!digestLoading && !digest && !digestError && (
+          <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>
+            No hay digest esta semana. Pulsa "Regenerar digest" para crear uno.
+          </div>
+        )}
+
+        {digest && (
+          <div>
+            {/* Opus intro paragraph */}
+            {digest.opus_intro && (
+              <div style={{
+                fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6,
+                borderLeft: '3px solid var(--gold)', paddingLeft: 12, marginBottom: 14,
+              }}>
+                {digest.opus_intro}
+              </div>
+            )}
+
+            {/* Portfolio KPIs */}
+            {digest.portfolio && (
+              <div style={{ display: 'flex', gap: 20, marginBottom: 14, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.05em' }}>NLV</div>
+                  <div style={{ ...mono, fontSize: 15, fontWeight: 700 }}>
+                    {digest.portfolio.nlv ? `$${Math.round(digest.portfolio.nlv).toLocaleString('en-US')}` : '—'}
+                  </div>
+                  {digest.portfolio.nlv_delta_pct != null && (
+                    <div style={{ ...mono, fontSize: 11, color: digest.portfolio.nlv_delta_pct >= 0 ? '#22c55e' : '#ef4444' }}>
+                      {digest.portfolio.nlv_delta_pct >= 0 ? '+' : ''}{digest.portfolio.nlv_delta_pct.toFixed(2)}% semana
+                    </div>
+                  )}
+                </div>
+                {digest.portfolio.div_week > 0 && (
+                  <div>
+                    <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.05em' }}>Dividendos cobrados</div>
+                    <div style={{ ...mono, fontSize: 15, fontWeight: 700, color: '#22c55e' }}>
+                      ${Number(digest.portfolio.div_week).toFixed(2)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 5 Actions */}
+            {Array.isArray(digest.actions) && digest.actions.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ ...title, marginBottom: 10 }}>5 acciones esta semana</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  {digest.actions.slice(0, 5).map((a, i) => {
+                    const labelColors = {
+                      SELL: '#ef4444', TRIM: '#f59e0b', BUY: '#22c55e', CANTERA: '#84cc16',
+                      EARNINGS: '#60a5fa', ALERTA: '#f59e0b', RIESGO: '#ef4444', INFO: '#6b7280', DIVIDENDO: '#22c55e',
+                    };
+                    const lc = labelColors[a.label] || 'var(--gold)';
+                    return (
+                      <div key={i} style={{
+                        display: 'flex', gap: 10, alignItems: 'flex-start',
+                        padding: '7px 10px', borderRadius: 7,
+                        background: 'rgba(255,255,255,0.02)',
+                        border: '1px solid var(--border)',
+                      }}>
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                          background: lc + '1a', color: lc, border: `1px solid ${lc}`,
+                          textTransform: 'uppercase', flexShrink: 0, marginTop: 1,
+                        }}>{a.label}</span>
+                        {a.ticker && (
+                          <span style={{ ...mono, fontSize: 12, fontWeight: 700, color: 'var(--gold)', minWidth: 44, flexShrink: 0 }}>{a.ticker}</span>
+                        )}
+                        <span style={{ fontSize: 12, color: 'var(--text-secondary)', flex: 1, lineHeight: 1.4 }}>{a.description}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Footer */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+              <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>
+                Generado: {digest.created_at ? new Date(digest.created_at.replace(' ', 'T') + 'Z').toLocaleString('es-ES') : ''}
+              </div>
+              {digest.md && (
+                <button
+                  onClick={() => {
+                    const blob = new Blob([digest.md], { type: 'text/markdown' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `digest-${digest.week_start}.md`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  style={{
+                    fontSize: 10, padding: '3px 10px', borderRadius: 5,
+                    border: '1px solid var(--border)', background: 'transparent',
+                    color: 'var(--text-tertiary)', cursor: 'pointer',
+                  }}
+                >Descargar .md</button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* HERO */}
       <div style={{
         ...card,
