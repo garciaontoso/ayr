@@ -45,7 +45,6 @@ const DividendScannerTab = lazy(() => import('../home/DividendScannerTab'));
 const AlertTrackRecordTab= lazy(() => import('../home/AlertTrackRecordTab'));
 const CartasSabiosTab    = lazy(() => import('../home/CartasSabiosTab'));
 const TaxOptimizationTab = lazy(() => import('../home/TaxOptimizationTab'));
-const BacktestTab        = lazy(() => import('../home/BacktestTab'));
 const AnalyticsTab       = lazy(() => import('../home/AnalyticsTab'));
 const AttributionTab     = lazy(() => import('../home/AttributionTab'));
 const AlertRulesTab      = lazy(() => import('../home/AlertRulesTab'));
@@ -1386,6 +1385,7 @@ export default function HomeView() {
         {homeTab==="patrimonio" && <PatrimonioTab />}
         {homeTab==="dashboard" && <DashboardTab />}
         {homeTab==="dividendos" && <DividendosTab />}
+        {homeTab==="opt-optimizer" && <OptionsOptimizerTab />}
         {homeTab==="fire" && <FireTab />}
         {homeTab==="forecast" && <ForecastTab />}
         {homeTab==="drip" && <DripTab />}
@@ -1398,7 +1398,6 @@ export default function HomeView() {
         {homeTab==="discovery" && <DiscoveryTab />}
         {homeTab==="div-scanner" && <DividendScannerTab />}
         {homeTab==="cartas-sabios" && <CartasSabiosTab />}
-        {homeTab==="backtest" && <BacktestTab />}
         {homeTab==="research" && <ResearchTab />}
         {homeTab==="agentes" && <AgentesTab />}
         {homeTab==="income" && <IncomeTab />}

@@ -1,5 +1,24 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Suspense, lazy } from 'react';
 import { API_URL } from '../../constants/index.js';
+
+const DiscoveryTab      = lazy(() => import('./DiscoveryTab'));
+const DividendScannerTab = lazy(() => import('./DividendScannerTab'));
+
+const CANTERA_SUB_TABS = [
+  { id: 'radar',   lbl: 'Radar',   ico: '🎯', desc: '100 candidatos priorizados' },
+  { id: 'scanner', lbl: 'Scanner', ico: '🔎', desc: 'Filtros por métricas' },
+  { id: 'discovery', lbl: 'Discovery', ico: '💡', desc: 'Vista Q+S por tiers' },
+];
+
+function SubTabSkeleton() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '24px 0' }}>
+      {[0, 1, 2].map(i => (
+        <div key={i} style={{ height: 60, background: 'var(--card)', borderRadius: 12, opacity: 0.6 }} />
+      ))}
+    </div>
+  );
+}
 
 // ── Cantera (Farm Team) — pre-portfolio radar tab ─────────────────
 // Shows 100 candidate companies ranked by priority_score.
@@ -237,7 +256,8 @@ const SORT_KEYS = {
   streak: 'streak_years',
 };
 
-export default function CanteraTab() {
+// ── Radar sub-view (former full CanteraTab body) ────────────────────────────
+function RadarView() {
   const [candidates, setCandidates] = useState([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -548,6 +568,55 @@ export default function CanteraTab() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── CanteraTab — shell with sub-tab switcher ────────────────────────────────
+export default function CanteraTab() {
+  const [subTab, setSubTab] = useState(() => localStorage.getItem('cantera_subtab') || 'radar');
+
+  function switchSub(id) {
+    setSubTab(id);
+    localStorage.setItem('cantera_subtab', id);
+  }
+
+  return (
+    <div style={{ padding: '0 0 40px' }}>
+      {/* Sub-tab bar */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
+        {CANTERA_SUB_TABS.map(t => (
+          <button
+            key={t.id}
+            onClick={() => switchSub(t.id)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              padding: '6px 14px', borderRadius: 8, cursor: 'pointer',
+              border: `1px solid ${subTab === t.id ? 'var(--gold)' : 'var(--border)'}`,
+              background: subTab === t.id ? 'var(--gold-dim)' : 'transparent',
+              color: subTab === t.id ? 'var(--gold)' : 'var(--text-tertiary)',
+              fontSize: 12, fontWeight: subTab === t.id ? 700 : 500,
+              fontFamily: 'var(--fb)', transition: 'all .15s',
+            }}
+          >
+            <span>{t.ico}</span>
+            <span>{t.lbl}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Sub-views */}
+      {subTab === 'radar' && <RadarView />}
+      {subTab === 'scanner' && (
+        <Suspense fallback={<SubTabSkeleton />}>
+          <DividendScannerTab />
+        </Suspense>
+      )}
+      {subTab === 'discovery' && (
+        <Suspense fallback={<SubTabSkeleton />}>
+          <DiscoveryTab />
+        </Suspense>
+      )}
     </div>
   );
 }

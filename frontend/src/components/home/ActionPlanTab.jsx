@@ -6,6 +6,7 @@ import { useState, useCallback, useMemo, useRef } from 'react';
 // localStorage key: action_plan_status_v1  (map of id→status)
 
 const STORAGE_KEY = 'action_plan_status_v1';
+const DEEP_DIVE_DATE = '2026-04-18'; // Date of sector deep-dives this plan was extracted from
 
 // ── Master action list extracted from sector deep-dives ──────────────────────
 // Fields: id, ticker, action, timeframe, reason, impact, source, triggerPrice
@@ -673,6 +674,23 @@ export default function ActionPlanTab() {
 
   return (
     <div style={{ padding: '0 0 40px' }}>
+      {/* Data freshness banner */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '8px 14px', marginBottom: 12, borderRadius: 8,
+        background: 'rgba(255,159,10,.08)', border: '1px solid rgba(255,159,10,.25)',
+        fontSize: 11, color: '#ff9f0a', fontFamily: 'var(--fb)',
+      }}>
+        <span style={{ fontWeight: 700 }}>Aviso:</span>
+        <span>
+          Acciones extraidas de sector deep-dives del{' '}
+          <span style={{ fontFamily: 'var(--fm)', fontWeight: 700 }}>{DEEP_DIVE_DATE}</span>.
+          Actualizadas el{' '}
+          <span style={{ fontFamily: 'var(--fm)', fontWeight: 700 }}>{DEEP_DIVE_DATE}</span>.
+          {' '}Los precios y fundamentales pueden haber cambiado.
+        </span>
+      </div>
+
       {/* Header */}
       <div style={{
         background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10,

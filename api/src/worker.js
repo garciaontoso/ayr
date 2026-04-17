@@ -15179,6 +15179,340 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
 };
 
 // ═══════════════════════════════════════════════════════════════
+// runIANarrativeScan — Smart Alerts IA (2026-04-17)
+//
+// Scans portfolio tickers for narrative-level signals that simple price
+// triggers miss:
+//   1. New 8-K filings (last N days) from earnings_documents. Items
+//      5.02/4.01/4.02/8.01 = HIGH; 2.05/2.06 = MEDIUM.
+//   2. Analyst rating changes — FMP grades-historical: cluster downgrade
+//      ≥3 pts with ≥5 analysts = HIGH; smaller drops = MEDIUM.
+//   3. Dividend events — FMP dividend-calendar: declared ex-dates;
+//      amount change >15% cut = HIGH, >10% raise = MEDIUM.
+//   4. Transcript sentiment shift (Claude Haiku) — tonal change in latest
+//      earnings call vs prior. Only on tickers with a new TRANSCRIPT.
+//
+// Output: inserts into ia_narrative_alerts + alerts (tipo='ia_narrative').
+// Idempotency: UNIQUE(ticker, event_type, event_date) prevents duplicates.
+// ═══════════════════════════════════════════════════════════════
+async function runIANarrativeScan(env, opts = {}) {
+  const FMP_KEY = env.FMP_KEY;
+  const today = new Date().toISOString().slice(0, 10);
+  const daysBack = Math.min(opts.daysBack || 2, 7);
+  const cutoffDate = new Date(Date.now() - daysBack * 86400000).toISOString().slice(0, 10);
+
+  // Load portfolio tickers ordered by value desc
+  const { results: allPositions } = await env.DB.prepare(
+    `SELECT ticker, name, sector FROM positions WHERE shares > 0
+     ORDER BY COALESCE(usd_value, market_value, 0) DESC`
+  ).all();
+  let positions = allPositions || [];
+  if (opts.tickers && opts.tickers.length > 0) {
+    const filterSet = new Set(opts.tickers.map(t => t.toUpperCase()));
+    positions = positions.filter(p => filterSet.has(p.ticker));
+  }
+  if (!positions.length) {
+    return { ok: true, inserted: 0, skipped: 0, high_alerts: 0, details: [], reason: 'no positions' };
+  }
+
+  let inserted = 0;
+  let skipped = 0;
+  let highAlerts = 0;
+  const details = [];
+
+  // Helper: upsert into ia_narrative_alerts + legacy alerts table
+  async function upsertIAAlert(ticker, eventType, eventDate, severity, summaryEs, extraDetails) {
+    const existing = await env.DB.prepare(
+      `SELECT id FROM ia_narrative_alerts WHERE ticker = ? AND event_type = ? AND event_date = ?`
+    ).bind(ticker, eventType, eventDate).first();
+    if (existing) { skipped++; return false; }
+
+    await env.DB.prepare(
+      `INSERT INTO ia_narrative_alerts (ticker, event_type, event_date, severity, summary_es, details_json)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(ticker, event_type, event_date) DO NOTHING`
+    ).bind(ticker, eventType, eventDate, severity, summaryEs,
+      JSON.stringify(extraDetails || {})).run();
+
+    // Mirror into legacy alerts table so existing alerts panel sees it
+    try {
+      await env.DB.prepare(
+        `INSERT INTO alerts (fecha, tipo, titulo, detalle, ticker, valor)
+         VALUES (?, 'ia_narrative', ?, ?, ?, ?)`
+      ).bind(today, summaryEs.slice(0, 120), summaryEs.slice(0, 500), ticker,
+        severity === 'HIGH' ? 3 : severity === 'MEDIUM' ? 2 : 1).run();
+    } catch {}
+
+    inserted++;
+    if (severity === 'HIGH') highAlerts++;
+    details.push({ ticker, event_type: eventType, event_date: eventDate, severity, summary: summaryEs });
+    return true;
+  }
+
+  // ── Signal 1: New 8-K filings in earnings_documents ──
+  try {
+    const filing8kCutoff = new Date(Date.now() - daysBack * 86400000)
+      .toISOString().replace('T', ' ').slice(0, 19);
+    const tPlaceholders = positions.map(() => '?').join(',');
+    const tList = positions.map(p => p.ticker);
+    const { results: newFilings } = await env.DB.prepare(
+      `SELECT ticker, fiscal_year, fiscal_quarter, filing_date, title, accession_number
+         FROM earnings_documents
+        WHERE doc_type = '8-K' AND ticker IN (${tPlaceholders}) AND downloaded_at >= ?
+        ORDER BY downloaded_at DESC LIMIT 50`
+    ).bind(...tList, filing8kCutoff).all();
+
+    for (const f of (newFilings || [])) {
+      const tl = (f.title || '').toLowerCase();
+      let sev = 'MEDIUM', eventLabel = '8-K: New filing';
+      if (/5\.02|director|officer|ceo|cfo|departure|resign|appoint/i.test(tl)) {
+        sev = 'HIGH'; eventLabel = '8-K: Leadership change';
+      } else if (/4\.0[12]|auditor/i.test(tl)) {
+        sev = 'HIGH'; eventLabel = '8-K: Auditor change';
+      } else if (/8\.01|material event|restatement|investigation/i.test(tl)) {
+        sev = 'HIGH'; eventLabel = '8-K: Material event';
+      } else if (/2\.0[56]|impairment|workforce|reduction|restructur/i.test(tl)) {
+        sev = 'MEDIUM'; eventLabel = '8-K: Restructuring/Impairment';
+      }
+      const dateStr = (f.filing_date || today).slice(0, 10);
+      const accKey = (f.accession_number || `8k-${f.fiscal_year}-${f.fiscal_quarter}`).slice(0, 60);
+      const summEs = `${f.ticker} ${eventLabel}: "${(f.title || 'Sin título').slice(0, 80)}" (${dateStr})`;
+      await upsertIAAlert(f.ticker, `8k_${accKey}`, dateStr, sev, summEs, {
+        doc_type: '8-K', filing_date: dateStr, title: f.title, accession: f.accession_number,
+      });
+    }
+  } catch (e) { console.error('[IA scan] 8K error:', e.message); }
+
+  // ── Signal 2: Analyst rating changes — FMP grades-historical ──
+  if (FMP_KEY) {
+    const cutoff48 = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
+    for (let i = 0; i < positions.length; i += 5) {
+      const batch = positions.slice(i, i + 5);
+      const batchRes = await Promise.allSettled(batch.map(async (p) => {
+        try {
+          const sym = toFMP(p.ticker);
+          const resp = await fetch(
+            `https://financialmodelingprep.com/stable/grades-historical?symbol=${encodeURIComponent(sym)}&apikey=${FMP_KEY}`
+          );
+          if (!resp.ok) return null;
+          const data = await resp.json();
+          if (!Array.isArray(data) || data.length < 2) return null;
+          const sorted = data.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+          const latest = sorted[0];
+          if (!latest || latest.date < cutoff48) return null;
+          const prior = sorted.find(r => (r.date || '') < cutoff48) || sorted[1];
+          if (!prior) return null;
+          const scoreOf = r =>
+            (Number(r.analystRatingsStrongBuy) || 0) * 2
+            + (Number(r.analystRatingsBuy) || 0)
+            - (Number(r.analystRatingsSell) || 0)
+            - (Number(r.analystRatingsStrongSell) || 0) * 2;
+          const totOf = r =>
+            (Number(r.analystRatingsStrongBuy) || 0)
+            + (Number(r.analystRatingsBuy) || 0)
+            + (Number(r.analystRatingsHold) || 0)
+            + (Number(r.analystRatingsSell) || 0)
+            + (Number(r.analystRatingsStrongSell) || 0);
+          const sNow = scoreOf(latest), sOld = scoreOf(prior), tot = totOf(latest);
+          const drop = sOld - sNow, rise = sNow - sOld;
+          if (drop >= 3 && tot >= 5) {
+            return { ticker: p.ticker, date: latest.date, sev: 'HIGH',
+              summary: `${p.ticker} cluster downgrade: sentimiento cayó ${drop} pts (${tot} analistas). Buy=${Number(latest.analystRatingsBuy||0)+Number(latest.analystRatingsStrongBuy||0)}, Sell=${Number(latest.analystRatingsSell||0)+Number(latest.analystRatingsStrongSell||0)}`,
+              extra: { sentiment_delta: -drop, analysts: tot } };
+          } else if (drop >= 2 && tot >= 3) {
+            return { ticker: p.ticker, date: latest.date, sev: 'MEDIUM',
+              summary: `${p.ticker} analyst downgrade: sentimiento −${drop} pts (${tot} analistas)`,
+              extra: { sentiment_delta: -drop, analysts: tot } };
+          } else if (rise >= 3 && tot >= 5) {
+            return { ticker: p.ticker, date: latest.date, sev: 'MEDIUM',
+              summary: `${p.ticker} analyst upgrade: sentimiento +${rise} pts (${tot} analistas)`,
+              extra: { sentiment_delta: rise, analysts: tot } };
+          }
+          return null;
+        } catch { return null; }
+      }));
+      for (const r of batchRes) {
+        if (r.status !== 'fulfilled' || !r.value) continue;
+        const v = r.value;
+        await upsertIAAlert(v.ticker, `analyst_${v.date}`, v.date, v.sev, v.summary, v.extra);
+      }
+      if (i + 5 < positions.length) await new Promise(r => setTimeout(r, 400));
+    }
+  }
+
+  // ── Signal 3: Dividend events — FMP dividend-calendar ──
+  if (FMP_KEY) {
+    const plus14 = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
+    try {
+      const calResp = await fetch(
+        `https://financialmodelingprep.com/stable/stock-dividend-calendar?from=${cutoffDate}&to=${plus14}&apikey=${FMP_KEY}`
+      );
+      if (calResp.ok) {
+        const calData = await calResp.json();
+        if (Array.isArray(calData)) {
+          const fmpToTicker = {};
+          for (const p of positions) {
+            fmpToTicker[toFMP(p.ticker)] = p.ticker;
+            fmpToTicker[p.ticker] = p.ticker;
+          }
+          // Most recent per-share dividend from dividendos (last 180 days)
+          const recentDivMap = {};
+          try {
+            const { results: dRows } = await env.DB.prepare(
+              `SELECT ticker, bruto, shares, fecha FROM dividendos
+                WHERE fecha >= ? AND shares > 0 ORDER BY ticker, fecha DESC`
+            ).bind(new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10)).all();
+            for (const r of (dRows || [])) {
+              if (!recentDivMap[r.ticker]) recentDivMap[r.ticker] = r.bruto / r.shares;
+            }
+          } catch {}
+
+          for (const ev of calData) {
+            const sym = String(ev.symbol || '').toUpperCase();
+            const ourTicker = fmpToTicker[sym];
+            if (!ourTicker) continue;
+            const exDate = String(ev.date || ev.exDividendDate || '').slice(0, 10);
+            if (!exDate || exDate < cutoffDate) continue;
+            const declared = Number(ev.dividend || ev.adjDividend || 0);
+            if (declared <= 0) continue;
+            const prevPs = recentDivMap[ourTicker];
+            if (prevPs && prevPs > 0) {
+              const chgPct = (declared - prevPs) / prevPs * 100;
+              if (chgPct <= -15) {
+                await upsertIAAlert(ourTicker, `div_cut_${exDate}`, exDate, 'HIGH',
+                  `${ourTicker} RECORTE dividendo: $${declared.toFixed(4)}/sh vs $${prevPs.toFixed(4)} prev (${chgPct.toFixed(1)}%)`,
+                  { declared, prev_per_share: prevPs, change_pct: chgPct, ex_date: exDate });
+              } else if (chgPct >= 10) {
+                await upsertIAAlert(ourTicker, `div_raise_${exDate}`, exDate, 'MEDIUM',
+                  `${ourTicker} AUMENTO dividendo +${chgPct.toFixed(1)}%: $${declared.toFixed(4)}/sh (ex-date ${exDate})`,
+                  { declared, prev_per_share: prevPs, change_pct: chgPct, ex_date: exDate });
+              } else {
+                await upsertIAAlert(ourTicker, `div_declared_${exDate}`, exDate, 'LOW',
+                  `${ourTicker} dividendo declarado: $${declared.toFixed(4)}/sh (ex-date ${exDate})`,
+                  { declared, prev_per_share: prevPs, change_pct: chgPct, ex_date: exDate });
+              }
+            } else {
+              await upsertIAAlert(ourTicker, `div_declared_${exDate}`, exDate, 'LOW',
+                `${ourTicker} dividendo declarado: $${declared.toFixed(4)}/sh (ex-date ${exDate})`,
+                { declared, ex_date: exDate });
+            }
+          }
+        }
+      }
+    } catch (e) { console.error('[IA scan] dividend error:', e.message); }
+  }
+
+  // ── Signal 4: Transcript sentiment shift (Claude Haiku) ──
+  // Only runs on tickers with a new TRANSCRIPT in the last daysBack days.
+  // Caps at 10 tickers to control cost (~$0.002/call on Haiku).
+  try {
+    const transcriptCutoff60 = new Date(Date.now() - 60 * 86400000)
+      .toISOString().slice(0, 10);
+    const tPlaceholders = positions.map(() => '?').join(',');
+    const tList = positions.map(p => p.ticker);
+    const { results: transcripts } = await env.DB.prepare(
+      `SELECT ticker, r2_key, filing_date, fiscal_year, fiscal_quarter
+         FROM earnings_documents
+        WHERE doc_type = 'TRANSCRIPT' AND ticker IN (${tPlaceholders}) AND filing_date >= ?
+        ORDER BY ticker, filing_date DESC`
+    ).bind(...tList, transcriptCutoff60).all();
+
+    const byTicker = {};
+    for (const t of (transcripts || [])) (byTicker[t.ticker] ||= []).push(t);
+
+    const candidates = Object.entries(byTicker)
+      .filter(([, rows]) => rows[0] && rows[0].filing_date >= cutoffDate)
+      .slice(0, 10);
+
+    for (const [ticker, rows] of candidates) {
+      const latest = rows[0];
+      const prior = rows[1] || null;
+      try {
+        let latestText = '';
+        try {
+          const obj = await env.EARNINGS_R2.get(latest.r2_key);
+          if (obj) latestText = await obj.text();
+        } catch {}
+        if (!latestText || latestText.length < 500) continue;
+
+        const latestSnippet = latestText.slice(0, 8000);
+        let priorSnippet = '';
+        if (prior) {
+          try {
+            const obj2 = await env.EARNINGS_R2.get(prior.r2_key);
+            if (obj2) priorSnippet = (await obj2.text()).slice(0, 4000);
+          } catch {}
+        }
+
+        const systemPrompt = `Eres un analista de renta variable especializado en detectar cambios tonales en earnings calls de empresas dividenderas.
+Detecta si el tono del management cambió materialmente entre el call MÁS RECIENTE y el ANTERIOR.
+Busca: lenguaje de cobertura ("challenging","headwinds","uncertainty"), guidance reducida, cambios en retórica del dividendo, presión de balance, cambios de CEO/CFO, preguntas de analistas más duras o evasión.
+Responde SOLO JSON:
+{
+  "shift_detected": true|false,
+  "severity": "HIGH"|"MEDIUM"|"LOW",
+  "tone_current": "optimistic|neutral|cautious|defensive",
+  "tone_prior": "optimistic|neutral|cautious|defensive"|null,
+  "key_phrases": ["exact quote ≤15 words"],
+  "summary_es": "Frase ≤120 chars del cambio principal",
+  "dividend_signal": "safe"|"watchlist"|"at_risk"|"not_mentioned"
+}`;
+
+        const userContent = `TICKER: ${ticker}
+CALL MÁS RECIENTE (${latest.filing_date}):
+${latestSnippet}
+${priorSnippet ? `\nCALL ANTERIOR (${prior.filing_date}):\n${priorSnippet}` : '\n(Solo una call disponible — analiza tono absoluto)'}`;
+
+        const result = await callAgentClaude(env, systemPrompt, userContent, {
+          model: 'claude-haiku-4-5-20251001', maxTokens: 600,
+        });
+
+        if (!result || !result.shift_detected) continue;
+        if (['MEDIUM', 'HIGH'].includes(result.severity)) {
+          const period = `Q${latest.fiscal_quarter || '?'} ${latest.fiscal_year || ''}`.trim();
+          const summEs = result.summary_es ||
+            `${ticker} ${period}: cambio tonal (${result.tone_prior || 'N/A'} → ${result.tone_current})`;
+          await upsertIAAlert(ticker, `transcript_${latest.filing_date}`, latest.filing_date,
+            result.severity, summEs, {
+              tone_current: result.tone_current, tone_prior: result.tone_prior,
+              key_phrases: result.key_phrases || [], dividend_signal: result.dividend_signal,
+              period, r2_key: latest.r2_key,
+            });
+        }
+      } catch (e) { console.error(`[IA scan] transcript error ${ticker}:`, e.message); }
+    }
+  } catch (e) { console.error('[IA scan] transcript signal error:', e.message); }
+
+  // ── Push HIGH alerts ──
+  if (highAlerts > 0) {
+    try {
+      const { results: subs } = await env.DB.prepare(
+        `SELECT * FROM push_subscriptions LIMIT 50`
+      ).all();
+      if (subs && subs.length > 0) {
+        const highItems = details.filter(d => d.severity === 'HIGH').slice(0, 3);
+        const title = `A&R Alerta IA: ${highItems.length} evento${highItems.length > 1 ? 's' : ''} importante${highItems.length > 1 ? 's' : ''}`;
+        const msgBody = highItems.map(h => `${h.ticker}: ${h.summary.slice(0, 80)}`).join(' | ');
+        const payload = JSON.stringify({ title, body: msgBody, url: '/alerts', tag: 'ayr-ia-alert' });
+        for (const sub of subs) {
+          try { await sendWebPush(env, sub, payload); } catch {}
+        }
+        for (const h of highItems) {
+          try {
+            await env.DB.prepare(
+              `UPDATE ia_narrative_alerts SET push_sent = 1
+                WHERE ticker = ? AND event_date = ? AND severity = 'HIGH' AND push_sent = 0`
+            ).bind(h.ticker, h.event_date).run();
+          } catch {}
+        }
+      }
+    } catch (e) { console.error('[IA scan] push error:', e.message); }
+  }
+
+  return { ok: true, scanned: positions.length, inserted, skipped, high_alerts: highAlerts, days_back: daysBack, details: details.slice(0, 50) };
+}
+
+// ═══════════════════════════════════════════════════════════════
 // evaluateAlertRules — evaluate all active custom alert_rules against
 // current prices / yields / safety scores.  Called by cron (daily) and
 // by POST /api/alert-rules/check (manual trigger from UI).

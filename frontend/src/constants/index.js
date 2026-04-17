@@ -171,14 +171,12 @@ export const HOME_TAB_GROUPS = [
     ico: "🔍",
     tabs: [
       {id:"cantera",lbl:"Cantera",ico:"🎯"},
-      {id:"discovery",lbl:"Discovery",ico:"💡"},
-      {id:"div-scanner",lbl:"Scanner",ico:"🔎"},
       {id:"cartas-sabios",lbl:"Cartas Sabios",ico:"📜"},
       {id:"research",lbl:"Radar",ico:"📡"},
       {id:"smart-money",lbl:"Smart Money",ico:"🏛️"},
       {id:"videos-youtube",lbl:"Vídeos YouTube",ico:"▶️"},
       {id:"library",lbl:"Library",ico:"📚"},
-      {id:"backtest",lbl:"Backtest",ico:"🎯"},
+      {id:"track-record",lbl:"Track Record",ico:"🎯"},
     ],
   },
 ];
