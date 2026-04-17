@@ -1243,6 +1243,26 @@ async function ensureMigrations(env) {
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_cantera_priority ON cantera(priority_score DESC)`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_cantera_status ON cantera(status)`).run();
 
+    // ─── Custom Alert Rules Engine (2026-04-17) ───
+    // User-defined triggers per ticker. Evaluated daily in cron + on demand.
+    // rule_type: 'price_below' | 'price_above' | 'yield_above' | 'yield_below'
+    //          | 'safety_below' | 'dividend_cut' | 'earnings_miss' | 'custom'
+    // status: 'active' | 'paused' | 'triggered' (auto-set on trigger, stays 'active' for recurring)
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS alert_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      rule_type TEXT NOT NULL,
+      operator TEXT,
+      threshold REAL,
+      unit TEXT,
+      message TEXT,
+      status TEXT DEFAULT 'active',
+      triggered_at TEXT,
+      triggered_count INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_rules_ticker_status ON alert_rules(ticker, status)`).run();
+
     _migrated = true;
   } catch(e) {
     console.error("Migration error:", e.message);
@@ -13189,6 +13209,14 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
           const FMP_KEY = env.FMP_KEY;
           if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
 
+          // Inline table creation: ensures analytics_cache exists even if
+          // ensureMigrations ran on an older isolate before this table was added.
+          await env.DB.prepare(`CREATE TABLE IF NOT EXISTS analytics_cache (
+            key TEXT PRIMARY KEY,
+            data TEXT NOT NULL DEFAULT '{}',
+            updated_at TEXT DEFAULT (datetime('now'))
+          )`).run();
+
           const forceRefresh = url.searchParams.get("refresh") === "1";
           const CACHE_TTL_MS = 24 * 3600 * 1000;
 
@@ -13383,6 +13411,13 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
           const FMP_KEY = env.FMP_KEY;
           if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
 
+          // Inline table creation guard (same reason as correlation endpoint above)
+          await env.DB.prepare(`CREATE TABLE IF NOT EXISTS analytics_cache (
+            key TEXT PRIMARY KEY,
+            data TEXT NOT NULL DEFAULT '{}',
+            updated_at TEXT DEFAULT (datetime('now'))
+          )`).run();
+
           const forceRefresh = url.searchParams.get("refresh") === "1";
           const CACHE_TTL_MS = 24 * 3600 * 1000;
 
@@ -13574,7 +13609,14 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
               ? Math.max(0, Math.min(100, 100 - (inputs.marketCapB / (bm.marketCapB * 2)) * 100))
               : 50;
 
-            return { valueScore, growthScore, qualityScore, momentumScore: Math.round(momentumScore), yieldScore, sizeScore };
+            return {
+              valueScore:    Math.round(valueScore),
+              growthScore:   Math.round(growthScore),
+              qualityScore:  Math.round(qualityScore),
+              momentumScore: Math.round(momentumScore),
+              yieldScore:    Math.round(yieldScore),
+              sizeScore:     Math.round(sizeScore),
+            };
           }
 
           // Fetch factor inputs in batches
@@ -13684,6 +13726,13 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
           await ensureMigrations(env);
           const FMP_KEY = env.FMP_KEY;
           if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
+
+          // Inline table creation guard (same reason as correlation endpoint above)
+          await env.DB.prepare(`CREATE TABLE IF NOT EXISTS analytics_cache (
+            key TEXT PRIMARY KEY,
+            data TEXT NOT NULL DEFAULT '{}',
+            updated_at TEXT DEFAULT (datetime('now'))
+          )`).run();
 
           const scenario = (url.searchParams.get("scenario") || "gfc").toLowerCase();
           const forceRefresh = url.searchParams.get("refresh") === "1";

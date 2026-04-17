@@ -41,6 +41,7 @@ import AlertTrackRecordTab from '../home/AlertTrackRecordTab';
 import CartasSabiosTab from '../home/CartasSabiosTab';
 import TaxOptimizationTab from '../home/TaxOptimizationTab';
 import BacktestTab from '../home/BacktestTab';
+import AnalyticsTab from '../home/AnalyticsTab';
 
 // Combined Income tab with sub-tabs
 function IncomeTab() {
@@ -1379,6 +1380,7 @@ export default function HomeView() {
       {homeTab==="earnings-archive" && <EarningsArchiveTab />}
       {homeTab==="deep-dividend" && <DeepDividendTab />}
       {homeTab==="peer-compare" && <PeerCompareTab />}
+      {homeTab==="analytics" && <AnalyticsTab />}
       {homeTab==="opciones-cs" && <OpcionesTab strategy="CS" view="list" />}
       {homeTab==="opciones-roc" && <OpcionesTab strategy="ROC" view="list" />}
       {homeTab==="opciones-rop" && <OpcionesTab strategy="ROP" view="list" />}
