@@ -41,4 +41,31 @@ describe('calcGrowthRate', () => {
     // div(100, 0) returns null, so roe is null
     expect(r.sustainableGrowth).toBe(0);
   });
+
+  it('returns all four fields', () => {
+    const r = calcGrowthRate({ netIncome: 100, equity: 500, dps: 2, sharesOut: 10 });
+    expect(r).toHaveProperty('sustainableGrowth');
+    expect(r).toHaveProperty('roe');
+    expect(r).toHaveProperty('retentionRate');
+    expect(r).toHaveProperty('payoutRatio');
+  });
+
+  it('retentionRate is between 0 and 1 for normal companies', () => {
+    const r = calcGrowthRate({ netIncome: 200, equity: 1000, dps: 1, sharesOut: 100 });
+    expect(r.retentionRate).toBeGreaterThanOrEqual(0);
+    expect(r.retentionRate).toBeLessThanOrEqual(1);
+  });
+
+  it('sustainableGrowth is 0 when ROE is 0', () => {
+    // netIncome = 0 → ROE = 0
+    const r = calcGrowthRate({ netIncome: 0, equity: 1000, dps: 0, sharesOut: 100 });
+    expect(r.sustainableGrowth).toBe(0);
+  });
+
+  it('high-ROE, high-retention company has fast sustainable growth', () => {
+    // ROE=30%, retention=80% → 24%
+    const r = calcGrowthRate({ netIncome: 300, equity: 1000, dps: 1.2, sharesOut: 50 });
+    // payout = (1.2*50)/300 = 0.2, retention = 0.8
+    expect(r.sustainableGrowth).toBeCloseTo(0.24, 2);
+  });
 });

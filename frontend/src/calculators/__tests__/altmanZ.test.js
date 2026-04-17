@@ -56,4 +56,62 @@ describe('calcAltmanZ', () => {
     expect(r.score).toBeGreaterThan(0);
     expect(isFinite(r.score)).toBe(true);
   });
+
+  it('classifies a grey-zone company as "Gris"', () => {
+    // Construct a company that lands in 1.81 < z < 2.99
+    // Verified: equity=600, debt=400, cash=150, re=100, ebit=100, rev=700, mktCap=800 → z≈2.41
+    const data = {
+      equity: 600, totalDebt: 400, cash: 150,
+      retainedEarnings: 100, operatingIncome: 100,
+      revenue: 700,
+    };
+    const r = calcAltmanZ(data, 800);
+    expect(r.score).toBeGreaterThan(1.81);
+    expect(r.score).toBeLessThan(2.99);
+    expect(r.zone).toBe('Gris');
+  });
+
+  it('zoneColor is green for Segura', () => {
+    const data = {
+      equity: 900, totalDebt: 100, cash: 400,
+      retainedEarnings: 600, operatingIncome: 200, revenue: 1500,
+    };
+    const r = calcAltmanZ(data, 8000);
+    expect(r.zone).toBe('Segura');
+    expect(r.zoneColor).toBe('var(--green)');
+  });
+
+  it('zoneColor is red for Peligro', () => {
+    const data = {
+      equity: 50, totalDebt: 950, cash: 20,
+      retainedEarnings: -300, operatingIncome: 5, revenue: 200,
+    };
+    const r = calcAltmanZ(data, 20);
+    expect(r.zone).toBe('Peligro');
+    expect(r.zoneColor).toBe('var(--red)');
+  });
+
+  it('weighted values in items sum to overall score', () => {
+    const data = {
+      equity: 500, totalDebt: 500, cash: 200,
+      retainedEarnings: 300, operatingIncome: 100, revenue: 800,
+    };
+    const r = calcAltmanZ(data, 2000);
+    const sumWeighted = r.items.reduce((acc, i) => acc + i.weighted, 0);
+    expect(sumWeighted).toBeCloseTo(r.score, 6);
+  });
+
+  it('returns empty items array on null input', () => {
+    expect(calcAltmanZ(null, 1000).items).toHaveLength(0);
+  });
+
+  it('handles negative retained earnings (accumulated losses)', () => {
+    const data = {
+      equity: 300, totalDebt: 700, cash: 100,
+      retainedEarnings: -400, operatingIncome: 50, revenue: 600,
+    };
+    const r = calcAltmanZ(data, 150);
+    expect(r.score).not.toBeNull();
+    expect(isFinite(r.score)).toBe(true);
+  });
 });

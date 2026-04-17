@@ -399,6 +399,74 @@ function ActionsTable({ actions, setActions, nlv }) {
   );
 }
 
+// ─── SellBuyRow — single order row with copy-to-clipboard button ─────────────
+
+function SellBuyRow({ a, nlv, side }) {
+  // useState/useRef before any logic (TDZ safety)
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef(null);
+
+  const dollar = (a.wt / 100) * nlv;
+  const isSell = side === 'SELL';
+  const color  = isSell ? '#f87171' : '#34d399';
+  const prefix = isSell ? '-' : '+';
+
+  function handleCopy() {
+    // Build IB order string — price placeholder since RebalancingTab has no trigger prices
+    const orderStr = `${side} [QTY] ${a.ticker} STK SMART LMT [PRICE] DAY`;
+    navigator.clipboard.writeText(orderStr).catch(() => {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = orderStr;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch {}
+    });
+    setCopied(true);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setCopied(false), 1800);
+  }
+
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:8, padding:'4px 0', borderBottom:'1px solid var(--subtle-bg)' }}>
+      <span style={{ width:6, height:6, borderRadius:1, background:color, display:'inline-block', flexShrink:0 }} />
+      <span style={{ fontSize:11, fontWeight:700, color:'var(--text-primary)', fontFamily:'var(--fm)', width:48 }}>{a.ticker}</span>
+      {isSell ? (
+        <>
+          {a.pct != null && a.pct < 100 && (
+            <span style={{ fontSize:9, padding:'1px 4px', borderRadius:3, background:'rgba(251,191,36,.12)', color:'#fbbf24', fontFamily:'var(--fm)' }}>{a.pct}% de posición</span>
+          )}
+          {a.pct === 100 && (
+            <span style={{ fontSize:9, padding:'1px 4px', borderRadius:3, background:'rgba(248,113,113,.1)', color:'#f87171', fontFamily:'var(--fm)' }}>Posición completa</span>
+          )}
+        </>
+      ) : (
+        <>
+          <span style={{ fontSize:9, color:'var(--text-tertiary)', fontFamily:'var(--fb)', flex:1 }}>{a.name}</span>
+          <span style={{ fontSize:9, color:'var(--text-secondary)', fontFamily:'var(--fm)' }}>{a.wt.toFixed(1)}% cartera</span>
+        </>
+      )}
+      <span style={{ fontSize:11, color, fontFamily:'var(--fm)', marginLeft:'auto', fontWeight:600 }}>{prefix}{fmt$(dollar)}</span>
+      <button
+        onClick={handleCopy}
+        title={`Copiar orden IB: ${side} [QTY] ${a.ticker} STK SMART LMT [PRICE] DAY`}
+        style={{
+          padding:'1px 6px', borderRadius:4, cursor:'pointer', flexShrink:0,
+          border: copied ? '1px solid var(--green)' : '1px solid var(--border)',
+          background: copied ? 'rgba(48,209,88,.08)' : 'transparent',
+          color: copied ? 'var(--green)' : 'var(--text-tertiary)',
+          fontSize:8, fontWeight:600, fontFamily:'var(--fm)',
+          transition:'all .2s', letterSpacing:'.3px',
+        }}
+      >
+        {copied ? '✓' : 'IB'}
+      </button>
+    </div>
+  );
+}
+
 // ─── Section 3: Execution Order ───────────────────────────────────────────────
 
 function ExecutionOrder({ actions, nlv }) {
@@ -472,17 +540,7 @@ function ExecutionOrder({ actions, nlv }) {
                     Ventas
                   </div>
                   {sells.map(a => (
-                    <div key={a.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'4px 0', borderBottom:'1px solid var(--subtle-bg)' }}>
-                      <span style={{ width:6, height:6, borderRadius:1, background:'#f87171', display:'inline-block', flexShrink:0 }} />
-                      <span style={{ fontSize:11, fontWeight:700, color:'var(--text-primary)', fontFamily:'var(--fm)', width:48 }}>{a.ticker}</span>
-                      {a.pct != null && a.pct < 100 && (
-                        <span style={{ fontSize:9, padding:'1px 4px', borderRadius:3, background:'rgba(251,191,36,.12)', color:'#fbbf24', fontFamily:'var(--fm)' }}>{a.pct}% de posición</span>
-                      )}
-                      {a.pct === 100 && (
-                        <span style={{ fontSize:9, padding:'1px 4px', borderRadius:3, background:'rgba(248,113,113,.1)', color:'#f87171', fontFamily:'var(--fm)' }}>Posición completa</span>
-                      )}
-                      <span style={{ fontSize:11, color:'#f87171', fontFamily:'var(--fm)', marginLeft:'auto', fontWeight:600 }}>-{fmt$((a.wt/100)*nlv)}</span>
-                    </div>
+                    <SellBuyRow key={a.id} a={a} nlv={nlv} side="SELL" />
                   ))}
                 </div>
               )}
@@ -493,13 +551,7 @@ function ExecutionOrder({ actions, nlv }) {
                     Compras
                   </div>
                   {buys.map(a => (
-                    <div key={a.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'4px 0', borderBottom:'1px solid var(--subtle-bg)' }}>
-                      <span style={{ width:6, height:6, borderRadius:1, background:'#34d399', display:'inline-block', flexShrink:0 }} />
-                      <span style={{ fontSize:11, fontWeight:700, color:'var(--text-primary)', fontFamily:'var(--fm)', width:48 }}>{a.ticker}</span>
-                      <span style={{ fontSize:9, color:'var(--text-tertiary)', fontFamily:'var(--fb)', flex:1 }}>{a.name}</span>
-                      <span style={{ fontSize:9, color:'var(--text-secondary)', fontFamily:'var(--fm)' }}>{a.wt.toFixed(1)}% cartera</span>
-                      <span style={{ fontSize:11, color:'#34d399', fontFamily:'var(--fm)', fontWeight:600 }}>+{fmt$((a.wt/100)*nlv)}</span>
-                    </div>
+                    <SellBuyRow key={a.id} a={a} nlv={nlv} side="BUY" />
                   ))}
                 </div>
               )}

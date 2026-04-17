@@ -102,6 +102,7 @@ export default function AuthGate({ children }) {
             value={password}
             onChange={e => setPassword(e.target.value)}
             placeholder="Password"
+            aria-label="Contraseña de acceso"
             autoFocus
             style={styles.input}
             onFocus={e => { e.target.style.borderColor = 'rgba(200,164,78,.4)'; e.target.style.boxShadow = '0 0 0 3px rgba(200,164,78,.08)'; }}

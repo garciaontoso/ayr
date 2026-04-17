@@ -129,6 +129,7 @@ export const HOME_TAB_GROUPS = [
     ico: "💰",
     tabs: [
       {id:"dividendos",lbl:"Dividendos",ico:"💰"},
+      {id:"opt-optimizer",lbl:"Optimizer",ico:"⚡"},
       {id:"opciones-cs",lbl:"Credit Spreads",ico:"🎯"},
       {id:"opciones-roc",lbl:"ROC",ico:"📞"},
       {id:"opciones-rop",lbl:"ROP",ico:"🛡"},
@@ -148,6 +149,7 @@ export const HOME_TAB_GROUPS = [
       {id:"nomina",lbl:"Mi Nomina",ico:"🧾"},
       {id:"patrimonio",lbl:"Patrimonio",ico:"🏛"},
       {id:"fire",lbl:"FIRE",ico:"🔥"},
+      {id:"drip",lbl:"DRIP",ico:"♻️"},
       {id:"forecast",lbl:"Forecast",ico:"🔮"},
       {id:"tax-opt",lbl:"Impuestos",ico:"🧾"},
     ],

@@ -53,6 +53,9 @@ const RebalancingTab     = lazy(() => import('../home/RebalancingTab'));
 const ActionPlanTab      = lazy(() => import('../home/ActionPlanTab'));
 const NominaTab          = lazy(() => import('../home/NominaTab'));
 const PresupuestoTab     = lazy(() => import('../home/PresupuestoTab'));
+const DripTab            = lazy(() => import('../home/DripTab'));
+const ForecastTab            = lazy(() => import('../home/ForecastTab'));
+const OptionsOptimizerTab    = lazy(() => import('../home/OptionsOptimizerTab'));
 
 // Tab skeleton shown while lazy chunks load
 const TabSkeleton = () => (
@@ -1384,6 +1387,8 @@ export default function HomeView() {
         {homeTab==="dashboard" && <DashboardTab />}
         {homeTab==="dividendos" && <DividendosTab />}
         {homeTab==="fire" && <FireTab />}
+        {homeTab==="forecast" && <ForecastTab />}
+        {homeTab==="drip" && <DripTab />}
         {homeTab==="tax-opt" && <TaxOptimizationTab />}
         {homeTab==="gastos" && <GastosTab />}
         {homeTab==="watchlist" && <WatchlistTab />}
@@ -1406,6 +1411,7 @@ export default function HomeView() {
         {homeTab==="deep-dividend" && <DeepDividendTab />}
         {homeTab==="peer-compare" && <PeerCompareTab />}
         {homeTab==="analytics" && <AnalyticsTab />}
+        {homeTab==="attribution" && <AttributionTab />}
         {homeTab==="rebalance" && <RebalancingTab />}
         {homeTab==="opciones-cs" && <OpcionesTab strategy="CS" view="list" />}
         {homeTab==="opciones-roc" && <OpcionesTab strategy="ROC" view="list" />}
