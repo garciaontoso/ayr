@@ -35,6 +35,10 @@ import EarningsTab from '../home/EarningsTab';
 import NewsTab from '../home/NewsTab';
 import DailyBriefingTab from '../home/DailyBriefingTab';
 import DiscoveryTab from '../home/DiscoveryTab';
+import AlertTrackRecordTab from '../home/AlertTrackRecordTab';
+import CartasSabiosTab from '../home/CartasSabiosTab';
+import TaxOptimizationTab from '../home/TaxOptimizationTab';
+import BacktestTab from '../home/BacktestTab';
 
 // Combined Income tab with sub-tabs
 function IncomeTab() {
@@ -1352,11 +1356,14 @@ export default function HomeView() {
       {homeTab==="dashboard" && <DashboardTab />}
       {homeTab==="dividendos" && <DividendosTab />}
       {homeTab==="fire" && <FireTab />}
+      {homeTab==="tax-opt" && <TaxOptimizationTab />}
       {homeTab==="gastos" && <GastosTab />}
       {homeTab==="watchlist" && <WatchlistTab />}
       {homeTab==="historial" && <HistorialTab />}
       {homeTab==="advisor" && <AdvisorTab />}
       {homeTab==="discovery" && <DiscoveryTab />}
+      {homeTab==="cartas-sabios" && <CartasSabiosTab />}
+      {homeTab==="backtest" && <BacktestTab />}
       {homeTab==="research" && <ResearchTab />}
       {homeTab==="agentes" && <AgentesTab />}
       {homeTab==="income" && <IncomeTab />}
@@ -1378,6 +1385,7 @@ export default function HomeView() {
       {homeTab==="macro" && <MacroTab />}
       {homeTab==="earnings" && <EarningsTab />}
       {homeTab==="news" && <NewsTab />}
+      {homeTab==="track-record" && <AlertTrackRecordTab />}
     </ErrorBoundary>
 
     {/* Settings Panel */}

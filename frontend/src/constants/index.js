@@ -143,6 +143,7 @@ export const HOME_TAB_GROUPS = [
       {id:"nomina",lbl:"Mi Nomina",ico:"🧾"},
       {id:"patrimonio",lbl:"Patrimonio",ico:"🏛"},
       {id:"fire",lbl:"FIRE",ico:"🔥"},
+      {id:"tax-opt",lbl:"Impuestos",ico:"🧾"},
     ],
   },
   {
@@ -162,10 +163,12 @@ export const HOME_TAB_GROUPS = [
     ico: "🔍",
     tabs: [
       {id:"discovery",lbl:"Discovery",ico:"💡"},
+      {id:"cartas-sabios",lbl:"Cartas Sabios",ico:"📜"},
       {id:"research",lbl:"Radar",ico:"📡"},
       {id:"smart-money",lbl:"Smart Money",ico:"🏛️"},
       {id:"videos-youtube",lbl:"Vídeos YouTube",ico:"▶️"},
       {id:"library",lbl:"Library",ico:"📚"},
+      {id:"backtest",lbl:"Backtest",ico:"🎯"},
     ],
   },
 ];

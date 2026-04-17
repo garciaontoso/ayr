@@ -670,6 +670,19 @@ async function ensureMigrations(env) {
     )`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_narratives_generated ON company_narratives(generated_at DESC)`).run();
 
+    // ─── Dividend Compounder Scanner cache (2026-04-17) ───
+    // Per-ticker cache row. score_data_json contains the full computed
+    // compounder metrics (yield, dgr5y, dgr10y, streak, payout_fcf,
+    // fcf_cov, roic, net_debt_ebitda, score, score_breakdown).
+    // TTL 24h enforced at read time by comparing updated_at.
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS dividend_scanner_cache (
+      ticker TEXT PRIMARY KEY,
+      compounder_score REAL DEFAULT 0,
+      score_data_json TEXT DEFAULT '{}',
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_dsc_score ON dividend_scanner_cache(compounder_score DESC)`).run();
+
     // ─── Performance indexes ───────────────────────────
     const indexes = [
       "CREATE INDEX IF NOT EXISTS idx_gastos_fecha ON gastos(fecha)",
@@ -5059,6 +5072,505 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         }, corsHeaders);
       }
 
+      // GET /api/backtest/safety-vs-cuts
+      // Retrospective + limited-forward backtest: compares Deep Dividend safety
+      // scores against actual dividend payment history in the dividendos table.
+      //
+      // Methodology:
+      //  1. For each DDA analysis, derive a "score_reference_date" from the
+      //     quarter field (the date when the scored quarter's data was available).
+      //  2. Find the baseline DPS for that ticker by looking at payments
+      //     in the 12 months BEFORE score_reference_date.
+      //  3. Check if any payment 3 / 6 / 12 months AFTER score_reference_date
+      //     is >20% below the baseline DPS — flag as actual_cut_3m/6m/12m.
+      //  4. Aggregate by safety tier: LOW(≤4), MID(5-7), HIGH(8-10).
+      //  5. Return tier stats, individual ticker details, notable wins/misses.
+      //
+      // Limitations: all DDA analyses were created April 9-15 2026. Forward
+      // data window is therefore short. Q3-2025 scores have ~6m forward data;
+      // Q4-2025 scores have ~3m. Displayed clearly in the response.
+      if (path === "/api/backtest/safety-vs-cuts" && request.method === "GET") {
+        await ensureMigrations(env);
+        try {
+          // ── 1. Load all DDA analyses (one per ticker/quarter) ──────────────
+          const ddaRs = await env.DB.prepare(
+            `SELECT ticker, quarter, safety_score, composite_score,
+                    cut_probability_3y, verdict, confidence, created_at
+             FROM deep_dividend_analysis
+             ORDER BY created_at ASC`
+          ).all();
+          const ddaRows = ddaRs.results || [];
+
+          // ── 2. Load all dividend payments with computable DPS ──────────────
+          const divRs = await env.DB.prepare(
+            `SELECT ticker, fecha, bruto, shares, dps_gross
+             FROM dividendos
+             WHERE (shares > 0 AND bruto > 0) OR dps_gross > 0
+             ORDER BY ticker, fecha ASC`
+          ).all();
+          const divRows = divRs.results || [];
+
+          // Index dividends by ticker
+          const divByTicker = {};
+          for (const r of divRows) {
+            const dps = (r.dps_gross && r.dps_gross > 0)
+              ? r.dps_gross
+              : (r.shares > 0 ? r.bruto / r.shares : null);
+            if (dps === null || dps <= 0) continue;
+            if (!divByTicker[r.ticker]) divByTicker[r.ticker] = [];
+            divByTicker[r.ticker].push({ fecha: r.fecha, dps: Math.round(dps * 10000) / 10000 });
+          }
+
+          // ── 3. Map quarter → score_reference_date ─────────────────────────
+          // Uses the quarter-end date + ~60 days for earnings reporting lag.
+          function quarterToScoreDate(quarter) {
+            if (!quarter) return null;
+            const q = quarter.toUpperCase().replace(/\s+/g, '');
+            // Patterns: 2025Q4, Q4 2025, FY2025, 2025-FY, 2026-Q1
+            let year, qnum;
+            let m;
+            if ((m = q.match(/^(\d{4})Q(\d)$/))) { year = +m[1]; qnum = +m[2]; }
+            else if ((m = q.match(/^Q(\d)(\d{4})$/))) { year = +m[2]; qnum = +m[1]; }
+            else if ((m = q.match(/^(\d{4})-?Q(\d)$/))) { year = +m[1]; qnum = +m[2]; }
+            else if ((m = q.match(/^(?:FY|FISCAL)?(\d{4})(?:-?FY)?$/))) {
+              year = +m[1]; qnum = 4; // treat FY as Q4
+            }
+            if (!year) return null;
+            // Quarter-end month + 60-day reporting lag
+            const qEndMonth = [0, 3, 6, 9, 12][qnum] || 12; // 1-indexed months
+            const qEndDate = new Date(Date.UTC(year, qEndMonth - 1, 31)); // last day of qEnd month
+            // Add 60 days reporting lag
+            const scoreDate = new Date(qEndDate.getTime() + 60 * 86400000);
+            return scoreDate.toISOString().slice(0, 10);
+          }
+
+          // ── 4. For each DDA row, compute actual outcome ────────────────────
+          const results = [];
+          const today = new Date().toISOString().slice(0, 10);
+
+          for (const dda of ddaRows) {
+            const scoreDate = quarterToScoreDate(dda.quarter);
+            if (!scoreDate) continue;
+
+            const payments = divByTicker[dda.ticker] || [];
+            if (payments.length === 0) continue;
+
+            // Baseline: median DPS of payments in the 365 days before score_date
+            const preScore = payments.filter(p => p.fecha < scoreDate);
+            if (preScore.length === 0) continue; // No historical baseline
+            const recentPre = preScore.slice(-8); // last 8 pre-score payments
+            const sortedDps = recentPre.map(p => p.dps).sort((a, b) => a - b);
+            const mid = Math.floor(sortedDps.length / 2);
+            const baseDps = sortedDps.length % 2 !== 0
+              ? sortedDps[mid]
+              : (sortedDps[mid - 1] + sortedDps[mid]) / 2;
+            if (!baseDps || baseDps <= 0) continue;
+
+            // Post-score payments within 3, 6, 12 months
+            function addMonths(dateStr, months) {
+              const d = new Date(dateStr.replace(' ', 'T') + 'Z');
+              d.setUTCMonth(d.getUTCMonth() + months);
+              return d.toISOString().slice(0, 10);
+            }
+            const cutoff3m  = addMonths(scoreDate, 3);
+            const cutoff6m  = addMonths(scoreDate, 6);
+            const cutoff12m = addMonths(scoreDate, 12);
+
+            const post3m  = payments.filter(p => p.fecha >= scoreDate && p.fecha <= cutoff3m);
+            const post6m  = payments.filter(p => p.fecha >= scoreDate && p.fecha <= cutoff6m);
+            const post12m = payments.filter(p => p.fecha >= scoreDate && p.fecha <= cutoff12m);
+
+            const CUT_THRESHOLD = 0.80; // >20% drop = cut
+            // isCut: returns true/false if any post-score payments exist in window;
+            // null only when zero payments exist (insufficient data, not "no cut").
+            // We detect cuts even before the full window elapses.
+            function isCut(posts) {
+              if (posts.length === 0) return null;
+              const minPost = Math.min(...posts.map(p => p.dps));
+              return minPost / baseDps < CUT_THRESHOLD;
+            }
+            function dpsChange(posts) {
+              if (posts.length === 0) return null;
+              const lastPost = posts[posts.length - 1].dps;
+              return Math.round((lastPost / baseDps - 1) * 10000) / 100; // pct
+            }
+
+            // Full-window elapsed flags (for display context only)
+            const dataThru3m  = today >= cutoff3m;
+            const dataThru6m  = today >= cutoff6m;
+            const dataThru12m = today >= cutoff12m;
+            const scoreMs = new Date(scoreDate).getTime();
+            const elapsedMonths = Math.min(12, Math.round(
+              (Date.now() - scoreMs) / (30.44 * 86400000) * 10) / 10);
+
+            results.push({
+              ticker: dda.ticker,
+              quarter: dda.quarter,
+              score_date: scoreDate,
+              safety_score: dda.safety_score,
+              composite_score: dda.composite_score,
+              cut_prob_3y: dda.cut_probability_3y,
+              verdict: dda.verdict,
+              confidence: dda.confidence,
+              base_dps: Math.round(baseDps * 10000) / 10000,
+              elapsed_months: elapsedMonths,
+              pre_payments: recentPre.length,
+              post_payments_3m: post3m.length,
+              post_payments_6m: post6m.length,
+              post_payments_12m: post12m.length,
+              data_thru_3m: dataThru3m,
+              data_thru_6m: dataThru6m,
+              data_thru_12m: dataThru12m,
+              // Compute whenever payments exist; null = no data in window
+              actual_cut_3m:  isCut(post3m),
+              actual_cut_6m:  isCut(post6m),
+              actual_cut_12m: isCut(post12m),
+              dps_change_pct_3m:  dpsChange(post3m),
+              dps_change_pct_6m:  dpsChange(post6m),
+              dps_change_pct_12m: dpsChange(post12m),
+            });
+          }
+
+          // ── 5. Dedup: per-ticker summary uses EARLIEST score with measurable
+          //       outcomes. For the notable/confusion sections we use ALL results
+          //       that have any measured window so each (ticker, quarter) counts
+          //       once per row in the raw data. This preserves Q3-2025 rows even
+          //       when the same ticker has a newer Q4-2025 score.
+          const measuredResults = results.filter(r =>
+            r.actual_cut_3m !== null || r.actual_cut_6m !== null || r.actual_cut_12m !== null
+          );
+          // For per-ticker dedup summary: pick row with most forward data
+          const bestByTicker = {};
+          for (const r of results) {
+            const key = r.ticker;
+            const prev = bestByTicker[key];
+            if (!prev) { bestByTicker[key] = r; continue; }
+            // Prefer row that has 3m data; else prefer earlier score_date
+            const rMeasured = (r.data_thru_3m ? 3 : 0) + (r.data_thru_6m ? 2 : 0) + (r.data_thru_12m ? 1 : 0);
+            const prevMeasured = (prev.data_thru_3m ? 3 : 0) + (prev.data_thru_6m ? 2 : 0) + (prev.data_thru_12m ? 1 : 0);
+            if (rMeasured > prevMeasured) { bestByTicker[key] = r; }
+          }
+          const dedupResults = Object.values(bestByTicker);
+
+          // ── 6. Tier aggregation (uses measuredResults — all rows with data) ─
+          function tierLabel(s) {
+            if (s <= 4) return 'LOW';
+            if (s <= 7) return 'MID';
+            return 'HIGH';
+          }
+          const tiers = { LOW: [], MID: [], HIGH: [] };
+          // Use dedupResults for tier stats so each ticker counted once
+          for (const r of dedupResults) {
+            tiers[tierLabel(r.safety_score)].push(r);
+          }
+
+          function tierStats(rows, window) {
+            const cutKey = `actual_cut_${window}`;
+            const measured = rows.filter(r => r[cutKey] !== null);
+            const cuts = measured.filter(r => r[cutKey] === true);
+            return {
+              n_total: rows.length,
+              n_measured: measured.length,
+              n_cuts: cuts.length,
+              cut_rate: measured.length > 0 ? Math.round(cuts.length / measured.length * 1000) / 10 : null,
+            };
+          }
+
+          const tierSummary = {};
+          for (const [tier, rows] of Object.entries(tiers)) {
+            tierSummary[tier] = {
+              label: tier === 'LOW' ? 'LOW (≤4)' : tier === 'MID' ? 'MID (5-7)' : 'HIGH (8-10)',
+              safety_range: tier === 'LOW' ? [1, 4] : tier === 'MID' ? [5, 7] : [8, 10],
+              stats_3m:  tierStats(rows, '3m'),
+              stats_6m:  tierStats(rows, '6m'),
+              stats_12m: tierStats(rows, '12m'),
+              tickers: rows.map(r => r.ticker).sort(),
+            };
+          }
+
+          // ── 7. Confusion matrix (3m and 6m) ──────────────────────────────
+          // Predicted cut = safety ≤ 4. Actual cut = actual_cut field.
+          function confusionMatrix(rows, window) {
+            const cutKey = `actual_cut_${window}`;
+            const measured = rows.filter(r => r[cutKey] !== null);
+            let tp = 0, fp = 0, tn = 0, fn = 0;
+            for (const r of measured) {
+              const predicted = r.safety_score <= 4;
+              const actual = r[cutKey] === true;
+              if (predicted && actual)  tp++;
+              else if (predicted && !actual) fp++;
+              else if (!predicted && actual) fn++;
+              else tn++;
+            }
+            const precision = (tp + fp) > 0 ? Math.round(tp / (tp + fp) * 1000) / 10 : null;
+            const recall    = (tp + fn) > 0 ? Math.round(tp / (tp + fn) * 1000) / 10 : null;
+            return { tp, fp, tn, fn, precision, recall, n: measured.length };
+          }
+          // Use measuredResults (all rows with any outcome) for confusion matrix
+          // and notable cases — this includes ARE/HR from Q4-2025 whose post-score
+          // payments fall in the data window even if they also have newer scores.
+          const confusion_3m  = confusionMatrix(measuredResults, '3m');
+          const confusion_6m  = confusionMatrix(measuredResults, '6m');
+          const confusion_12m = confusionMatrix(measuredResults, '12m');
+
+          // ── 8. Notable cases (deduped by ticker — best row per ticker) ──────
+          function dedupByTicker(rows, pickFn) {
+            // pickFn returns a sort key; higher = better row to show
+            const best = {};
+            for (const r of rows) {
+              if (!best[r.ticker] || pickFn(r) > pickFn(best[r.ticker])) best[r.ticker] = r;
+            }
+            return Object.values(best);
+          }
+
+          // True positives: safety ≤ 5, cut confirmed
+          const truePositives = dedupByTicker(
+            measuredResults.filter(r =>
+              r.safety_score <= 5 &&
+              (r.actual_cut_3m || r.actual_cut_6m || r.actual_cut_12m)
+            ), r => -(r.dps_change_pct_3m ?? 0) // most dramatic cut first
+          ).sort((a, b) => (a.dps_change_pct_3m ?? 0) - (b.dps_change_pct_3m ?? 0)).slice(0, 5);
+
+          // False negatives: safety ≥ 7 but cut happened
+          const falseNegatives = dedupByTicker(
+            measuredResults.filter(r =>
+              r.safety_score >= 7 &&
+              (r.actual_cut_3m || r.actual_cut_6m || r.actual_cut_12m)
+            ), r => r.safety_score
+          ).sort((a, b) => b.safety_score - a.safety_score).slice(0, 5);
+
+          // False positives: safety ≤ 4 but no cut yet
+          const falsePositives = dedupByTicker(
+            measuredResults.filter(r =>
+              r.safety_score <= 4 &&
+              r.actual_cut_3m === false
+            ), r => -(r.safety_score)
+          ).sort((a, b) => a.safety_score - b.safety_score).slice(0, 5);
+
+          // Strong holds: safety ≥ 8, no cut, dividend growing
+          const strongHolds = dedupByTicker(
+            measuredResults.filter(r =>
+              r.safety_score >= 8 &&
+              r.actual_cut_3m === false &&
+              r.dps_change_pct_3m !== null && r.dps_change_pct_3m >= 0
+            ), r => r.safety_score * 10 + (r.dps_change_pct_3m || 0)
+          ).sort((a, b) => b.safety_score - a.safety_score || (b.dps_change_pct_3m || 0) - (a.dps_change_pct_3m || 0)).slice(0, 5);
+
+          // ── 9. Scatter data (safety_score vs dps_change_pct_3m) ──────────
+          const scatterData = measuredResults.map(r => ({
+            ticker: r.ticker,
+            quarter: r.quarter,
+            safety_score: r.safety_score,
+            dps_change_3m: r.dps_change_pct_3m,
+            dps_change_6m: r.dps_change_pct_6m,
+            actual_cut_3m: r.actual_cut_3m,
+            actual_cut_6m: r.actual_cut_6m,
+            verdict: r.verdict,
+          })).filter(r => r.dps_change_3m !== null || r.dps_change_6m !== null);
+
+          // ── 10. Data window summary ────────────────────────────────────────
+          const byWindow = {
+            has_3m: 0, has_6m: 0, has_12m: 0,
+            total_with_history: results.length,
+            total_measured: measuredResults.length,
+            total_unique_tickers: dedupResults.length,
+          };
+          for (const r of results) {
+            if (r.data_thru_3m)  byWindow.has_3m++;
+            if (r.data_thru_6m)  byWindow.has_6m++;
+            if (r.data_thru_12m) byWindow.has_12m++;
+          }
+
+          return json({
+            ok: true,
+            generated_at: new Date().toISOString(),
+            methodology: "Quarter-end + 60d reporting lag as score reference date. Baseline DPS = median of last 8 pre-score payments. Cut threshold = >20% decline from baseline.",
+            data_window: byWindow,
+            tier_summary: tierSummary,
+            confusion_matrix: { _3m: confusion_3m, _6m: confusion_6m, _12m: confusion_12m },
+            notable: {
+              true_positives: truePositives,
+              false_negatives: falseNegatives,
+              false_positives: falsePositives,
+              strong_holds: strongHolds,
+            },
+            scatter: scatterData,
+            all_results: results, // full detail, includes all versions per ticker
+          }, corsHeaders);
+        } catch (e) {
+          return json({ ok: false, error: String(e.message || e) }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/alert-track-record
+      // Reads the `alerts` table for dividend_cut_warning / safety_low / DIV_CUT
+      // alerts and cross-references against the `dividendos` table to evaluate
+      // whether a cut actually happened 3/6/12 months later.
+      // Returns: total_alerts, correct, wrong, pending, accuracy_pct,
+      //          by_severity, top_hits, top_misses
+      if (path === "/api/alert-track-record" && request.method === "GET") {
+        await ensureMigrations(env);
+        try {
+          const CUT_THRESHOLD = 0.80; // >20% drop = cut
+
+          // Load all relevant alerts
+          const alertsRs = await env.DB.prepare(
+            `SELECT id, fecha, tipo, titulo, detalle, ticker, valor
+             FROM alerts
+             WHERE (tipo IN ('dividend_cut_warning','safety_low','DIV_CUT','div_cut')
+                    OR titulo LIKE '%cut%' OR titulo LIKE '%safety%' OR titulo LIKE '%corte%')
+               AND ticker != ''
+             ORDER BY fecha ASC`
+          ).all();
+          const alertRows = alertsRs.results || [];
+
+          // Load dividend payments
+          const divRs = await env.DB.prepare(
+            `SELECT ticker, fecha, bruto, shares, dps_gross
+             FROM dividendos
+             WHERE (shares > 0 AND bruto > 0) OR dps_gross > 0
+             ORDER BY ticker, fecha ASC`
+          ).all();
+          const divRows = divRs.results || [];
+
+          // Index dividends by ticker
+          const divByTicker = {};
+          for (const r of divRows) {
+            const dps = (r.dps_gross && r.dps_gross > 0)
+              ? r.dps_gross
+              : (r.shares > 0 ? r.bruto / r.shares : null);
+            if (!dps || dps <= 0) continue;
+            if (!divByTicker[r.ticker]) divByTicker[r.ticker] = [];
+            divByTicker[r.ticker].push({ fecha: r.fecha, dps: Math.round(dps * 10000) / 10000 });
+          }
+
+          function addMonths(dateStr, months) {
+            const d = new Date(dateStr.replace(' ', 'T') + 'Z');
+            d.setUTCMonth(d.getUTCMonth() + months);
+            return d.toISOString().slice(0, 10);
+          }
+
+          const today = new Date().toISOString().slice(0, 10);
+
+          function mapSeverity(row) {
+            const t = (row.tipo + ' ' + row.titulo).toLowerCase();
+            if (t.includes('critical') || t.includes('div_cut') || t.includes('corte')) return 'CRITICAL';
+            if (t.includes('warning') || t.includes('safety_low')) return 'WARNING';
+            return 'INFO';
+          }
+
+          const evaluated = [];
+          for (const alert of alertRows) {
+            if (!alert.ticker) continue;
+            const payments = divByTicker[alert.ticker] || [];
+            const alertDate = alert.fecha ? alert.fecha.slice(0, 10) : null;
+            if (!alertDate) continue;
+
+            const pre = payments.filter(p => p.fecha < alertDate);
+            if (pre.length < 2) continue;
+            const recent = pre.slice(-8);
+            const sortedDps = recent.map(p => p.dps).sort((a, b) => a - b);
+            const mid = Math.floor(sortedDps.length / 2);
+            const baseDps = sortedDps.length % 2 !== 0
+              ? sortedDps[mid]
+              : (sortedDps[mid - 1] + sortedDps[mid]) / 2;
+            if (!baseDps || baseDps <= 0) continue;
+
+            const cutoff3m  = addMonths(alertDate, 3);
+            const cutoff6m  = addMonths(alertDate, 6);
+            const cutoff12m = addMonths(alertDate, 12);
+
+            const post3m  = payments.filter(p => p.fecha >= alertDate && p.fecha <= cutoff3m);
+            const post6m  = payments.filter(p => p.fecha >= alertDate && p.fecha <= cutoff6m);
+            const post12m = payments.filter(p => p.fecha >= alertDate && p.fecha <= cutoff12m);
+
+            const dataThru3m  = today >= cutoff3m;
+            const dataThru6m  = today >= cutoff6m;
+            const dataThru12m = today >= cutoff12m;
+
+            function isCut(posts) {
+              if (posts.length === 0) return null;
+              const minPost = Math.min(...posts.map(p => p.dps));
+              return minPost / baseDps < CUT_THRESHOLD;
+            }
+            function dpsChg(posts) {
+              if (posts.length === 0) return null;
+              return Math.round((posts[posts.length - 1].dps / baseDps - 1) * 10000) / 100;
+            }
+
+            const cut3m  = dataThru3m  ? isCut(post3m)  : null;
+            const cut6m  = dataThru6m  ? isCut(post6m)  : null;
+            const cut12m = dataThru12m ? isCut(post12m) : null;
+
+            const bestKnown = cut12m !== null ? cut12m : (cut6m !== null ? cut6m : cut3m);
+
+            evaluated.push({
+              id: alert.id,
+              ticker: alert.ticker,
+              alert_date: alertDate,
+              tipo: alert.tipo,
+              titulo: alert.titulo,
+              severity: mapSeverity(alert),
+              base_dps: Math.round(baseDps * 10000) / 10000,
+              cut_3m: cut3m,
+              cut_6m: cut6m,
+              cut_12m: cut12m,
+              dps_change_pct_6m: dataThru6m ? dpsChg(post6m) : null,
+              dps_change_pct_12m: dataThru12m ? dpsChg(post12m) : null,
+              confirmed_cut: bestKnown === true,
+              pending: bestKnown === null,
+            });
+          }
+
+          const total   = evaluated.length;
+          const pendingN = evaluated.filter(r => r.pending).length;
+          const measrd  = evaluated.filter(r => !r.pending);
+          const correct = measrd.filter(r => r.confirmed_cut).length;
+          const wrong   = measrd.filter(r => !r.confirmed_cut).length;
+          const accuracy_pct = measrd.length > 0
+            ? Math.round(correct / measrd.length * 1000) / 10
+            : null;
+
+          const bySev = {};
+          for (const sev of ['CRITICAL', 'WARNING', 'INFO']) {
+            const rows = evaluated.filter(r => r.severity === sev);
+            const m = rows.filter(r => !r.pending);
+            bySev[sev] = {
+              total: rows.length,
+              pending: rows.filter(r => r.pending).length,
+              correct: m.filter(r => r.confirmed_cut).length,
+              wrong:   m.filter(r => !r.confirmed_cut).length,
+              accuracy_pct: m.length > 0 ? Math.round(m.filter(r => r.confirmed_cut).length / m.length * 1000) / 10 : null,
+            };
+          }
+
+          const topHits   = measrd.filter(r => r.confirmed_cut)
+            .sort((a, b) => (a.dps_change_pct_12m ?? a.dps_change_pct_6m ?? 0) - (b.dps_change_pct_12m ?? b.dps_change_pct_6m ?? 0))
+            .slice(0, 5);
+          const topMisses = measrd.filter(r => !r.confirmed_cut)
+            .sort((a, b) => (b.dps_change_pct_12m ?? b.dps_change_pct_6m ?? 0) - (a.dps_change_pct_12m ?? a.dps_change_pct_6m ?? 0))
+            .slice(0, 5);
+
+          return json({
+            ok: true,
+            generated_at: new Date().toISOString(),
+            data_note: "Alerts from the alerts table evaluated vs dividendos. Only alerts with a ticker and at least 2 pre-alert dividend payments are included.",
+            total_alerts: total,
+            evaluated: measrd.length,
+            correct,
+            wrong,
+            pending: pendingN,
+            accuracy_pct,
+            by_severity: bySev,
+            top_hits: topHits,
+            top_misses: topMisses,
+            all: evaluated,
+          }, corsHeaders);
+        } catch (e) {
+          return json({ ok: false, error: String(e.message || e) }, corsHeaders, 500);
+        }
+      }
+
       // ═══ YouTube Dividendo Agent ══════════════════════════════
       // Scans the El Dividendo YouTube channel via RSS, stores pending
       // videos, serves a pending list to the Mac script which transcribes
@@ -7689,6 +8201,232 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             trades: { sells: sells.length, buys: buys.length, totalSellProceeds, totalBuyCost, totalCommissions },
             options: { income: opts?.total || 0 },
             dividends: { gross: divs?.gross || 0, count: divs?.count || 0, byTicker: divByTicker.results || [] },
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // GET /api/tax/optimization-report — WHT drag analysis for Chinese fiscal resident
+      // Reads positions + 12m of actual dividendos to compute per-position and per-country
+      // WHT amounts. Identifies high-drag countries and surfaces rebalancing suggestions.
+      if (path === "/api/tax/optimization-report" && request.method === "GET") {
+        try {
+          // WHT rates by country code (China tax resident)
+          const WHT = {
+            US: 0.10, CA: 0.15, GB: 0.00, DE: 0.15, FR: 0.15, ES: 0.19,
+            CH: 0.35, AU: 0.15, HK: 0.00, CN: 0.10, JP: 0.10, NL: 0.10,
+            IE: 0.00, DK: 0.27, SE: 0.30, NO: 0.25, SG: 0.00, _default: 0.15,
+          };
+
+          // Country flags
+          const FLAG = {
+            US:"🇺🇸",CA:"🇨🇦",GB:"🇬🇧",DE:"🇩🇪",FR:"🇫🇷",ES:"🇪🇸",
+            CH:"🇨🇭",AU:"🇦🇺",HK:"🇭🇰",CN:"🇨🇳",JP:"🇯🇵",NL:"🇳🇱",
+            IE:"🇮🇪",DK:"🇩🇰",SE:"🇸🇪",NO:"🇳🇴",SG:"🇸🇬",
+          };
+
+          // Country names
+          const CNAME = {
+            US:"United States",CA:"Canada",GB:"United Kingdom",DE:"Germany",
+            FR:"France",ES:"Spain",CH:"Switzerland",AU:"Australia",HK:"Hong Kong",
+            CN:"China",JP:"Japan",NL:"Netherlands",IE:"Ireland",DK:"Denmark",
+            SE:"Sweden",NO:"Norway",SG:"Singapore",
+          };
+
+          // Derive country code from ticker and currency
+          // Exchange-prefix tickers: BME: → ES, HKG: → HK, LON: → GB, EPA: → FR, etc.
+          const tickerToCountry = (ticker, currency) => {
+            if (!ticker) return null;
+            const prefix = ticker.includes(":") ? ticker.split(":")[0] : null;
+            if (prefix) {
+              const exchangeMap = {
+                BME:"ES", HKG:"HK", LON:"GB", EPA:"FR", XETRA:"DE",
+                AMS:"NL", SWX:"CH", CPH:"DK", OSE:"NO", STO:"SE",
+                TSX:"CA", ASX:"AU", SGX:"SG", JPX:"JP",
+              };
+              if (exchangeMap[prefix]) return exchangeMap[prefix];
+            }
+            // Fall back on currency
+            const ccy = (currency || "USD").toUpperCase();
+            const ccyMap = {
+              USD:"US", CAD:"CA", GBP:"GB", GBX:"GB", EUR:"US",
+              HKD:"HK", AUD:"AU", JPY:"JP", CHF:"CH", DKK:"DK",
+              SEK:"SE", NOK:"NO", SGD:"SG",
+            };
+            return ccyMap[ccy] || "US";
+          };
+
+          // 1. Pull all active positions with div data
+          const { results: positions } = await env.DB.prepare(
+            `SELECT ticker, name, shares, currency, div_ttm, last_price, usd_value, sector
+             FROM positions
+             WHERE shares > 0
+             ORDER BY usd_value DESC`
+          ).all();
+
+          // 2. Pull last 12 months of actual dividends in USD
+          const cutoff = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+          const { results: divRows } = await env.DB.prepare(
+            `SELECT ticker, divisa,
+                    ROUND(SUM(CASE WHEN bruto_usd > 0 THEN bruto_usd ELSE bruto END), 2) AS gross_usd,
+                    ROUND(SUM(CASE WHEN neto_usd  > 0 THEN neto_usd  ELSE neto  END), 2) AS net_usd,
+                    ROUND(SUM(COALESCE(wht_amount, 0)), 2) AS wht_paid,
+                    COUNT(*) AS payments
+             FROM dividendos
+             WHERE fecha >= ?
+             GROUP BY ticker`
+          ).bind(cutoff).all();
+
+          const divMap = {};
+          for (const r of divRows) {
+            divMap[r.ticker] = r;
+          }
+
+          // 3. Build per-position data
+          const rows = [];
+          let totalGross = 0, totalWHT = 0, totalNet = 0;
+
+          for (const pos of positions) {
+            const country = tickerToCountry(pos.ticker, pos.currency);
+            const whtRate = WHT[country] ?? WHT._default;
+
+            // Annual gross: prefer actual 12m dividends, else div_ttm * shares
+            let annualGross = 0;
+            let annualWHT = 0;
+            let annualNet = 0;
+            let source = "projected";
+
+            const hist = divMap[pos.ticker];
+            if (hist && hist.gross_usd > 0) {
+              annualGross = hist.gross_usd;
+              // Use actual wht_paid when broker tracked it; else apply treaty rate
+              annualWHT = hist.wht_paid > 0 ? hist.wht_paid : annualGross * whtRate;
+              annualNet = hist.net_usd > 0 ? hist.net_usd : annualGross - annualWHT;
+              source = "actual";
+            } else if (pos.div_ttm > 0 && pos.shares > 0) {
+              annualGross = pos.div_ttm * pos.shares;
+              annualWHT = annualGross * whtRate;
+              annualNet = annualGross - annualWHT;
+              source = "projected";
+            }
+
+            if (annualGross < 0.01) continue; // skip non-dividend positions
+
+            const effectiveWHTRate = annualGross > 0 ? annualWHT / annualGross : whtRate;
+
+            rows.push({
+              ticker: pos.ticker,
+              name: pos.name || pos.ticker,
+              country,
+              flag: FLAG[country] || "🏳️",
+              country_name: CNAME[country] || country,
+              wht_rate: whtRate,
+              effective_wht_rate: Math.round(effectiveWHTRate * 1000) / 1000,
+              annual_gross: Math.round(annualGross * 100) / 100,
+              annual_wht: Math.round(annualWHT * 100) / 100,
+              annual_net: Math.round(annualNet * 100) / 100,
+              shares: pos.shares,
+              usd_value: pos.usd_value || 0,
+              div_yield: pos.last_price > 0 && pos.div_ttm > 0
+                ? Math.round((pos.div_ttm / pos.last_price) * 10000) / 100
+                : 0,
+              source,
+              sector: pos.sector || "",
+            });
+
+            totalGross += annualGross;
+            totalWHT += annualWHT;
+            totalNet += annualNet;
+          }
+
+          // Sort by WHT amount descending
+          rows.sort((a, b) => b.annual_wht - a.annual_wht);
+
+          // 4. Aggregate by country
+          const byCountry = {};
+          for (const r of rows) {
+            if (!byCountry[r.country]) {
+              byCountry[r.country] = {
+                country: r.country,
+                country_name: r.country_name,
+                flag: r.flag,
+                wht_rate: r.wht_rate,
+                gross: 0, wht: 0, net: 0,
+                positions: 0,
+              };
+            }
+            byCountry[r.country].gross += r.annual_gross;
+            byCountry[r.country].wht   += r.annual_wht;
+            byCountry[r.country].net   += r.annual_net;
+            byCountry[r.country].positions += 1;
+          }
+
+          const countryList = Object.values(byCountry)
+            .map(c => ({
+              ...c,
+              gross: Math.round(c.gross * 100) / 100,
+              wht: Math.round(c.wht * 100) / 100,
+              net: Math.round(c.net * 100) / 100,
+              wht_pct_of_gross: c.gross > 0 ? Math.round(c.wht / c.gross * 10000) / 100 : 0,
+            }))
+            .sort((a, b) => b.wht - a.wht);
+
+          // 5. Worst-offender positions: WHT rate > 20% AND meaningful absolute WHT
+          const worstOffenders = rows
+            .filter(r => r.wht_rate > 0.20 && r.annual_wht > 50)
+            .slice(0, 10);
+
+          // 6. Rebalancing suggestions: for each high-WHT country (>15%), compute
+          //    "if moved to 0% WHT equivalent (IE/GB/HK/SG), annual savings"
+          const lowWHTAlternatives = {
+            CH: { to: "IE", rate: 0.00, note: "Irish-domiciled ETF equivalent" },
+            DK: { to: "GB", rate: 0.00, note: "UK dividend-paying equivalent" },
+            SE: { to: "IE", rate: 0.00, note: "Irish-domiciled ETF equivalent" },
+            NO: { to: "IE", rate: 0.00, note: "Irish-domiciled fund equivalent" },
+            ES: { to: "US", rate: 0.10, note: "US equivalent (10% treaty rate)" },
+            CA: { to: "US", rate: 0.10, note: "US equivalent (10% treaty rate)" },
+            DE: { to: "US", rate: 0.10, note: "US equivalent (10% treaty rate)" },
+            FR: { to: "US", rate: 0.10, note: "US equivalent (10% treaty rate)" },
+            AU: { to: "US", rate: 0.10, note: "US equivalent (10% treaty rate)" },
+          };
+
+          const suggestions = [];
+          for (const c of countryList) {
+            const alt = lowWHTAlternatives[c.country];
+            if (!alt || c.wht < 50) continue;
+            const savingsRate = c.wht_rate * c.gross - alt.rate * c.gross;
+            if (savingsRate < 20) continue;
+            suggestions.push({
+              from_country: c.country,
+              from_flag: FLAG[c.country] || "🏳️",
+              from_country_name: CNAME[c.country] || c.country,
+              from_wht_rate: c.wht_rate,
+              to_country: alt.to,
+              to_flag: FLAG[alt.to] || "🏳️",
+              to_country_name: CNAME[alt.to] || alt.to,
+              to_wht_rate: alt.rate,
+              annual_gross_at_risk: Math.round(c.gross * 100) / 100,
+              current_wht: Math.round(c.wht * 100) / 100,
+              potential_saving: Math.round(savingsRate * 100) / 100,
+              note: alt.note,
+            });
+          }
+          suggestions.sort((a, b) => b.potential_saving - a.potential_saving);
+
+          return json({
+            summary: {
+              total_gross: Math.round(totalGross * 100) / 100,
+              total_wht: Math.round(totalWHT * 100) / 100,
+              total_net: Math.round(totalNet * 100) / 100,
+              wht_pct_of_gross: totalGross > 0
+                ? Math.round(totalWHT / totalGross * 10000) / 100
+                : 0,
+              positions_analyzed: rows.length,
+              generated_at: new Date().toISOString(),
+            },
+            by_country: countryList,
+            positions: rows,
+            worst_offenders: worstOffenders,
+            rebalancing_suggestions: suggestions,
           }, corsHeaders);
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
       }
@@ -11763,6 +12501,362 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
 
           const paged = candidates.slice(0, limit);
           return json({ ok: true, candidates: paged, count: candidates.length, returned: paged.length, portfolio_excluded: excludePortfolio, portfolio_size: portfolioSet.size }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // ─────────────────────────────────────────────────────────
+      // GET /api/dividend-scanner — Dividend Compounder Scanner
+      // Finds high-conviction dividend growth stocks from a curated
+      // universe (portfolio + watchlist + Aristocrats + Kings).
+      // Applies user-supplied filter thresholds, then computes a
+      // 0-10 Compounder Score. Results are cached per-ticker in D1
+      // (dividend_scanner_cache, 24h TTL).
+      //
+      // Query params:
+      //   minYield    (default 3)   — minimum dividend yield %
+      //   minDgr5y    (default 7)   — minimum 5-year DGR %
+      //   maxPayout   (default 75)  — max FCF payout ratio %
+      //   minFcfCov   (default 1.2) — min FCF coverage (FCF/divs paid)
+      //   minStreak   (default 5)   — minimum consecutive growth streak
+      //   limit       (default 50)  — max results
+      // ─────────────────────────────────────────────────────────
+      if (path === "/api/dividend-scanner" && request.method === "GET") {
+        try {
+          await ensureMigrations(env);
+          const FMP_KEY = env.FMP_KEY;
+          if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
+          const FMP_BASE = "https://financialmodelingprep.com/stable";
+
+          const minYield   = parseFloat(url.searchParams.get("minYield")  || "3")   || 3;
+          const minDgr5y   = parseFloat(url.searchParams.get("minDgr5y")  || "7")   || 7;
+          const maxPayout  = parseFloat(url.searchParams.get("maxPayout") || "75")  || 75;
+          const minFcfCov  = parseFloat(url.searchParams.get("minFcfCov") || "1.2") || 1.2;
+          const minStreak  = parseInt(url.searchParams.get("minStreak")   || "5", 10) || 5;
+          const limitN     = Math.min(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 200);
+          const forceRefresh = url.searchParams.get("refresh") === "1";
+
+          // ── 1. Build candidate universe ──────────────────────
+          // a) Portfolio + watchlist tickers from D1
+          const { results: posRows } = await env.DB.prepare(
+            `SELECT ticker, list FROM positions`
+          ).all();
+          const portfolioSet = new Set((posRows || []).filter(r => r.list === "portfolio").map(r => r.ticker));
+          const watchlistSet = new Set((posRows || []).filter(r => r.list === "watchlist").map(r => r.ticker));
+
+          // b) Hardcoded Dividend Aristocrats (S&P 500, 25+ years).
+          // Using a curated static list — FMP's Aristocrats endpoint is
+          // unreliable on the FMP Ultimate plan. This list is the 2024-2025
+          // official S&P Dividend Aristocrats + Kings subset (US-only).
+          const ARISTOCRATS = new Set([
+            // Dividend Kings (50+ years)
+            "ABM","ABT","AFL","ALB","ATO","AWR","BEN","CINF","CL","CLX",
+            "CTAS","CVX","DOV","ECL","ED","EMR","ESS","FRT","GPC","ITW",
+            "JNJ","KMB","KO","LANC","LOW","MSEX","NWN","O","PG","PPG",
+            "SWK","TGT","TR","WBA","WMT",
+            // Additional Aristocrats (25-49 years)
+            "ABBV","ADM","ADP","AOS","APD","BDX","BMI","CAH","CAT","CB",
+            "CHRW","CHD","CMI","CMS","CSL","CTVA","EXPD",
+            "FDS","FMC","GD","GWW","HRL","IBM","JKHY",
+            "LIN","MCO","MDT","MKC","MMC","MMM","NDSN","NTRS",
+            "PEP","PNR","POOL","ROP","SEIC","SHW","SPGI","SYK",
+            "SYY","TROW","UNH","VICI",
+          ]);
+
+          // c) Merge into final candidate set (deduplicated)
+          const candidateSet = new Set([
+            ...portfolioSet,
+            ...watchlistSet,
+            ...ARISTOCRATS,
+          ]);
+          const allTickers = [...candidateSet];
+
+          // ── 2. Helper: compute compounder score ─────────────
+          function computeCompounterScore(yieldPct, dgr5y, payoutFcf, streak, fcfCov) {
+            const yieldScore   = Math.min(yieldPct / 4, 1) * 2;
+            const dgrScore     = Math.min((dgr5y || 0) / 12, 1) * 3;
+            const payoutScore  = Math.max(0, 1 - (payoutFcf || 0) / 85) * 2;
+            const streakScore  = Math.min((streak || 0) / 25, 1) * 1.5;
+            const fcfCovScore  = Math.min((fcfCov || 0) / 2, 1) * 1.5;
+            const total = yieldScore + dgrScore + payoutScore + streakScore + fcfCovScore;
+            return {
+              score: Math.round(total * 10) / 10,
+              breakdown: {
+                yield_score:   Math.round(yieldScore  * 100) / 100,
+                dgr_score:     Math.round(dgrScore     * 100) / 100,
+                payout_score:  Math.round(payoutScore  * 100) / 100,
+                streak_score:  Math.round(streakScore  * 100) / 100,
+                fcf_cov_score: Math.round(fcfCovScore  * 100) / 100,
+              },
+            };
+          }
+
+          // ── 3. Helper: extract metrics for one ticker ────────
+          // Reads D1 fundamentals cache (24h TTL) first. Falls back to
+          // FMP live fetch. Writes result to dividend_scanner_cache.
+          async function getMetrics(ticker) {
+            // a) Check dividend_scanner_cache (pre-computed, 24h TTL)
+            if (!forceRefresh) {
+              try {
+                const sc = await env.DB.prepare(
+                  `SELECT score_data_json, updated_at FROM dividend_scanner_cache WHERE ticker = ?`
+                ).bind(ticker).first();
+                if (sc && sc.score_data_json && sc.updated_at) {
+                  const updatedIso = sc.updated_at.includes("T")
+                    ? sc.updated_at
+                    : sc.updated_at.replace(" ", "T") + "Z";
+                  if (new Date(updatedIso).getTime() > Date.now() - 24 * 3600 * 1000) {
+                    return JSON.parse(sc.score_data_json);
+                  }
+                }
+              } catch {}
+            }
+
+            // b) Pull cached fundamentals from D1 (24h TTL)
+            const fmpSym = toFMP(ticker);
+            let profile = {}, ratios = [], cashflow = [], keyMetrics = [], dgrRow = null;
+
+            try {
+              const fund = await env.DB.prepare(
+                `SELECT profile, ratios, cashflow, key_metrics, dgr, updated_at FROM fundamentals WHERE symbol = ?`
+              ).bind(ticker).first();
+              if (fund && fund.updated_at) {
+                const fundIso = fund.updated_at.includes("T")
+                  ? fund.updated_at
+                  : fund.updated_at.replace(" ", "T") + "Z";
+                if (new Date(fundIso).getTime() > Date.now() - 24 * 3600 * 1000) {
+                  try { profile    = JSON.parse(fund.profile     || "{}"); } catch {}
+                  try { ratios     = JSON.parse(fund.ratios      || "[]"); } catch {}
+                  try { cashflow   = JSON.parse(fund.cashflow    || "[]"); } catch {}
+                  try { keyMetrics = JSON.parse(fund.key_metrics || "[]"); } catch {}
+                  try { if (fund.dgr) dgrRow = JSON.parse(fund.dgr); } catch {}
+                }
+              }
+            } catch {}
+
+            // c) Fetch anything still missing from FMP
+            const fmpGet = async (ep) => {
+              try {
+                const r = await fetchWithRetry(
+                  `${FMP_BASE}/${ep}&apikey=${FMP_KEY}`, {}, { maxRetries: 2, baseDelay: 800 }
+                );
+                return await r.json();
+              } catch { return null; }
+            };
+
+            if (!profile?.symbol) {
+              const pResp = await fmpGet(`profile?symbol=${fmpSym}`);
+              profile = Array.isArray(pResp) ? (pResp[0] || {}) : (pResp || {});
+            }
+            if (!ratios.length) {
+              const rResp = await fmpGet(`ratios?symbol=${fmpSym}&period=annual&limit=5`);
+              ratios = Array.isArray(rResp) ? rResp : [];
+            }
+            if (!cashflow.length) {
+              const cfResp = await fmpGet(`cash-flow-statement?symbol=${fmpSym}&period=annual&limit=5`);
+              cashflow = Array.isArray(cfResp) ? cfResp : [];
+            }
+            if (!keyMetrics.length) {
+              const kmResp = await fmpGet(`key-metrics?symbol=${fmpSym}&period=annual&limit=5`);
+              keyMetrics = Array.isArray(kmResp) ? kmResp : [];
+            }
+
+            // d) Fetch DGR from dividend history (reuses calcDGR logic)
+            if (!dgrRow) {
+              try {
+                const divR = await fetchWithRetry(
+                  `${FMP_BASE}/dividends?symbol=${fmpSym}&apikey=${FMP_KEY}`,
+                  {}, { maxRetries: 2, baseDelay: 800 }
+                );
+                const divData = await divR.json();
+                if (Array.isArray(divData) && divData.length) {
+                  const byYear = {};
+                  divData.forEach(d => {
+                    const y = parseInt((d.date || d.paymentDate || "").slice(0, 4));
+                    if (y > 2000) byYear[y] = (byYear[y] || 0) + (d.adjDividend || d.dividend || 0);
+                  });
+                  const sortedYears = Object.entries(byYear).sort((a, b) => b[0] - a[0]);
+                  if (sortedYears.length >= 2) {
+                    const latestDiv = sortedYears[0][1];
+                    const latestYear = parseInt(sortedYears[0][0]);
+                    const calcCAGR = (n) => {
+                      const entry = sortedYears.find(([y]) => parseInt(y) === latestYear - n);
+                      if (!entry || entry[1] <= 0 || latestDiv <= 0) return null;
+                      // Store as pct (e.g. 8.5 for 8.5% growth)
+                      return (Math.pow(latestDiv / entry[1], 1 / n) - 1) * 100;
+                    };
+                    let streak = 0;
+                    for (let j = 0; j < sortedYears.length - 1; j++) {
+                      if (sortedYears[j][1] > sortedYears[j + 1][1] * 0.995) streak++;
+                      else break;
+                    }
+                    dgrRow = {
+                      dgr1: calcCAGR(1), dgr3: calcCAGR(3),
+                      dgr5: calcCAGR(5), dgr10: calcCAGR(10),
+                      streak, latestDiv, latestYear,
+                    };
+                    // Persist to fundamentals.dgr cache (stored as decimal to match
+                    // existing /api/dividend-growth convention)
+                    try {
+                      const dgrForCache = {
+                        dgr1:  dgrRow.dgr1  != null ? dgrRow.dgr1  / 100 : null,
+                        dgr3:  dgrRow.dgr3  != null ? dgrRow.dgr3  / 100 : null,
+                        dgr5:  dgrRow.dgr5  != null ? dgrRow.dgr5  / 100 : null,
+                        dgr10: dgrRow.dgr10 != null ? dgrRow.dgr10 / 100 : null,
+                        streak: dgrRow.streak,
+                        latestDiv: dgrRow.latestDiv,
+                        latestYear: dgrRow.latestYear,
+                      };
+                      await env.DB.prepare(
+                        `INSERT INTO fundamentals (symbol, dgr, updated_at) VALUES (?, ?, datetime('now'))
+                         ON CONFLICT(symbol) DO UPDATE SET dgr=excluded.dgr, updated_at=datetime('now')`
+                      ).bind(ticker, JSON.stringify(dgrForCache)).run();
+                    } catch {}
+                  } else {
+                    dgrRow = { dgr1: null, dgr3: null, dgr5: null, dgr10: null, streak: 0 };
+                  }
+                } else {
+                  dgrRow = { dgr1: null, dgr3: null, dgr5: null, dgr10: null, streak: 0 };
+                }
+              } catch {
+                dgrRow = { dgr1: null, dgr3: null, dgr5: null, dgr10: null, streak: 0 };
+              }
+            } else {
+              // fundamentals.dgr stores DGR as decimal (0.085 = 8.5%).
+              // Convert to pct for this scanner.
+              const toPct = (v) => (v != null && Math.abs(v) < 1) ? Math.round(v * 1000) / 10 : v;
+              dgrRow = {
+                ...dgrRow,
+                dgr1:  toPct(dgrRow.dgr1),
+                dgr3:  toPct(dgrRow.dgr3),
+                dgr5:  toPct(dgrRow.dgr5),
+                dgr10: toPct(dgrRow.dgr10),
+              };
+            }
+
+            // ── Extract scalar metrics ─────────────────────────
+            const lat   = ratios[0]     || {};
+            const latCF = cashflow[0]   || {};
+            const latKM = keyMetrics[0] || {};
+
+            // Yield: prefer profile.lastDiv / price; fall back to ratios
+            const yieldPct = (profile.lastDiv && profile.price && profile.price > 0)
+              ? (profile.lastDiv / profile.price) * 100
+              : (lat.dividendYieldTTM != null ? lat.dividendYieldTTM * 100
+                : (profile.dividendYield != null ? profile.dividendYield * 100 : 0));
+
+            // FCF payout (%) and FCF coverage
+            const fcf = latCF.freeCashFlow || 0;
+            const divsPaid = Math.abs(latCF.dividendsPaid || latCF.commonDividendsPaid || 0);
+            let payoutFcf = null;
+            let fcfCov    = null;
+            if (fcf > 0 && divsPaid > 0) {
+              payoutFcf = (divsPaid / fcf) * 100;
+              fcfCov    = fcf / divsPaid;
+            } else if (lat.payoutRatioTTM != null && lat.payoutRatioTTM > 0) {
+              payoutFcf = lat.payoutRatioTTM * 100;
+              fcfCov    = 100 / payoutFcf;
+            } else if (lat.payoutRatio != null && lat.payoutRatio > 0) {
+              payoutFcf = lat.payoutRatio * 100;
+              fcfCov    = 100 / payoutFcf;
+            }
+
+            // ROIC from key-metrics
+            const roic = latKM.roic != null ? latKM.roic * 100
+              : (latKM.returnOnCapitalEmployed != null ? latKM.returnOnCapitalEmployed * 100 : null);
+
+            // Net debt / EBITDA
+            const netDebtEbitda = latKM.netDebtToEBITDA ?? latKM.debtToEbitda ?? null;
+
+            // Operating margin
+            const opMargin = lat.operatingProfitMarginTTM != null ? lat.operatingProfitMarginTTM * 100
+              : (lat.operatingProfitMargin != null ? lat.operatingProfitMargin * 100 : null);
+
+            const metrics = {
+              ticker,
+              name:            profile.companyName || profile.name || ticker,
+              sector:          profile.sector || "",
+              yield_pct:       Math.round((yieldPct  || 0) * 100) / 100,
+              dgr5y:           dgrRow.dgr5  != null ? Math.round(dgrRow.dgr5  * 10) / 10 : null,
+              dgr10y:          dgrRow.dgr10 != null ? Math.round(dgrRow.dgr10 * 10) / 10 : null,
+              dgr1y:           dgrRow.dgr1  != null ? Math.round(dgrRow.dgr1  * 10) / 10 : null,
+              streak:          dgrRow.streak || 0,
+              payout_fcf:      payoutFcf    != null ? Math.round(payoutFcf    * 10) / 10 : null,
+              fcf_cov:         fcfCov       != null ? Math.round(fcfCov       * 100) / 100 : null,
+              roic:            roic         != null ? Math.round(roic         * 10)  / 10 : null,
+              net_debt_ebitda: netDebtEbitda!= null ? Math.round(netDebtEbitda * 100) / 100 : null,
+              op_margin:       opMargin     != null ? Math.round(opMargin     * 10)  / 10 : null,
+            };
+
+            // Compute and attach score
+            const { score, breakdown } = computeCompounterScore(
+              metrics.yield_pct,
+              metrics.dgr5y   || 0,
+              metrics.payout_fcf != null ? metrics.payout_fcf : 50, // default if unknown
+              metrics.streak,
+              metrics.fcf_cov != null ? metrics.fcf_cov : 1,        // default if unknown
+            );
+            metrics.score = score;
+            metrics.score_breakdown = breakdown;
+
+            // Persist to dividend_scanner_cache (24h TTL)
+            try {
+              await env.DB.prepare(
+                `INSERT INTO dividend_scanner_cache (ticker, compounder_score, score_data_json, updated_at)
+                 VALUES (?, ?, ?, datetime('now'))
+                 ON CONFLICT(ticker) DO UPDATE SET
+                   compounder_score=excluded.compounder_score,
+                   score_data_json=excluded.score_data_json,
+                   updated_at=excluded.updated_at`
+              ).bind(ticker, score, JSON.stringify(metrics)).run();
+            } catch {}
+
+            return metrics;
+          }
+
+          // ── 4. Process in batches of 6 (throttle FMP calls) ──
+          const allMetrics = [];
+          const BATCH_SIZE = 6;
+          for (let i = 0; i < allTickers.length; i += BATCH_SIZE) {
+            const batch = allTickers.slice(i, i + BATCH_SIZE);
+            const bm = await Promise.all(batch.map(t => getMetrics(t).catch(() => null)));
+            for (const m of bm) { if (m) allMetrics.push(m); }
+            if (i + BATCH_SIZE < allTickers.length) {
+              await new Promise(r => setTimeout(r, 300));
+            }
+          }
+
+          // ── 5. Apply filter thresholds ────────────────────────
+          const filtered = allMetrics.filter(m => {
+            if (m.yield_pct < minYield)                             return false;
+            if (m.dgr5y == null || m.dgr5y < minDgr5y)             return false;
+            if (m.payout_fcf != null && m.payout_fcf > maxPayout)  return false;
+            if (m.fcf_cov   != null && m.fcf_cov   < minFcfCov)    return false;
+            if (m.streak < minStreak)                               return false;
+            return true;
+          });
+
+          // ── 6. Sort + slice ───────────────────────────────────
+          filtered.sort((a, b) => (b.score - a.score) || ((b.dgr5y || 0) - (a.dgr5y || 0)));
+          const paged = filtered.slice(0, limitN);
+
+          // ── 7. Annotate portfolio / watchlist membership ──────
+          for (const m of paged) {
+            m.in_portfolio = portfolioSet.has(m.ticker);
+            m.in_watchlist = watchlistSet.has(m.ticker);
+            m.is_aristocrat = ARISTOCRATS.has(m.ticker);
+          }
+
+          return json({
+            ok: true,
+            scanned:        allTickers.length,
+            passed_filters: filtered.length,
+            returned:       paged.length,
+            filters:        { minYield, minDgr5y, maxPayout, minFcfCov, minStreak },
+            candidates:     paged,
+          }, corsHeaders);
+
         } catch (e) {
           return json({ error: e.message }, corsHeaders, 500);
         }

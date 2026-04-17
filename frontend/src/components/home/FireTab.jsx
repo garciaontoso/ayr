@@ -6,6 +6,348 @@ import { useFireMetrics, FIRE_SWR } from '../../hooks/useFireMetrics.js';
 import { useFxRates } from '../../hooks/useFxRates.js';
 import { useNetLiquidationValue } from '../../hooks/useNetLiquidationValue.js';
 
+// ─── Box-Muller transform: standard normal sample ───────────────────────────
+function randNorm() {
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+}
+
+// ─── Monte Carlo engine ──────────────────────────────────────────────────────
+// Returns { years[], p10[], p25[], p50[], p75[], p90[], successProb, p50FireYear }
+// returnMean/returnStd are fractions (e.g. 0.07, 0.15)
+function runMonteCarlo({ nlv, annualSavings, fireTarget, years = 30, paths = 5000, returnMean = 0.07, returnStd = 0.15 }) {
+  if (!nlv || nlv <= 0 || !fireTarget || fireTarget <= 0) return null;
+
+  // Simulate all paths
+  const terminals = Array.from({ length: years }, () => []);
+  let successCount = 0;
+
+  for (let p = 0; p < paths; p++) {
+    let bal = nlv;
+    let hitFire = false;
+    for (let y = 0; y < years; y++) {
+      const r = returnMean + returnStd * randNorm();
+      bal = bal * (1 + r) + annualSavings;
+      if (bal < 0) bal = 0;
+      terminals[y].push(bal);
+      if (!hitFire && bal >= fireTarget) hitFire = true;
+    }
+    if (hitFire) successCount++;
+  }
+
+  // Sort each year's distribution for percentile extraction
+  const sorted = terminals.map(arr => [...arr].sort((a, b) => a - b));
+  const pct = (arr, p) => {
+    const idx = Math.max(0, Math.min(arr.length - 1, Math.floor(p * arr.length)));
+    return arr[idx];
+  };
+
+  const yearsArr = Array.from({ length: years }, (_, i) => i + 1);
+  const p10 = sorted.map(a => pct(a, 0.10));
+  const p25 = sorted.map(a => pct(a, 0.25));
+  const p50 = sorted.map(a => pct(a, 0.50));
+  const p75 = sorted.map(a => pct(a, 0.75));
+  const p90 = sorted.map(a => pct(a, 0.90));
+
+  // Year where P50 first crosses fireTarget
+  const p50FireYear = yearsArr.find((y, i) => p50[i] >= fireTarget) ?? null;
+  const successProb = successCount / paths;
+
+  return { yearsArr, p10, p25, p50, p75, p90, successProb, p50FireYear };
+}
+
+// ─── Monte Carlo Section ─────────────────────────────────────────────────────
+function MonteCarloSection({ nlv, annualSavings, fireTarget, fireCcy, sym, privacyMode }) {
+  const [returnMean, setReturnMean] = useState(7);   // %
+  const [returnStd, setReturnStd]   = useState(15);  // %
+  const [horizonYrs, setHorizonYrs] = useState(30);
+
+  const mc = useMemo(() => runMonteCarlo({
+    nlv,
+    annualSavings,
+    fireTarget,
+    years: horizonYrs,
+    paths: 5000,
+    returnMean: returnMean / 100,
+    returnStd: returnStd / 100,
+  }), [nlv, annualSavings, fireTarget, horizonYrs, returnMean, returnStd]);
+
+  const card = { background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 14, padding: 16 };
+
+  const fShort = v => {
+    const a = Math.abs(v);
+    if (a >= 1e6) return `${_sf(v / 1e6, 2)}M`;
+    if (a >= 1e3) return `${_sf(v / 1e3, 0)}K`;
+    return String(Math.round(v));
+  };
+
+  if (!mc) {
+    return (
+      <div style={card}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--gold)', fontFamily: 'var(--fd)', marginBottom: 8 }}>
+          Monte Carlo — Proyecciones Probabilísticas
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>
+          Se necesitan datos de patrimonio y objetivo FIRE para ejecutar la simulación.
+        </div>
+      </div>
+    );
+  }
+
+  // ── SVG Fan Chart ──────────────────────────────────────────────────────────
+  const W = 600, H = 270, PL = 58, PR = 16, PT = 22, PB = 34;
+  const cW = W - PL - PR, cH = H - PT - PB;
+  const startYear = new Date().getFullYear();
+
+  const allVals = [...mc.p10, ...mc.p90, fireTarget * 1.05];
+  const maxV = Math.max(...allVals, 1);
+  const minV = 0;
+
+  const xOf = (i) => PL + (i / (mc.yearsArr.length - 1)) * cW;
+  const yOf = (v) => PT + cH - ((Math.max(v, 0) - minV) / (maxV - minV)) * cH;
+
+  const polyPoints = (arr) => arr.map((v, i) => `${xOf(i)},${yOf(v)}`).join(' ');
+
+  // Band fill: path that traces top then bottom reversed
+  const bandPath = (arrTop, arrBot) => {
+    const top = arrTop.map((v, i) => `${xOf(i)},${yOf(v)}`).join(' L');
+    const botRev = [...arrBot].reverse().map((v, i2) => {
+      const i = arrBot.length - 1 - i2;
+      return `${xOf(i)},${yOf(v)}`;
+    }).join(' L');
+    return `M${top} L${botRev} Z`;
+  };
+
+  // Y-axis ticks
+  const niceStep = maxV > 4e6 ? 1e6 : maxV > 2e6 ? 500000 : maxV > 1e6 ? 500000 : maxV > 500000 ? 250000 : 100000;
+  const yTicks = [];
+  for (let v = 0; v <= maxV; v += niceStep) yTicks.push(v);
+
+  // X-axis ticks every 5 years
+  const xTickIdxs = mc.yearsArr.filter(y => y % 5 === 0 || y === 1).map(y => y - 1);
+
+  const targetY = yOf(fireTarget);
+  const p50FireIdx = mc.p50FireYear ? mc.p50FireYear - 1 : null;
+
+  const successPct = mc.successProb * 100;
+  const successColor = successPct >= 85 ? 'var(--green)' : successPct >= 60 ? 'var(--gold)' : 'var(--red)';
+
+  const inp = (val, onChange, min, max, step) => ({
+    type: 'number', value: val, min, max, step,
+    onChange: e => onChange(parseFloat(e.target.value) || 0),
+    style: { width: 62, padding: '3px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 11, fontFamily: 'var(--fm)', textAlign: 'right' },
+  });
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* KPI row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>
+        {[
+          { l: 'PROB. ÉXITO', v: `${_sf(successPct, 0)}%`, c: successColor, sub: 'rutas que alcanzan FIRE' },
+          { l: 'AÑO P50', v: mc.p50FireYear ? String(startYear + mc.p50FireYear) : '> horizonte', c: 'var(--gold)', sub: `en ${mc.p50FireYear ?? '??'} años (mediana)` },
+          { l: 'P50 TERMINAL', v: privacyMode ? '•••' : `${sym}${fShort(mc.p50[mc.p50.length - 1])}`, c: 'var(--text-primary)', sub: `en ${horizonYrs} años` },
+          { l: 'P10 TERMINAL', v: privacyMode ? '•••' : `${sym}${fShort(mc.p10[mc.p10.length - 1])}`, c: 'var(--red)', sub: 'escenario pesimista' },
+        ].map((k, i) => (
+          <div key={i} style={{ padding: '10px 12px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10 }}>
+            <div style={{ fontSize: 7, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', letterSpacing: .5, fontWeight: 600 }}>{k.l}</div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: k.c, fontFamily: 'var(--fm)', marginTop: 2 }}>{k.v}</div>
+            <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', marginTop: 2 }}>{k.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Controls */}
+      <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', padding: '10px 14px', background: 'var(--row-alt)', borderRadius: 10, border: '1px solid var(--border)' }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', fontFamily: 'var(--fm)' }}>PARÁMETROS</span>
+        {[
+          { label: 'Retorno medio (%)', val: returnMean, set: setReturnMean, min: 1, max: 20, step: 0.5 },
+          { label: 'Volatilidad σ (%)',  val: returnStd,  set: setReturnStd,  min: 1, max: 40, step: 0.5 },
+          { label: 'Horizonte (años)',   val: horizonYrs, set: setHorizonYrs, min: 5, max: 50, step: 5  },
+        ].map(({ label, val, set, min, max, step }) => (
+          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 9, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>{label}</span>
+            <input {...inp(val, set, min, max, step)} />
+          </div>
+        ))}
+        <span style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>5 000 rutas · N({returnMean}%, σ={returnStd}%)</span>
+      </div>
+
+      {/* Fan chart */}
+      <div style={card}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--gold)', fontFamily: 'var(--fd)', marginBottom: 12 }}>
+          Abanico Monte Carlo — {horizonYrs} años
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxWidth: W, height: 'auto', fontFamily: 'var(--fm)' }}>
+            <defs>
+              <linearGradient id="mc90Grad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#c8a44e" stopOpacity="0.07" />
+                <stop offset="100%" stopColor="#c8a44e" stopOpacity="0.02" />
+              </linearGradient>
+              <linearGradient id="mc75Grad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#c8a44e" stopOpacity="0.15" />
+                <stop offset="100%" stopColor="#c8a44e" stopOpacity="0.04" />
+              </linearGradient>
+              <linearGradient id="mc25Grad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#64d2ff" stopOpacity="0.12" />
+                <stop offset="100%" stopColor="#64d2ff" stopOpacity="0.02" />
+              </linearGradient>
+              <clipPath id="mcClip">
+                <rect x={PL} y={PT} width={cW} height={cH} />
+              </clipPath>
+            </defs>
+
+            {/* Grid lines */}
+            {yTicks.map((v, i) => (
+              <g key={i}>
+                <line x1={PL} y1={yOf(v)} x2={W - PR} y2={yOf(v)} stroke="var(--subtle-bg2)" strokeWidth="0.5" />
+                <text x={PL - 4} y={yOf(v) + 3} textAnchor="end" fill="var(--text-tertiary)" fontSize="7">{sym}{fShort(v)}</text>
+              </g>
+            ))}
+
+            {/* Fan bands clipped */}
+            <g clipPath="url(#mcClip)">
+              {/* P10–P90 outer band */}
+              <path d={bandPath(mc.p90, mc.p10)} fill="url(#mc90Grad)" />
+              {/* P25–P75 inner band */}
+              <path d={bandPath(mc.p75, mc.p25)} fill="url(#mc75Grad)" />
+              {/* P25–P10 lower band tint */}
+              <path d={bandPath(mc.p25, mc.p10)} fill="url(#mc25Grad)" />
+
+              {/* Border lines */}
+              <polyline points={polyPoints(mc.p90)} fill="none" stroke="#c8a44e" strokeWidth="1" strokeOpacity="0.4" />
+              <polyline points={polyPoints(mc.p75)} fill="none" stroke="#c8a44e" strokeWidth="1.2" strokeOpacity="0.6" />
+              <polyline points={polyPoints(mc.p25)} fill="none" stroke="#64d2ff" strokeWidth="1.2" strokeOpacity="0.6" />
+              <polyline points={polyPoints(mc.p10)} fill="none" stroke="#64d2ff" strokeWidth="1" strokeOpacity="0.4" />
+
+              {/* P50 median line — bold */}
+              <polyline points={polyPoints(mc.p50)} fill="none" stroke="#c8a44e" strokeWidth="2.5" />
+            </g>
+
+            {/* FIRE target dashed line */}
+            {targetY >= PT && targetY <= PT + cH && (
+              <g>
+                <line x1={PL} y1={targetY} x2={W - PR} y2={targetY} stroke="#30d158" strokeWidth="1.2" strokeDasharray="5,3" opacity="0.8" />
+                <rect x={PL + 2} y={targetY - 11} width={90} height={13} rx="3" fill="rgba(0,0,0,.75)" />
+                <text x={PL + 6} y={targetY - 2} fill="#30d158" fontSize="7.5" fontWeight="700">FIRE {sym}{fShort(fireTarget)}</text>
+              </g>
+            )}
+
+            {/* P50 crossover vertical marker */}
+            {p50FireIdx !== null && p50FireIdx < mc.yearsArr.length && (
+              <g>
+                <line
+                  x1={xOf(p50FireIdx)} y1={PT}
+                  x2={xOf(p50FireIdx)} y2={PT + cH}
+                  stroke="#30d158" strokeWidth="1" strokeDasharray="3,3" opacity="0.7"
+                />
+                <rect x={xOf(p50FireIdx) - 22} y={PT + 2} width={44} height={13} rx="3" fill="rgba(0,0,0,.8)" />
+                <text x={xOf(p50FireIdx)} y={PT + 12} textAnchor="middle" fill="#30d158" fontSize="7.5" fontWeight="700">
+                  P50 {startYear + mc.p50FireYear}
+                </text>
+              </g>
+            )}
+
+            {/* X-axis labels */}
+            {xTickIdxs.map(i => (
+              <text key={i} x={xOf(i)} y={H - 6} textAnchor="middle" fill="var(--text-tertiary)" fontSize="8">
+                {startYear + mc.yearsArr[i]}
+              </text>
+            ))}
+
+            {/* Axes */}
+            <line x1={PL} y1={PT + cH} x2={W - PR} y2={PT + cH} stroke="var(--border)" strokeWidth="0.5" />
+            <line x1={PL} y1={PT} x2={PL} y2={PT + cH} stroke="var(--border)" strokeWidth="0.5" />
+          </svg>
+        </div>
+
+        {/* Legend */}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 8, flexWrap: 'wrap' }}>
+          {[
+            { color: '#c8a44e', label: 'P90 — optimista', dashed: true },
+            { color: '#c8a44e', label: 'P75' },
+            { color: '#c8a44e', label: 'P50 (mediana)', bold: true },
+            { color: '#64d2ff', label: 'P25' },
+            { color: '#64d2ff', label: 'P10 — pesimista', dashed: true },
+            { color: '#30d158', label: 'Objetivo FIRE', dashed: true },
+          ].map(({ color, label, dashed, bold }) => (
+            <span key={label} style={{ fontSize: 9, color: 'var(--text-secondary)', fontFamily: 'var(--fm)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <svg width="20" height="8">
+                <line x1="0" y1="4" x2="20" y2="4"
+                  stroke={color}
+                  strokeWidth={bold ? 2.5 : 1.5}
+                  strokeDasharray={dashed ? '4,2' : 'none'}
+                  opacity={dashed ? 0.6 : 1}
+                />
+              </svg>
+              {label}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Percentile table */}
+      <div style={card}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--gold)', fontFamily: 'var(--fd)', marginBottom: 10 }}>
+          Distribución por Año (cada 5 años)
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10, minWidth: 420 }}>
+            <thead>
+              <tr>
+                {['AÑO', 'P10 — PESI.', 'P25', 'P50 MEDIANA', 'P75', 'P90 — OPTI.', 'PROB. FIRE'].map((h, i) => (
+                  <th key={i} style={{ padding: '5px 8px', textAlign: i === 0 ? 'left' : 'right', color: 'var(--text-tertiary)', fontSize: 8, fontWeight: 600, fontFamily: 'var(--fm)', borderBottom: '1px solid var(--border)' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {mc.yearsArr.filter(y => y % 5 === 0).map((y, i) => {
+                const idx = y - 1;
+                // Probability FIRE reached BY year y: count paths where p50 at idx >= fireTarget is approximate
+                // We use success-by-year: for quick UI we derive from sorted[idx]
+                // paths where bal >= fireTarget at year idx / total paths
+                const pFireByY = mc.p10[idx] >= fireTarget ? 100 :
+                  mc.p25[idx] >= fireTarget ? 75 :
+                  mc.p50[idx] >= fireTarget ? 50 :
+                  mc.p75[idx] >= fireTarget ? 25 :
+                  mc.p90[idx] >= fireTarget ? 10 : 0;
+                const atFire = mc.p50[idx] >= fireTarget;
+                return (
+                  <tr key={y} style={{ background: atFire ? 'rgba(48,209,88,.04)' : i % 2 ? 'var(--row-alt)' : 'transparent' }}>
+                    <td style={{ padding: '5px 8px', fontWeight: 700, fontFamily: 'var(--fm)', color: 'var(--text-primary)' }}>
+                      {startYear + y} <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}>(+{y})</span>
+                    </td>
+                    {privacyMode
+                      ? [null, null, null, null, null].map((_, j) => <td key={j} style={{ padding: '5px 8px', textAlign: 'right', fontFamily: 'var(--fm)' }}>•••</td>)
+                      : [mc.p10[idx], mc.p25[idx], mc.p50[idx], mc.p75[idx], mc.p90[idx]].map((v, j) => {
+                          const aboveFire = v >= fireTarget;
+                          const cols = ['var(--red)', 'var(--orange, #ff9f43)', 'var(--text-primary)', '#c8a44e', 'var(--green)'];
+                          return (
+                            <td key={j} style={{ padding: '5px 8px', textAlign: 'right', fontWeight: j === 2 ? 800 : 600, fontFamily: 'var(--fm)', color: aboveFire ? 'var(--green)' : cols[j], borderBottom: '1px solid var(--subtle-bg)' }}>
+                              {sym}{fShort(v)}{aboveFire ? ' ✓' : ''}
+                            </td>
+                          );
+                        })
+                    }
+                    <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 700, fontFamily: 'var(--fm)', color: pFireByY >= 75 ? 'var(--green)' : pFireByY >= 50 ? 'var(--gold)' : 'var(--text-tertiary)' }}>
+                      ~{pFireByY}%
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', marginTop: 6 }}>
+          5 000 rutas · retornos anuales N({returnMean}%, σ={returnStd}%) · ahorros ${_sf(annualSavings / 12, 0)}/mes · objetivo FIRE {sym}{fShort(fireTarget)} · ✓ supera objetivo
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Your Number Calculator ───
 function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA, fxEurUsd, fireCcy }) {
   const isUSD = fireCcy === "USD";
@@ -642,14 +984,24 @@ if (!pat && !gastosAnnual && divLog.length === 0) {
 
 return (
 <div style={{display:"flex",flexDirection:"column",gap:14}}>
-  {/* Toggle: Dashboard | Your Number */}
+  {/* Toggle: Dashboard | Your Number | Monte Carlo */}
   <div style={{display:"flex",gap:4}}>
-    {[{id:"dashboard",lbl:"📊 Dashboard"},{id:"yournumber",lbl:"🔢 Tu Número"}].map(t=>(
+    {[{id:"dashboard",lbl:"📊 Dashboard"},{id:"yournumber",lbl:"🔢 Tu Número"},{id:"montecarlo",lbl:"🎲 Monte Carlo"}].map(t=>(
       <button key={t.id} onClick={()=>setFireSection(t.id)} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${fireSection===t.id?"var(--gold)":"var(--border)"}`,background:fireSection===t.id?"var(--gold-dim)":"transparent",color:fireSection===t.id?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:fireSection===t.id?700:500,cursor:"pointer",fontFamily:"var(--fb)"}}>{t.lbl}</button>
     ))}
   </div>
 
   {fireSection === "yournumber" && <YourNumberSection pat={pat} divNetA={divNetA} gastosAnnual={gastosAnnual} espRealistaA={espRealistaA} baseRealA={baseRealA} fxEurUsd={fxEurUsd} fireCcy={fireCcy} />}
+  {fireSection === "montecarlo" && (
+    <MonteCarloSection
+      nlv={patUSD}
+      annualSavings={savingsM * 12}
+      fireTarget={swr35}
+      fireCcy={fireCcy}
+      sym={sym}
+      privacyMode={privacyMode}
+    />
+  )}
   {fireSection === "dashboard" && <>
 
   {/* ── SECTION 1: Hero — Cobertura central + KPIs ── */}
