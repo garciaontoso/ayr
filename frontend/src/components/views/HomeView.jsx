@@ -35,6 +35,7 @@ import EarningsTab from '../home/EarningsTab';
 import NewsTab from '../home/NewsTab';
 import DailyBriefingTab from '../home/DailyBriefingTab';
 import DiscoveryTab from '../home/DiscoveryTab';
+import DividendScannerTab from '../home/DividendScannerTab';
 import AlertTrackRecordTab from '../home/AlertTrackRecordTab';
 import CartasSabiosTab from '../home/CartasSabiosTab';
 import TaxOptimizationTab from '../home/TaxOptimizationTab';
@@ -1362,6 +1363,7 @@ export default function HomeView() {
       {homeTab==="historial" && <HistorialTab />}
       {homeTab==="advisor" && <AdvisorTab />}
       {homeTab==="discovery" && <DiscoveryTab />}
+      {homeTab==="div-scanner" && <DividendScannerTab />}
       {homeTab==="cartas-sabios" && <CartasSabiosTab />}
       {homeTab==="backtest" && <BacktestTab />}
       {homeTab==="research" && <ResearchTab />}

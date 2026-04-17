@@ -1190,6 +1190,32 @@ async function ensureMigrations(env) {
     )`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_db_date ON daily_briefings(briefing_date DESC)`).run();
 
+    // ─── Cantera (Farm Team) — pre-portfolio radar candidates (2026-04-17) ───
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS cantera (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT UNIQUE NOT NULL,
+      name TEXT,
+      sector TEXT,
+      sub_sector TEXT,
+      priority_score REAL DEFAULT 0,
+      compounder_score REAL DEFAULT 0,
+      smart_money_conviction INTEGER DEFAULT 0,
+      yield_pct REAL DEFAULT 0,
+      dgr_5y REAL DEFAULT 0,
+      payout_ratio REAL DEFAULT 0,
+      streak_years INTEGER DEFAULT 0,
+      safety_score REAL,
+      reason_to_watch TEXT,
+      entry_trigger TEXT,
+      sources TEXT,
+      status TEXT DEFAULT 'radar',
+      added_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      promoted_at TEXT
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_cantera_priority ON cantera(priority_score DESC)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_cantera_status ON cantera(status)`).run();
+
     _migrated = true;
   } catch(e) {
     console.error("Migration error:", e.message);
@@ -3689,6 +3715,22 @@ export default {
           }));
         } catch (e) { /* non-fatal — news table may be empty */ }
 
+        // Cantera today — new entries + top 5 radar picks
+        let canteraToday = { new_entries: [], top_5: [] };
+        try {
+          const yesterdayStr = new Date(Date.now() - 86400000).toISOString().slice(0, 19).replace('T', ' ');
+          const { results: ctNew } = await env.DB.prepare(
+            `SELECT ticker, name, priority_score, sources FROM cantera WHERE added_at >= ? ORDER BY priority_score DESC LIMIT 10`
+          ).bind(yesterdayStr).all();
+          const { results: ctTop } = await env.DB.prepare(
+            `SELECT ticker, name, priority_score, yield_pct, dgr_5y, sources FROM cantera WHERE status = 'radar' ORDER BY priority_score DESC LIMIT 5`
+          ).all();
+          canteraToday = {
+            new_entries: (ctNew || []).map(r => r.ticker),
+            top_5: (ctTop || []).map(r => ({ ticker: r.ticker, name: r.name, score: r.priority_score, yield_pct: r.yield_pct })),
+          };
+        } catch (e) { /* cantera table may not exist yet */ }
+
         const briefing = {
           ok: true,
           generated_at: new Date().toISOString(),
@@ -3715,6 +3757,7 @@ export default {
           upcoming_dividends: upcomingDividends,
           pending_actions: pendingActions,
           top_news: topNews,
+          cantera_today: canteraToday,
           opus_summary: null,
         };
 
@@ -5665,6 +5708,103 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       }
       if (path === "/api/youtube/portfolio-mentions" && request.method === "GET") {
         return await handleYouTubePortfolioMentions(request, env, corsHeaders);
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      // Cantera (Farm Team) — pre-portfolio radar (2026-04-17)
+      // ═══════════════════════════════════════════════════════════════
+
+      if (path === "/api/cantera/list" && request.method === "GET") {
+        await ensureMigrations(env);
+        const limit  = Math.min(parseInt(url.searchParams.get('limit')  || '100', 10), 200);
+        const sector = url.searchParams.get('sector') || '';
+        const status = url.searchParams.get('status') || 'radar';
+        const sort   = url.searchParams.get('sort')   || 'priority';
+        // Whitelist sort — safe to interpolate
+        const allowedSorts = { priority: 'priority_score DESC', compounder: 'compounder_score DESC', yield: 'yield_pct DESC', conviction: 'smart_money_conviction DESC' };
+        const orderClause = allowedSorts[sort] || 'priority_score DESC';
+        let where = 'WHERE 1=1';
+        const binds = [];
+        if (status && status !== 'all') { where += ' AND status = ?'; binds.push(status); }
+        if (sector) { where += ' AND sector = ?'; binds.push(sector); }
+        const { results } = await env.DB.prepare(
+          `SELECT * FROM cantera ${where} ORDER BY ${orderClause} LIMIT ?`
+        ).bind(...binds, limit).all();
+        return json({ ok: true, count: (results || []).length, candidates: results || [] }, corsHeaders);
+      }
+
+      if (path === "/api/cantera/add" && request.method === "POST") {
+        await ensureMigrations(env);
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        let body;
+        try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const ticker = String(body.ticker || '').trim().toUpperCase();
+        if (!ticker) return json({ error: "ticker required" }, corsHeaders, 400);
+        const inPort = await env.DB.prepare(
+          `SELECT ticker FROM positions WHERE ticker = ? AND COALESCE(shares,0) > 0`
+        ).bind(ticker).first();
+        if (inPort) return json({ error: `${ticker} is already in portfolio` }, corsHeaders, 409);
+        await env.DB.prepare(`
+          INSERT INTO cantera (ticker, reason_to_watch, sources, status, added_at, updated_at)
+          VALUES (?, ?, 'manual', 'radar', datetime('now'), datetime('now'))
+          ON CONFLICT(ticker) DO UPDATE SET
+            reason_to_watch = COALESCE(excluded.reason_to_watch, reason_to_watch),
+            updated_at = datetime('now')
+        `).bind(ticker, body.reason || null).run();
+        const row = await env.DB.prepare(`SELECT * FROM cantera WHERE ticker = ?`).bind(ticker).first();
+        return json({ ok: true, candidate: row }, corsHeaders);
+      }
+
+      if (path.match(/^\/api\/cantera\/\d+$/) && request.method === "PUT") {
+        await ensureMigrations(env);
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        const id = parseInt(path.split('/').pop(), 10);
+        let body;
+        try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const allowedFields = ['status','priority_score','compounder_score','yield_pct','dgr_5y','payout_ratio','streak_years','safety_score','reason_to_watch','entry_trigger','name','sector','sub_sector'];
+        const setClauses = [], vals = [];
+        for (const key of allowedFields) {
+          if (body[key] !== undefined) { setClauses.push(`${key} = ?`); vals.push(body[key]); }
+        }
+        if (!setClauses.length) return json({ error: "Nothing to update" }, corsHeaders, 400);
+        if (body.status === 'watchlist') setClauses.push(`promoted_at = datetime('now')`);
+        setClauses.push(`updated_at = datetime('now')`);
+        await env.DB.prepare(`UPDATE cantera SET ${setClauses.join(', ')} WHERE id = ?`).bind(...vals, id).run();
+        const row = await env.DB.prepare(`SELECT * FROM cantera WHERE id = ?`).bind(id).first();
+        return json({ ok: true, candidate: row }, corsHeaders);
+      }
+
+      if (path.match(/^\/api\/cantera\/\d+$/) && request.method === "DELETE") {
+        await ensureMigrations(env);
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        const id = parseInt(path.split('/').pop(), 10);
+        await env.DB.prepare(`DELETE FROM cantera WHERE id = ?`).bind(id).run();
+        return json({ ok: true }, corsHeaders);
+      }
+
+      if (path === "/api/cantera/deltas" && request.method === "GET") {
+        await ensureMigrations(env);
+        const days = Math.min(parseInt(url.searchParams.get('days') || '7', 10), 30);
+        const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 19).replace('T', ' ');
+        const { results: newEntries } = await env.DB.prepare(
+          `SELECT ticker, name, priority_score, sources, reason_to_watch, added_at
+             FROM cantera WHERE added_at >= ? ORDER BY priority_score DESC LIMIT 20`
+        ).bind(since).all();
+        const { results: top5 } = await env.DB.prepare(
+          `SELECT ticker, name, priority_score, yield_pct, dgr_5y, sources
+             FROM cantera WHERE status = 'radar' ORDER BY priority_score DESC LIMIT 5`
+        ).all();
+        return json({ ok: true, days, new_entries: newEntries || [], top_5: top5 || [] }, corsHeaders);
+      }
+
+      if (path === "/api/cantera/refresh" && request.method === "POST") {
+        await ensureMigrations(env);
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        return await handleCanteraRefresh(request, env, corsHeaders);
       }
 
       if (path === "/api/funds/refresh" && request.method === "POST") {
@@ -12529,12 +12669,15 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
           if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
           const FMP_BASE = "https://financialmodelingprep.com/stable";
 
-          const minYield   = parseFloat(url.searchParams.get("minYield")  || "3")   || 3;
-          const minDgr5y   = parseFloat(url.searchParams.get("minDgr5y")  || "7")   || 7;
-          const maxPayout  = parseFloat(url.searchParams.get("maxPayout") || "75")  || 75;
-          const minFcfCov  = parseFloat(url.searchParams.get("minFcfCov") || "1.2") || 1.2;
-          const minStreak  = parseInt(url.searchParams.get("minStreak")   || "5", 10) || 5;
-          const limitN     = Math.min(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 200);
+          // Use ?? to preserve explicit 0 values — parseFloat("0") || 3 would wrongly give 3
+          const _pf = (k, def) => { const v = parseFloat(url.searchParams.get(k) ?? ""); return isNaN(v) ? def : v; };
+          const _pi = (k, def) => { const v = parseInt(url.searchParams.get(k) ?? "", 10); return isNaN(v) ? def : v; };
+          const minYield   = _pf("minYield",  3);
+          const minDgr5y   = _pf("minDgr5y",  7);
+          const maxPayout  = _pf("maxPayout", 75);
+          const minFcfCov  = _pf("minFcfCov", 1.2);
+          const minStreak  = _pi("minStreak",  5);
+          const limitN     = Math.min(_pi("limit", 50), 200);
           const forceRefresh = url.searchParams.get("refresh") === "1";
 
           // ── 1. Build candidate universe ──────────────────────
@@ -12630,7 +12773,21 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
                   try { ratios     = JSON.parse(fund.ratios      || "[]"); } catch {}
                   try { cashflow   = JSON.parse(fund.cashflow    || "[]"); } catch {}
                   try { keyMetrics = JSON.parse(fund.key_metrics || "[]"); } catch {}
-                  try { if (fund.dgr) dgrRow = JSON.parse(fund.dgr); } catch {}
+                  try {
+                    if (fund.dgr) {
+                      const parsed = JSON.parse(fund.dgr);
+                      // Reject cached DGR if it was computed from a partial calendar year
+                      // (latestYear === current year means only part of the year's dividends
+                      // were counted, giving a misleadingly negative DGR).
+                      const curYear = new Date().getFullYear();
+                      if (parsed.latestYear && parsed.latestYear >= curYear) {
+                        // stale / partial — force re-fetch
+                        dgrRow = null;
+                      } else {
+                        dgrRow = parsed;
+                      }
+                    }
+                  } catch {}
                 }
               }
             } catch {}
@@ -12672,10 +12829,22 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
                 const divData = await divR.json();
                 if (Array.isArray(divData) && divData.length) {
                   const byYear = {};
+                  const countByYear = {};
                   divData.forEach(d => {
                     const y = parseInt((d.date || d.paymentDate || "").slice(0, 4));
-                    if (y > 2000) byYear[y] = (byYear[y] || 0) + (d.adjDividend || d.dividend || 0);
+                    if (y > 2000) {
+                      byYear[y] = (byYear[y] || 0) + (d.adjDividend || d.dividend || 0);
+                      countByYear[y] = (countByYear[y] || 0) + 1;
+                    }
                   });
+                  // Exclude current partial year: if the current calendar year has
+                  // fewer than half the payments of the prior year, it is still in
+                  // progress and would produce a misleadingly negative DGR.
+                  const calendarYear = new Date().getFullYear();
+                  const prevYearCount = countByYear[calendarYear - 1] || 4;
+                  if (countByYear[calendarYear] && countByYear[calendarYear] < prevYearCount / 2) {
+                    delete byYear[calendarYear];
+                  }
                   const sortedYears = Object.entries(byYear).sort((a, b) => b[0] - a[0]);
                   if (sortedYears.length >= 2) {
                     const latestDiv = sortedYears[0][1];
@@ -12740,26 +12909,37 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
             const latCF = cashflow[0]   || {};
             const latKM = keyMetrics[0] || {};
 
-            // Yield: prefer profile.lastDiv / price; fall back to ratios
-            const yieldPct = (profile.lastDiv && profile.price && profile.price > 0)
-              ? (profile.lastDiv / profile.price) * 100
-              : (lat.dividendYieldTTM != null ? lat.dividendYieldTTM * 100
-                : (profile.dividendYield != null ? profile.dividendYield * 100 : 0));
+            // Yield: FMP /stable/profile returns "lastDividend" (not "lastDiv").
+            // FMP /stable/ratios returns dividendYield as a decimal (0.029 = 2.9%).
+            // Priority: ratios.dividendYield > profile.lastDividend/price > ratios.dividendYieldTTM
+            const lastDiv = profile.lastDividend || profile.lastDiv || 0;
+            const yieldPct = (lat.dividendYield != null && lat.dividendYield > 0)
+              ? lat.dividendYield * 100
+              : (lat.dividendYieldTTM != null && lat.dividendYieldTTM > 0
+                ? lat.dividendYieldTTM * 100
+                : (lastDiv && profile.price && profile.price > 0
+                  ? (lastDiv / profile.price) * 100
+                  : (profile.dividendYield != null ? profile.dividendYield * 100 : 0)));
 
-            // FCF payout (%) and FCF coverage
+            // FCF payout (%) and FCF coverage.
+            // FMP /stable/cash-flow-statement uses "commonDividendsPaid" (negative value).
+            // FMP /stable/ratios uses "dividendPayoutRatio" (fraction, earnings-based) as fallback.
             const fcf = latCF.freeCashFlow || 0;
-            const divsPaid = Math.abs(latCF.dividendsPaid || latCF.commonDividendsPaid || 0);
+            const divsPaid = Math.abs(
+              latCF.commonDividendsPaid || latCF.dividendsPaid || 0
+            );
             let payoutFcf = null;
             let fcfCov    = null;
             if (fcf > 0 && divsPaid > 0) {
               payoutFcf = (divsPaid / fcf) * 100;
               fcfCov    = fcf / divsPaid;
-            } else if (lat.payoutRatioTTM != null && lat.payoutRatioTTM > 0) {
-              payoutFcf = lat.payoutRatioTTM * 100;
-              fcfCov    = 100 / payoutFcf;
-            } else if (lat.payoutRatio != null && lat.payoutRatio > 0) {
-              payoutFcf = lat.payoutRatio * 100;
-              fcfCov    = 100 / payoutFcf;
+            } else {
+              // Fallback to earnings payout ratio (correct field names for FMP stable)
+              const epRatio = lat.dividendPayoutRatio ?? lat.payoutRatioTTM ?? lat.payoutRatio;
+              if (epRatio != null && epRatio > 0) {
+                payoutFcf = epRatio * 100;
+                fcfCov    = 100 / payoutFcf;
+              }
             }
 
             // ROIC from key-metrics
@@ -17081,4 +17261,355 @@ async function handleYouTubePortfolioMentions(request, env, corsHeaders) {
   }));
 
   return json({ mentions }, corsHeaders);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// handleCanteraRefresh — full rebuild of cantera radar candidates
+//
+// Sources (in priority order):
+//   a) Dividend Aristocrats hardcoded list (25y+ streak, US S&P 500)
+//   b) Smart Money consensus (≥3 top funds from fund_holdings)
+//   c) High-yield safe (deep_dividend_analysis safety≥7 AND yield≥3.5%)
+//   d) Sector leaders (top 3 composite_score per sector from dda)
+//   e) Manual additions (sources='manual' — always preserved)
+//
+// For each candidate: fetch FMP profile+key_metrics+dividends to get
+// yield, DGR, payout, streak, sector. Compute priority_score.
+// Cap at 100 total. Delete stale auto-populated entries that no longer
+// appear in any source (manual, watchlist, bought status preserved).
+// ═══════════════════════════════════════════════════════════════
+async function handleCanteraRefresh(request, env, corsHeaders) {
+  const FMP_KEY = env.FMP_KEY;
+  if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
+  const FMP_BASE = "https://financialmodelingprep.com/stable";
+
+  // ── 1. Build portfolio exclusion set ─────────────────────────
+  const { results: posRows } = await env.DB.prepare(
+    `SELECT ticker FROM positions WHERE COALESCE(shares,0) > 0`
+  ).all();
+  const portfolioSet = new Set((posRows || []).map(r => r.ticker.toUpperCase()));
+
+  // ── 2a. Dividend Aristocrats (hardcoded 2025 list) ────────────
+  const ARISTOCRATS = [
+    "ABBV","ABT","ADM","AFL","ALB","AOS","APD","BDX","BEN","BF.B",
+    "BRO","CAH","CAT","CB","CHD","CHRW","CINF","CL","CLX","CTAS",
+    "CVX","DOV","ECL","ED","EMR","ESS","EXPD","FRT","GD","GPC",
+    "GWW","HRL","IBM","ITW","JNJ","KMB","KO","KVUE","LEG","LIN",
+    "LOW","MCD","MDT","MKC","MMM","NDSN","NEE","NUE","O","PEP",
+    "PG","PNR","PPG","ROP","RPM","SHW","SJM","SPGI","SWK","SYY",
+    "T","TGT","TROW","UGI","VFC","WBA","WMT","WST","XOM",
+  ];
+
+  // ── 2b. Smart Money consensus (≥3 funds in latest quarter) ───
+  let smartMoneyTickers = [];
+  try {
+    const { results: sm } = await env.DB.prepare(
+      `SELECT fh.ticker, COUNT(DISTINCT fh.fund_id) AS holders_count
+         FROM fund_holdings fh
+         JOIN superinvestors s ON s.id = fh.fund_id
+        WHERE s.followed = 1 AND fh.quarter = s.last_quarter
+        GROUP BY fh.ticker
+       HAVING holders_count >= 3
+        ORDER BY holders_count DESC
+        LIMIT 60`
+    ).all();
+    smartMoneyTickers = (sm || []).map(r => ({ ticker: r.ticker.toUpperCase(), conviction: r.holders_count }));
+  } catch (e) { /* no fund data yet */ }
+  const smartMoneyConvictionMap = {};
+  for (const s of smartMoneyTickers) smartMoneyConvictionMap[s.ticker] = s.conviction;
+
+  // ── 2c. High-yield safe (deep_dividend_analysis safety≥7 AND yield≥3.5%) ─
+  let safeHighYield = [];
+  try {
+    const { results: dd } = await env.DB.prepare(
+      `SELECT DISTINCT dda.ticker
+         FROM deep_dividend_analysis dda
+        WHERE dda.safety_score >= 7
+        ORDER BY dda.composite_score DESC
+        LIMIT 30`
+    ).all();
+    safeHighYield = (dd || []).map(r => r.ticker.toUpperCase());
+  } catch (e) { /* table may be empty */ }
+
+  // ── 2d. Sector leaders (top 3 composite_score per sector) ────
+  let sectorLeaders = [];
+  try {
+    const { results: sl } = await env.DB.prepare(
+      `SELECT ticker, sector_bucket AS sector
+         FROM (
+           SELECT ticker, sector_bucket,
+                  ROW_NUMBER() OVER (PARTITION BY sector_bucket ORDER BY composite_score DESC) AS rn
+             FROM deep_dividend_analysis
+         )
+        WHERE rn <= 3`
+    ).all();
+    sectorLeaders = (sl || []).map(r => r.ticker.toUpperCase());
+  } catch (e) { /* SQLite on Cloudflare D1 supports window functions as of 2024 */ }
+
+  // ── 3. Merge all sources, deduplicate, exclude portfolio ──────
+  const sourceMap = {}; // ticker → Set of source labels
+  const addSource = (ticker, src) => {
+    const t = ticker.toUpperCase();
+    if (portfolioSet.has(t)) return; // skip own positions
+    if (!sourceMap[t]) sourceMap[t] = new Set();
+    sourceMap[t].add(src);
+  };
+  for (const t of ARISTOCRATS)                             addSource(t, 'aristocrat');
+  for (const { ticker } of smartMoneyTickers)              addSource(ticker, 'smart_money');
+  for (const t of safeHighYield)                          addSource(t, 'deep_dividend');
+  for (const t of sectorLeaders)                          addSource(t, 'sector_leader');
+
+  const allCandidates = Object.keys(sourceMap);
+
+  // ── 4. Preserve manual entries (they stay regardless of sources) ─
+  const { results: manualRows } = await env.DB.prepare(
+    `SELECT ticker, reason_to_watch, entry_trigger, status FROM cantera WHERE sources LIKE '%manual%'`
+  ).all();
+  for (const m of (manualRows || [])) {
+    const t = m.ticker.toUpperCase();
+    if (!sourceMap[t]) sourceMap[t] = new Set(['manual']);
+    else sourceMap[t].add('manual');
+    if (!allCandidates.includes(t)) allCandidates.push(t);
+  }
+  const manualDataMap = {};
+  for (const m of (manualRows || [])) manualDataMap[m.ticker.toUpperCase()] = m;
+
+  // ── 5. Fetch FMP metrics for each candidate (batched) ─────────
+  // We use profile + key_metrics TTL cache from fundamentals table first,
+  // then fall back to a lightweight FMP fetch.
+  async function getCanteraMetrics(ticker) {
+    const fmpSym = ticker.replace(/\./g, '-'); // BF.B → BF-B
+    let yieldPct = 0, dgr5y = 0, payoutRatio = 0, streakYears = 0;
+    let sector = '', name = ticker, safetyScore = null;
+
+    // Check deep_dividend_analysis for safety+sector
+    try {
+      const dda = await env.DB.prepare(
+        `SELECT safety_score, sector_bucket, composite_score FROM deep_dividend_analysis
+          WHERE ticker = ? ORDER BY created_at DESC LIMIT 1`
+      ).bind(ticker).first();
+      if (dda) {
+        safetyScore = dda.safety_score;
+        if (dda.sector_bucket) sector = dda.sector_bucket;
+      }
+    } catch {}
+
+    // Check D1 fundamentals cache (24h TTL)
+    try {
+      const fund = await env.DB.prepare(
+        `SELECT profile, key_metrics, dgr, updated_at FROM fundamentals WHERE symbol = ?`
+      ).bind(ticker).first();
+      if (fund && fund.updated_at) {
+        const fundIso = fund.updated_at.includes('T') ? fund.updated_at : fund.updated_at.replace(' ', 'T') + 'Z';
+        const fresh = new Date(fundIso).getTime() > Date.now() - 24 * 3600 * 1000;
+        if (fresh) {
+          try {
+            const prof = JSON.parse(fund.profile || '{}');
+            name = prof.companyName || ticker;
+            if (!sector && prof.sector) sector = prof.sector;
+            yieldPct = Number(prof.lastDiv || 0) / Math.max(Number(prof.price || 1), 1) * 100;
+          } catch {}
+          try {
+            const km = JSON.parse(fund.key_metrics || '[]');
+            const latest = Array.isArray(km) ? km[0] : km;
+            if (latest) {
+              payoutRatio = Number(latest.payoutRatio || latest.dividendPayoutRatio || 0) * 100;
+            }
+          } catch {}
+          try {
+            if (fund.dgr) {
+              const dgr = JSON.parse(fund.dgr);
+              dgr5y = Number(dgr.dgr5y || 0);
+              streakYears = Number(dgr.streakYears || 0);
+            }
+          } catch {}
+          return { yieldPct, dgr5y, payoutRatio, streakYears, sector, name, safetyScore };
+        }
+      }
+    } catch {}
+
+    // FMP live fetch (lightweight — profile only, no quota-heavy endpoints)
+    try {
+      const r = await fetch(`${FMP_BASE}/profile?symbol=${encodeURIComponent(fmpSym)}&apikey=${FMP_KEY}`);
+      if (r.ok) {
+        const data = await r.json();
+        const prof = Array.isArray(data) ? data[0] : data;
+        if (prof) {
+          name = prof.companyName || ticker;
+          if (!sector && prof.sector) sector = prof.sector;
+          yieldPct = Number(prof.lastDiv || 0) / Math.max(Number(prof.price || 1), 1) * 100;
+          if (prof.dividendYield) yieldPct = Number(prof.dividendYield) * 100;
+        }
+      }
+    } catch {}
+
+    // FMP dividend history for streak+DGR estimate
+    try {
+      const r = await fetch(`${FMP_BASE}/dividends?symbol=${encodeURIComponent(fmpSym)}&limit=60&apikey=${FMP_KEY}`);
+      if (r.ok) {
+        const divs = await r.json();
+        if (Array.isArray(divs) && divs.length > 0) {
+          // Compute per-year totals to determine streak and DGR
+          const byYear = {};
+          for (const d of divs) {
+            const y = String(d.date || d.paymentDate || '').slice(0, 4);
+            if (y && !isNaN(+y)) byYear[+y] = (byYear[+y] || 0) + Number(d.dividend || d.adjDividend || 0);
+          }
+          const years = Object.keys(byYear).map(Number).sort((a, b) => a - b);
+          // Streak: consecutive years with non-zero dividends
+          let streak = 0;
+          const curYear = new Date().getFullYear();
+          for (let y = curYear; y >= curYear - 60; y--) {
+            if (byYear[y] > 0) streak++;
+            else break;
+          }
+          streakYears = streak;
+          // DGR 5y: annualized growth from 5 years ago to latest
+          if (years.length >= 2) {
+            const latest5 = years[years.length - 1];
+            const base5 = years.find(y => y <= latest5 - 5);
+            if (base5 && byYear[base5] > 0 && byYear[latest5] > 0) {
+              dgr5y = (Math.pow(byYear[latest5] / byYear[base5], 1 / (latest5 - base5)) - 1) * 100;
+            }
+          }
+        }
+      }
+    } catch {}
+
+    return { yieldPct, dgr5y, payoutRatio, streakYears, sector, name, safetyScore };
+  }
+
+  // ── 6. Compute priority score ─────────────────────────────────
+  function computePriority(yieldPct, compounterScore, smartMoneyConviction, safetyScore) {
+    const yieldNorm    = Math.min(yieldPct / 5, 1);
+    const compNorm     = Math.min((compounterScore || 0) / 10, 1);
+    const smNorm       = Math.min((smartMoneyConviction || 0) / 5, 1);
+    const safetyNorm   = Math.min(((safetyScore || 5) / 10), 1);
+    return Math.round(
+      compNorm * 40 +
+      smNorm   * 20 +
+      yieldNorm * 15 +
+      safetyNorm * 15
+      // momentum 10 omitted — no price history in cantera refresh for now
+    );
+  }
+
+  // Simple compounder score adapted from dividend-scanner logic
+  function computeCompounterScore(yieldPct, dgr5y, payoutRatio, streakYears) {
+    const yieldScore  = Math.min(yieldPct / 4, 1) * 2;
+    const dgrScore    = Math.min((dgr5y || 0) / 12, 1) * 3;
+    const payoutScore = Math.max(0, 1 - (payoutRatio || 0) / 85) * 2;
+    const streakScore = Math.min((streakYears || 0) / 25, 1) * 1.5;
+    return Math.round((yieldScore + dgrScore + payoutScore + streakScore) * 10) / 10;
+  }
+
+  // ── 7. Process all candidates in batches of 10 ───────────────
+  const BATCH = 10;
+  const MAX_CANDIDATES = 100;
+  const processed = [];
+  // Sort so that tickers with more sources get processed first (higher priority)
+  const sortedCandidates = allCandidates
+    .sort((a, b) => sourceMap[b].size - sourceMap[a].size)
+    .slice(0, 150); // leave headroom beyond 100 to absorb FMP failures
+
+  for (let i = 0; i < sortedCandidates.length && processed.length < MAX_CANDIDATES; i += BATCH) {
+    const batch = sortedCandidates.slice(i, i + BATCH);
+    const results = await Promise.all(batch.map(t => getCanteraMetrics(t).catch(() => null)));
+    for (let j = 0; j < batch.length; j++) {
+      if (processed.length >= MAX_CANDIDATES) break;
+      const ticker = batch[j];
+      const m = results[j];
+      if (!m) continue;
+      const compounterScore = computeCompounterScore(m.yieldPct, m.dgr5y, m.payoutRatio, m.streakYears);
+      const smConviction = smartMoneyConvictionMap[ticker] || 0;
+      const priority = computePriority(m.yieldPct, compounterScore, smConviction, m.safetyScore);
+      const sourcesStr = [...sourceMap[ticker]].join(',');
+      const manual = manualDataMap[ticker];
+
+      processed.push({
+        ticker,
+        name: m.name,
+        sector: m.sector || '',
+        priority_score: priority,
+        compounder_score: compounterScore,
+        smart_money_conviction: smConviction,
+        yield_pct: Math.round(m.yieldPct * 100) / 100,
+        dgr_5y: Math.round((m.dgr5y || 0) * 100) / 100,
+        payout_ratio: Math.round((m.payoutRatio || 0) * 100) / 100,
+        streak_years: m.streakYears || 0,
+        safety_score: m.safetyScore,
+        sources: sourcesStr,
+        reason_to_watch: manual?.reason_to_watch || null,
+        entry_trigger: manual?.entry_trigger || null,
+        status: manual?.status || 'radar',
+      });
+    }
+  }
+
+  // ── 8. Upsert processed candidates into D1 ───────────────────
+  let upserted = 0;
+  for (const c of processed) {
+    await env.DB.prepare(`
+      INSERT INTO cantera
+        (ticker, name, sector, priority_score, compounder_score, smart_money_conviction,
+         yield_pct, dgr_5y, payout_ratio, streak_years, safety_score, sources,
+         reason_to_watch, entry_trigger, status, added_at, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'radar',
+              COALESCE((SELECT added_at FROM cantera WHERE ticker=?), datetime('now')),
+              datetime('now'))
+      ON CONFLICT(ticker) DO UPDATE SET
+        name = excluded.name,
+        sector = CASE WHEN excluded.sector != '' THEN excluded.sector ELSE cantera.sector END,
+        priority_score = excluded.priority_score,
+        compounder_score = excluded.compounder_score,
+        smart_money_conviction = excluded.smart_money_conviction,
+        yield_pct = excluded.yield_pct,
+        dgr_5y = excluded.dgr_5y,
+        payout_ratio = excluded.payout_ratio,
+        streak_years = excluded.streak_years,
+        safety_score = COALESCE(excluded.safety_score, cantera.safety_score),
+        sources = excluded.sources,
+        status = CASE WHEN cantera.status IN ('watchlist','bought','rejected') THEN cantera.status ELSE excluded.status END,
+        updated_at = datetime('now')
+    `).bind(
+      c.ticker, c.name, c.sector, c.priority_score, c.compounder_score, c.smart_money_conviction,
+      c.yield_pct, c.dgr_5y, c.payout_ratio, c.streak_years, c.safety_score, c.sources,
+      c.reason_to_watch, c.entry_trigger,
+      c.ticker // for COALESCE subquery
+    ).run();
+    upserted++;
+  }
+
+  // ── 9. Delete stale entries not in any current source ─────────
+  // Keep: manual, watchlist, bought, rejected, and anything in processed set
+  const processedTickers = processed.map(c => c.ticker);
+  if (processedTickers.length > 0) {
+    const placeholders = processedTickers.map(() => '?').join(',');
+    await env.DB.prepare(`
+      DELETE FROM cantera
+       WHERE ticker NOT IN (${placeholders})
+         AND status NOT IN ('watchlist','bought','rejected')
+         AND sources NOT LIKE '%manual%'
+    `).bind(...processedTickers).run();
+  }
+
+  // ── 10. Summary stats ─────────────────────────────────────────
+  const { results: top10 } = await env.DB.prepare(
+    `SELECT ticker, name, priority_score, yield_pct, dgr_5y, sources FROM cantera WHERE status = 'radar' ORDER BY priority_score DESC LIMIT 10`
+  ).all();
+
+  const sourceBreakdown = { aristocrat: 0, smart_money: 0, deep_dividend: 0, sector_leader: 0, manual: 0 };
+  for (const c of processed) {
+    for (const s of (c.sources || '').split(',')) {
+      if (sourceBreakdown[s] !== undefined) sourceBreakdown[s]++;
+    }
+  }
+
+  return json({
+    ok: true,
+    total_candidates: upserted,
+    source_breakdown: sourceBreakdown,
+    top_10: top10 || [],
+    portfolio_excluded: portfolioSet.size,
+  }, corsHeaders);
 }

@@ -163,6 +163,7 @@ export const HOME_TAB_GROUPS = [
     ico: "🔍",
     tabs: [
       {id:"discovery",lbl:"Discovery",ico:"💡"},
+      {id:"div-scanner",lbl:"Scanner",ico:"🔎"},
       {id:"cartas-sabios",lbl:"Cartas Sabios",ico:"📜"},
       {id:"research",lbl:"Radar",ico:"📡"},
       {id:"smart-money",lbl:"Smart Money",ico:"🏛️"},
