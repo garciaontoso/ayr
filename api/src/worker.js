@@ -13172,6 +13172,726 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         }
       }
 
+      // ═══ Portfolio Analytics ═══════════════════════════════════════
+      // Three read-only GET endpoints, each with 24h D1 cache.
+      // Auth: token required (these are expensive — 3y of price data per ticker).
+      // Cache key in analytics_cache table.
+      // ────────────────────────────────────────────────────────────────
+
+      // ── GET /api/analytics/correlation ──────────────────────────────
+      // 3-year weekly returns for all portfolio tickers → pairwise Pearson
+      // correlation matrix + cluster detection at r > 0.7.
+      if (path === "/api/analytics/correlation" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          await ensureMigrations(env);
+          const FMP_KEY = env.FMP_KEY;
+          if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
+
+          const forceRefresh = url.searchParams.get("refresh") === "1";
+          const CACHE_TTL_MS = 24 * 3600 * 1000;
+
+          // Check cache
+          if (!forceRefresh) {
+            const cached = await env.DB.prepare(
+              `SELECT data, updated_at FROM analytics_cache WHERE key = 'correlation'`
+            ).first();
+            if (cached && cached.updated_at) {
+              const updatedIso = cached.updated_at.includes("T")
+                ? cached.updated_at
+                : cached.updated_at.replace(" ", "T") + "Z";
+              if (Date.now() - new Date(updatedIso).getTime() < CACHE_TTL_MS) {
+                return json(JSON.parse(cached.data), corsHeaders);
+              }
+            }
+          }
+
+          // Load portfolio tickers (only those with shares > 0)
+          const { results: posRows } = await env.DB.prepare(
+            `SELECT ticker, sector, name FROM positions WHERE list = 'portfolio' AND shares > 0 ORDER BY usd_value DESC`
+          ).all();
+          if (!posRows || posRows.length < 2) {
+            return json({ error: "Need at least 2 portfolio positions" }, corsHeaders, 400);
+          }
+
+          // 3 years of weekly data — FMP light endpoint (one call per ticker)
+          const fromDate = new Date(Date.now() - 3 * 365 * 86400000).toISOString().slice(0, 10);
+          const FMP_BASE = "https://financialmodelingprep.com/stable";
+
+          // Helper: fetch weekly closes for one ticker
+          async function fetchWeeklyCloses(ticker) {
+            const sym = toFMP(ticker);
+            try {
+              const r = await fetch(
+                `${FMP_BASE}/historical-price-eod/light?symbol=${encodeURIComponent(sym)}&from=${fromDate}&apikey=${FMP_KEY}`
+              );
+              if (!r.ok) return null;
+              const arr = await r.json();
+              const daily = (Array.isArray(arr) ? arr : (arr?.historical || []))
+                .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+              if (daily.length < 52) return null;
+
+              // Sample every 5th trading day (~weekly) to reduce noise
+              const weekly = [];
+              for (let i = 4; i < daily.length; i += 5) {
+                const c = daily[i].close ?? daily[i].price;
+                if (c != null && !isNaN(c) && c > 0) weekly.push(c);
+              }
+              if (weekly.length < 30) return null;
+
+              // Convert to weekly returns
+              const rets = [];
+              for (let i = 1; i < weekly.length; i++) {
+                rets.push((weekly[i] - weekly[i - 1]) / weekly[i - 1]);
+              }
+              return rets;
+            } catch { return null; }
+          }
+
+          // Fetch in batches of 8 to stay well under FMP rate limits
+          const BATCH = 8;
+          const tickerData = {}; // ticker → returns[]
+          for (let i = 0; i < posRows.length; i += BATCH) {
+            const batch = posRows.slice(i, i + BATCH);
+            const results = await Promise.all(batch.map(p => fetchWeeklyCloses(p.ticker)));
+            for (let j = 0; j < batch.length; j++) {
+              if (results[j]) tickerData[batch[j].ticker] = results[j];
+            }
+            if (i + BATCH < posRows.length) await new Promise(r => setTimeout(r, 250));
+          }
+
+          const tickers = Object.keys(tickerData);
+          if (tickers.length < 2) {
+            return json({ error: "Insufficient price history for correlation" }, corsHeaders, 422);
+          }
+
+          // Pearson correlation helper (aligns to common length)
+          function pearson(a, b) {
+            const n = Math.min(a.length, b.length);
+            if (n < 10) return null;
+            const ax = a.slice(-n), bx = b.slice(-n);
+            const ma = ax.reduce((s, v) => s + v, 0) / n;
+            const mb = bx.reduce((s, v) => s + v, 0) / n;
+            let num = 0, da = 0, db = 0;
+            for (let i = 0; i < n; i++) {
+              const ad = ax[i] - ma, bd = bx[i] - mb;
+              num += ad * bd;
+              da += ad * ad;
+              db += bd * bd;
+            }
+            const denom = Math.sqrt(da * db);
+            return denom > 0 ? Math.round(num / denom * 1000) / 1000 : null;
+          }
+
+          // Build NxN matrix (upper triangle, stored flat)
+          const matrix = {}; // "TKR1|TKR2" → correlation
+          for (let i = 0; i < tickers.length; i++) {
+            for (let j = i + 1; j < tickers.length; j++) {
+              const r = pearson(tickerData[tickers[i]], tickerData[tickers[j]]);
+              if (r !== null) {
+                const key = `${tickers[i]}|${tickers[j]}`;
+                matrix[key] = r;
+              }
+            }
+          }
+
+          // Build array representation for frontend heatmap
+          const matrixRows = tickers.map(ti => ({
+            ticker: ti,
+            values: tickers.map(tj => {
+              if (ti === tj) return 1.0;
+              const key = ti < tj ? `${ti}|${tj}` : `${tj}|${ti}`;
+              return matrix[key] ?? null;
+            }),
+          }));
+
+          // High-correlation pairs (r > 0.7), sorted descending
+          const highCorr = Object.entries(matrix)
+            .filter(([, r]) => r > 0.7)
+            .sort((a, b) => b[1] - a[1])
+            .map(([key, r]) => {
+              const [t1, t2] = key.split('|');
+              const s1 = posRows.find(p => p.ticker === t1)?.sector || '';
+              const s2 = posRows.find(p => p.ticker === t2)?.sector || '';
+              return { t1, t2, r, sameSector: s1 && s2 && s1 === s2, s1, s2 };
+            });
+
+          // Cluster detection: group tickers where all pairs > 0.6
+          // Simple greedy approach: add ticker to cluster if corr > 0.6 with majority
+          const CLUSTER_THRESH = 0.6;
+          const visited = new Set();
+          const clusters = [];
+          for (const t of tickers) {
+            if (visited.has(t)) continue;
+            const cluster = [t];
+            for (const other of tickers) {
+              if (other === t || visited.has(other)) continue;
+              const key = t < other ? `${t}|${other}` : `${other}|${t}`;
+              if ((matrix[key] || 0) > CLUSTER_THRESH) cluster.push(other);
+            }
+            if (cluster.length >= 3) {
+              cluster.forEach(c => visited.add(c));
+              const sectors = [...new Set(cluster.map(c => posRows.find(p => p.ticker === c)?.sector || 'Unknown'))];
+              clusters.push({ tickers: cluster, sectors, theme: sectors.length === 1 ? sectors[0] : "Multi-sector" });
+            }
+          }
+
+          // Unexpected correlations: high corr between different sectors
+          const unexpected = highCorr
+            .filter(p => !p.sameSector && p.r > 0.75)
+            .slice(0, 10);
+
+          const result = {
+            ok: true,
+            computed_at: new Date().toISOString(),
+            tickers,
+            matrix_rows: matrixRows,
+            high_corr_pairs: highCorr.slice(0, 20),
+            unexpected_correlations: unexpected,
+            clusters,
+            stats: {
+              total_pairs: Object.keys(matrix).length,
+              high_corr_count: highCorr.length,
+              avg_correlation: Math.round(
+                Object.values(matrix).reduce((s, v) => s + v, 0) /
+                Math.max(Object.keys(matrix).length, 1) * 1000
+              ) / 1000,
+            },
+          };
+
+          // Persist to cache
+          await env.DB.prepare(
+            `INSERT OR REPLACE INTO analytics_cache (key, data, updated_at) VALUES ('correlation', ?, datetime('now'))`
+          ).bind(JSON.stringify(result)).run();
+
+          return json(result, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // ── GET /api/analytics/factors ───────────────────────────────────
+      // Computes 6-factor exposure for the portfolio weighted by position size.
+      // Factors: Value, Growth, Quality, Momentum, Yield, Size.
+      // Each factor score 0-100. Benchmark is S&P 500 median (hardcoded).
+      if (path === "/api/analytics/factors" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          await ensureMigrations(env);
+          const FMP_KEY = env.FMP_KEY;
+          if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
+
+          const forceRefresh = url.searchParams.get("refresh") === "1";
+          const CACHE_TTL_MS = 24 * 3600 * 1000;
+
+          if (!forceRefresh) {
+            const cached = await env.DB.prepare(
+              `SELECT data, updated_at FROM analytics_cache WHERE key = 'factors'`
+            ).first();
+            if (cached && cached.updated_at) {
+              const updatedIso = cached.updated_at.includes("T")
+                ? cached.updated_at
+                : cached.updated_at.replace(" ", "T") + "Z";
+              if (Date.now() - new Date(updatedIso).getTime() < CACHE_TTL_MS) {
+                return json(JSON.parse(cached.data), corsHeaders);
+              }
+            }
+          }
+
+          // Load portfolio positions with weights
+          const { results: posRows } = await env.DB.prepare(
+            `SELECT ticker, name, sector, usd_value, shares FROM positions
+              WHERE list = 'portfolio' AND shares > 0 ORDER BY usd_value DESC`
+          ).all();
+          if (!posRows || posRows.length === 0) {
+            return json({ error: "No portfolio positions found" }, corsHeaders, 400);
+          }
+
+          const totalValue = posRows.reduce((s, p) => s + (p.usd_value || 0), 0);
+          if (totalValue === 0) return json({ error: "Portfolio has zero total value" }, corsHeaders, 400);
+
+          // S&P 500 benchmark medians (approximate 2024-2025 values)
+          // These are stable reference points — no API call needed
+          const BENCHMARK = {
+            pe: 22, pb: 4.2, fcfYield: 4.2,   // value
+            epsGrowth5y: 12, revGrowth: 8,      // growth
+            roe: 18, debtEbitda: 2.2,            // quality
+            mom6m: 8,                             // momentum (% return)
+            divYield: 1.35,                       // yield
+            marketCapB: 85,                       // size (median SP500 mkt cap $B)
+          };
+
+          // FMP_BASE and fetch helper
+          const FMP_BASE = "https://financialmodelingprep.com/stable";
+
+          // Helper: get factor inputs from D1 fundamentals cache (prefer cached; fall back to live fetch)
+          async function getFactorInputs(ticker) {
+            const sym = toFMP(ticker);
+            let ratios = [], keyMetrics = [], finGrowth = [], profile = {};
+            try {
+              const fund = await env.DB.prepare(
+                `SELECT ratios, key_metrics, fin_growth, profile FROM fundamentals WHERE symbol = ?`
+              ).bind(ticker).first();
+              if (fund) {
+                if (fund.ratios)      ratios     = JSON.parse(fund.ratios      || '[]');
+                if (fund.key_metrics) keyMetrics = JSON.parse(fund.key_metrics || '[]');
+                if (fund.fin_growth)  finGrowth  = JSON.parse(fund.fin_growth  || '[]');
+                if (fund.profile)     profile    = JSON.parse(fund.profile      || '{}');
+              }
+            } catch {}
+
+            // Fall back to live FMP if cache empty
+            if (!ratios.length) {
+              try {
+                const r = await fetch(`${FMP_BASE}/ratios?symbol=${encodeURIComponent(sym)}&limit=1&apikey=${FMP_KEY}`);
+                if (r.ok) ratios = await r.json();
+              } catch {}
+            }
+            if (!keyMetrics.length) {
+              try {
+                const r = await fetch(`${FMP_BASE}/key-metrics?symbol=${encodeURIComponent(sym)}&limit=1&apikey=${FMP_KEY}`);
+                if (r.ok) keyMetrics = await r.json();
+              } catch {}
+            }
+            if (!finGrowth.length) {
+              try {
+                const r = await fetch(`${FMP_BASE}/financial-growth?symbol=${encodeURIComponent(sym)}&limit=5&apikey=${FMP_KEY}`);
+                if (r.ok) finGrowth = await r.json();
+              } catch {}
+            }
+            if (!profile.price) {
+              try {
+                const r = await fetch(`${FMP_BASE}/profile?symbol=${encodeURIComponent(sym)}&apikey=${FMP_KEY}`);
+                if (r.ok) { const d = await r.json(); profile = Array.isArray(d) ? (d[0] || {}) : d; }
+              } catch {}
+            }
+
+            const rat = Array.isArray(ratios) ? (ratios[0] || {}) : (ratios || {});
+            const km  = Array.isArray(keyMetrics) ? (keyMetrics[0] || {}) : (keyMetrics || {});
+            const fg  = Array.isArray(finGrowth) ? finGrowth : [];
+
+            // Momentum: 6-month return from light price endpoint
+            let mom6m = null;
+            try {
+              const fromDate6m = new Date(Date.now() - 182 * 86400000).toISOString().slice(0, 10);
+              const r = await fetch(
+                `${FMP_BASE}/historical-price-eod/light?symbol=${encodeURIComponent(sym)}&from=${fromDate6m}&apikey=${FMP_KEY}`
+              );
+              if (r.ok) {
+                const arr = await r.json();
+                const sorted = (Array.isArray(arr) ? arr : (arr?.historical || []))
+                  .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+                if (sorted.length >= 20) {
+                  const first = sorted[0].close ?? sorted[0].price;
+                  const last = sorted[sorted.length - 1].close ?? sorted[sorted.length - 1].price;
+                  if (first && last) mom6m = (last - first) / first * 100;
+                }
+              }
+            } catch {}
+
+            // EPS growth: avg of last 5 annual growth rates from finGrowth
+            let epsGrowth5y = null;
+            if (fg.length >= 2) {
+              const growthRates = fg.slice(0, 5)
+                .map(g => g.epsgrowth || g.epsGrowth || null)
+                .filter(v => v != null && isFinite(v));
+              if (growthRates.length >= 2) {
+                epsGrowth5y = growthRates.reduce((s, v) => s + v, 0) / growthRates.length * 100;
+              }
+            }
+
+            // Revenue growth: last annual
+            let revGrowth = null;
+            if (fg.length >= 1) {
+              const g = fg[0];
+              revGrowth = (g.revenueGrowth || g.revenue_growth || null);
+              if (revGrowth != null) revGrowth *= 100;
+            }
+
+            return {
+              ticker,
+              name: profile.companyName || profile.name || ticker,
+              sector: profile.sector || '',
+              marketCapB: profile.mktCap ? profile.mktCap / 1e9 : (km.marketCap ? km.marketCap / 1e9 : null),
+              // Value
+              pe: rat.priceToEarningsRatio || rat.peRatio || km.peRatio || null,
+              pb: rat.priceToBookRatio || rat.pbRatio || km.pbRatio || null,
+              fcfYield: km.freeCashFlowYield ? km.freeCashFlowYield * 100 : null,
+              // Growth
+              epsGrowth5y,
+              revGrowth,
+              // Quality
+              roe: rat.returnOnEquity ? rat.returnOnEquity * 100 : (km.roe ? km.roe * 100 : null),
+              debtEbitda: km.debtToEbitda || rat.debtToEbitda || null,
+              // Momentum
+              mom6m,
+              // Yield
+              divYield: rat.dividendYield ? rat.dividendYield * 100 : (km.dividendYield ? km.dividendYield * 100 : null),
+            };
+          }
+
+          // Score each factor for one ticker (0-100, where 50 = benchmark)
+          function scoreFactors(inputs) {
+            const bm = BENCHMARK;
+
+            // Value: lower P/E and P/B = more value; higher FCF yield = more value
+            // Score 0-100: 50 = at benchmark
+            const valueScore = (() => {
+              const peScore = inputs.pe > 0 ? Math.max(0, Math.min(100, 100 - (inputs.pe / (bm.pe * 2)) * 100)) : 50;
+              const pbScore = inputs.pb > 0 ? Math.max(0, Math.min(100, 100 - (inputs.pb / (bm.pb * 2)) * 100)) : 50;
+              const fcfScore = inputs.fcfYield != null ? Math.max(0, Math.min(100, (inputs.fcfYield / (bm.fcfYield * 2)) * 100)) : 50;
+              return Math.round((peScore + pbScore + fcfScore) / 3);
+            })();
+
+            // Growth: higher EPS and rev growth = higher score
+            const growthScore = (() => {
+              const epsScore = inputs.epsGrowth5y != null ? Math.max(0, Math.min(100, (inputs.epsGrowth5y / (bm.epsGrowth5y * 2)) * 100)) : 50;
+              const revScore = inputs.revGrowth != null ? Math.max(0, Math.min(100, (inputs.revGrowth / (bm.revGrowth * 2)) * 100)) : 50;
+              return Math.round((epsScore + revScore) / 2);
+            })();
+
+            // Quality: higher ROE = better; lower D/EBITDA = better
+            const qualityScore = (() => {
+              const roeScore = inputs.roe != null ? Math.max(0, Math.min(100, (inputs.roe / (bm.roe * 2)) * 100)) : 50;
+              const debtScore = inputs.debtEbitda != null ? Math.max(0, Math.min(100, 100 - (inputs.debtEbitda / (bm.debtEbitda * 2)) * 100)) : 50;
+              return Math.round((roeScore + debtScore) / 2);
+            })();
+
+            // Momentum: higher 6m return = better
+            const momentumScore = inputs.mom6m != null
+              ? Math.max(0, Math.min(100, 50 + (inputs.mom6m - bm.mom6m) * 2))
+              : 50;
+
+            // Yield: higher div yield vs benchmark = higher score
+            const yieldScore = inputs.divYield != null
+              ? Math.max(0, Math.min(100, (inputs.divYield / (bm.divYield * 2)) * 100))
+              : 0;
+
+            // Size: smaller cap = higher size factor score (small-cap premium)
+            const sizeScore = inputs.marketCapB != null
+              ? Math.max(0, Math.min(100, 100 - (inputs.marketCapB / (bm.marketCapB * 2)) * 100))
+              : 50;
+
+            return { valueScore, growthScore, qualityScore, momentumScore: Math.round(momentumScore), yieldScore, sizeScore };
+          }
+
+          // Fetch factor inputs in batches
+          const BATCH = 6;
+          const allInputs = [];
+          const tickers = posRows.map(p => p.ticker);
+          for (let i = 0; i < tickers.length; i += BATCH) {
+            const batch = tickers.slice(i, i + BATCH);
+            const results = await Promise.all(batch.map(t => getFactorInputs(t).catch(() => null)));
+            for (let j = 0; j < batch.length; j++) {
+              if (results[j]) allInputs.push({ ...results[j], weight: (posRows[i + j]?.usd_value || 0) / totalValue });
+            }
+            if (i + BATCH < tickers.length) await new Promise(r => setTimeout(r, 300));
+          }
+
+          // Compute weighted portfolio scores
+          let totalWeight = 0;
+          const wtdScores = { value: 0, growth: 0, quality: 0, momentum: 0, yield: 0, size: 0 };
+          const perTicker = [];
+
+          for (const inp of allInputs) {
+            const w = inp.weight;
+            totalWeight += w;
+            const scores = scoreFactors(inp);
+            wtdScores.value      += scores.valueScore      * w;
+            wtdScores.growth     += scores.growthScore     * w;
+            wtdScores.quality    += scores.qualityScore    * w;
+            wtdScores.momentum   += scores.momentumScore   * w;
+            wtdScores.yield      += scores.yieldScore      * w;
+            wtdScores.size       += scores.sizeScore       * w;
+
+            perTicker.push({
+              ticker: inp.ticker,
+              name: inp.name,
+              sector: inp.sector,
+              weight_pct: Math.round(inp.weight * 10000) / 100,
+              scores,
+              raw: {
+                pe: inp.pe ? Math.round(inp.pe * 10) / 10 : null,
+                pb: inp.pb ? Math.round(inp.pb * 100) / 100 : null,
+                fcfYield: inp.fcfYield ? Math.round(inp.fcfYield * 100) / 100 : null,
+                epsGrowth5y: inp.epsGrowth5y ? Math.round(inp.epsGrowth5y * 10) / 10 : null,
+                revGrowth: inp.revGrowth ? Math.round(inp.revGrowth * 10) / 10 : null,
+                roe: inp.roe ? Math.round(inp.roe * 10) / 10 : null,
+                debtEbitda: inp.debtEbitda ? Math.round(inp.debtEbitda * 100) / 100 : null,
+                mom6m: inp.mom6m ? Math.round(inp.mom6m * 10) / 10 : null,
+                divYield: inp.divYield ? Math.round(inp.divYield * 100) / 100 : null,
+                marketCapB: inp.marketCapB ? Math.round(inp.marketCapB * 10) / 10 : null,
+              },
+            });
+          }
+
+          // Normalize (divide by total weight in case some positions had no data)
+          if (totalWeight > 0) {
+            for (const k of Object.keys(wtdScores)) wtdScores[k] = Math.round(wtdScores[k] / totalWeight);
+          }
+
+          // Benchmark is 50 for all factors (it's the midpoint by design)
+          const portfolioFactors = {
+            value:    { score: wtdScores.value,    benchmark: 50, label: "Value",    description: "P/E, P/B, FCF Yield" },
+            growth:   { score: wtdScores.growth,   benchmark: 50, label: "Growth",   description: "EPS Growth 5Y, Revenue Growth" },
+            quality:  { score: wtdScores.quality,  benchmark: 50, label: "Quality",  description: "ROE, Debt/EBITDA" },
+            momentum: { score: wtdScores.momentum, benchmark: 50, label: "Momentum", description: "6-Month Return" },
+            yield:    { score: wtdScores.yield,    benchmark: 50, label: "Yield",    description: "Dividend Yield vs S&P 500" },
+            size:     { score: wtdScores.size,     benchmark: 50, label: "Size",     description: "Market Cap (smaller = higher score)" },
+          };
+
+          // Tilts: factors where score deviates > 15 points from benchmark
+          const tilts = Object.entries(portfolioFactors)
+            .filter(([, f]) => Math.abs(f.score - f.benchmark) > 15)
+            .sort((a, b) => Math.abs(b[1].score - b[1].benchmark) - Math.abs(a[1].score - a[1].benchmark))
+            .map(([key, f]) => ({
+              factor: f.label,
+              score: f.score,
+              benchmark: f.benchmark,
+              tilt: f.score > f.benchmark ? "overweight" : "underweight",
+              magnitude: Math.abs(f.score - f.benchmark),
+            }));
+
+          const result = {
+            ok: true,
+            computed_at: new Date().toISOString(),
+            portfolio_factors: portfolioFactors,
+            tilts,
+            per_ticker: perTicker.sort((a, b) => b.weight_pct - a.weight_pct),
+            benchmark_note: "S&P 500 approximate medians (2024-2025). Score 50 = at benchmark.",
+          };
+
+          await env.DB.prepare(
+            `INSERT OR REPLACE INTO analytics_cache (key, data, updated_at) VALUES ('factors', ?, datetime('now'))`
+          ).bind(JSON.stringify(result)).run();
+
+          return json(result, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // ── GET /api/analytics/stress-test ──────────────────────────────
+      // Bear market stress test. ?scenario=gfc|covid|rate-hike|stagflation
+      // Returns per-holding historical drawdowns during that period
+      // and a portfolio-weighted drawdown estimate.
+      if (path === "/api/analytics/stress-test" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          await ensureMigrations(env);
+          const FMP_KEY = env.FMP_KEY;
+          if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
+
+          const scenario = (url.searchParams.get("scenario") || "gfc").toLowerCase();
+          const forceRefresh = url.searchParams.get("refresh") === "1";
+          const CACHE_KEY = `stress_${scenario}`;
+          const CACHE_TTL_MS = 24 * 3600 * 1000;
+
+          if (!forceRefresh) {
+            const cached = await env.DB.prepare(
+              `SELECT data, updated_at FROM analytics_cache WHERE key = ?`
+            ).bind(CACHE_KEY).first();
+            if (cached && cached.updated_at) {
+              const updatedIso = cached.updated_at.includes("T")
+                ? cached.updated_at
+                : cached.updated_at.replace(" ", "T") + "Z";
+              if (Date.now() - new Date(updatedIso).getTime() < CACHE_TTL_MS) {
+                return json(JSON.parse(cached.data), corsHeaders);
+              }
+            }
+          }
+
+          // Scenario definitions: historical peak-to-trough windows
+          const SCENARIOS = {
+            "gfc": {
+              label: "2008 Global Financial Crisis",
+              dateFrom: "2007-10-01",
+              dateTo:   "2009-03-09",
+              spyReturn: -56.8,  // SPY peak to trough
+              reference: "S&P 500 peak 2007-10-09 → trough 2009-03-09",
+              portfolio60_40: -37.0,
+            },
+            "covid": {
+              label: "2020 COVID Crash",
+              dateFrom: "2020-02-19",
+              dateTo:   "2020-03-23",
+              spyReturn: -33.9,
+              reference: "S&P 500 peak 2020-02-19 → trough 2020-03-23",
+              portfolio60_40: -21.0,
+            },
+            "rate-hike": {
+              label: "2022 Fed Rate Hike Cycle",
+              dateFrom: "2022-01-03",
+              dateTo:   "2022-10-13",
+              spyReturn: -24.5,
+              reference: "S&P 500 2022-01-03 → 2022-10-13",
+              portfolio60_40: -20.5,
+            },
+            "stagflation": {
+              label: "Stagflation Scenario (Custom)",
+              dateFrom: "2022-01-03",   // 2022 proxy — rate hikes + inflation
+              dateTo:   "2022-10-13",
+              spyReturn: -24.5,
+              reference: "Based on 2022 cycle (closest historical proxy)",
+              portfolio60_40: -20.5,
+              note: "Custom scenario modeled on 2022 stagflation environment",
+            },
+          };
+
+          const sc = SCENARIOS[scenario];
+          if (!sc) {
+            return json({
+              error: `Unknown scenario '${scenario}'. Valid: gfc, covid, rate-hike, stagflation`,
+            }, corsHeaders, 400);
+          }
+
+          // Load portfolio positions
+          const { results: posRows } = await env.DB.prepare(
+            `SELECT ticker, name, sector, usd_value, shares FROM positions
+              WHERE list = 'portfolio' AND shares > 0 ORDER BY usd_value DESC`
+          ).all();
+          if (!posRows || posRows.length === 0) {
+            return json({ error: "No portfolio positions found" }, corsHeaders, 400);
+          }
+
+          const totalValue = posRows.reduce((s, p) => s + (p.usd_value || 0), 0);
+          const FMP_BASE = "https://financialmodelingprep.com/stable";
+
+          // For each ticker, fetch the price at dateFrom and dateTo
+          // and compute the actual drawdown during the scenario window
+          async function getScenarioReturn(ticker) {
+            const sym = toFMP(ticker);
+            try {
+              // Fetch a slightly wider window to catch the actual trading days
+              const fromDate = new Date(new Date(sc.dateFrom).getTime() - 5 * 86400000)
+                .toISOString().slice(0, 10);
+              const r = await fetch(
+                `${FMP_BASE}/historical-price-eod/light?symbol=${encodeURIComponent(sym)}&from=${fromDate}&to=${sc.dateTo}&apikey=${FMP_KEY}`
+              );
+              if (!r.ok) return null;
+              const arr = await r.json();
+              const sorted = (Array.isArray(arr) ? arr : (arr?.historical || []))
+                .filter(d => d.date >= sc.dateFrom && d.date <= sc.dateTo)
+                .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+              if (sorted.length < 5) return null;
+
+              const startPrice = sorted[0].close ?? sorted[0].price;
+              const endPrice = sorted[sorted.length - 1].close ?? sorted[sorted.length - 1].price;
+              if (!startPrice || !endPrice) return null;
+
+              // Also compute max drawdown within the window
+              let peak = startPrice;
+              let maxDD = 0;
+              for (const d of sorted) {
+                const p = d.close ?? d.price;
+                if (p > peak) peak = p;
+                const dd = (p - peak) / peak;
+                if (dd < maxDD) maxDD = dd;
+              }
+
+              return {
+                startPrice: Math.round(startPrice * 100) / 100,
+                endPrice: Math.round(endPrice * 100) / 100,
+                periodReturn: Math.round((endPrice / startPrice - 1) * 1000) / 10,
+                maxDrawdown: Math.round(maxDD * 1000) / 10,
+              };
+            } catch { return null; }
+          }
+
+          // Fetch in batches
+          const BATCH = 8;
+          const holdings = [];
+          for (let i = 0; i < posRows.length; i += BATCH) {
+            const batch = posRows.slice(i, i + BATCH);
+            const results = await Promise.all(batch.map(p => getScenarioReturn(p.ticker).catch(() => null)));
+            for (let j = 0; j < batch.length; j++) {
+              const pos = batch[j];
+              const weight = totalValue > 0 ? (pos.usd_value || 0) / totalValue : 0;
+              holdings.push({
+                ticker: pos.ticker,
+                name: pos.name || pos.ticker,
+                sector: pos.sector || '',
+                weight_pct: Math.round(weight * 10000) / 100,
+                usd_value: Math.round(pos.usd_value || 0),
+                scenario_data: results[j],
+                underperformed_spy: results[j]
+                  ? results[j].periodReturn < sc.spyReturn
+                  : null,
+              });
+            }
+            if (i + BATCH < posRows.length) await new Promise(r => setTimeout(r, 250));
+          }
+
+          // Portfolio-weighted drawdown estimate
+          // For tickers with no historical data (post-IPO), use SPY return as proxy
+          let wtdReturn = 0;
+          let coveredWeight = 0;
+          const underperformers = [];
+          const outperformers = [];
+
+          for (const h of holdings) {
+            const w = h.weight_pct / 100;
+            if (h.scenario_data) {
+              wtdReturn += h.scenario_data.periodReturn * w;
+              coveredWeight += w;
+              if (h.scenario_data.periodReturn < sc.spyReturn) {
+                underperformers.push(h);
+              } else {
+                outperformers.push(h);
+              }
+            }
+          }
+
+          // For uncovered portion, scale to SPY return
+          if (coveredWeight < 1 && coveredWeight > 0) {
+            wtdReturn += sc.spyReturn * (1 - coveredWeight);
+          } else if (coveredWeight === 0) {
+            wtdReturn = sc.spyReturn; // full fallback
+          }
+
+          // Sort underperformers by how much they underperformed
+          underperformers.sort((a, b) =>
+            (a.scenario_data?.periodReturn ?? 0) - (b.scenario_data?.periodReturn ?? 0)
+          );
+          outperformers.sort((a, b) =>
+            (b.scenario_data?.periodReturn ?? 0) - (a.scenario_data?.periodReturn ?? 0)
+          );
+
+          const result = {
+            ok: true,
+            computed_at: new Date().toISOString(),
+            scenario: {
+              id: scenario,
+              ...sc,
+            },
+            summary: {
+              portfolio_return: Math.round(wtdReturn * 10) / 10,
+              spy_return: sc.spyReturn,
+              portfolio_60_40: sc.portfolio60_40,
+              vs_spy: Math.round((wtdReturn - sc.spyReturn) * 10) / 10,
+              vs_60_40: Math.round((wtdReturn - sc.portfolio60_40) * 10) / 10,
+              data_coverage_pct: Math.round(coveredWeight * 1000) / 10,
+              positions_with_data: holdings.filter(h => h.scenario_data).length,
+              positions_total: posRows.length,
+            },
+            underperformers: underperformers.slice(0, 10),
+            outperformers: outperformers.slice(0, 10),
+            all_holdings: holdings.sort((a, b) => b.weight_pct - a.weight_pct),
+          };
+
+          await env.DB.prepare(
+            `INSERT OR REPLACE INTO analytics_cache (key, data, updated_at) VALUES (?, ?, datetime('now'))`
+          ).bind(CACHE_KEY, JSON.stringify(result)).run();
+
+          return json(result, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
       // 404
       return new Response(JSON.stringify({ error: "Not found", path }), {
         status: 404,
