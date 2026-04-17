@@ -1099,6 +1099,49 @@ async function ensureMigrations(env) {
     )`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_ic_ticker ON insider_clusters(ticker, window_start DESC)`).run();
 
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS price_cache (id TEXT PRIMARY KEY, data TEXT, updated_at TEXT)`).run();
+
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS earnings_transcripts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      quarter TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      date TEXT,
+      updated_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(ticker, quarter, year)
+    )`).run();
+
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS fmp_financials_cache (
+      ticker TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`).run();
+
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS quality_safety_scores (
+      ticker TEXT NOT NULL,
+      snapshot_date TEXT NOT NULL,
+      quality_score REAL,
+      safety_score REAL,
+      q_profitability REAL,
+      q_capital_efficiency REAL,
+      q_balance_sheet REAL,
+      q_growth REAL,
+      q_dividend_track REAL,
+      q_predictability REAL,
+      q_data_completeness REAL,
+      s_coverage REAL,
+      s_balance_sheet REAL,
+      s_track_record REAL,
+      s_forward REAL,
+      s_sector_adj REAL,
+      inputs_json TEXT,
+      computed_at TEXT NOT NULL,
+      PRIMARY KEY (ticker, snapshot_date)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_qss_ticker ON quality_safety_scores(ticker)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_qss_date ON quality_safety_scores(snapshot_date DESC)`).run();
+
     _migrated = true;
   } catch(e) {
     console.error("Migration error:", e.message);
@@ -1625,20 +1668,10 @@ async function cachePnlFromIB(env) {
   const pnlPct = totalCost > 0 ? (totalPnl / totalCost) : 0;
   const data = JSON.stringify({ pnl: totalPnl, cost: totalCost, pnlPct });
 
-  try {
-    await env.DB.prepare(
-      `INSERT INTO price_cache (id, data, updated_at) VALUES ('__pnl_cache__', ?, datetime('now'))
-       ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
-    ).bind(data).run();
-  } catch(e) {
-    // Table might not exist yet
-    await env.DB.prepare(
-      `CREATE TABLE IF NOT EXISTS price_cache (id TEXT PRIMARY KEY, data TEXT, updated_at TEXT)`
-    ).run();
-    await env.DB.prepare(
-      `INSERT OR REPLACE INTO price_cache (id, data, updated_at) VALUES ('__pnl_cache__', ?, datetime('now'))`
-    ).bind(data).run();
-  }
+  await env.DB.prepare(
+    `INSERT INTO price_cache (id, data, updated_at) VALUES ('__pnl_cache__', ?, datetime('now'))
+     ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
+  ).bind(data).run();
 
   return { ok: true, cached: true, pnl: totalPnl, cost: totalCost, pnlPct };
 }
@@ -5960,20 +5993,10 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         }
 
         // Cache in D1
-        try {
-          await env.DB.prepare(
-            `INSERT INTO price_cache (id, data, updated_at) VALUES ('latest', ?, datetime('now'))
-             ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
-          ).bind(JSON.stringify(prices)).run();
-        } catch(e) {
-          // Create table if it doesn't exist
-          await env.DB.prepare(
-            `CREATE TABLE IF NOT EXISTS price_cache (id TEXT PRIMARY KEY, data TEXT, updated_at TEXT)`
-          ).run();
-          await env.DB.prepare(
-            `INSERT OR REPLACE INTO price_cache (id, data, updated_at) VALUES ('latest', ?, datetime('now'))`
-          ).bind(JSON.stringify(prices)).run();
-        }
+        await env.DB.prepare(
+          `INSERT INTO price_cache (id, data, updated_at) VALUES ('latest', ?, datetime('now'))
+           ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
+        ).bind(JSON.stringify(prices)).run();
 
         return json({ prices, errors, cached: false, updated: new Date().toISOString(), count: Object.keys(prices).length }, corsHeaders);
       }
@@ -11340,17 +11363,6 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         const singleTicker = url.searchParams.get("ticker");
         try {
           await ensureMigrations(env);
-          // Create transcripts table if not exists
-          await env.DB.prepare(`CREATE TABLE IF NOT EXISTS earnings_transcripts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ticker TEXT NOT NULL,
-            quarter TEXT NOT NULL,
-            year INTEGER NOT NULL,
-            content TEXT NOT NULL,
-            date TEXT,
-            updated_at TEXT DEFAULT (datetime('now')),
-            UNIQUE(ticker, quarter, year)
-          )`).run();
 
           const tickers = singleTicker
             ? [singleTicker.toUpperCase()]
@@ -13718,13 +13730,6 @@ async function fmpFinancials(ticker, env) {
 // Batch cache all portfolio quarterly financials (replaces cacheGuruFocusData trend portion)
 // Supports ?offset=N&limit=N pagination via opts to fit within Workers 30s CPU budget.
 async function cacheFmpFinancials(env, opts = {}) {
-  await env.DB.prepare(
-    `CREATE TABLE IF NOT EXISTS fmp_financials_cache (
-       ticker TEXT PRIMARY KEY,
-       data TEXT NOT NULL,
-       updated_at TEXT NOT NULL
-     )`
-  ).run();
   // Skip ETFs (they have no income statement of their own — would always fail)
   const { results: positions } = await env.DB.prepare(
     "SELECT ticker FROM positions WHERE shares > 0 AND COALESCE(category, '') != 'ETF'"
@@ -13870,33 +13875,8 @@ async function getFmpFinancials(env, tickers) {
 // Pure JS, sin LLM, reusa fmp_financials_cache + agent_memory.risk_metrics + positions.
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function ensureQualitySafetyTable(env) {
-  await env.DB.prepare(
-    `CREATE TABLE IF NOT EXISTS quality_safety_scores (
-       ticker TEXT NOT NULL,
-       snapshot_date TEXT NOT NULL,
-       quality_score REAL,
-       safety_score REAL,
-       q_profitability REAL,
-       q_capital_efficiency REAL,
-       q_balance_sheet REAL,
-       q_growth REAL,
-       q_dividend_track REAL,
-       q_predictability REAL,
-       q_data_completeness REAL,
-       s_coverage REAL,
-       s_balance_sheet REAL,
-       s_track_record REAL,
-       s_forward REAL,
-       s_sector_adj REAL,
-       inputs_json TEXT,
-       computed_at TEXT NOT NULL,
-       PRIMARY KEY (ticker, snapshot_date)
-     )`
-  ).run();
-  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_qss_ticker ON quality_safety_scores(ticker)`).run();
-  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_qss_date ON quality_safety_scores(snapshot_date DESC)`).run();
-}
+// ensureQualitySafetyTable is a no-op: table + indexes are created in ensureMigrations.
+async function ensureQualitySafetyTable(env) {}
 
 // Helpers numéricos
 const _qs_safe = (v) => (v == null || isNaN(v)) ? null : Number(v);
