@@ -670,6 +670,16 @@ async function ensureMigrations(env) {
     )`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_narratives_generated ON company_narratives(generated_at DESC)`).run();
 
+    // ─── Portfolio Analytics cache (2026-04-17) ───
+    // Single key-value store for correlation, factor, and stress-test results.
+    // key: 'correlation' | 'factors' | 'stress_<scenario>'
+    // TTL 24h enforced at read time.
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS analytics_cache (
+      key TEXT PRIMARY KEY,
+      data TEXT NOT NULL DEFAULT '{}',
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+
     // ─── Dividend Compounder Scanner cache (2026-04-17) ───
     // Per-ticker cache row. score_data_json contains the full computed
     // compounder metrics (yield, dgr5y, dgr10y, streak, payout_fcf,
