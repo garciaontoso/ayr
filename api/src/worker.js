@@ -15284,8 +15284,9 @@ async function runIANarrativeScan(env, opts = {}) {
   } catch (e) { console.error('[IA scan] 8K error:', e.message); }
 
   // ── Signal 2: Analyst rating changes — FMP grades-historical ──
+  // grades-historical snapshots update weekly, not daily. We use cutoffDate
+  // (= daysBack ago) as the recency gate so a 7-day scan catches weekly changes.
   if (FMP_KEY) {
-    const cutoff48 = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
     for (let i = 0; i < positions.length; i += 5) {
       const batch = positions.slice(i, i + 5);
       const batchRes = await Promise.allSettled(batch.map(async (p) => {
@@ -15299,8 +15300,9 @@ async function runIANarrativeScan(env, opts = {}) {
           if (!Array.isArray(data) || data.length < 2) return null;
           const sorted = data.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
           const latest = sorted[0];
-          if (!latest || latest.date < cutoff48) return null;
-          const prior = sorted.find(r => (r.date || '') < cutoff48) || sorted[1];
+          // Only alert if the most recent snapshot is within the scan window
+          if (!latest || (latest.date || '') < cutoffDate) return null;
+          const prior = sorted.find(r => (r.date || '') < cutoffDate) || sorted[1];
           if (!prior) return null;
           const scoreOf = r =>
             (Number(r.analystRatingsStrongBuy) || 0) * 2

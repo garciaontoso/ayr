@@ -6,6 +6,7 @@
 //
 // Hook order (TDZ-safe): all useState/useRef BEFORE all useEffect.
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { API_URL } from '../../constants/index.js';
 
 // ─── IB Order helpers (client-side only, no API needed) ───────────────────────
 
@@ -662,6 +663,7 @@ export default function RebalancingTab() {
     } catch {}
     return DEFAULT_ACTIONS;
   });
+  const [liveDataStatus, setLiveDataStatus] = useState(null); // null | 'loading' | 'ok' | 'error'
 
   // ── useEffects AFTER all useState ──
   useEffect(() => { localStorage.setItem(LS_SUBTAB, subTab); }, [subTab]);
@@ -673,6 +675,68 @@ export default function RebalancingTab() {
     localStorage.setItem(LS_ACTIONS, JSON.stringify(actions.map(a => ({ id:a.id, checked:a.checked }))));
   }, [actions]);
 
+  // ── Fetch live sector weights from /api/analytics/attribution ──
+  // Maps sector strings from attribution API to DEFAULT_SECTORS ids.
+  // Falls back silently — hardcoded values remain if the fetch fails.
+  useEffect(() => {
+    const SECTOR_MAP = {
+      'Real Estate':              'reits',
+      'REITs':                    'reits',
+      'Technology':               'tech',
+      'Information Technology':   'tech',
+      'Healthcare':               'healthcare',
+      'Health Care':              'healthcare',
+      'Industrials':              'industrials',
+      'Consumer Staples':         'staples',
+      'Financials':               'financials',
+      'Financial Services':       'financials',
+      'Energy':                   'energy',
+      'Utilities':                'utilities',
+      'Materials':                'materials',
+      'Communication Services':   'comms',
+      'Communication':            'comms',
+    };
+
+    const ctrl = new AbortController();
+    setLiveDataStatus('loading');
+
+    fetch(`${API_URL}/api/analytics/attribution?period=ytd`, { signal: ctrl.signal })
+      .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
+      .then(data => {
+        const bySector = data?.by_sector;
+        if (!Array.isArray(bySector) || bySector.length === 0) {
+          setLiveDataStatus('error');
+          return;
+        }
+        // Compute total portfolio value to derive weight percentages
+        const totalValue = bySector.reduce((s, r) => s + Math.abs(r.value_usd || 0), 0);
+        if (totalValue === 0) { setLiveDataStatus('error'); return; }
+
+        const liveWeights = {};
+        bySector.forEach(r => {
+          const id = SECTOR_MAP[r.sector];
+          if (id) {
+            liveWeights[id] = ((Math.abs(r.value_usd || 0) / totalValue) * 100);
+          }
+        });
+
+        if (Object.keys(liveWeights).length === 0) { setLiveDataStatus('error'); return; }
+
+        setSectors(prev => prev.map(s => ({
+          ...s,
+          current: liveWeights[s.id] != null
+            ? parseFloat(liveWeights[s.id].toFixed(1))
+            : s.current,
+        })));
+        setLiveDataStatus('ok');
+      })
+      .catch(err => {
+        if (err?.name !== 'AbortError') setLiveDataStatus('error');
+      });
+
+    return () => ctrl.abort();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div style={{ maxWidth:900, margin:'0 auto', padding:'0 0 40px' }}>
       {/* Header */}
@@ -681,8 +745,21 @@ export default function RebalancingTab() {
           <div style={{ fontSize:18, fontWeight:700, color:'var(--text-primary)', fontFamily:'var(--fd)', display:'flex', alignItems:'center', gap:8 }}>
             Rebalancing Calculator
           </div>
-          <div style={{ fontSize:10, color:'var(--text-tertiary)', fontFamily:'var(--fb)', marginTop:2 }}>
+          <div style={{ fontSize:10, color:'var(--text-tertiary)', fontFamily:'var(--fb)', marginTop:2, display:'flex', alignItems:'center', gap:6 }}>
             Pre-poblado con recomendaciones de los sector dives · Abril 2026
+            {liveDataStatus === 'loading' && (
+              <span style={{ fontSize:9, color:'var(--text-tertiary)', fontFamily:'var(--fm)' }}>Cargando pesos live…</span>
+            )}
+            {liveDataStatus === 'ok' && (
+              <span style={{ fontSize:9, color:'var(--green)', fontFamily:'var(--fm)', padding:'1px 6px', borderRadius:4, background:'rgba(48,209,88,.08)', border:'1px solid rgba(48,209,88,.2)' }}>
+                Pesos live
+              </span>
+            )}
+            {liveDataStatus === 'error' && (
+              <span style={{ fontSize:9, color:'var(--text-tertiary)', fontFamily:'var(--fm)', padding:'1px 6px', borderRadius:4, background:'var(--subtle-bg)', border:'1px solid var(--border)' }}>
+                Pesos estaticos (API no disponible)
+              </span>
+            )}
           </div>
         </div>
         <NlvEditor nlv={nlv} setNlv={setNlv} />
