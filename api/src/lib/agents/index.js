@@ -26,6 +26,78 @@ const _qs_sum = (arr, n) => {
   return count === 0 ? null : sum;
 };
 
+// Fetch the GuruFocus financials doc from R2 for a single ticker. Returns null
+// if the bucket isn't bound, the object doesn't exist, or parsing fails. We
+// never throw — R2 is supplementary data and agents must still work when it's
+// absent. (2026-04-18 — wire-up of local docs/ uploaded via upload-docs-to-r2.sh)
+const getR2Financials = async (env, ticker) => {
+  if (!env.EARNINGS_R2) return null;
+  try {
+    const key = `docs/${ticker}/gf_financials.json`;
+    const obj = await env.EARNINGS_R2.get(key);
+    if (!obj) return null;
+    const text = await obj.text();
+    return JSON.parse(text);
+  } catch (e) {
+    console.warn(`[R2] gf_financials read failed for ${ticker}:`, e.message);
+    return null;
+  }
+};
+
+// Extract the condensed 30-year series from a GF financials doc. Returns a
+// compact object suitable for LLM context — NEVER pass the raw ~310KB JSON
+// to Claude. Only fields that inform dividend safety and long-term trend:
+//   { years: [...], divs: [...], fcfPerShare: [...], epsNRI: [...],
+//     revPerShare: [...], yearsOfDivs: N, divCuts: [indices where cut] }
+// Years are filtered to the last 30 (older accounting can be inconsistent).
+// The LLM can spot patterns like "40y no cut" or "2020 COVID dip recovered"
+// without us having to pre-compute them.
+const extractLongTermSeries = (gfDoc) => {
+  if (!gfDoc?.financials?.annuals) return null;
+  const a = gfDoc.financials.annuals;
+  const fy = a['Fiscal Year'] || [];
+  if (!Array.isArray(fy) || fy.length < 5) return null;
+  const psa = a.per_share_data_array || {};
+  const last = (arr, n = 30) => Array.isArray(arr) ? arr.slice(-n).map(v => {
+    const num = Number(v);
+    return Number.isFinite(num) ? num : null;
+  }) : null;
+  const years = last(fy, 30);
+  const divs = last(psa['Dividends per Share'], 30) || [];
+  const fcf = last(psa['Free Cash Flow per Share'], 30) || [];
+  const eps = last(psa['EPS without NRI'], 30) || [];
+  const rev = last(psa['Revenue per Share'], 30) || [];
+  // Count consecutive years of div payment (non-zero) ending at most recent non-TTM
+  let yearsOfDivs = 0;
+  for (let i = divs.length - 1; i >= 0; i--) {
+    if (divs[i] && divs[i] > 0) yearsOfDivs++;
+    else if (yearsOfDivs > 0) break;
+  }
+  // Index list of years where div was CUT vs prior year (>5% drop)
+  const divCuts = [];
+  for (let i = 1; i < divs.length; i++) {
+    const prev = divs[i - 1], curr = divs[i];
+    if (prev && curr && curr < prev * 0.95) divCuts.push(years[i]);
+  }
+  return { years, divs, fcfPerShare: fcf, epsNRI: eps, revPerShare: rev, yearsOfDivs, divCuts };
+};
+
+// Batch-fetch R2 long-term series for N tickers in parallel. Returns
+// { [ticker]: extractedSeries }. Missing tickers simply omitted from the map.
+const getR2LongTermSeriesBatch = async (env, tickers) => {
+  if (!env.EARNINGS_R2 || !tickers?.length) return {};
+  const entries = await Promise.all(tickers.map(async (t) => {
+    const doc = await getR2Financials(env, t);
+    if (!doc) return null;
+    const series = extractLongTermSeries(doc);
+    if (!series) return null;
+    return [t, series];
+  }));
+  const out = {};
+  for (const e of entries) if (e) out[e[0]] = e[1];
+  return out;
+};
+
 // ─── Agent 0: Market Regime (runs FIRST) ───────────────────────
 async function runRegimeAgent(env, fecha) {
   const mkt = await getMarketIndicators(env);
@@ -119,6 +191,15 @@ async function runEarningsAgent(env, fecha) {
   // Dividend agent already uses. Lets the model see whether a quarterly miss
   // is part of a trend or a one-off, instead of evaluating each quarter blind.
   const finMap = await getFmpFinancials(env, tickers);
+
+  // Load 30-year per-share series from R2 (condensed from local docs/). Lets
+  // Opus spot multi-decade trends that 6-quarter FMP data can't see — e.g.
+  // "EPS below 10y median" or "only the 4th negative FCF year in 30y".
+  // Absent → agent still works with FMP-only data.
+  const longTermMap = await getR2LongTermSeriesBatch(env, tickers);
+  if (Object.keys(longTermMap).length) {
+    console.log(`[Earnings] long-term R2 coverage: ${Object.keys(longTermMap).length}/${tickers.length} tickers`);
+  }
 
   // ── Cross-agent ground-truth: earnings_trend signals (added 2026-04-08) ──
   // earnings_trend (no LLM) runs BEFORE this agent in the pipeline so we can
@@ -232,6 +313,8 @@ async function runEarningsAgent(env, fecha) {
       transcript: tr ? { period: `${tr.quarter} ${tr.year}`, date: tr.date, excerpt: tr.excerpt, totalLen: tr.totalLen } : null,
       // Cross-agent ground-truth — only present if flagged today
       earningsTrendSignal: earningsTrendMap[p.ticker] || null,
+      // 30y annual per-share series from GuruFocus (R2 — docs/{ticker}/gf_financials.json)
+      longTerm30y: longTermMap[p.ticker] || null,
     };
   });
 
@@ -251,6 +334,16 @@ YOU NOW HAVE EARNINGS CALL TRANSCRIPTS. Use them as the PRIMARY source for tone 
 - A +2% EPS beat with management warning about deteriorating demand for next quarter is WARNING despite the beat.
 - When citing the transcript, quote a SHORT phrase (under 15 words) from management in transcript_insight.
 - If no transcript provided for a ticker, set transcript_insight to "No transcript" and rely on numerical data only.
+
+LONG-TERM HISTORY (longTerm30y, added 2026-04-18 — up to 30 years from GuruFocus):
+When present: { years[], divs[], fcfPerShare[], epsNRI[], revPerShare[], yearsOfDivs, divCuts[] }.
+Use it to contextualize the latest quarter:
+- "EPS $2.10 TTM vs 10y median of $3.40" = real deterioration, not seasonal.
+- "First negative FCF year in 30y" = genuinely structural, not one-off.
+- "EPS rebased lower 3 years ago and has been stable since" = not still bleeding.
+- Combined with transcript: long-term decline + credible recovery plan = warning; long-term
+  decline + evasive management = critical.
+If longTerm30y is null → no R2 history available, proceed with 6-quarter FMP data only.
 
 YOU NOW HAVE 6-QUARTER TREND DATA (revenue, netIncome, operatingIncome, grossProfit, fcf, ocf, eps).
 - ALWAYS check the trend before flagging a quarter as critical:
@@ -428,11 +521,17 @@ async function runDividendAgent(env, fecha) {
   }
 
   // Load GuruFocus data (for scalar fields: financialStrength, shareholderYield, etc.)
-  // and FMP financials (for trends — replaces gf.trend)
-  const [gfMap, fmpFinMap] = await Promise.all([
+  // and FMP financials (for trends — replaces gf.trend).
+  // Also attempt to load 30-year series from R2 (supplementary — this agent
+  // still works if R2 is empty; data comes from docs/{ticker}/gf_financials.json
+  // uploaded via scripts/upload-docs-to-r2.sh).
+  const [gfMap, fmpFinMap, longTermMap] = await Promise.all([
     getGfData(env, tickers),
     getFmpFinancials(env, tickers),
+    getR2LongTermSeriesBatch(env, tickers),
   ]);
+  const longTermCoverage = Object.keys(longTermMap).length;
+  console.log(`[Dividend] long-term R2 coverage: ${longTermCoverage}/${tickers.length} tickers`);
 
   // Classify tickers for context
   const REITS = new Set(['AMT','ARE','CLPR','CUBE','ESS','HR','IIPR','KRG','MDV','NNN','O','STAG','SUI','VICI','WPC','XLRE','NET.UN']);
@@ -498,6 +597,12 @@ async function runDividendAgent(env, fecha) {
       // Cross-agent ground-truth signals (only present if flagged today)
       cutWarningSignal: cutWarningMap[p.ticker] || null,
       analystDowngradeSignal: downgradeMap[p.ticker] || null,
+
+      // Long-term series from GuruFocus (up to 30 years) — condensed from
+      // docs/{ticker}/gf_financials.json in R2. Lets Opus verify dividend
+      // streaks, detect past cuts, and compare current coverage against
+      // decades of history. Null if R2 has no upload for this ticker.
+      longTerm30y: longTermMap[p.ticker] || null,
     };
   });
 
@@ -541,6 +646,19 @@ You now receive two pre-computed signals per ticker (when flagged):
   → Treat as a directional warning. Doesn't override fundamentals, but lower your conviction one notch.
 For tickers with NO signals present, those fields are null — proceed normally with your TTM analysis.
 DO NOT mention these signals in your output summary unless they materially change your verdict.
+
+LONG-TERM HISTORY (longTerm30y, added 2026-04-18 — from GuruFocus 30y data in R2):
+When present, longTerm30y gives you:
+- years[]: fiscal year labels (up to 30, e.g. "2005-12" … "2025-12", plus "TTM")
+- divs[]: dividends per share aligned to years (0 = no dividend that year)
+- fcfPerShare[], epsNRI[], revPerShare[]: matching long-term per-share series
+- yearsOfDivs: count of consecutive recent years paying a dividend
+- divCuts[]: list of year-labels where div was cut >5% vs prior year
+Use it to verify dividend streak claims (e.g. "40y no cut" = divCuts empty over 40y series),
+detect historical cut patterns (multiple cuts → management signals unstable), and contextualize
+current TTM coverage against a decade-plus history (e.g. "FCF coverage 0.8 is below its
+10y median of 1.4 → real deterioration, not seasonal").
+If longTerm30y is null, no R2 history available — proceed with TTM-only analysis.
 
 SEVERITY (be conservative — only "critical" for REAL danger):
 - critical = company is genuinely at risk of bankruptcy or permanent dividend elimination. Max 2-3 across entire portfolio.

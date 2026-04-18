@@ -11,7 +11,9 @@
 - **trade agent: 20 → 89 posiciones.** Quitado el `.slice(0, 20)` / `.slice(0, 30)` — Opus 200K context sobra para ver la cartera entera. Antes 69 de 89 posiciones eran invisibles al asesor.
 - **macro + risk con try/catch LLM.** Si Haiku 529/timeout, ahora se graba un insight `_MACRO_` / `_PORTFOLIO_` fallback con estado, en vez de desaparecer del feed diario.
 - **Silent catches mejorados** (`earnings_trend`, `cut_warning`, `analyst_downgrade` inner parses, Q+S inputs_json) — ahora `console.warn` con ticker en vez de tragar silenciosamente.
-- **docs/{ticker}/*.json → R2** preparado script (`scripts/upload-docs-to-r2.sh`). Antes los 57 GF financials locales y 63 SEC filing links eran inalcanzables desde Workers. Cableado a earnings/dividend agents: pendiente (siguiente sesión).
+- **docs/{ticker}/*.json → R2** preparado script (`scripts/upload-docs-to-r2.sh`). Sube 123 JSON a `r2://ayr-earnings-archive/docs/{ticker}/{filename}`. Los GF financials locales (30y data trimestral, algunos hasta 1986) ahora están accesibles desde Workers.
+- **dividend + earnings agents leen longTerm30y desde R2.** Helper `getR2Financials` + extractor `extractLongTermSeries` (en `agents/index.js`) devuelve un objeto condensado `{ years, divs, fcfPerShare, epsNRI, revPerShare, yearsOfDivs, divCuts }` con hasta 30 años de datos per-share. Los dos agentes ahora lo ven en `position.longTerm30y`. Fallback graceful si el bucket no tiene upload para ese ticker.
+- Los prompts de ambos agentes actualizados para referenciar `longTerm30y`: "EPS TTM vs mediana 10y", "primer FCF negativo en 30y", verificación de streaks, detección de cortes históricos.
 
 ## Architecture Overview
 
