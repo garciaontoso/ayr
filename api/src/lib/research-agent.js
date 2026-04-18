@@ -485,3 +485,176 @@ Reglas:
 
   return outcome;
 }
+
+// ─── Auto-trigger: detectContradictions ──────────────────────────────────────
+// Post-cron scanner que busca patrones "worth investigating" y los rankea.
+// Concepto: los 14 agentes clasifican. El Research Agent investiga. Este
+// detector es el puente — decide CUÁNDO activar la investigación sin gastar
+// $$ en casos rutinarios. Returns array of candidates ordenados por score.
+
+export async function detectContradictions(env, fecha) {
+  fecha = fecha || new Date().toISOString().slice(0, 10);
+  const { results: insights } = await env.DB.prepare(
+    `SELECT agent_name, ticker, severity, title, summary, score, details
+     FROM agent_insights WHERE fecha = ?`
+  ).bind(fecha).all();
+
+  // Index por ticker
+  const byTicker = {};
+  for (const i of insights) {
+    if (!i.ticker || i.ticker.startsWith("_")) continue;
+    if (!byTicker[i.ticker]) byTicker[i.ticker] = [];
+    byTicker[i.ticker].push({
+      ...i,
+      details: (() => { try { return JSON.parse(i.details || "{}"); } catch { return {}; } })(),
+    });
+  }
+
+  const candidates = [];
+
+  for (const [ticker, arr] of Object.entries(byTicker)) {
+    const byAgent = {};
+    for (const i of arr) byAgent[i.agent_name] = i;
+
+    let score = 0;
+    const reasons = [];
+
+    // Rule 1: dividend=critical + insider bullish (cluster_buys or buys > sells)
+    const div = byAgent.dividend;
+    const ins = byAgent.insider;
+    if (div?.severity === "critical" && ins) {
+      const insDet = ins.details || {};
+      const buys = Number(insDet.buys3m || insDet.insiderBuys3m || 0);
+      const sells = Number(insDet.sells3m || insDet.insiderSells3m || 0);
+      // Match EN and ES title patterns: "cluster buy", "collective buy",
+      // "Compra colectiva", "Compra masiva", "Insider buys"
+      const bullishTitle = /cluster|insider\s+buy|colectiva|compra\s+masiva|bulk\s+buy/i.test(ins.title || "");
+      const isBullish = (ins.severity === "info" || ins.severity === "warning") && (buys > sells || bullishTitle);
+      if (isBullish || buys > sells) {
+        score += 5;
+        reasons.push("dividend crítico con insiders comprando");
+      }
+    }
+
+    // Rule 2: trade=SELL/TRIM + value=ADD (contradicción entre asesor y screener de valor)
+    const trade = byAgent.trade;
+    const value = byAgent.value;
+    if (trade && value) {
+      const tradeAct = trade.details?.action;
+      if ((tradeAct === "SELL" || tradeAct === "TRIM") && value.title?.startsWith("ADD")) {
+        score += 4;
+        reasons.push(`trade dice ${tradeAct} pero value dice ADD`);
+      }
+    }
+
+    // Rule 3: dividend_cut_warning + analyst_downgrade coinciden
+    const cw = byAgent.dividend_cut_warning;
+    const ad = byAgent.analyst_downgrade;
+    if (cw?.severity === "critical" && ad?.severity === "critical") {
+      score += 3;
+      reasons.push("cut warning + downgrade cluster coinciden");
+    }
+
+    // Rule 4: 3+ agentes flagged critical sobre el mismo ticker
+    const criticals = arr.filter(i => i.severity === "critical").length;
+    if (criticals >= 3) {
+      score += 3;
+      reasons.push(`${criticals} agentes críticos`);
+    }
+
+    // Rule 5: earnings=critical pero trade=HOLD/ADD (earnings miss no convence al trade)
+    const earn = byAgent.earnings;
+    if (earn?.severity === "critical" && trade?.details?.action && ["HOLD", "ADD"].includes(trade.details.action)) {
+      score += 2;
+      reasons.push("earnings crítico pero trade HOLD/ADD");
+    }
+
+    if (score >= 3) {
+      // Build auto-question from the reasons
+      const question = `Contradicción detectada hoy: ${reasons.join(" · ")}. Investiga si el veredicto correcto es SELL/TRIM o si hay contexto (management plan, historia) que recomiende HOLD/ADD.`;
+      candidates.push({ ticker, score, reasons, question });
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates;
+}
+
+// ─── Auto-run: corre Research Agent sobre los top N candidatos ───────────────
+// Guardado en agent_memory: research_last_auto_scan_date + count investigated.
+// Respeta cap diario (default 3) y dedup 7 días: si un ticker ya tiene
+// investigación reciente, se salta.
+
+export async function runAutoInvestigations(env, { fecha, maxPerDay = 3 } = {}) {
+  fecha = fecha || new Date().toISOString().slice(0, 10);
+
+  // Cap: si ya corrimos hoy, no relanzar
+  const prev = await env.DB.prepare(
+    "SELECT data FROM agent_memory WHERE id = 'research_auto_scan'"
+  ).first();
+  const prevData = prev?.data ? (() => { try { return JSON.parse(prev.data); } catch { return {}; } })() : {};
+  if (prevData.fecha === fecha && (prevData.investigations || 0) >= maxPerDay) {
+    return { skipped: true, reason: "already_ran_today", prevData };
+  }
+
+  const candidates = await detectContradictions(env, fecha);
+
+  // Dedup: excluir tickers con investigación en los últimos 7 días
+  const sevenAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+  const { results: recent } = await env.DB.prepare(
+    "SELECT DISTINCT ticker FROM research_investigations WHERE started_at >= ?"
+  ).bind(sevenAgo).all();
+  const investigatedSet = new Set((recent || []).map(r => r.ticker).filter(Boolean));
+
+  const toInvestigate = candidates
+    .filter(c => !investigatedSet.has(c.ticker))
+    .slice(0, maxPerDay);
+
+  const results = [];
+  for (const c of toInvestigate) {
+    try {
+      const outcome = await runResearchAgent(env, {
+        ticker: c.ticker,
+        question: c.question,
+        triggerReason: "auto_contradiction",
+      });
+      results.push({
+        ticker: c.ticker,
+        score: c.score,
+        reasons: c.reasons,
+        investigationId: outcome.investigationId,
+        verdict: outcome.verdict,
+        confidence: outcome.confidence,
+        cost_usd: outcome.cost_usd,
+        stopReason: outcome.stopReason,
+      });
+    } catch (e) {
+      results.push({ ticker: c.ticker, error: e.message });
+    }
+  }
+
+  // Persist scan state
+  try {
+    await env.DB.prepare(
+      `INSERT INTO agent_memory (id, data) VALUES ('research_auto_scan', ?)
+       ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = datetime('now')`
+    ).bind(JSON.stringify({
+      fecha,
+      scannedCandidates: candidates.length,
+      investigations: results.length,
+      totalCost: results.reduce((s, r) => s + (r.cost_usd || 0), 0),
+      ran_at: new Date().toISOString(),
+    })).run();
+  } catch (e) {
+    console.error("[Research auto-scan] persist failed:", e.message);
+  }
+
+  return {
+    fecha,
+    scanned: candidates.length,
+    deduped: candidates.length - toInvestigate.length,
+    investigated: results.length,
+    totalCost: results.reduce((s, r) => s + (r.cost_usd || 0), 0),
+    results,
+  };
+}

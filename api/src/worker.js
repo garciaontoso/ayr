@@ -7,7 +7,7 @@
 import { SPANISH_FUNDS_1S2025 } from './data/spanish_funds.js';
 
 import { makeAgents } from "./lib/agents/index.js";
-import { runResearchAgent } from "./lib/research-agent.js";
+import { runResearchAgent, detectContradictions, runAutoInvestigations } from "./lib/research-agent.js";
 
 // Mapping from our tickers to FMP symbols (foreign tickers need exchange suffix)
 // CRITICAL: bare "ENG" on FMP = ENGlobal Corp (wrong!), "RAND" = Rand Capital (wrong!)
@@ -13117,6 +13117,28 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         const _resAuth = (isAllowed && origin) ? null : ytRequireToken(request, env);
         if (_resAuth) return _resAuth;
         await ensureMigrations(env);
+        // Explicit CREATE here — ensureMigrations is cached per isolate and may
+        // skip the new table on a warm isolate from a prior deploy. (2026-04-18)
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS research_investigations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          ticker TEXT,
+          question TEXT,
+          trigger_reason TEXT,
+          started_at TEXT NOT NULL DEFAULT (datetime('now')),
+          finished_at TEXT,
+          duration_s REAL,
+          tool_calls_json TEXT DEFAULT '[]',
+          total_tool_calls INTEGER DEFAULT 0,
+          total_tokens_in INTEGER DEFAULT 0,
+          total_tokens_out INTEGER DEFAULT 0,
+          cost_usd REAL DEFAULT 0,
+          final_verdict TEXT,
+          confidence TEXT,
+          summary TEXT,
+          evidence_json TEXT DEFAULT '[]',
+          full_response TEXT,
+          error TEXT
+        )`).run();
         let body = {};
         try { body = await request.json(); } catch {}
         const ticker = body.ticker ? String(body.ticker).trim().toUpperCase() : null;
@@ -13127,6 +13149,28 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         }
         try {
           const result = await runResearchAgent(env, { ticker, question, triggerReason: reason });
+          return json(result, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+      // POST /api/research-agent/auto-scan — detector de contradicciones + run
+      // Ejecuta el detector sobre los insights de hoy, rankea, y lanza Research
+      // Agent sobre top N candidatos (cap diario 3 por defecto, dedup 7 días).
+      // Idempotente: si ya corrió hoy y alcanzó el cap, devuelve skipped.
+      // También accesible vía ?dryRun=1 para ver sólo los candidatos sin correr.
+      if (path === "/api/research-agent/auto-scan" && request.method === "POST") {
+        const _aaAuth = (isAllowed && origin) ? null : ytRequireToken(request, env);
+        if (_aaAuth) return _aaAuth;
+        await ensureMigrations(env);
+        const dry = url.searchParams.get("dryRun") === "1";
+        const maxPerDay = Math.max(1, Math.min(5, parseInt(url.searchParams.get("max") || "3", 10)));
+        try {
+          if (dry) {
+            const candidates = await detectContradictions(env);
+            return json({ dryRun: true, candidates }, corsHeaders);
+          }
+          const result = await runAutoInvestigations(env, { maxPerDay });
           return json(result, corsHeaders);
         } catch (e) {
           return json({ error: e.message }, corsHeaders, 500);
