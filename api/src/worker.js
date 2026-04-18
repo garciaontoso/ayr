@@ -3933,6 +3933,26 @@ export default {
           pending_actions: pendingActions,
           top_news: topNews,
           cantera_today: canteraToday,
+          research_investigations: await (async () => {
+            // Research Agent verdicts de hoy — los insights más accionables
+            // porque el agente investigó en profundidad antes de recomendar.
+            // (2026-04-18 integration: briefing ahora muestra TRIM/HOLD/ADD del
+            // Research Agent en el top del feed en vez de enterrarlos.)
+            try {
+              const { results } = await env.DB.prepare(
+                `SELECT id, ticker, question, trigger_reason, started_at, duration_s,
+                        cost_usd, final_verdict, confidence, summary, evidence_json
+                   FROM research_investigations
+                  WHERE DATE(started_at) = ?
+                    AND final_verdict IS NOT NULL
+                  ORDER BY started_at DESC LIMIT 10`
+              ).bind(today).all();
+              return (results || []).map(r => ({
+                ...r,
+                evidence: (() => { try { return JSON.parse(r.evidence_json || '[]'); } catch { return []; } })(),
+              }));
+            } catch { return []; }
+          })(),
           opus_summary: null,
         };
 

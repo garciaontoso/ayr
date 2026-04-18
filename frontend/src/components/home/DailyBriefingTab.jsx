@@ -193,7 +193,14 @@ export default function DailyBriefingTab() {
   if (!data) return null;
 
   const { portfolio, market, top_movers, critical_alerts, upcoming_earnings,
-          new_filings, upcoming_dividends, pending_actions, date } = data;
+          new_filings, upcoming_dividends, pending_actions, date,
+          research_investigations } = data;
+
+  const verdictColor = (v) => v === 'ADD' ? '#22c55e'
+    : v === 'SELL' ? '#ef4444'
+    : v === 'TRIM' ? '#f59e0b'
+    : v === 'HOLD' ? '#64d2ff'
+    : 'var(--text-secondary)';
 
   const nlvValues = (portfolio?.nlv_history || []).map(p => Number(p.nlv) || 0);
 
@@ -442,6 +449,57 @@ export default function DailyBriefingTab() {
           )}
         </div>
       </div>
+
+      {/* Research Agent verdicts — máxima prioridad, investigaron en profundidad */}
+      {research_investigations && research_investigations.length > 0 && (
+        <div style={{
+          ...card, marginBottom: 12,
+          background: 'linear-gradient(135deg, rgba(100,210,255,0.06), rgba(100,210,255,0.02))',
+          borderColor: 'rgba(100,210,255,0.4)',
+        }}>
+          <div style={title}>🔬 Research Agent — veredictos de hoy</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+            {research_investigations.slice(0, 5).map((r) => (
+              <div key={r.id} style={{
+                padding: '8px 10px', borderRadius: 8,
+                background: 'var(--subtle-bg)',
+                border: '1px solid var(--border)',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
+                  <span style={{ ...mono, fontSize: 13, fontWeight: 700, color: 'var(--gold)' }}>{r.ticker}</span>
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                    background: verdictColor(r.final_verdict) + '22',
+                    color: verdictColor(r.final_verdict),
+                    border: `1px solid ${verdictColor(r.final_verdict)}`,
+                  }}>{r.final_verdict} {r.confidence}</span>
+                  <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>
+                    {r.trigger_reason === 'auto_contradiction' ? '🤖 auto' : '✋ manual'} · {r.duration_s?.toFixed?.(0) || '—'}s · ${r.cost_usd?.toFixed?.(2) || '—'}
+                  </span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                  {r.summary}
+                </div>
+                {r.evidence && r.evidence.length > 0 && (
+                  <details style={{ marginTop: 6 }}>
+                    <summary style={{ fontSize: 10, color: 'var(--text-tertiary)', cursor: 'pointer' }}>
+                      {r.evidence.length} evidencias citadas ▾
+                    </summary>
+                    <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {r.evidence.slice(0, 5).map((e, idx) => (
+                        <div key={idx} style={{ fontSize: 11, color: 'var(--text-secondary)', paddingLeft: 10, borderLeft: '2px solid var(--gold)' }}>
+                          <span style={{ fontSize: 9, color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>[{e.type}]</span>{' '}
+                          <span style={{ fontStyle: 'italic' }}>"{e.snippet}"</span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Critical alerts */}
       <div style={{ ...card, marginBottom: 12 }}>
