@@ -60,6 +60,15 @@ function ListsPillsBar({ lists, activeId, setActiveId, onAddList, onDeleteList }
   );
 }
 
+// Normalize a user-typed ticker. Pure-numeric 3-5 digits = HK stock → pad to
+// 4 digits + .HK suffix (FMP format). Everything else is uppercased.
+function normalizeTicker(raw) {
+  const t = (raw || '').trim().toUpperCase();
+  if (!t) return '';
+  if (/^\d{3,5}$/.test(t)) return t.padStart(4, '0') + '.HK';
+  return t;
+}
+
 export default function ResearchTab() {
   const {
     searchTicker, setSearchTicker,
@@ -71,6 +80,7 @@ export default function ResearchTab() {
     reportData, reportLoading, reportSymbol, openReport,
     openAnalysis, POS_STATIC,
     loadFromAPI, fmpLoading, fmpError, setViewMode, setTab, setCfg,
+    setHomeTab,
   } = useHome();
 
   // Custom lists — user-created watchlists, persisted in localStorage.
@@ -83,6 +93,10 @@ export default function ResearchTab() {
     setCustomLists(lists);
     try { localStorage.setItem(CUSTOM_LISTS_KEY, JSON.stringify(lists)); } catch {}
   }, []);
+  const openAlertForTicker = useCallback((ticker) => {
+    try { sessionStorage.setItem('prefill_alert_ticker', ticker); } catch {}
+    if (setHomeTab) setHomeTab('alert-rules');
+  }, [setHomeTab]);
 
   return (
 <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -162,9 +176,9 @@ export default function ResearchTab() {
     const handleAddList = () => {
       const name = window.prompt('Nombre de la nueva lista (ej: "Mis REITs", "Cyclicals 2026"):');
       if (!name || !name.trim()) return;
-      const tickersRaw = window.prompt(`Tickers separados por coma para "${name.trim()}":\nEj: KO, PEP, PG, MCD`);
+      const tickersRaw = window.prompt(`Tickers separados por coma para "${name.trim()}":\nEj: KO, PEP, PG, MCD\nHK: "1066" se convierte automáticamente a "1066.HK"`);
       if (tickersRaw == null) return;
-      const tickers = tickersRaw.split(/[,\s]+/).map(t => t.trim().toUpperCase()).filter(Boolean);
+      const tickers = tickersRaw.split(/[,\s]+/).map(normalizeTicker).filter(Boolean);
       if (!tickers.length) { alert('Tickers vacíos'); return; }
       const colors = ["#c8a44e","#30d158","#0a84ff","#ff9f0a","#a855f7","#34d399","#f59e0b","#60a5fa","#ef4444","#8b5cf6","#ec4899","#14b8a6"];
       const newList = {
@@ -185,6 +199,24 @@ export default function ResearchTab() {
       saveCustomLists(customLists.filter(l => l.id !== id));
       if (activeId === id) setActiveId('portfolio');
     };
+    // Edit tickers of an existing custom list. Prompt with current tickers
+    // pre-filled, replace entire list on submit.
+    const handleEditList = (id) => {
+      if (!id.startsWith('custom_')) return;
+      const list = customLists.find(l => l.id === id);
+      if (!list) return;
+      const current = list.tickers.join(', ');
+      const raw = window.prompt(`Edita los tickers de "${list.name}" (separados por coma).\nHK: "1066" se convierte a "1066.HK"`, current);
+      if (raw == null) return;
+      const tickers = raw.split(/[,\s]+/).map(normalizeTicker).filter(Boolean);
+      saveCustomLists(customLists.map(l => l.id === id ? { ...l, tickers } : l));
+    };
+    // Remove a single ticker from the active custom list.
+    const handleRemoveTicker = (listId, ticker) => {
+      if (!listId.startsWith('custom_')) return;
+      saveCustomLists(customLists.map(l => l.id === listId ? { ...l, tickers: l.tickers.filter(t => t !== ticker) } : l));
+    };
+    const isCustomList = selectedList && selectedList.id.startsWith('custom_');
     return <div style={{display:"flex",flexDirection:"column",gap:10}}>
       <ListsPillsBar lists={lists} activeId={activeId} setActiveId={setActiveId} onAddList={handleAddList} onDeleteList={handleDeleteList} />
       {/* Selected list content */}
@@ -195,6 +227,13 @@ export default function ResearchTab() {
               <div style={{fontSize:14,fontWeight:700,color:selectedList.color,fontFamily:"var(--fd)"}}>{selectedList.name}</div>
               <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>{selectedList.desc} · {selectedList.tickers.length} empresas</div>
             </div>
+            {isCustomList && (
+              <button onClick={()=>handleEditList(selectedList.id)}
+                title="Editar tickers de esta lista (añadir/quitar)"
+                style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${selectedList.color}60`,background:`${selectedList.color}18`,color:selectedList.color,fontSize:9,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>
+                ✏️ Editar tickers
+              </button>
+            )}
           </div>
           {(() => {
             const list = selectedList;
@@ -282,7 +321,18 @@ export default function ResearchTab() {
                           <td style={{...cs,textAlign:"right",fontWeight:700,color:item.discount>20?"var(--green)":item.discount>0?"var(--gold)":item.discount>-20?"var(--orange)":"var(--red)"}}>{item.discount>0?"+":""}{item.discount}%</td>
                         </>}
                         <td style={{...cs,textAlign:"center"}}><span style={{fontSize:9,padding:"2px 7px",borderRadius:4,fontWeight:700,background:`${rc(fr.rating)}18`,color:rc(fr.rating)}}>{fr.rating||"—"}</span></td>
-                        <td style={{...cs,textAlign:"center"}}><button onClick={e=>{e.stopPropagation();openReport(item.symbol);openAnalysis(item.symbol);setTab("dst");}} style={{padding:"3px 8px",borderRadius:5,border:"1px solid var(--gold)",background:"var(--gold-dim)",color:"var(--gold)",fontSize:8,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)",whiteSpace:"nowrap"}}>Informe</button></td>
+                        <td style={{...cs,textAlign:"center"}}>
+                          <div style={{display:"inline-flex",gap:3,alignItems:"center"}}>
+                            <button onClick={e=>{e.stopPropagation();openAlertForTicker(item.symbol);}}
+                              title={`Crear alarma para ${item.symbol}`}
+                              style={{padding:"3px 6px",borderRadius:5,border:"1px solid var(--orange)",background:"rgba(255,159,10,.1)",color:"var(--orange)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)"}}>🔔</button>
+                            {isCustomList && <button onClick={e=>{e.stopPropagation();handleRemoveTicker(selectedList.id, item.symbol);}}
+                              title={`Quitar ${item.symbol} de ${selectedList.name}`}
+                              style={{padding:"3px 6px",borderRadius:5,border:"1px solid rgba(255,69,58,.35)",background:"rgba(255,69,58,.08)",color:"var(--red)",fontSize:9,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>✕</button>}
+                            <button onClick={e=>{e.stopPropagation();openReport(item.symbol);openAnalysis(item.symbol);setTab("dst");}}
+                              style={{padding:"3px 8px",borderRadius:5,border:"1px solid var(--gold)",background:"var(--gold-dim)",color:"var(--gold)",fontSize:8,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)",whiteSpace:"nowrap"}}>Informe</button>
+                          </div>
+                        </td>
                       </tr>;
                     })}
                   </tbody>
@@ -293,7 +343,19 @@ export default function ResearchTab() {
                   <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>SIN DATOS ({noData.length})</span>
                 </div>
                 <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                  {noData.map(t => <button key={t} onClick={()=>openAnalysis(t)} style={{padding:"4px 10px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)"}}>{t}</button>)}
+                  {noData.map(t => (
+                    <div key={t} style={{display:"inline-flex",alignItems:"center",border:"1px solid var(--border)",borderRadius:6,background:"transparent"}}>
+                      <button onClick={()=>openAnalysis(t)}
+                        title="Analizar"
+                        style={{padding:"4px 8px",border:"none",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)"}}>{t}</button>
+                      <button onClick={()=>openAlertForTicker(t)}
+                        title={`Alarma para ${t}`}
+                        style={{padding:"4px 5px",border:"none",borderLeft:"1px solid var(--border)",background:"transparent",color:"var(--orange)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)"}}>🔔</button>
+                      {isCustomList && <button onClick={()=>handleRemoveTicker(selectedList.id, t)}
+                        title={`Quitar ${t}`}
+                        style={{padding:"4px 6px",border:"none",borderLeft:"1px solid var(--border)",background:"transparent",color:"var(--red)",fontSize:9,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>✕</button>}
+                    </div>
+                  ))}
                 </div>
               </div>}
             </div>;

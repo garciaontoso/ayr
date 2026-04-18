@@ -70,7 +70,13 @@ function EmptyState() {
 
 // ── Add Rule Form ────────────────────────────────────────────────
 function AddRuleForm({ onAdded, token }) {
-  const [ticker, setTicker] = useState('');
+  const [ticker, setTicker] = useState(() => {
+    try {
+      const pre = sessionStorage.getItem('prefill_alert_ticker');
+      if (pre) { sessionStorage.removeItem('prefill_alert_ticker'); return pre; }
+    } catch {}
+    return '';
+  });
   const [ruleType, setRuleType] = useState('price_below');
   const [threshold, setThreshold] = useState('');
   const [message, setMessage] = useState('');
