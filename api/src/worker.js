@@ -16173,11 +16173,12 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
     // Differentiate which cron fired so Monday 06:00 (digest) and Monday 13:00
     // (daily pipeline) do not both run the full agent pipeline.
     const cronExpr = event?.cron || "";
-    const isWeeklyDigestCron = cronExpr === "0 6 * * 1";
-    const isDailyAgentsCron  = cronExpr === "0 13 * * 1-5";
+    const isWeeklyDigestCron  = cronExpr === "0 6 * * 1";
+    const isDailyAgentsCron   = cronExpr === "0 13 * * 1-5";
+    const isResearchScanCron  = cronExpr === "30 14 * * 1-5";
     // Fallback: if cron expr unknown (on-demand), run everything like the
     // legacy behaviour so manual calls from dev never skip work.
-    const runEverything = !isWeeklyDigestCron && !isDailyAgentsCron;
+    const runEverything = !isWeeklyDigestCron && !isDailyAgentsCron && !isResearchScanCron;
 
     try {
       await ensureMigrations(env);
@@ -16282,6 +16283,23 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
           }
         })());
       }
+    }
+    // Research auto-scan — only on 14:30 UTC weekday cron (or on-demand).
+    // Runs ~90 min after runAllAgents so agent_insights are fully populated
+    // before contradiction detection starts. Budget: ~$3-5/day worst case.
+    if (isResearchScanCron || runEverything) {
+      ctx.waitUntil((async () => {
+        try {
+          console.log("Research auto-scan starting...");
+          const scanResult = await runAutoInvestigations(env, { maxPerDay: 3 });
+          console.log("Research auto-scan completed: scanned=%d investigated=%d cost=$%s",
+            scanResult.scanned ?? 0,
+            scanResult.investigated ?? 0,
+            (scanResult.totalCost ?? 0).toFixed(2));
+        } catch(e) {
+          console.error("Research auto-scan cron failed:", e.message);
+        }
+      })());
     }
   },
 };

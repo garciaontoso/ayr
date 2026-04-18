@@ -84,6 +84,42 @@ const TOOLS = [
     },
   },
   {
+    name: "get_sec_filing_body",
+    description: "Lee el cuerpo completo (texto) de un SEC filing reciente (8-K, 10-Q, 10-K). A diferencia de sec_filings (solo detecta existencia), este tool descarga el HTML y lo convierte a texto plano. Úsalo cuando quieras LEER lo que dice un 8-K de un evento material, o verificar el lenguaje exacto de un 10-Q. Coste medio: 1 llamada SEC + 1 fetch del documento. Límite 10 000 chars devueltos.",
+    input_schema: {
+      type: "object",
+      properties: {
+        ticker: { type: "string", description: "Ticker del portfolio (ej. 'KO', 'AHRT')." },
+        formType: { type: "string", description: "Tipo de filing: '8-K', '10-Q', '10-K'. Default '8-K'." },
+        limit: { type: "number", description: "Cuántos filings recientes revisar para encontrar el más reciente del formType. Default 1." },
+      },
+      required: ["ticker"],
+    },
+  },
+  {
+    name: "get_price_history",
+    description: "Devuelve la serie histórica de precio cierre y dividendos pagados para un ticker. Útil para calcular rentabilidad total en el período, contexto de volatilidad o confirmar si hay un patrón de caída prolongada. Fuente: FMP historical-price-eod/light + D1 dividendos. Trim 50 filas de precio. Coste bajo.",
+    input_schema: {
+      type: "object",
+      properties: {
+        ticker: { type: "string" },
+        days: { type: "number", description: "Ventana en días (default 90, máx 365)." },
+      },
+      required: ["ticker"],
+    },
+  },
+  {
+    name: "get_analyst_grades_historical",
+    description: "Serie histórica de ratings de analistas (Buy/Hold/Sell) para un ticker, condensada en los últimos 12 meses. Calcula un 'score' = strongBuy*2 + buy - sell - strongSell*2. Muestra cambio del score a 6m y 12m. Úsalo para entender si el consenso de sell-side ha mejorado o deteriorado progresivamente — complementa al agent analyst_downgrade que solo ve 2 puntos en el tiempo. Coste bajo: 1 llamada FMP.",
+    input_schema: {
+      type: "object",
+      properties: {
+        ticker: { type: "string" },
+      },
+      required: ["ticker"],
+    },
+  },
+  {
     name: "finish",
     description: "TERMINA la investigación con veredicto final. Debe citar 3-5 piezas de evidencia concreta (números, transcripts, filings). No llames si te falta claridad — sigue investigando hasta que tengas respuesta o dictamina NEEDS_HUMAN.",
     input_schema: {
@@ -248,6 +284,264 @@ async function tool_query_db(env, { sql }) {
   return results.slice(0, 50);
 }
 
+// ─── Helpers for new tools ────────────────────────────────────────────────────
+
+// Normalize ticker for FMP (strip exchange prefix, map known variants)
+function toFMPSymbol(ticker) {
+  if (!ticker) return ticker;
+  // Strip common exchange prefixes used in the portfolio
+  const stripped = ticker.replace(/^(BME:|HKG:|LSE:|HGK:)/, "");
+  // Map known differences (add more as needed)
+  const MAP = { "BRK.B": "BRK-B", "BF.B": "BF-B" };
+  return MAP[stripped] || stripped;
+}
+
+// Strip HTML tags and normalize whitespace to plain text
+function htmlToPlainText(html) {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+// ─── Tool 1: get_sec_filing_body ─────────────────────────────────────────────
+async function tool_get_sec_filing_body(env, { ticker, formType = "8-K", limit = 1 }) {
+  if (!ticker) return { error: "ticker required" };
+  const cleanTicker = ticker.replace(/^(BME:|HKG:|LSE:|HGK:)/, "").toUpperCase();
+  const SEC_UA = "A&R Research ontoso@me.com";
+  const SEC_HEADERS = { "User-Agent": SEC_UA, "Accept": "application/json" };
+  const limitNum = Math.min(5, Math.max(1, Number(limit) || 1));
+  const targetForm = (formType || "8-K").toUpperCase();
+
+  try {
+    // Step 1: Resolve CIK from agent_memory cache, then company_tickers.json fallback
+    let cik = null;
+    try {
+      const memRow = await env.DB.prepare(
+        "SELECT value FROM agent_memory WHERE key = 'sec_cik_cache'"
+      ).first();
+      if (memRow?.value) {
+        const cikMap = JSON.parse(memRow.value);
+        cik = cikMap[cleanTicker] || null;
+      }
+    } catch { /* non-fatal — fall through to EDGAR lookup */ }
+
+    if (!cik) {
+      // Fetch the full tickers map from SEC (one-shot, ~1MB)
+      const mapResp = await fetch("https://www.sec.gov/files/company_tickers.json", {
+        headers: SEC_HEADERS,
+      });
+      if (!mapResp.ok) return { ticker, found: false, reason: `CIK map fetch failed: ${mapResp.status}` };
+      const mapData = await mapResp.json();
+      for (const entry of Object.values(mapData)) {
+        if (entry?.ticker?.toUpperCase() === cleanTicker && entry?.cik_str != null) {
+          cik = String(entry.cik_str).padStart(10, "0");
+          break;
+        }
+      }
+    }
+
+    if (!cik) return { ticker, found: false, reason: "CIK not found in SEC EDGAR" };
+
+    // Step 2: Fetch submissions to get recent filings index
+    const subUrl = `https://data.sec.gov/submissions/CIK${cik}.json`;
+    const subResp = await fetch(subUrl, { headers: SEC_HEADERS });
+    if (!subResp.ok) return { ticker, found: false, reason: `submissions fetch failed: ${subResp.status}` };
+    const subData = await subResp.json();
+    const recent = subData?.filings?.recent || {};
+    const forms = recent.form || [];
+    const dates = recent.filingDate || [];
+    const accessions = recent.accessionNumber || [];
+    const primaryDocs = recent.primaryDocument || [];
+
+    // Step 3: Find the most recent filing of the requested formType
+    let found = null;
+    let checked = 0;
+    for (let i = 0; i < forms.length && checked < limitNum * 10; i++) {
+      if (forms[i]?.toUpperCase() === targetForm) {
+        found = {
+          date: dates[i],
+          accession: accessions[i],
+          primaryDoc: primaryDocs[i],
+        };
+        checked++;
+        if (checked >= limitNum) break;
+      }
+    }
+
+    if (!found) return { ticker, found: false, reason: `no ${targetForm} filing found in recent submissions` };
+
+    // Step 4: Fetch the primary document (HTML/txt)
+    // Accession format from SEC: "0001234567-24-000001" → "0001234567024000001" for URL
+    const accNoHyphens = (found.accession || "").replace(/-/g, "");
+    const docUrl = `https://www.sec.gov/Archives/edgar/data/${parseInt(cik, 10)}/${accNoHyphens}/${found.primaryDoc}`;
+    const docResp = await fetch(docUrl, {
+      headers: { "User-Agent": SEC_UA, "Accept": "text/html,text/plain,*/*" },
+    });
+    if (!docResp.ok) {
+      return {
+        ticker, found: true, formType: targetForm,
+        date: found.date, accession: found.accession, url: docUrl,
+        bodyText: null, error: `document fetch failed: ${docResp.status}`,
+      };
+    }
+
+    const rawHtml = await docResp.text();
+    const plain = htmlToPlainText(rawHtml);
+    const CHAR_LIMIT = 10000;
+
+    return {
+      ticker,
+      found: true,
+      formType: targetForm,
+      date: found.date,
+      accession: found.accession,
+      url: docUrl,
+      fullLength: plain.length,
+      bodyText: plain.slice(0, CHAR_LIMIT),
+      truncated: plain.length > CHAR_LIMIT,
+    };
+  } catch (e) {
+    return { ticker, error: e.message };
+  }
+}
+
+// ─── Tool 2: get_price_history ────────────────────────────────────────────────
+async function tool_get_price_history(env, { ticker, days = 90 }) {
+  if (!ticker) return { error: "ticker required" };
+  const periodDays = Math.min(365, Math.max(7, Number(days) || 90));
+  const sym = toFMPSymbol(ticker);
+  const fromDate = new Date(Date.now() - periodDays * 86400000).toISOString().slice(0, 10);
+
+  // Fetch FMP price history
+  let prices = [];
+  try {
+    if (!env.FMP_KEY) return { ticker, error: "FMP_KEY not configured" };
+    const url = `https://financialmodelingprep.com/stable/historical-price-eod/light?symbol=${encodeURIComponent(sym)}&from=${fromDate}&apikey=${env.FMP_KEY}`;
+    const resp = await fetch(url);
+    if (resp.status === 403 || resp.status === 404) {
+      return { ticker, found: false, reason: `FMP returned ${resp.status}` };
+    }
+    if (!resp.ok) return { ticker, error: `FMP fetch failed: ${resp.status}` };
+    const data = await resp.json();
+    const arr = Array.isArray(data) ? data : (data?.historical || []);
+    // FMP returns newest-first; reverse to chronological
+    const sorted = arr.slice().sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    // Trim to 50 rows — keep every Nth point if more
+    const step = sorted.length > 50 ? Math.ceil(sorted.length / 50) : 1;
+    prices = sorted
+      .filter((_, i) => i % step === 0)
+      .slice(0, 50)
+      .map(r => ({ date: r.date, close: r.close ?? r.price ?? null }));
+  } catch (e) {
+    return { ticker, error: `FMP error: ${e.message}` };
+  }
+
+  // Price change %
+  let priceChangePct = null;
+  if (prices.length >= 2) {
+    const first = prices[0].close;
+    const last = prices[prices.length - 1].close;
+    if (first && last) priceChangePct = Math.round(((last - first) / first) * 10000) / 100;
+  }
+
+  // Dividends paid in the period from D1
+  let dividends = [];
+  let totalDivsPaid = 0;
+  try {
+    const { results: divRows } = await env.DB.prepare(
+      `SELECT fecha, amount_usd FROM dividendos WHERE ticker = ? AND fecha >= ? ORDER BY fecha ASC`
+    ).bind(ticker, fromDate).all();
+    dividends = (divRows || []).map(r => ({ date: r.fecha, amount_usd: r.amount_usd }));
+    totalDivsPaid = dividends.reduce((s, d) => s + (Number(d.amount_usd) || 0), 0);
+    totalDivsPaid = Math.round(totalDivsPaid * 100) / 100;
+  } catch { /* non-fatal: dividendos table may not have this ticker */ }
+
+  return {
+    ticker,
+    periodDays,
+    fromDate,
+    prices,
+    priceChangePct,
+    dividends,
+    totalDivsPaid,
+  };
+}
+
+// ─── Tool 3: get_analyst_grades_historical ────────────────────────────────────
+async function tool_get_analyst_grades_historical(env, { ticker }) {
+  if (!ticker) return { error: "ticker required" };
+  if (!env.FMP_KEY) return { ticker, error: "FMP_KEY not configured" };
+  const sym = toFMPSymbol(ticker);
+
+  try {
+    const url = `https://financialmodelingprep.com/stable/grades-historical?symbol=${encodeURIComponent(sym)}&apikey=${env.FMP_KEY}`;
+    const resp = await fetch(url);
+    if (resp.status === 403 || resp.status === 404) {
+      return { ticker, found: false, reason: `FMP returned ${resp.status}` };
+    }
+    if (!resp.ok) return { ticker, error: `FMP fetch failed: ${resp.status}` };
+    const data = await resp.json();
+    if (!Array.isArray(data) || !data.length) return { ticker, found: false, reason: "no data from FMP" };
+
+    // Filter to last 12 months
+    const cutoff12m = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+    const filtered = data
+      .filter(r => r.date >= cutoff12m)
+      .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+
+    // Score = strongBuy*2 + buy - sell - strongSell*2
+    const scoreRow = (r) =>
+      (Number(r.analystRatingsStrongBuy) || 0) * 2 +
+      (Number(r.analystRatingsBuy) || 0) -
+      (Number(r.analystRatingsSell) || 0) -
+      (Number(r.analystRatingsStrongSell) || 0) * 2;
+
+    const series = filtered.map(r => ({
+      date: r.date,
+      strongBuy: Number(r.analystRatingsStrongBuy) || 0,
+      buy: Number(r.analystRatingsBuy) || 0,
+      hold: Number(r.analystRatingsHold) || 0,
+      sell: Number(r.analystRatingsSell) || 0,
+      strongSell: Number(r.analystRatingsStrongSell) || 0,
+      score: scoreRow(r),
+    }));
+
+    // Thin to max 24 points (roughly quincenal for a full year)
+    const step = series.length > 24 ? Math.ceil(series.length / 24) : 1;
+    const thinned = series.filter((_, i) => i % step === 0).slice(0, 24);
+
+    const latestScore = thinned.length ? thinned[thinned.length - 1].score : null;
+
+    // Score change at 6m and 12m horizons
+    const cutoff6m = new Date(Date.now() - 182 * 86400000).toISOString().slice(0, 10);
+    const pt6m = series.find(r => r.date >= cutoff6m);
+    const pt12m = series.length ? series[0] : null;
+
+    const scoreChange6m = (latestScore !== null && pt6m) ? latestScore - pt6m.score : null;
+    const scoreChange12m = (latestScore !== null && pt12m) ? latestScore - pt12m.score : null;
+
+    return {
+      ticker,
+      found: true,
+      series: thinned,
+      latestScore,
+      scoreChange6m,
+      scoreChange12m,
+    };
+  } catch (e) {
+    return { ticker, error: e.message };
+  }
+}
+
 const TOOL_HANDLERS = {
   query_agent_insights: tool_query_agent_insights,
   get_fundamentals: tool_get_fundamentals,
@@ -255,6 +549,9 @@ const TOOL_HANDLERS = {
   get_transcript_excerpt: tool_get_transcript_excerpt,
   query_peer_positions: tool_query_peer_positions,
   query_db: tool_query_db,
+  get_sec_filing_body: tool_get_sec_filing_body,
+  get_price_history: tool_get_price_history,
+  get_analyst_grades_historical: tool_get_analyst_grades_historical,
 };
 
 // ─── Orchestrator ────────────────────────────────────────────────────────────
@@ -315,7 +612,7 @@ export async function runResearchAgent(env, { ticker, question, triggerReason = 
 TIENES ACCESO A TOOLS. Úsalos. Piensa en cada paso: ¿qué dato me falta? ¿qué tool me lo da más barato?
 
 Heurística de coste (de más barato a más caro):
-  query_agent_insights < get_fundamentals < get_long_term_series < query_peer_positions < query_db < get_transcript_excerpt
+  query_agent_insights < get_fundamentals < get_long_term_series < get_price_history < get_analyst_grades_historical < query_peer_positions < query_db < get_transcript_excerpt < get_sec_filing_body
 
 Empieza SIEMPRE por query_agent_insights para ver qué han dicho los agentes hoy. Luego pivota hacia la pregunta concreta.
 

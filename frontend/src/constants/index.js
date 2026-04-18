@@ -177,6 +177,7 @@ export const HOME_TAB_GROUPS = [
       {id:"videos-youtube",lbl:"Vídeos YouTube",ico:"▶️"},
       {id:"library",lbl:"Library",ico:"📚"},
       {id:"track-record",lbl:"Track Record",ico:"🎯"},
+      {id:"research-agent",lbl:"Research Agent",ico:"🔬"},
     ],
   },
 ];

@@ -29,8 +29,11 @@ bucket_name = "ayr-earnings-archive"
 # - Weekly digest: Monday 06:00 UTC (before the daily run so it summarizes
 #   last week). Will NOT trigger a full agents pipeline (scheduled handler
 #   only runs agents on the 13:00 UTC cron; see src/worker.js).
+# - Research auto-scan: 14:30 UTC weekdays = ~90 min after agents pipeline,
+#   giving runAllAgents time to finish before contradiction detection starts.
 [triggers]
 crons = [
   "0 6 * * 1",     # Weekly digest (Monday 06:00 UTC)
   "0 13 * * 1-5",  # Daily AI agents pipeline (weekdays 13:00 UTC = 15:00 Madrid summer)
+  "30 14 * * 1-5", # Research auto-scan (weekdays 14:30 UTC = 90 min after agents)
 ]

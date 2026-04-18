@@ -56,6 +56,7 @@ const DripTab            = lazy(() => import('../home/DripTab'));
 const ForecastTab            = lazy(() => import('../home/ForecastTab'));
 const OptionsOptimizerTab    = lazy(() => import('../home/OptionsOptimizerTab'));
 const DecisionJournalTab     = lazy(() => import('../home/DecisionJournalTab'));
+const ResearchAgentTab       = lazy(() => import('../home/ResearchAgentTab'));
 
 // Tab skeleton shown while lazy chunks load
 const TabSkeleton = () => (
@@ -1445,6 +1446,7 @@ export default function HomeView() {
         {homeTab==="track-record" && <AlertTrackRecordTab />}
         {homeTab==="alert-rules" && <AlertRulesTab />}
         {homeTab==="journal" && <DecisionJournalTab />}
+        {homeTab==="research-agent" && <ResearchAgentTab />}
       </Suspense>
     </ErrorBoundary>
 
