@@ -259,45 +259,182 @@ export async function getSectorStressMap(env, fecha) {
   return out;
 }
 
-// ─── Intelligence: agent accuracy (30d) ─────────────────────────────────────
+// ─── Intelligence: agent accuracy (reads from ticker_notebook) ──────────────
 
-// Reads signal_tracking (postmortem-evaluated trade signals). Returns per-agent
-// accuracy on non-HOLD verdicts over the given window. Null if insufficient data.
-// BUY/ADD correct if price rose >2% by evaluated_at. SELL/TRIM correct if fell >2%.
-export async function getAgentAccuracy(env, agentName, days = 30) {
+// Reads evaluated outcomes from ticker_notebook.agent_history. Outcomes are
+// written by evaluateNotebookOutcomes() (called in postmortem pipeline step).
+// Returns per-agent accuracy window, with recent wrong examples for calibration.
+// 2026-04-18 v2: migrated from signal_tracking. Now ALL agents can be calibrated.
+export async function getAgentAccuracy(env, agentName, days = 90) {
   const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
-  // signal_tracking rows: { original_fecha, ticker, action, price_at_signal,
-  //   price_7d, price_30d, outcome_7d, outcome_30d }
-  // Currently only trade agent populates this — earnings/dividend don't.
-  // For now: only trade has real data. Return null for others (prompt will say "no data").
-  if (agentName !== "trade") return null;
   const { results } = await env.DB.prepare(
-    `SELECT action, outcome_7d, outcome_30d FROM signal_tracking
-     WHERE original_fecha >= ? AND action IS NOT NULL AND action != 'HOLD'`
-  ).bind(since).all();
-  if (!results || results.length === 0) return null;
-  let correct30 = 0, evaluated30 = 0;
-  let correct7 = 0, evaluated7 = 0;
-  for (const r of results) {
-    if (r.outcome_30d) {
-      evaluated30++;
-      if (r.outcome_30d === "correct") correct30++;
-    }
-    if (r.outcome_7d) {
-      evaluated7++;
-      if (r.outcome_7d === "correct") correct7++;
+    "SELECT ticker, agent_history FROM ticker_notebook"
+  ).all();
+
+  let total = 0, correctCount = 0;
+  const recentWrong = [];
+  const verdictBreakdown = {};
+
+  for (const row of (results || [])) {
+    let hist;
+    try { hist = JSON.parse(row.agent_history || "{}"); } catch { continue; }
+    const entries = hist[agentName];
+    if (!Array.isArray(entries)) continue;
+    for (const e of entries) {
+      if (!e.outcome || e.outcome.correct == null) continue;
+      if (!e.fecha || e.fecha < since) continue;
+      total++;
+      const v = String(e.verdict || "UNK");
+      verdictBreakdown[v] = verdictBreakdown[v] || { total: 0, correct: 0 };
+      verdictBreakdown[v].total++;
+      if (e.outcome.correct) {
+        correctCount++;
+        verdictBreakdown[v].correct++;
+      } else if (recentWrong.length < 5) {
+        recentWrong.push({
+          ticker: row.ticker,
+          verdict: e.verdict,
+          fecha: e.fecha,
+          priceChange: e.outcome.priceChange,
+          brief: (e.brief || "").slice(0, 100),
+        });
+      }
     }
   }
+
+  if (total === 0) return null;
   return {
     agent: agentName,
     windowDays: days,
-    totalSignals: results.length,
-    evaluated30,
-    correct30,
-    accuracy30: evaluated30 > 0 ? (correct30 / evaluated30) : null,
-    evaluated7,
-    correct7,
-    accuracy7: evaluated7 > 0 ? (correct7 / evaluated7) : null,
+    total,
+    correct: correctCount,
+    accuracy: Math.round((correctCount / total) * 100) / 100,
+    byVerdict: verdictBreakdown,
+    recentWrong,
+  };
+}
+
+// ─── Outcome evaluator (postmortem closes the feedback loop) ────────────────
+
+// Fetches closing prices at the verdict date and today, computes directional
+// outcome per verdict class. Idempotent: skips entries that already have
+// outcome. Called from runPostmortemAgent. Writes back to notebook.
+//
+// Verdict direction rules (2% threshold, 5% for CRITICAL):
+// - ADD / BUY         → correct if priceChange >= +2%
+// - TRIM / SELL       → correct if priceChange <= -2%
+// - HOLD              → correct if |priceChange| < 2% (neutral prediction)
+// - CRITICAL / MISS   → correct if priceChange <= -5% (dividend/earnings agent style)
+// - everything else   → inconclusive (correct = null)
+//
+// Returns { evaluated, updated, skippedRecent, skippedNoPrice, errors }.
+export async function evaluateNotebookOutcomes(env, { minAgeDays = 30, maxAgeDays = 120, maxPerRun = 80 } = {}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const ageCutoff = new Date(Date.now() - minAgeDays * 86400000).toISOString().slice(0, 10);
+  const floorCutoff = new Date(Date.now() - maxAgeDays * 86400000).toISOString().slice(0, 10);
+
+  const { results: rows } = await env.DB.prepare(
+    "SELECT ticker, agent_history FROM ticker_notebook"
+  ).all();
+
+  let evaluated = 0, updated = 0, skippedRecent = 0, skippedNoPrice = 0, errors = 0;
+
+  for (const row of (rows || [])) {
+    if (evaluated >= maxPerRun) break;
+    let hist;
+    try { hist = JSON.parse(row.agent_history || "{}"); } catch { continue; }
+
+    let changed = false;
+
+    for (const agent of Object.keys(hist)) {
+      if (!Array.isArray(hist[agent])) continue;
+      for (const entry of hist[agent]) {
+        if (entry.outcome) continue;  // already evaluated
+        if (!entry.fecha || !entry.verdict) continue;
+        if (entry.fecha > ageCutoff) { skippedRecent++; continue; }
+        if (entry.fecha < floorCutoff) continue;  // too old, skip permanently
+        if (evaluated >= maxPerRun) break;
+
+        try {
+          const outcome = await fetchVerdictOutcome(env, row.ticker, entry.verdict, entry.fecha, today);
+          if (outcome) {
+            entry.outcome = outcome;
+            changed = true;
+            updated++;
+          } else {
+            skippedNoPrice++;
+          }
+          evaluated++;
+        } catch (e) {
+          errors++;
+          console.warn(`[outcomes] ${row.ticker}/${agent} failed:`, e.message);
+        }
+      }
+    }
+
+    if (changed) {
+      await env.DB.prepare(
+        "UPDATE ticker_notebook SET agent_history = ?, updated_at = datetime('now') WHERE ticker = ?"
+      ).bind(JSON.stringify(hist), row.ticker).run();
+    }
+  }
+
+  return { evaluated, updated, skippedRecent, skippedNoPrice, errors };
+}
+
+// Fetches closing prices for a ticker between two dates and classifies outcome.
+// Returns null if price data unavailable (foreign ticker, FMP 404, etc.).
+async function fetchVerdictOutcome(env, ticker, verdict, fromDate, toDate) {
+  if (!env.FMP_KEY) return null;
+  // Foreign tickers without proper FMP format → skip (keep simple for MVP)
+  if (/^(BME:|HKG:|LSE:)/.test(ticker)) return null;
+  if (/\.HK$/.test(ticker)) return null;  // HK done via get_price_history tool already
+
+  const url = `https://financialmodelingprep.com/stable/historical-price-eod/light?symbol=${encodeURIComponent(ticker)}&from=${fromDate}&to=${toDate}&apikey=${env.FMP_KEY}`;
+  const resp = await fetch(url);
+  if (!resp.ok) return null;
+  const data = await resp.json();
+  if (!Array.isArray(data) || data.length < 2) return null;
+
+  // FMP light returns newest-first usually — normalize
+  const sorted = data.slice().sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const first = Number(sorted[0]?.price ?? sorted[0]?.close);
+  const last = Number(sorted[sorted.length - 1]?.price ?? sorted[sorted.length - 1]?.close);
+  if (!Number.isFinite(first) || !Number.isFinite(last) || first <= 0) return null;
+
+  const priceChange = Math.round(((last - first) / first) * 1000) / 10;  // 0.1 precision
+  const days = Math.max(1, Math.round((new Date(toDate) - new Date(fromDate)) / 86400000));
+
+  const v = String(verdict).toUpperCase();
+  let correct = null;
+  const T = 2;  // 2% threshold for directional calls
+  const C = 5;  // 5% threshold for critical/warning calls (must really drop)
+
+  if (v === "ADD" || v === "BUY" || v === "ACCUMULATE") {
+    if (priceChange >= T) correct = true;
+    else if (priceChange <= -T) correct = false;
+  } else if (v === "TRIM" || v === "SELL") {
+    if (priceChange <= -T) correct = true;
+    else if (priceChange >= T) correct = false;
+  } else if (v === "HOLD") {
+    if (Math.abs(priceChange) < T) correct = true;
+    // HOLD wrong is ambiguous — don't flip to false on directional move
+  } else if (v === "CRITICAL" || v === "MISS_STRUCTURAL" || v === "MISS") {
+    // Dividend/earnings critical: correct if price fell ≥5% (market validated risk)
+    if (priceChange <= -C) correct = true;
+    else if (priceChange >= C) correct = false;
+  } else if (v === "WARNING" || v === "OK") {
+    // Neutral-ish; only flag clearly wrong
+    if (v === "WARNING" && priceChange <= -C) correct = true;
+  }
+
+  return {
+    evaluatedAt: new Date().toISOString(),
+    days,
+    priceChange,
+    correct,
+    priceFrom: Math.round(first * 100) / 100,
+    priceTo: Math.round(last * 100) / 100,
   };
 }
 

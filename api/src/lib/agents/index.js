@@ -10,6 +10,7 @@ import {
   getSectorStressMap,
   getAgentAccuracy,
   formatNotebookForPrompt,
+  evaluateNotebookOutcomes,
 } from "../ticker-memory.js";
 
 export function makeAgents(deps) {
@@ -214,12 +215,13 @@ async function runEarningsAgent(env, fecha) {
   // Opus spot multi-decade trends that 6-quarter FMP data can't see — e.g.
   // "EPS below 10y median" or "only the 4th negative FCF year in 30y".
   // Absent → agent still works with FMP-only data.
-  const [longTermMap, notebookMap] = await Promise.all([
+  const [longTermMap, notebookMap, earningsAccuracy] = await Promise.all([
     getR2LongTermSeriesBatch(env, tickers),
     getTickerNotebooksBatch(env, tickers),
+    getAgentAccuracy(env, "earnings", 90),
   ]);
   if (Object.keys(longTermMap).length) {
-    console.log(`[Earnings] long-term R2: ${Object.keys(longTermMap).length}/${tickers.length} · notebooks: ${Object.keys(notebookMap).length}/${tickers.length}`);
+    console.log(`[Earnings] long-term R2: ${Object.keys(longTermMap).length}/${tickers.length} · notebooks: ${Object.keys(notebookMap).length}/${tickers.length} · accuracy: ${earningsAccuracy ? Math.round(earningsAccuracy.accuracy * 100) + '%' : 'n/a'}`);
   }
 
   // ── Cross-agent ground-truth: earnings_trend signals (added 2026-04-08) ──
@@ -401,6 +403,11 @@ Each ticker carries a compact memory string from past runs (verdicts from divide
 - You've seen this ticker before. Don't restate the same analysis. Either ADD new information or explicitly acknowledge continuity ("consistent with my prior flag on 04-10 — no material change").
 - If Research Agent recently investigated (🔬 marker), that's your best ground truth. Align or explicitly disagree with specific reason.
 - If YOU (earnings agent) already flagged warning/critical on this ticker recently, progressing the narrative: what changed? If nothing — reduce severity or add forward test ("confirm in Q2 2026").
+${earningsAccuracy ? `
+YOUR OWN TRACK RECORD (last ${earningsAccuracy.windowDays}d, postmortem-evaluated):
+- Accuracy: ${Math.round(earningsAccuracy.accuracy * 100)}% (${earningsAccuracy.correct}/${earningsAccuracy.total})
+${earningsAccuracy.recentWrong?.length ? `- Recent wrong calls: ${earningsAccuracy.recentWrong.slice(0,3).map(w => `${w.ticker} ${w.verdict} → ${w.priceChange > 0 ? '+' : ''}${w.priceChange}%`).join(" · ")}` : ""}
+Calibrate severity accordingly.` : ""}
 
 SEVERITY (conservative — long-term portfolio):
 - critical = structural business decline: revenue falling 3+ consecutive quarters AND margins compressing AND no credible turnaround in transcript. Max 2 criticals across the portfolio.
@@ -572,16 +579,17 @@ async function runDividendAgent(env, fecha) {
   // Also attempt to load 30-year series from R2 (supplementary — this agent
   // still works if R2 is empty; data comes from docs/{ticker}/gf_financials.json
   // uploaded via scripts/upload-docs-to-r2.sh).
-  const [gfMap, fmpFinMap, longTermMap, notebookMap, sectorStressMap] = await Promise.all([
+  const [gfMap, fmpFinMap, longTermMap, notebookMap, sectorStressMap, dividendAccuracy] = await Promise.all([
     getGfData(env, tickers),
     getFmpFinancials(env, tickers),
     getR2LongTermSeriesBatch(env, tickers),
     getTickerNotebooksBatch(env, tickers),
     getSectorStressMap(env, fecha),
+    getAgentAccuracy(env, "dividend", 90),
   ]);
   const longTermCoverage = Object.keys(longTermMap).length;
   const notebookCoverage = Object.keys(notebookMap).length;
-  console.log(`[Dividend] long-term R2: ${longTermCoverage}/${tickers.length} · notebooks: ${notebookCoverage}/${tickers.length}`);
+  console.log(`[Dividend] long-term R2: ${longTermCoverage}/${tickers.length} · notebooks: ${notebookCoverage}/${tickers.length} · accuracy: ${dividendAccuracy ? Math.round(dividendAccuracy.accuracy * 100) + '%' : 'n/a'}`);
 
   // Classify tickers for context
   const REITS = new Set(['AMT','ARE','CLPR','CUBE','ESS','HR','IIPR','KRG','MDV','NNN','O','STAG','SUI','VICI','WPC','XLRE','NET.UN']);
@@ -738,6 +746,12 @@ Use this memoryBrief to:
 
 SECTORAL CONTEXT — sectorStress:
 If sectorStress.isContagion === true (>=40% of sector's portfolio positions are critical today), your verdict must acknowledge it. Criticals en contagio son menos individualmente accionables (rate-driven macro, no idiosincrático) que criticals aislados. Mark context="stressed" but tone down severity unless idiosyncratic signal is overwhelming.
+${dividendAccuracy ? `
+YOUR OWN TRACK RECORD (last ${dividendAccuracy.windowDays}d, from postmortem-evaluated verdicts):
+- Overall accuracy: ${Math.round(dividendAccuracy.accuracy * 100)}% (${dividendAccuracy.correct}/${dividendAccuracy.total} evaluated)
+- By verdict type: ${Object.entries(dividendAccuracy.byVerdict || {}).map(([k,v]) => `${k}=${v.correct}/${v.total}`).join(", ")}
+${dividendAccuracy.recentWrong?.length ? `- Recent wrong calls: ${dividendAccuracy.recentWrong.slice(0,3).map(w => `${w.ticker} said ${w.verdict} but stock ${w.priceChange > 0 ? '+' : ''}${w.priceChange}% in ${w.days || 30}d`).join(" · ")}` : ""}
+Calibrate: if your overall accuracy <50%, your CRITICALS have been over-stated — require stronger evidence today. If >70%, your track record validates high conviction.` : ""}
 
 SEVERITY (be conservative — only "critical" for REAL danger):
 - critical = company is genuinely at risk of bankruptcy or permanent dividend elimination. Max 2-3 across entire portfolio.
@@ -1286,19 +1300,37 @@ async function runPostmortemAgent(env, fecha) {
     neutral: stats.neutral || 0,
   });
 
+  // NEW 2026-04-18: evaluate notebook verdicts for ALL agents (not just trade)
+  // This writes outcomes back to ticker_notebook.agent_history so future runs
+  // see "your last 5 critical calls: 2 correct, 3 wrong" via getAgentAccuracy.
+  let notebookEval = null;
+  try {
+    notebookEval = await evaluateNotebookOutcomes(env, { minAgeDays: 30, maxPerRun: 60 });
+    console.log("[postmortem] notebook outcomes:", JSON.stringify(notebookEval));
+  } catch (e) {
+    console.error("[postmortem] notebook eval failed:", e.message);
+  }
+
   // Store as insight if there are evaluated signals
-  if (evaluated > 0) {
+  if (evaluated > 0 || (notebookEval && notebookEval.updated > 0)) {
+    const notebookNote = notebookEval && notebookEval.updated > 0
+      ? ` Notebook outcomes escritos: ${notebookEval.updated} verdicts de ≥30d evaluados (${notebookEval.evaluated} inspected, ${notebookEval.skippedNoPrice} sin precio).`
+      : "";
     await storeInsights(env, "postmortem", fecha, [{
       ticker: "_POSTMORTEM_",
       severity: accuracy < 40 ? "critical" : accuracy < 60 ? "warning" : "info",
       title: `Signal Accuracy: ${accuracy}% (${total} signals)`,
-      summary: `${correct} correct, ${incorrect} incorrect, ${stats.neutral || 0} neutral out of ${total} evaluated signals. Evaluated ${evaluated} new signals today.`,
-      details: { accuracy, total, correct, incorrect, neutral: stats.neutral || 0, evaluatedToday: evaluated },
+      summary: `${correct} correct, ${incorrect} incorrect, ${stats.neutral || 0} neutral out of ${total} evaluated signals. Evaluated ${evaluated} new signals today.${notebookNote}`,
+      details: {
+        accuracy, total, correct, incorrect, neutral: stats.neutral || 0,
+        evaluatedToday: evaluated,
+        notebookEval,
+      },
       score: accuracy / 10,
     }]);
   }
 
-  return { agent: "postmortem", evaluated, accuracy, correct, incorrect };
+  return { agent: "postmortem", evaluated, accuracy, correct, incorrect, notebookEval };
 }
 
 // ─── Agent 7: Insider Radar (FMP Ultimate — no LLM) ────────────

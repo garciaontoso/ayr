@@ -132,7 +132,7 @@ const TOOLS = [
   },
   {
     name: "finish",
-    description: "TERMINA la investigación con veredicto final. Debe citar 3-5 piezas de evidencia concreta (números, transcripts, filings). OPCIONAL: open_questions[] — cosas concretas a verificar en el próximo earnings call o filing. Se persistirán en el notebook del ticker. No llames finish si te falta claridad — sigue investigando o dictamina NEEDS_HUMAN.",
+    description: "TERMINA la investigación con veredicto final. Debe citar 3-5 piezas de evidencia concreta (números, transcripts, filings). REQUIRED: preMortem — si este verdict resulta equivocado en 90 días, ¿cuál sería la razón más probable? Esto fuerza a articular riesgos. OPCIONAL: open_questions[] adicionales. Se persiste todo al notebook. No llames finish si te falta claridad — sigue investigando o dictamina NEEDS_HUMAN.",
     input_schema: {
       type: "object",
       properties: {
@@ -151,13 +151,17 @@ const TOOLS = [
             required: ["type", "citation", "snippet"],
           },
         },
+        preMortem: {
+          type: "string",
+          description: "OBLIGATORIO. 1-2 frases específicas: si este verdict resulta equivocado en 90 días, ¿cuál es la razón más probable? Debe ser un escenario CONCRETO y verificable, no vaguedad. Ej: 'Si CEO recorta div en Q2 2026 pese al plan de reestructuración, este HOLD está mal' o 'Si el contagio Real Estate se intensifica por rate-hike sorpresa, este ADD se deteriora'.",
+        },
         openQuestions: {
           type: "array",
-          description: "Opcional. 2-5 preguntas concretas a verificar en el próximo earnings o filing del ticker. Ej: '¿Coverage Q1 2026 se recupera ≥1.1x?', '¿CEO reafirmará div en mayo?'.",
+          description: "Opcional. 2-5 preguntas ADICIONALES a la pre-mortem, a verificar en el próximo earnings/filing. Ej: '¿Coverage Q1 2026 se recupera ≥1.1x?', '¿CEO reafirmará div en mayo?'.",
           items: { type: "string" },
         },
       },
-      required: ["verdict", "confidence", "summary", "evidence"],
+      required: ["verdict", "confidence", "summary", "evidence", "preMortem"],
     },
   },
 ];
@@ -601,6 +605,80 @@ function truncateForModel(obj, maxChars = 4000) {
   return s.slice(0, maxChars) + `\n… [truncated ${s.length - maxChars} chars]`;
 }
 
+// ─── Red Team pass — captures over-confidence on high-conviction verdicts ───
+// Second Opus call that argues the COUNTER-case and decides whether to confirm,
+// downgrade confidence, or change the verdict outright. ~$0.15-0.25 extra per
+// high-conviction investigation. Applied only when confidence='high' and
+// verdict in {ADD, TRIM, SELL} (HOLD / NEEDS_HUMAN / INSUFFICIENT_DATA skip).
+async function runRedTeamPass(env, { ticker, question, verdict, summary, evidence, toolCallSummaries }) {
+  const system = `Eres un red-team analyst revisando una recomendación HIGH CONVICTION emitida por otro agente sobre el ticker ${ticker}. Tu trabajo: encontrar lo que se le escapó.
+
+El agente concluyó: ${verdict.verdict} ${verdict.confidence}.
+Summary del agente: ${summary}
+
+Evidencia citada (${evidence.length} piezas):
+${evidence.map((e, i) => `${i + 1}. [${e.type}] ${e.citation}: "${e.snippet}"`).join('\n')}
+
+Resumen de los tools que el agente consultó (en orden):
+${toolCallSummaries}
+
+PREGUNTA ORIGINAL: ${question}
+
+Revisa CRÍTICAMENTE, como si fueras el humano que va a ejecutar la recomendación:
+1. ¿La evidencia realmente soporta el verdict, o el agente está cherry-picking?
+2. ¿Hay interpretaciones alternativas (un contra-factor) que no se mencionaron?
+3. ¿Los números citados están en contexto (vs peers, vs historia, vs guidance)?
+4. ¿El agente asumió que X seguirá, cuando X podría revertirse?
+5. ¿Falta alguna tool que debería haber llamado (p.ej. SEC filing, analyst grades, peer comparison)?
+
+Responde SÓLO JSON:
+{
+  "assessment": "confirmed" | "downgrade_confidence" | "change_verdict",
+  "newVerdict": "ADD" | "HOLD" | "TRIM" | "SELL" | null,
+  "strongestCounter": "1-2 frases del mejor contra-argumento encontrado",
+  "reason": "1-2 frases explicando tu decisión"
+}
+
+Reglas:
+- confirmed = evidencia sólida, no encuentras contra fuerte. Acepta.
+- downgrade_confidence = hay dudas razonables pero el verdict sigue siendo el más probable.
+- change_verdict = el contra-argumento es CLARAMENTE más fuerte que lo presentado.
+- NO des el beneficio de la duda. Asume que el agente fue demasiado confiado.
+- Si change_verdict, newVerdict debe ser el nuevo veredicto (uno de ADD/HOLD/TRIM/SELL).`;
+
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": env.ANTHROPIC_API_KEY || "",
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-opus-4-20250514",
+      max_tokens: 800,
+      system,
+      messages: [{ role: "user", content: "Procede con la revisión." }],
+    }),
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(`Red Team API ${resp.status}: ${txt.slice(0, 200)}`);
+  }
+  const data = await resp.json();
+  const raw = data.content?.[0]?.text || "";
+  const cleaned = raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+  let parsed;
+  try { parsed = JSON.parse(cleaned); }
+  catch { parsed = { assessment: "confirmed", strongestCounter: "Red Team parse failed", reason: raw.slice(0, 200) }; }
+  return {
+    ...parsed,
+    usage: data.usage,
+    cost_usd:
+      (data.usage?.input_tokens || 0) * COST_PER_INPUT_TOKEN +
+      (data.usage?.output_tokens || 0) * COST_PER_OUTPUT_TOKEN,
+  };
+}
+
 async function callAnthropicToolUse(env, messages, opts = {}) {
   const body = {
     model: opts.model || "claude-opus-4-20250514",
@@ -679,7 +757,12 @@ Reglas:
 - Si los datos no alcanzan para decidir → finish() con verdict NEEDS_HUMAN o INSUFFICIENT_DATA.
 - El veredicto debe resolver la pregunta inicial, no ser un essay.
 - SELL es raro. ADD/HOLD/TRIM deberían cubrir 95% de los casos. SELL sólo si negocio roto permanentemente O dividendo eliminado.
-- Al llamar finish(), RELLENA openQuestions[] con 2-5 cosas a verificar en el próximo earnings o filing del ticker. Así la próxima investigación sabe qué chequear.${notebookContext}`;
+
+finish() ahora requiere DOS campos de calibración adicionales:
+1. **preMortem** (OBLIGATORIO): antes de ejecutar tu verdict, imagina que en 90 días resulta equivocado. ¿Cuál es la razón MÁS probable? Escribe 1-2 frases de un escenario CONCRETO y verificable. Esto evita el sesgo de confirmation — fuerza a articular qué señales invalidarían tu propia conclusión. Ej:
+   - "Si rate-hike sorpresa Q2 dispara contagio REIT, este HOLD se deteriora"
+   - "Si management reafirma div pese a coverage 0.3x, mi TRIM es prematuro"
+2. **openQuestions** (opcional): 2-5 preguntas adicionales a verificar en el próximo earnings/filing. Así la PRÓXIMA investigación sabe qué testear.${notebookContext}`;
 
   const initialUserContent = ticker
     ? `TICKER: ${ticker}\nPREGUNTA: ${question || `¿Cuál es el veredicto actualizado sobre ${ticker} dadas las señales de hoy?`}`
@@ -784,6 +867,50 @@ Reglas:
 
   const duration_s = (Date.now() - t0) / 1000;
 
+  // ── Red Team pass — captura over-confidence en verdicts high ─────────────
+  // Solo corre si: verdict es high + accionable (ADD/TRIM/SELL) + hay evidencia.
+  // HOLD / NEEDS_HUMAN / INSUFFICIENT_DATA no necesitan red-team (no mueven capital).
+  let redTeamAssessment = null;
+  const ACTIONABLE = ["ADD", "TRIM", "SELL"];
+  if (finishResult?.verdict && finishResult?.confidence === "high"
+      && ACTIONABLE.includes(finishResult.verdict)
+      && Array.isArray(finishResult.evidence) && finishResult.evidence.length > 0
+      && ticker) {
+    try {
+      const toolCallSummaries = investigation.tool_calls
+        .slice(0, 10)
+        .map((t, i) => `${i + 1}. ${t.tool}(${JSON.stringify(t.args).slice(0, 60)}) → ${t.resultPreview.slice(0, 120)}`)
+        .join("\n");
+      const rt = await runRedTeamPass(env, {
+        ticker,
+        question: question || "actualizar verdict",
+        verdict: finishResult,
+        summary: finishResult.summary,
+        evidence: finishResult.evidence,
+        toolCallSummaries,
+      });
+      redTeamAssessment = rt;
+      // Apply Red Team's judgment — 3 outcomes:
+      if (rt.assessment === "change_verdict" && ACTIONABLE.concat(["HOLD"]).includes(rt.newVerdict)) {
+        finishResult.verdict = rt.newVerdict;
+        finishResult.confidence = "medium";
+        finishResult.summary = `[Red Team: ${(rt.strongestCounter || rt.reason || "").slice(0, 180)}] ${finishResult.summary}`;
+      } else if (rt.assessment === "downgrade_confidence") {
+        finishResult.confidence = "medium";
+        finishResult.summary = `[Red Team cauteloso: ${(rt.strongestCounter || rt.reason || "").slice(0, 120)}] ${finishResult.summary}`;
+      }
+      // else: "confirmed" — no change
+      // Add RT cost to total
+      if (rt.cost_usd) {
+        investigation.cost_usd += rt.cost_usd;
+        investigation.total_tokens_in += rt.usage?.input_tokens || 0;
+        investigation.total_tokens_out += rt.usage?.output_tokens || 0;
+      }
+    } catch (e) {
+      console.error("[Research] Red Team failed:", e.message);
+    }
+  }
+
   const outcome = {
     investigationId,
     ticker: investigation.ticker,
@@ -799,6 +926,15 @@ Reglas:
     confidence: finishResult?.confidence || null,
     summary: finishResult?.summary || null,
     evidence: finishResult?.evidence || [],
+    preMortem: finishResult?.preMortem || null,
+    openQuestions: finishResult?.openQuestions || [],
+    redTeam: redTeamAssessment ? {
+      assessment: redTeamAssessment.assessment,
+      newVerdict: redTeamAssessment.newVerdict,
+      strongestCounter: redTeamAssessment.strongestCounter,
+      reason: redTeamAssessment.reason,
+      cost_usd: redTeamAssessment.cost_usd,
+    } : null,
   };
 
   // Persist ticker_notebook (memory for future runs) BEFORE persisting the
@@ -815,11 +951,20 @@ Reglas:
         ).bind(ticker).first();
         sector = posRow?.sector || null;
       }
+      // Prepend preMortem as first open_question — it's the most important
+      // forward test (what would invalidate this verdict).
+      const combinedQuestions = [];
+      if (finishResult.preMortem) {
+        combinedQuestions.push(`[PRE-MORTEM] ${finishResult.preMortem}`);
+      }
+      if (Array.isArray(finishResult.openQuestions)) {
+        combinedQuestions.push(...finishResult.openQuestions);
+      }
       await writeResearchNotebook(env, ticker, {
         researchId: investigationId,
         verdict: finishResult.verdict,
         summary: finishResult.summary,
-        openQuestions: finishResult.openQuestions,
+        openQuestions: combinedQuestions,
         fecha,
         sector,
       });
@@ -864,7 +1009,7 @@ Reglas:
       outcome.confidence,
       outcome.summary,
       JSON.stringify(outcome.evidence).slice(0, 10_000),
-      JSON.stringify({ stopReason, messages: messages.length }),
+      JSON.stringify({ stopReason, messages: messages.length, redTeam: redTeamAssessment }),
       outcome.verdict ? null : outcome.stopReason,
       investigationId
     ).run();
