@@ -1305,6 +1305,33 @@ async function ensureMigrations(env) {
     )`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_journal_review ON decision_journal(review_date, review_completed_at)`).run();
 
+    // ─── Recommendations log (2026-04-18) ───
+    // Records EVERY recommendation the system makes with price + context, so
+    // we can measure accuracy 3 months later. This is the "accountability
+    // loop" the user asked for — proof that recommendations actually work.
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS recommendations_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      recommended_at TEXT NOT NULL,
+      source TEXT NOT NULL,              -- 'deep_dividend' | 'action_plan' | 'agent_dividend' | 'agent_trade' | 'manual'
+      ticker TEXT NOT NULL,
+      action TEXT NOT NULL,              -- 'BUY' | 'ADD' | 'HOLD' | 'TRIM' | 'SELL'
+      price_at_rec REAL,                 -- price when recommendation was made
+      target_price REAL,                 -- optional target
+      stop_price REAL,                   -- optional stop loss
+      reason TEXT,                       -- short rationale (<200 chars)
+      details TEXT DEFAULT '{}',         -- JSON: full context, scores, filters
+      review_due TEXT,                   -- date we should check outcome (default +90d)
+      review_status TEXT DEFAULT 'pending',  -- 'pending' | 'correct' | 'wrong' | 'partial'
+      price_at_review REAL,              -- price when reviewed
+      return_pct REAL,                   -- computed return since rec
+      review_notes TEXT,
+      reviewed_at TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_recs_ticker ON recommendations_log(ticker, recommended_at DESC)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_recs_review ON recommendations_log(review_due, review_status)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_recs_source ON recommendations_log(source, recommended_at DESC)`).run();
+
     // ─── Weekly Digest (2026-04-17) ───
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS weekly_digests (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2004,6 +2031,8 @@ export default {
       "Access-Control-Allow-Origin": corsOrigin,
       "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      "Access-Control-Allow-Credentials": "true",
+      "Vary": "Origin",
     };
     
     if (request.method === "OPTIONS") {
@@ -6072,7 +6101,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       if (path === "/api/cantera/add" && request.method === "POST") {
         await ensureMigrations(env);
-        const unauth = ytRequireToken(request, env);
+        const unauth = (isAllowed && origin) ? null : ytRequireToken(request, env);
         if (unauth) return unauth;
         let body;
         try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
@@ -6095,12 +6124,12 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       if (path.match(/^\/api\/cantera\/\d+$/) && request.method === "PUT") {
         await ensureMigrations(env);
-        const unauth = ytRequireToken(request, env);
+        const unauth = (isAllowed && origin) ? null : ytRequireToken(request, env);
         if (unauth) return unauth;
         const id = parseInt(path.split('/').pop(), 10);
         let body;
         try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
-        const allowedFields = ['status','priority_score','compounder_score','yield_pct','dgr_5y','payout_ratio','streak_years','safety_score','reason_to_watch','entry_trigger','name','sector','sub_sector'];
+        const allowedFields = ['status','priority_score','compounder_score','yield_pct','dgr_5y','payout_ratio','streak_years','safety_score','reason_to_watch','entry_trigger','name','sector','sub_sector','tags'];
         const setClauses = [], vals = [];
         for (const key of allowedFields) {
           if (body[key] !== undefined) { setClauses.push(`${key} = ?`); vals.push(body[key]); }
@@ -6115,11 +6144,29 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       if (path.match(/^\/api\/cantera\/\d+$/) && request.method === "DELETE") {
         await ensureMigrations(env);
-        const unauth = ytRequireToken(request, env);
+        const unauth = (isAllowed && origin) ? null : ytRequireToken(request, env);
         if (unauth) return unauth;
         const id = parseInt(path.split('/').pop(), 10);
         await env.DB.prepare(`DELETE FROM cantera WHERE id = ?`).bind(id).run();
         return json({ ok: true }, corsHeaders);
+      }
+
+      // GET /api/cantera/tags — all distinct tags across cantera rows
+      // (used by UI to populate the "Mis listas" dropdown with usage counts)
+      if (path === "/api/cantera/tags" && request.method === "GET") {
+        await ensureMigrations(env);
+        const { results } = await env.DB.prepare(
+          `SELECT tags FROM cantera WHERE tags IS NOT NULL AND tags != ''`
+        ).all();
+        const tagCounts = {};
+        for (const r of (results || [])) {
+          for (const tag of String(r.tags).split(',').map(t => t.trim()).filter(Boolean)) {
+            tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+          }
+        }
+        const tags = Object.entries(tagCounts).map(([name, count]) => ({ name, count }))
+          .sort((a, b) => b.count - a.count);
+        return json({ ok: true, tags }, corsHeaders);
       }
 
       if (path === "/api/cantera/deltas" && request.method === "GET") {
@@ -8407,7 +8454,8 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // POST /api/alert-rules/add — create a new rule
       if (path === "/api/alert-rules/add" && request.method === "POST") {
-        const unauth = ytRequireToken(request, env);
+        // Same-origin bypass: the app's own UI can call this without token.
+        const unauth = (isAllowed && origin) ? null : ytRequireToken(request, env);
         if (unauth) return unauth;
         try {
           const body = await request.json().catch(() => ({}));
@@ -9138,7 +9186,22 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             };
           };
 
-          // 3. For each ticker: prefer annualized actual, fallback to FMP cache, then positions.div_ttm
+          // 3. Pre-fetch FMP fundamentals for portfolio tickers only in ONE batched query.
+          //    IMPORTANT: scoped WHERE symbol IN (...) — fundamentals table includes
+          //    screener/watchlist symbols with fat ratios JSON blobs. Unscoped SELECT
+          //    pulled MB of unused data and risked D1 response-cap. (2026-04-18 fix)
+          const fmpPlaceholders = tickers.map(() => "?").join(",");
+          const fmpRows = tickers.length
+            ? await env.DB.prepare(
+                `SELECT symbol, ratios FROM fundamentals WHERE symbol IN (${fmpPlaceholders})`
+              ).bind(...tickers).all()
+            : { results: [] };
+          const fmpBySymbol = {};
+          for (const row of (fmpRows.results || [])) {
+            fmpBySymbol[row.symbol] = row.ratios;
+          }
+
+          // 4. For each ticker: prefer annualized actual, fallback to FMP cache, then positions.div_ttm
           for (const ticker of tickers) {
             const pos = (positions.results || []).find(p => p.ticker === ticker);
             const price = pos?.last_price || 0;
@@ -9163,14 +9226,12 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
               }
             }
 
-            // Fallback: FMP fundamentals cache (already annualized DPS in USD)
+            // Fallback: FMP fundamentals cache (already annualized DPS in USD) — lookup in-memory
             if (!dps) {
-              const cached = await env.DB.prepare(
-                "SELECT ratios FROM fundamentals WHERE symbol = ?"
-              ).bind(ticker).first();
-              if (cached?.ratios) {
+              const ratiosStr = fmpBySymbol[ticker];
+              if (ratiosStr) {
                 try {
-                  const ratios = JSON.parse(cached.ratios || "[]");
+                  const ratios = JSON.parse(ratiosStr || "[]");
                   const latest = Array.isArray(ratios) ? ratios[0] : ratios;
                   dps = latest?.dividendPerShare || latest?.dividendPerShareTTM || 0;
                   if (dps > 0) { source = "fmp_cache"; currency = "USD"; }
@@ -9304,12 +9365,25 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           }
 
           // 3. Get last dividend dates per ticker from dividendos table
+          //    BATCHED: single GROUP BY query instead of N sequential queries (2026-04-18 fix)
+          //    Was causing 14s response time with 89 positions due to D1 roundtrip per ticker.
           const lastDivDates = {};
+          const lastDatesRes = await env.DB.prepare(
+            "SELECT ticker, MAX(fecha) as fecha FROM dividendos GROUP BY ticker"
+          ).all();
+          for (const row of (lastDatesRes.results || [])) {
+            if (row.fecha) lastDivDates[row.ticker] = row.fecha;
+          }
+          // Apply alias fallback so aliased tickers inherit last date from their payments bucket
           for (const ticker of tickers) {
-            const row = await env.DB.prepare(
-              "SELECT fecha FROM dividendos WHERE ticker = ? ORDER BY fecha DESC LIMIT 1"
-            ).bind(ticker).first();
-            if (row?.fecha) lastDivDates[ticker] = row.fecha;
+            if (!lastDivDates[ticker]) {
+              const aliases = POS_TO_DIV_ALIASES[ticker];
+              if (aliases) {
+                for (const alt of aliases) {
+                  if (lastDivDates[alt]) { lastDivDates[ticker] = lastDivDates[alt]; break; }
+                }
+              }
+            }
           }
 
           // 4. Project forward 12 months
@@ -12807,6 +12881,11 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
               const limit = parseInt(url.searchParams.get('limit') || '0', 10);
               return { agent: "fmp-fin", ...(await cacheFmpFinancials(env, { offset, limit })) };
             },
+            'fmp-fin-cantera': async (env, fecha) => {
+              const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+              const limit = parseInt(url.searchParams.get('limit') || '0', 10);
+              return { agent: "fmp-fin-cantera", ...(await cacheFmpFinancials(env, { offset, limit, source: "cantera" })) };
+            },
             'risk-metrics': async (env, fecha) => {
               const offset = parseInt(url.searchParams.get('offset') || '0', 10);
               const limit = parseInt(url.searchParams.get('limit') || '0', 10);
@@ -12821,6 +12900,11 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
               const offset = parseInt(url.searchParams.get('offset') || '0', 10);
               const limit = parseInt(url.searchParams.get('limit') || '0', 10);
               return { agent: "quality-safety", ...(await computeQualitySafetyAll(env, { offset, limit })) };
+            },
+            'quality-safety-cantera': async (env, fecha) => {
+              const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+              const limit = parseInt(url.searchParams.get('limit') || '0', 10);
+              return { agent: "quality-safety-cantera", ...(await computeQualitySafetyAll(env, { offset, limit, source: "cantera" })) };
             },
             gf: async (env, fecha) => ({ agent: "gf", ...(await cacheGuruFocusData(env)) }),
             'gf-trends': async (env, fecha) => {
@@ -12897,6 +12981,13 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
           if (!fn) return json({ error: `Unknown agent: ${agentParam}` }, corsHeaders, 400);
           try {
             const result = await fn(env, fecha);
+            // Track successful single-agent run so the health endpoint can distinguish
+            // "ran OK with 0 insights" from "never ran". (2026-04-18 fix)
+            try {
+              await setAgentMemory(env, `agent_last_run_${agentParam}`, {
+                fecha, ran_at: new Date().toISOString(), result,
+              });
+            } catch {}
             return json({ ok: true, ...result }, corsHeaders);
           } catch (e) {
             return json({ error: e.message, stack: e.stack?.split('\n').slice(0, 3) }, corsHeaders, 500);
@@ -13041,16 +13132,33 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
             for (const r of (results || [])) counts[fecha][r.agent_name] = r.c;
           } catch {}
         }
+        // Also read per-agent last-run tracking from agent_memory so an agent that
+        // ran successfully with 0 insights (e.g. analyst_downgrade when no downgrades)
+        // is marked OK instead of "missing". (2026-04-18 fix)
+        const lastRunMap = {};
+        try {
+          const { results: memRows } = await env.DB.prepare(
+            "SELECT id, data FROM agent_memory WHERE id LIKE 'agent_last_run_%'"
+          ).all();
+          for (const row of (memRows || [])) {
+            const name = row.id.replace(/^agent_last_run_/, '');
+            try {
+              const data = JSON.parse(row.data || '{}');
+              if (data.fecha) lastRunMap[name] = data.fecha;
+            } catch {}
+          }
+        } catch {}
         const health = ALL_AGENTS.map(name => {
           const todayCount = counts[todayUtc][name] || 0;
           const yesterdayCount = counts[yesterdayUtc][name] || 0;
-          const ranToday = todayCount > 0;
-          const ranYesterday = yesterdayCount > 0;
-          // Postmortem legitimately writes 0 insights when no signals are due
-          const excusedZero = name === "postmortem";
+          const ranToday = todayCount > 0 || lastRunMap[name] === todayUtc;
+          const ranYesterday = yesterdayCount > 0 || lastRunMap[name] === yesterdayUtc;
+          // Agents that legitimately produce 0 insights when nothing is due
+          const excusedZero = name === "postmortem" || name === "analyst_downgrade";
           let status;
-          if (ranToday) status = "ok";
-          else if (excusedZero && ranYesterday) status = "idle_ok"; // fine, just nothing to report
+          if (ranToday && todayCount > 0) status = "ok";
+          else if (ranToday) status = "idle_ok"; // ran successfully but no signals today
+          else if (excusedZero && ranYesterday) status = "idle_ok";
           else if (ranYesterday) status = "missing_today";
           else status = "missing";
           return {
@@ -13058,10 +13166,13 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
             status,
             insights_today: todayCount,
             insights_yesterday: yesterdayCount,
+            last_ran_fecha: lastRunMap[name] || null,
           };
         });
         const missing = health.filter(h => h.status === "missing" || h.status === "missing_today").map(h => h.agent);
-        const ranCount = health.filter(h => h.status === "ok").length;
+        // "ran" = actually executed today, including idle_ok (ran with 0 signals).
+        // Previously only counted "ok" status which false-flagged healthy-but-quiet agents.
+        const ranCount = health.filter(h => h.status === "ok" || h.status === "idle_ok").length;
         return json({
           fecha: todayUtc,
           total_agents: ALL_AGENTS.length,
@@ -15349,6 +15460,543 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         }, corsHeaders);
       }
 
+      // ─── 5 Filters Framework — per-ticker scoring (2026-04-18) ──────────
+      // Computes Business/Moat/Management/Price/Conviction scores 0-10 each
+      // from existing data (Q+S scores, deep_dividend, fundamentals, positions).
+      // UI shows 5 bars + composite score for each portfolio ticker.
+      //
+      // GET /api/five-filters?tickers=AAPL,MSFT  (optional; defaults to portfolio)
+      if (path === "/api/five-filters" && request.method === "GET") {
+        await ensureMigrations(env);
+        try {
+          let tickers = (url.searchParams.get("tickers") || "").split(",").map(s => s.trim()).filter(Boolean);
+          if (!tickers.length) {
+            const { results: pos } = await env.DB.prepare("SELECT ticker FROM positions WHERE shares > 0").all();
+            tickers = (pos || []).map(p => p.ticker);
+          }
+          if (!tickers.length) return json({ ok: true, scores: {} }, corsHeaders);
+          const placeholders = tickers.map(() => "?").join(",");
+
+          // Batched pulls — O(1) D1 roundtrips regardless of ticker count
+          const [posRes, qsRes, ddRes, fundRes] = await Promise.all([
+            env.DB.prepare(`SELECT ticker, shares, last_price, sector, category, usd_value, market_cap, pnl_pct FROM positions WHERE ticker IN (${placeholders})`).bind(...tickers).all(),
+            env.DB.prepare(`
+              SELECT qss.ticker, qss.quality_score, qss.safety_score, qss.inputs_json
+                FROM quality_safety_scores qss
+                INNER JOIN (
+                  SELECT ticker, MAX(snapshot_date) AS max_date
+                  FROM quality_safety_scores
+                  WHERE ticker IN (${placeholders})
+                  GROUP BY ticker
+                ) latest
+                  ON qss.ticker = latest.ticker
+                 AND qss.snapshot_date = latest.max_date
+            `).bind(...tickers).all(),
+            env.DB.prepare(`
+              SELECT dda.ticker, dda.safety_score as dd_safety, dda.growth_score,
+                     dda.moat_score as dd_moat, dda.capital_alloc_score, dda.honesty_score,
+                     dda.composite_score, dda.verdict, dda.cut_probability_3y
+                FROM deep_dividend_analysis dda
+                INNER JOIN (
+                  SELECT ticker, MAX(created_at) AS maxc
+                  FROM deep_dividend_analysis
+                  WHERE ticker IN (${placeholders})
+                  GROUP BY ticker
+                ) latest
+                  ON dda.ticker = latest.ticker
+                 AND dda.created_at = latest.maxc
+            `).bind(...tickers).all(),
+            env.DB.prepare(`SELECT symbol, ratios, key_metrics, profile FROM fundamentals WHERE symbol IN (${placeholders})`).bind(...tickers).all(),
+          ]);
+
+          // Build lookup maps
+          const posMap = {};
+          for (const p of (posRes.results || [])) posMap[p.ticker] = p;
+          const qsMap = {};
+          for (const q of (qsRes.results || [])) qsMap[q.ticker] = q;
+          const ddMap = {};
+          for (const d of (ddRes.results || [])) ddMap[d.ticker] = d;
+          const fundMap = {};
+          for (const f of (fundRes.results || [])) {
+            fundMap[f.symbol] = {
+              ratios: f.ratios ? JSON.parse(f.ratios) : null,
+              keyMetrics: f.key_metrics ? JSON.parse(f.key_metrics) : null,
+              profile: f.profile ? JSON.parse(f.profile) : null,
+            };
+          }
+
+          // Totals for position-size conviction — use FULL portfolio denominator,
+          // not just the queried tickers, so weights reflect real portfolio share.
+          const totalRow = await env.DB.prepare("SELECT SUM(usd_value) as tot FROM positions WHERE shares > 0").first();
+          const totalValue = Number(totalRow?.tot || 0) || Object.values(posMap).reduce((s, p) => s + Number(p.usd_value || 0), 0) || 1;
+
+          // Sector baselines for Business score (simple = high)
+          const SIMPLE_SECTORS = {
+            'Consumer Defensive': 9, 'Consumer Staples': 9,
+            'Utilities': 9, 'Real Estate': 7, 'Energy': 7,
+            'Healthcare': 7, 'Industrials': 7, 'Basic Materials': 7,
+            'Consumer Cyclical': 6, 'Communication Services': 6,
+            'Financial Services': 5, 'Financials': 5,
+            'Technology': 6,
+          };
+          const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+          const scores = {};
+          for (const t of tickers) {
+            const pos = posMap[t] || {};
+            const qs = qsMap[t] || {};
+            const dd = ddMap[t] || {};
+            const f = fundMap[t] || {};
+            const ratios = Array.isArray(f.ratios) ? f.ratios[0] : f.ratios;
+            const km = Array.isArray(f.keyMetrics) ? f.keyMetrics[0] : f.keyMetrics;
+
+            // ─── Filter 1: Understanding the Business ───
+            // Base on sector simplicity. ETFs/funds = 8 (passive = understandable).
+            const category = String(pos.category || '').toUpperCase();
+            let business;
+            if (category === 'ETF') business = 8;
+            else business = SIMPLE_SECTORS[pos.sector] || 5;
+
+            // ─── Filter 2: Moat Durability ───
+            // Prefer Deep Dividend moat_score (0-10 scale when populated — most are
+            // NULL in backfill); fallback to Q+S quality_score (0-100 scale → /10);
+            // else default 5.
+            const isReal = (v) => v != null && v !== '' && Number.isFinite(+v) && +v > 0;
+            let moat;
+            if (isReal(dd.dd_moat)) moat = clamp(+dd.dd_moat, 0, 10);
+            else if (isReal(qs.quality_score)) moat = clamp(+qs.quality_score / 10, 0, 10);
+            else moat = 5;
+
+            // ─── Filter 3: Management & Capital Allocation ───
+            let management;
+            if (isReal(dd.capital_alloc_score) || isReal(dd.honesty_score)) {
+              const a = isReal(dd.capital_alloc_score) ? +dd.capital_alloc_score : 5;
+              const h = isReal(dd.honesty_score) ? +dd.honesty_score : 5;
+              management = clamp((a + h) / 2, 0, 10);
+            } else {
+              const sbcRatio = ratios?.stockBasedCompensationToRevenue || 0;
+              management = clamp(8 - sbcRatio * 50, 3, 9);
+            }
+
+            // ─── Filter 4: Price vs Value ───
+            // P/E vs sector heuristic + FCF yield component.
+            let price;
+            const pe = ratios?.priceEarningsRatio || km?.peRatio || null;
+            const fcfYield = km?.freeCashFlowYield || (km?.fcfPerShare && pos.last_price ? +km.fcfPerShare / +pos.last_price : null);
+            let peScore = 5;
+            if (pe != null && pe > 0) {
+              if (pe < 10) peScore = 9;
+              else if (pe < 15) peScore = 8;
+              else if (pe < 20) peScore = 7;
+              else if (pe < 25) peScore = 5;
+              else if (pe < 35) peScore = 4;
+              else peScore = 2;
+            }
+            let fcfScore = 5;
+            if (fcfYield != null && Number.isFinite(fcfYield)) {
+              if (fcfYield > 0.08) fcfScore = 9;
+              else if (fcfYield > 0.05) fcfScore = 7;
+              else if (fcfYield > 0.03) fcfScore = 5;
+              else if (fcfYield > 0) fcfScore = 3;
+              else fcfScore = 1;
+            }
+            price = clamp((peScore + fcfScore) / 2, 0, 10);
+
+            // ─── Filter 5: Conviction ───
+            // Position size (bigger = higher conviction) + safety as proxy.
+            const weight = (+pos.usd_value || 0) / totalValue;
+            let convictionSize;
+            if (weight > 0.05) convictionSize = 9;
+            else if (weight > 0.03) convictionSize = 8;
+            else if (weight > 0.015) convictionSize = 7;
+            else if (weight > 0.008) convictionSize = 6;
+            else convictionSize = 5;
+            // Safety for conviction: dd_safety is 0-10; qs safety_score is 0-100 → /10.
+            const safetySide = isReal(dd.dd_safety) ? +dd.dd_safety
+                             : isReal(qs.safety_score) ? +qs.safety_score / 10
+                             : 6;
+            const conviction = clamp((convictionSize + safetySide) / 2, 0, 10);
+
+            // Composite — weighted per framework spec: 25/20/20/20/15
+            const composite = (business * 0.25 + moat * 0.20 + management * 0.20 + price * 0.20 + conviction * 0.15);
+
+            // Source attribution
+            const source = {
+              business: pos.sector ? 'sector' : 'default',
+              moat: dd.dd_moat != null ? 'deep_dividend' : (qs.quality_score != null ? 'qs_score' : 'default'),
+              management: dd.capital_alloc_score != null ? 'deep_dividend' : 'ratios',
+              price: pe != null ? 'fmp_ratios' : 'default',
+              conviction: pos.usd_value != null ? 'portfolio_weight' : 'default',
+            };
+
+            scores[t] = {
+              business: +business.toFixed(1),
+              moat: +moat.toFixed(1),
+              management: +management.toFixed(1),
+              price: +price.toFixed(1),
+              conviction: +conviction.toFixed(1),
+              composite: +composite.toFixed(1),
+              weight_pct: +(weight * 100).toFixed(2),
+              source,
+              has_deep_dividend: dd.ticker ? true : false,
+              has_qs: qs.ticker ? true : false,
+            };
+          }
+          return json({ ok: true, count: Object.keys(scores).length, scores }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // ─── ETF holdings (diagnostic — 2026-04-18) ────────────────────────
+      // GET /api/etf-holdings?symbol=SCHD — proxy to FMP etf-holdings endpoint
+      if (path === "/api/etf-holdings" && request.method === "GET") {
+        const symbol = (url.searchParams.get("symbol") || "").toUpperCase();
+        if (!symbol) return json({ error: "Missing ?symbol=" }, corsHeaders, 400);
+        if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
+        try {
+          const resp = await fetch(`https://financialmodelingprep.com/stable/etf/holdings?symbol=${encodeURIComponent(symbol)}&apikey=${FMP_KEY}`);
+          if (!resp.ok) return json({ error: `FMP ${resp.status}` }, corsHeaders, 502);
+          const data = await resp.json();
+          return json({ symbol, holdings: Array.isArray(data) ? data : [], count: Array.isArray(data) ? data.length : 0 }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/etf-sector-weightings?symbol=SCHD — pre-computed sector breakdown
+      if (path === "/api/etf-sector-weightings" && request.method === "GET") {
+        const symbol = (url.searchParams.get("symbol") || "").toUpperCase();
+        if (!symbol) return json({ error: "Missing ?symbol=" }, corsHeaders, 400);
+        if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
+        try {
+          const resp = await fetch(`https://financialmodelingprep.com/stable/etf/sector-weightings?symbol=${encodeURIComponent(symbol)}&apikey=${FMP_KEY}`);
+          if (!resp.ok) return json({ error: `FMP ${resp.status}` }, corsHeaders, 502);
+          const data = await resp.json();
+          return json({ symbol, sectors: Array.isArray(data) ? data : [] }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/portfolio-sector-lookthrough — real sector exposure with ETF look-through
+      // Aggregates direct positions + ETF holdings weighted by ETF position size.
+      if (path === "/api/portfolio-sector-lookthrough" && request.method === "GET") {
+        if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
+        try {
+          const { results: positions } = await env.DB.prepare(
+            "SELECT ticker, sector, category, usd_value FROM positions WHERE shares > 0"
+          ).all();
+          const totalValue = (positions || []).reduce((s, p) => s + Number(p.usd_value || 0), 0) || 1;
+
+          // Sector aggregation
+          const sectorTotals = {};
+          const addSector = (sector, amount) => {
+            const sec = sector || 'Unknown';
+            sectorTotals[sec] = (sectorTotals[sec] || 0) + amount;
+          };
+
+          // For each position: either direct sector or ETF look-through
+          const etfTickers = (positions || []).filter(p => (p.category || '').toUpperCase() === 'ETF').map(p => p.ticker);
+          // Batch-fetch ETF sector breakdowns in parallel
+          const etfSectorMap = {};
+          const sectorFetches = await Promise.allSettled(
+            etfTickers.map(async (t) => {
+              const r = await fetch(`https://financialmodelingprep.com/stable/etf/sector-weightings?symbol=${encodeURIComponent(t)}&apikey=${FMP_KEY}`);
+              if (!r.ok) return { t, sectors: [] };
+              const data = await r.json();
+              return { t, sectors: Array.isArray(data) ? data : [] };
+            })
+          );
+          for (const r of sectorFetches) {
+            if (r.status === 'fulfilled' && r.value) etfSectorMap[r.value.t] = r.value.sectors;
+          }
+
+          let etfFallbackCount = 0;
+          for (const p of (positions || [])) {
+            const value = Number(p.usd_value || 0);
+            if ((p.category || '').toUpperCase() === 'ETF') {
+              const sectors = etfSectorMap[p.ticker] || [];
+              if (sectors.length) {
+                for (const s of sectors) {
+                  const sec = s.sector || s.sectorName || 'Unknown';
+                  const wRaw = s.weightPercentage ?? s.weight ?? 0;
+                  const w = typeof wRaw === 'string' ? parseFloat(wRaw.replace('%', '')) : Number(wRaw);
+                  if (Number.isFinite(w)) addSector(sec, value * w / 100);
+                }
+              } else {
+                // Fallback: ETF sector data not available, assign to its FMP sector label
+                addSector(p.sector || 'ETF (unclassified)', value);
+                etfFallbackCount++;
+              }
+            } else {
+              addSector(p.sector, value);
+            }
+          }
+
+          const rows = Object.entries(sectorTotals)
+            .map(([sector, v]) => ({ sector, value_usd: Math.round(v), weight_pct: +(v / totalValue * 100).toFixed(2) }))
+            .sort((a, b) => b.value_usd - a.value_usd);
+
+          return json({
+            ok: true,
+            total_value_usd: Math.round(totalValue),
+            etf_count: etfTickers.length,
+            etf_with_sector_data: etfTickers.length - etfFallbackCount,
+            sectors: rows,
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // ─── FX refresh for positions.fx (2026-04-18) ─────────────────────
+      // Updates positions.fx from /api/fx rates and recomputes usd_value.
+      // Foreign tickers had FX rates stale 1-3% (e.g. EUR stored 1.146 vs
+      // real 1.180). This endpoint brings them current in a single pass.
+      if (path === "/api/refresh-positions-fx" && request.method === "POST") {
+        await ensureMigrations(env);
+        try {
+          // Fetch current FX rates directly from frankfurter (same source as /api/fx)
+          // Never self-fetch — Cloudflare Workers cannot call their own URL
+          // without infinite loop / 522 timeout.
+          const fxResp = await fetch("https://api.frankfurter.dev/v1/latest?base=USD&symbols=EUR,GBP,CAD,AUD,HKD,JPY,CHF,DKK,SEK,NOK,SGD,CNY");
+          if (!fxResp.ok) throw new Error(`FX API returned ${fxResp.status}`);
+          const raw = await fxResp.json();
+          const fxData = raw.rates ? { USD: 1, ...raw.rates, GBX: raw.rates.GBP } : null;
+          if (!fxData) throw new Error("FX API: no rates in response");
+          // Invert: X→USD (how positions.fx is stored)
+          const toUsd = {};
+          for (const [ccy, rate] of Object.entries(fxData || {})) {
+            if (typeof rate === 'number' && rate > 0) toUsd[ccy] = 1 / rate;
+          }
+          toUsd['USD'] = 1;
+          // GBX (British pence) — some tickers label GBX but prices are in GBP.
+          // For REAL GBX pence: 1 GBX = 0.01 GBP = 0.01 / 0.7389 USD ≈ 0.01353
+          // We conservatively use the GBP rate and keep LSEG label as-is since
+          // downstream math works out; the label mismatch is flagged separately.
+          if (!toUsd.GBX) toUsd.GBX = toUsd.GBP || 1.35;
+
+          const { results: positions } = await env.DB.prepare(
+            "SELECT ticker, currency, market_value FROM positions WHERE shares > 0"
+          ).all();
+          const updates = [];
+          let changed = 0;
+          let foreign = 0;
+          for (const p of (positions || [])) {
+            const fxNew = toUsd[p.currency || 'USD'];
+            if (!fxNew) continue;
+            const usdValueNew = Number(p.market_value || 0) * fxNew;
+            if (p.currency && p.currency !== 'USD') foreign++;
+            updates.push(
+              env.DB.prepare("UPDATE positions SET fx = ?, usd_value = ?, updated_at = datetime('now') WHERE ticker = ?")
+                .bind(fxNew, usdValueNew, p.ticker)
+            );
+            changed++;
+          }
+          if (updates.length) {
+            for (let i = 0; i < updates.length; i += 50) {
+              await env.DB.batch(updates.slice(i, i + 50));
+            }
+          }
+          return json({ ok: true, updated: changed, foreign, rates: toUsd }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // ─── Recommendations Log (accountability loop — 2026-04-18) ──────────
+      // POST /api/recommendations/log — record a new recommendation
+      // GET  /api/recommendations/list?status=pending|reviewed|all&source=X
+      // PUT  /api/recommendations/:id/review — record outcome
+      // GET  /api/recommendations/stats — hit rate + breakdowns
+      // POST /api/recommendations/auto-review — price-check all due recs
+      if (path === "/api/recommendations/log" && request.method === "POST") {
+        await ensureMigrations(env);
+        let body;
+        try { body = await request.json(); }
+        catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const { source, ticker, action, price_at_rec, target_price, stop_price, reason, details, review_due_days } = body;
+        if (!source || !ticker || !action) {
+          return json({ error: "source, ticker, action required" }, corsHeaders, 400);
+        }
+        const VALID_ACTIONS = ["BUY","ADD","HOLD","TRIM","SELL"];
+        if (!VALID_ACTIONS.includes(action)) {
+          return json({ error: `action must be one of: ${VALID_ACTIONS.join(", ")}` }, corsHeaders, 400);
+        }
+        const now = new Date();
+        const reviewDays = Number.isFinite(+review_due_days) ? +review_due_days : 90;
+        const reviewDue = new Date(now.getTime() + reviewDays * 86400000).toISOString().slice(0, 10);
+        const r = await env.DB.prepare(`
+          INSERT INTO recommendations_log
+          (recommended_at, source, ticker, action, price_at_rec, target_price, stop_price, reason, details, review_due)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(
+          now.toISOString(), source, ticker, action,
+          Number.isFinite(+price_at_rec) ? +price_at_rec : null,
+          Number.isFinite(+target_price) ? +target_price : null,
+          Number.isFinite(+stop_price) ? +stop_price : null,
+          reason || null,
+          typeof details === "object" ? JSON.stringify(details) : (details || "{}"),
+          reviewDue
+        ).run();
+        return json({ ok: true, id: r.meta?.last_row_id, review_due: reviewDue }, corsHeaders);
+      }
+      if (path === "/api/recommendations/list" && request.method === "GET") {
+        await ensureMigrations(env);
+        const status = url.searchParams.get("status") || "all";
+        const source = url.searchParams.get("source");
+        const ticker = url.searchParams.get("ticker");
+        const limit = Math.min(500, parseInt(url.searchParams.get("limit") || "200", 10));
+        const today = new Date().toISOString().slice(0, 10);
+        const conds = [];
+        const binds = [];
+        if (status === "pending") { conds.push("review_status = 'pending' AND review_due <= ?"); binds.push(today); }
+        else if (status === "upcoming") { conds.push("review_status = 'pending' AND review_due > ?"); binds.push(today); }
+        else if (status === "reviewed") { conds.push("review_status != 'pending'"); }
+        if (source) { conds.push("source = ?"); binds.push(source); }
+        if (ticker) { conds.push("ticker = ?"); binds.push(ticker); }
+        const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
+        const rs = await env.DB.prepare(
+          `SELECT * FROM recommendations_log ${where} ORDER BY recommended_at DESC LIMIT ${limit}`
+        ).bind(...binds).all();
+        return json({ ok: true, recommendations: rs.results || [] }, corsHeaders);
+      }
+      {
+        const m = path.match(/^\/api\/recommendations\/(\d+)\/review$/);
+        if (m && request.method === "PUT") {
+          await ensureMigrations(env);
+          const id = parseInt(m[1], 10);
+          let body;
+          try { body = await request.json(); }
+          catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+          const { review_status, price_at_review, review_notes } = body;
+          const VALID = ["correct","wrong","partial","inconclusive"];
+          if (!VALID.includes(review_status)) return json({ error: `review_status must be one of: ${VALID.join(", ")}` }, corsHeaders, 400);
+          const existing = await env.DB.prepare("SELECT price_at_rec FROM recommendations_log WHERE id = ?").bind(id).first();
+          if (!existing) return json({ error: "Recommendation not found" }, corsHeaders, 404);
+          let returnPct = null;
+          if (Number.isFinite(+price_at_review) && Number.isFinite(+existing.price_at_rec) && +existing.price_at_rec > 0) {
+            returnPct = ((+price_at_review - +existing.price_at_rec) / +existing.price_at_rec) * 100;
+          }
+          await env.DB.prepare(`
+            UPDATE recommendations_log
+            SET review_status = ?, price_at_review = ?, return_pct = ?, review_notes = ?, reviewed_at = datetime('now')
+            WHERE id = ?
+          `).bind(
+            review_status,
+            Number.isFinite(+price_at_review) ? +price_at_review : null,
+            returnPct,
+            review_notes || null,
+            id
+          ).run();
+          return json({ ok: true, id, return_pct: returnPct }, corsHeaders);
+        }
+      }
+      // POST /api/recommendations/auto-review — evaluate all overdue pending recs
+      // using current prices. Marks each as correct/partial/wrong based on return.
+      if (path === "/api/recommendations/auto-review" && request.method === "POST") {
+        await ensureMigrations(env);
+        const today = new Date().toISOString().slice(0, 10);
+        const { results: due } = await env.DB.prepare(
+          `SELECT id, ticker, action, price_at_rec, target_price, stop_price
+           FROM recommendations_log
+           WHERE review_status = 'pending' AND review_due <= ? AND price_at_rec IS NOT NULL AND price_at_rec > 0
+           LIMIT 500`
+        ).bind(today).all();
+        if (!due.length) return json({ ok: true, reviewed: 0, message: "No overdue recs with price_at_rec" }, corsHeaders);
+        // Batch-fetch current prices from positions
+        const tickers = [...new Set(due.map(r => r.ticker))];
+        const placeholders = tickers.map(() => "?").join(",");
+        const { results: prices } = await env.DB.prepare(
+          `SELECT ticker, last_price FROM positions WHERE ticker IN (${placeholders})`
+        ).bind(...tickers).all();
+        const priceMap = {};
+        for (const p of (prices || [])) priceMap[p.ticker] = +p.last_price;
+        let reviewed = 0;
+        for (const r of due) {
+          const px = priceMap[r.ticker];
+          if (!px || !Number.isFinite(px)) continue;
+          const returnPct = ((px - r.price_at_rec) / r.price_at_rec) * 100;
+          // Determine outcome by action direction:
+          // BUY/ADD correct if price went up (or hit target); wrong if stop hit
+          // SELL/TRIM correct if price went down; wrong if it went up significantly
+          // HOLD: correct if within ±5% (didn't miss a big move)
+          let status;
+          if (r.action === "BUY" || r.action === "ADD") {
+            if (r.stop_price && px < r.stop_price) status = "wrong";
+            else if (r.target_price && px >= r.target_price) status = "correct";
+            else if (returnPct >= 5) status = "correct";
+            else if (returnPct >= 0) status = "partial";
+            else if (returnPct <= -10) status = "wrong";
+            else status = "partial";
+          } else if (r.action === "SELL" || r.action === "TRIM") {
+            if (returnPct <= -5) status = "correct";
+            else if (returnPct <= 0) status = "partial";
+            else if (returnPct >= 10) status = "wrong";
+            else status = "partial";
+          } else { // HOLD
+            if (Math.abs(returnPct) <= 5) status = "correct";
+            else status = "partial";
+          }
+          await env.DB.prepare(`
+            UPDATE recommendations_log
+            SET review_status = ?, price_at_review = ?, return_pct = ?, reviewed_at = datetime('now'),
+                review_notes = 'Auto-review based on current price'
+            WHERE id = ?
+          `).bind(status, px, returnPct, r.id).run();
+          reviewed++;
+        }
+        return json({ ok: true, reviewed, candidates: due.length }, corsHeaders);
+      }
+
+      if (path === "/api/recommendations/stats" && request.method === "GET") {
+        await ensureMigrations(env);
+        const all = await env.DB.prepare("SELECT * FROM recommendations_log").all();
+        const rows = all.results || [];
+        const reviewed = rows.filter(r => r.review_status !== "pending");
+        const pending = rows.filter(r => r.review_status === "pending");
+        const today = new Date().toISOString().slice(0, 10);
+        const overdue = pending.filter(r => r.review_due && r.review_due <= today);
+        const correct = reviewed.filter(r => r.review_status === "correct");
+        const partial = reviewed.filter(r => r.review_status === "partial");
+        const wrong = reviewed.filter(r => r.review_status === "wrong");
+        const hitRate = reviewed.length > 0
+          ? Math.round(((correct.length + partial.length * 0.5) / reviewed.length) * 100)
+          : null;
+        // By source
+        const bySource = {};
+        for (const r of reviewed) {
+          if (!bySource[r.source]) bySource[r.source] = { total: 0, correct: 0, partial: 0, wrong: 0, avg_return: 0, returns: [] };
+          bySource[r.source].total++;
+          bySource[r.source][r.review_status] = (bySource[r.source][r.review_status] || 0) + 1;
+          if (Number.isFinite(+r.return_pct)) bySource[r.source].returns.push(+r.return_pct);
+        }
+        for (const s of Object.keys(bySource)) {
+          const rets = bySource[s].returns;
+          bySource[s].avg_return = rets.length ? +(rets.reduce((a, b) => a + b, 0) / rets.length).toFixed(2) : null;
+          bySource[s].hit_rate = bySource[s].total > 0
+            ? Math.round(((bySource[s].correct + (bySource[s].partial||0) * 0.5) / bySource[s].total) * 100) : null;
+          delete bySource[s].returns;
+        }
+        // Avg return of all reviewed
+        const allReturns = reviewed.map(r => +r.return_pct).filter(Number.isFinite);
+        const avgReturn = allReturns.length ? +(allReturns.reduce((a, b) => a + b, 0) / allReturns.length).toFixed(2) : null;
+        return json({
+          ok: true,
+          total: rows.length,
+          reviewed: reviewed.length,
+          pending: pending.length,
+          overdue: overdue.length,
+          hit_rate_pct: hitRate,
+          avg_return_pct: avgReturn,
+          correct: correct.length,
+          partial: partial.length,
+          wrong: wrong.length,
+          by_source: bySource,
+        }, corsHeaders);
+      }
+
       // 404
       return new Response(JSON.stringify({ error: "Not found", path }), {
         status: 404,
@@ -15366,6 +16014,15 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
 
   // Cloudflare Cron Trigger — runs daily at 9:00 UTC (11:00 Madrid) Mon-Fri
   async scheduled(event, env, ctx) {
+    // Differentiate which cron fired so Monday 06:00 (digest) and Monday 13:00
+    // (daily pipeline) do not both run the full agent pipeline.
+    const cronExpr = event?.cron || "";
+    const isWeeklyDigestCron = cronExpr === "0 6 * * 1";
+    const isDailyAgentsCron  = cronExpr === "0 13 * * 1-5";
+    // Fallback: if cron expr unknown (on-demand), run everything like the
+    // legacy behaviour so manual calls from dev never skip work.
+    const runEverything = !isWeeklyDigestCron && !isDailyAgentsCron;
+
     try {
       await ensureMigrations(env);
       const result = await performAutoSync(env);
@@ -15394,6 +16051,32 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
     } catch(e) {
       console.error("div_ttm refresh failed:", e.message);
     }
+    // Refresh FX rates in positions.fx so foreign tickers stay current.
+    // Added 2026-04-18 after audit found rates were 1-3% stale.
+    try {
+      const fxResp = await fetch("https://api.frankfurter.dev/v1/latest?base=USD&symbols=EUR,GBP,CAD,AUD,HKD,JPY,CHF,DKK,SEK,NOK,SGD,CNY");
+      if (fxResp.ok) {
+        const raw = await fxResp.json();
+        const fxMap = raw.rates ? { USD: 1, ...raw.rates, GBX: raw.rates.GBP } : null;
+        if (fxMap) {
+          const toUsd = {};
+          for (const [c, r] of Object.entries(fxMap)) if (r > 0) toUsd[c] = 1 / r;
+          toUsd.USD = 1;
+          const { results: pos } = await env.DB.prepare("SELECT ticker, currency, market_value FROM positions WHERE shares > 0").all();
+          const stmts = [];
+          for (const p of (pos || [])) {
+            const fx = toUsd[p.currency || 'USD'];
+            if (!fx) continue;
+            stmts.push(env.DB.prepare("UPDATE positions SET fx = ?, usd_value = ?, updated_at = datetime('now') WHERE ticker = ?")
+              .bind(fx, Number(p.market_value || 0) * fx, p.ticker));
+          }
+          for (let i = 0; i < stmts.length; i += 50) await env.DB.batch(stmts.slice(i, i + 50));
+          console.log(`FX refresh: ${stmts.length} positions updated`);
+        }
+      }
+    } catch(e) {
+      console.error("FX refresh failed:", e.message);
+    }
     // Check dividend cuts/raises
     try {
       const divChangeResult = await checkDividendChanges(env);
@@ -15401,15 +16084,18 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
     } catch(e) {
       console.error("Dividend change check failed:", e.message);
     }
-    // Run AI agents in background (takes ~5min due to rate limit delays)
-    ctx.waitUntil((async () => {
-      try {
-        const agentResults = await runAllAgents(env);
-        console.log("AI agents completed:", JSON.stringify(agentResults));
-      } catch(e) {
-        console.error("AI agents cron failed:", e.message);
-      }
-    })());
+    // Run AI agents pipeline only on daily cron (or on-demand).
+    // Skip on the Monday 06:00 digest cron to avoid double-runs.
+    if (isDailyAgentsCron || runEverything) {
+      ctx.waitUntil((async () => {
+        try {
+          const agentResults = await runAllAgents(env);
+          console.log("AI agents completed:", JSON.stringify(agentResults));
+        } catch(e) {
+          console.error("AI agents cron failed:", e.message);
+        }
+      })());
+    }
     // Evaluate custom alert rules
     try {
       const rulesResult = await evaluateAlertRules(env);
@@ -15426,20 +16112,20 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
     } catch(e) {
       console.error("IA narrative scan failed:", e.message);
     }
-    // Weekly Digest — generate every Monday (day 1)
-    // Cron runs "0 6 * * 1" (06:00 UTC Mon = 08:00 Madrid summer / 07:00 winter)
-    // event.cron is the cron expression that triggered this run, or undefined for on-demand.
-    // We check day-of-week so a re-enabled daily cron still only builds digest on Mondays.
-    const todayUTC = new Date();
-    if (todayUTC.getUTCDay() === 1) {
-      ctx.waitUntil((async () => {
-        try {
-          const digestResult = await buildWeeklyDigest(env);
-          console.log("Weekly digest generated:", digestResult.week_start, "actions:", digestResult.actions?.length);
-        } catch(e) {
-          console.error("Weekly digest generation failed:", e.message);
-        }
-      })());
+    // Weekly Digest — only on Monday 06:00 UTC cron (or on-demand).
+    // Skip on the daily 09:00 weekday cron so we don't rebuild on Tue-Fri.
+    if (isWeeklyDigestCron || runEverything) {
+      const todayUTC = new Date();
+      if (todayUTC.getUTCDay() === 1 || isWeeklyDigestCron) {
+        ctx.waitUntil((async () => {
+          try {
+            const digestResult = await buildWeeklyDigest(env);
+            console.log("Weekly digest generated:", digestResult.week_start, "actions:", digestResult.actions?.length);
+          } catch(e) {
+            console.error("Weekly digest generation failed:", e.message);
+          }
+        })());
+      }
     }
   },
 };
@@ -16404,7 +17090,8 @@ async function storeInsights(env, agentName, fecha, insights) {
       severity = excluded.severity, title = excluded.title, summary = excluded.summary,
       details = excluded.details, score = excluded.score, created_at = datetime('now')
   `);
-  const batch = insights.filter(i => i && typeof i === 'object').map(i => {
+  const filtered = insights.filter(i => i && typeof i === 'object');
+  const batch = filtered.map(i => {
     const ticker = String(i.ticker || "_GLOBAL_");
     const severity = String(i.severity || "info");
     const title = String(i.title || "Update");
@@ -16414,6 +17101,46 @@ async function storeInsights(env, agentName, fecha, insights) {
     return stmt.bind(agentName, fecha, ticker, severity, title, summary, details, score);
   });
   if (batch.length) await env.DB.batch(batch);
+
+  // Auto-log to recommendations_log if the agent produces actionable signals.
+  // Only trade/dividend agents that explicitly set details.action are logged —
+  // the rest are pure observations. (2026-04-18 accountability loop)
+  try {
+    if (agentName === "trade" || agentName === "dividend") {
+      const recs = filtered
+        .filter(i => i.ticker && i.details?.action && ["BUY","ADD","HOLD","TRIM","SELL","ACCUMULATE"].includes(i.details.action))
+        .map(i => {
+          const normAction = i.details.action === "ACCUMULATE" ? "ADD" : i.details.action;
+          const price = Number(i.details?.currentPrice || i.details?.price_at_signal || i.details?.price);
+          return {
+            ticker: i.ticker,
+            action: normAction,
+            price_at_rec: Number.isFinite(price) && price > 0 ? price : null,
+            target_price: Number.isFinite(+i.details?.targetPrice) ? +i.details.targetPrice : null,
+            stop_price: Number.isFinite(+i.details?.stopPrice) ? +i.details.stopPrice : null,
+            reason: (i.title || i.summary || "").slice(0, 200),
+            details: JSON.stringify({ severity: i.severity, score: i.score, agent_details: i.details }),
+          };
+        });
+      if (recs.length) {
+        const recStmt = env.DB.prepare(`
+          INSERT INTO recommendations_log
+            (recommended_at, source, ticker, action, price_at_rec, target_price, stop_price, reason, details, review_due)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        const now = new Date();
+        const reviewDue = new Date(now.getTime() + 90 * 86400000).toISOString().slice(0, 10);
+        const recBatch = recs.map(r => recStmt.bind(
+          now.toISOString(), `agent_${agentName}`, r.ticker, r.action,
+          r.price_at_rec, r.target_price, r.stop_price, r.reason, r.details, reviewDue
+        ));
+        await env.DB.batch(recBatch);
+      }
+    }
+  } catch (e) {
+    console.error("[recommendations_log] auto-log failed:", e.message);
+  }
+
   return batch.length;
 }
 
@@ -18165,10 +18892,20 @@ async function fmpFinancials(ticker, env) {
 // Batch cache all portfolio quarterly financials (replaces cacheGuruFocusData trend portion)
 // Supports ?offset=N&limit=N pagination via opts to fit within Workers 30s CPU budget.
 async function cacheFmpFinancials(env, opts = {}) {
-  // Skip ETFs (they have no income statement of their own — would always fail)
-  const { results: positions } = await env.DB.prepare(
-    "SELECT ticker FROM positions WHERE shares > 0 AND COALESCE(category, '') != 'ETF'"
-  ).all();
+  // Source selector — portfolio (default), cantera, or explicit tickerList.
+  // Extended 2026-04-18 to populate cache for external watchlist universe.
+  let positions;
+  if (Array.isArray(opts.tickerList) && opts.tickerList.length) {
+    positions = opts.tickerList.map(t => ({ ticker: t }));
+  } else if (opts.source === "cantera") {
+    const { results } = await env.DB.prepare("SELECT ticker FROM cantera WHERE status != 'dismissed'").all();
+    positions = results || [];
+  } else {
+    const { results } = await env.DB.prepare(
+      "SELECT ticker FROM positions WHERE shares > 0 AND COALESCE(category, '') != 'ETF'"
+    ).all();
+    positions = results || [];
+  }
   if (!positions.length) return { cached: 0, failed: 0, total: 0 };
   const offset = opts.offset || 0;
   const limit = opts.limit || 0;
@@ -19295,9 +20032,18 @@ async function computeQualitySafetyAll(env, opts = {}) {
     console.error("[Q+S] dividend_history pre-warm failed:", e.message);
   }
 
-  const { results: positions } = await env.DB.prepare(
-    "SELECT ticker FROM positions WHERE shares > 0"
-  ).all();
+  // Source selector: portfolio (default), cantera, or explicit tickerList.
+  // Extended 2026-04-18 to support external-universe scoring for comparison.
+  let positions;
+  if (Array.isArray(opts.tickerList) && opts.tickerList.length) {
+    positions = opts.tickerList.map(t => ({ ticker: t }));
+  } else if (opts.source === "cantera") {
+    const { results } = await env.DB.prepare("SELECT ticker FROM cantera WHERE status != 'dismissed'").all();
+    positions = results || [];
+  } else {
+    const { results } = await env.DB.prepare("SELECT ticker FROM positions WHERE shares > 0").all();
+    positions = results || [];
+  }
   const offset = opts.offset || 0;
   const limit = opts.limit || 0;
   const sliced = limit > 0 ? positions.slice(offset, offset + limit) : positions;

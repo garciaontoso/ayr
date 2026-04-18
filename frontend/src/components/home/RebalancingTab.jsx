@@ -700,7 +700,7 @@ export default function RebalancingTab() {
     const ctrl = new AbortController();
     setLiveDataStatus('loading');
 
-    fetch(`${API_URL}/api/analytics/attribution?period=ytd`, { signal: ctrl.signal })
+    fetch(`${API_URL}/api/analytics/attribution?period=ytd`, { signal: ctrl.signal, credentials: 'include' })
       .then(r => r.ok ? r.json() : Promise.reject(r.statusText))
       .then(data => {
         const bySector = data?.by_sector;
@@ -709,14 +709,14 @@ export default function RebalancingTab() {
           return;
         }
         // Compute total portfolio value to derive weight percentages
-        const totalValue = bySector.reduce((s, r) => s + Math.abs(r.value_usd || 0), 0);
+        const totalValue = bySector.reduce((s, r) => s + Math.abs(r.current_value ?? r.value_usd ?? 0), 0);
         if (totalValue === 0) { setLiveDataStatus('error'); return; }
 
         const liveWeights = {};
         bySector.forEach(r => {
           const id = SECTOR_MAP[r.sector];
           if (id) {
-            liveWeights[id] = ((Math.abs(r.value_usd || 0) / totalValue) * 100);
+            liveWeights[id] = ((Math.abs(r.current_value ?? r.value_usd ?? 0) / totalValue) * 100);
           }
         });
 

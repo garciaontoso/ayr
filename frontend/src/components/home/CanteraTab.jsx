@@ -25,6 +25,49 @@ function SubTabSkeleton() {
 // Shows 100 candidate companies ranked by priority_score.
 // Sources: Dividend Aristocrats | Smart Money | Deep Dividend | Sector Leaders | Manual
 
+// Create a price alert for a ticker — shared by Cantera + portfolio lists.
+// Opens a native prompt for the threshold; POSTs to /api/alert-rules/add.
+// Returns true on success, false on cancel/error.
+async function createPriceAlert(ticker, currentPrice) {
+  const suggestedDefault = currentPrice && currentPrice > 0
+    ? (currentPrice * 0.9).toFixed(2)  // -10% by default (natural entry trigger)
+    : '';
+  const msg = currentPrice
+    ? `Alerta para ${ticker}\nPrecio actual: $${currentPrice.toFixed(2)}\n\n¿A qué precio por debajo quieres aviso?`
+    : `Alerta para ${ticker}\n\n¿A qué precio por debajo quieres aviso?`;
+  const raw = window.prompt(msg, suggestedDefault);
+  if (raw == null || raw === '') return false;
+  const threshold = Number(raw);
+  if (!Number.isFinite(threshold) || threshold <= 0) {
+    alert(`Precio inválido: "${raw}"`);
+    return false;
+  }
+  try {
+    const r = await fetch(`${API_URL}/api/alert-rules/add`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ticker,
+        rule_type: 'price_below',
+        operator: '<',
+        threshold,
+        unit: '$',
+        message: `${ticker} bajó a $${threshold}`,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      alert(`Error creando alerta: ${data.error || r.statusText}`);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    alert(`Error: ${e.message}`);
+    return false;
+  }
+}
+
 // Score 0-100 → color
 function scoreColor(s) {
   if (s >= 80) return '#c8a44e'; // gold
@@ -174,9 +217,19 @@ function FeaturedCard({ c, onAction }) {
           Watchlist
         </button>
         <button
+          onClick={async () => {
+            const ok = await createPriceAlert(c.ticker, c.last_price);
+            if (ok) alert(`✔ Alerta creada para ${c.ticker}`);
+          }}
+          title="Crear alerta de precio"
+          style={{ padding: '5px 8px', borderRadius: 7, border: '1px solid rgba(100,210,255,.3)', background: 'rgba(100,210,255,.08)', color: '#64d2ff', fontSize: 11, cursor: 'pointer', fontFamily: 'var(--fb)' }}
+        >
+          🔔
+        </button>
+        <button
           onClick={() => onAction(c, 'rejected')}
           title="Reject"
-          style={{ padding: '5px 10px', borderRadius: 7, border: '1px solid rgba(255,69,58,.3)', background: 'rgba(255,69,58,.08)', color: '#ff453a', fontSize: 11, cursor: 'pointer', fontFamily: 'var(--fb)' }}
+          style={{ padding: '5px 8px', borderRadius: 7, border: '1px solid rgba(255,69,58,.3)', background: 'rgba(255,69,58,.08)', color: '#ff453a', fontSize: 11, cursor: 'pointer', fontFamily: 'var(--fb)' }}
         >
           X
         </button>
@@ -234,6 +287,16 @@ function CandidateRow({ c, rank, onAction, onDelete }) {
             style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #c8a44e40', background: 'rgba(200,164,78,.1)', color: '#c8a44e', fontSize: 10, cursor: 'pointer', fontFamily: 'var(--fb)', fontWeight: 600 }}
           >
             Watchlist
+          </button>
+          <button
+            onClick={async () => {
+              const ok = await createPriceAlert(c.ticker, c.last_price);
+              if (ok) alert(`✔ Alerta creada para ${c.ticker}`);
+            }}
+            title="Crear alerta de precio"
+            style={{ padding: '4px 7px', borderRadius: 6, border: '1px solid rgba(100,210,255,.3)', background: 'rgba(100,210,255,.08)', color: '#64d2ff', fontSize: 10, cursor: 'pointer', fontFamily: 'var(--fb)' }}
+          >
+            🔔
           </button>
           <button
             onClick={() => onAction(c, 'rejected')}
@@ -327,12 +390,12 @@ function RadarView() {
   useEffect(() => { load(); }, [load]);
 
   const handleRefresh = useCallback(async () => {
-    if (!token) { setActionMsg('No auth token — cannot refresh'); return; }
     setRefreshing(true);
     setActionMsg('');
     try {
       const r = await fetch(`${API_URL}/api/cantera/refresh`, {
         method: 'POST',
+        credentials: 'include',
       });
       const data = await r.json();
       if (data.ok) {
@@ -345,14 +408,14 @@ function RadarView() {
       setActionMsg('Error: ' + String(e.message || e));
     }
     setRefreshing(false);
-  }, [token, load]);
+  }, [load]);
 
   const handleAction = useCallback(async (candidate, newStatus) => {
-    if (!token) { setActionMsg('No auth token'); return; }
     try {
       const r = await fetch(`${API_URL}/api/cantera/${candidate.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
       });
       const data = await r.json();
@@ -364,14 +427,14 @@ function RadarView() {
     } catch (e) {
       setActionMsg('Error: ' + String(e.message || e));
     }
-  }, [token, statusFilter, load]);
+  }, [statusFilter, load]);
 
   const handleDelete = useCallback(async (candidate) => {
-    if (!token) { setActionMsg('No auth token'); return; }
     if (!window.confirm(`Delete ${candidate.ticker} from cantera?`)) return;
     try {
       const r = await fetch(`${API_URL}/api/cantera/${candidate.id}`, {
         method: 'DELETE',
+        credentials: 'include',
       });
       const data = await r.json();
       if (data.ok) {
@@ -381,17 +444,18 @@ function RadarView() {
     } catch (e) {
       setActionMsg('Error: ' + String(e.message || e));
     }
-  }, [token]);
+  }, []);
 
   const handleAdd = useCallback(async () => {
     const t = addTicker.trim().toUpperCase();
-    if (!t || !token) return;
+    if (!t) return;
     setAdding(true);
     setAddMsg('');
     try {
       const r = await fetch(`${API_URL}/api/cantera/add`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ticker: t, reason: addReason || undefined }),
       });
       const data = await r.json();

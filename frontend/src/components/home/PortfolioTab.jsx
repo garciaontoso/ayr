@@ -5,6 +5,7 @@ import { useFreshness } from '../../hooks/useFreshness.js';
 import { _sf, fDol, fmtMC } from '../../utils/formatters.js';
 import { EmptyState, LoadingSkeleton } from '../ui/EmptyState.jsx';
 import { TrustBadge } from '../ui/TrustBadge.jsx';
+import FiveFiltersBars from '../ui/FiveFiltersBars.jsx';
 import { API_URL } from '../../constants/index.js';
 
 const ALERTS_KEY = "ayr_price_alerts";
@@ -117,6 +118,12 @@ const COL_DEFS = [
     fmt:v=>v>0?`⭐${v}`:"\u2014",
     color:v=>v==null||v===0?"var(--text-tertiary)":v>=4?"var(--gold)":v>=2?"var(--green)":"#64d2ff",
     sortV:p=>p._sm?.length||0 },
+  // 5 Filters composite score (Business · Moat · Mgmt · Price · Conviction).
+  // Click for drill-down, hover for per-filter breakdown with source attribution.
+  { id:"fiveFilters", label:"5F", group:"Calidad", w:"90px", defaultOn:true, is5F:true,
+    val:p=>p._5f?.composite,
+    fmt:v=>v!=null?v.toFixed(1):"\u2014",
+    sortV:p=>p._5f?.composite||0 },
 ];
 
 const DEFAULT_COLS = COL_DEFS.filter(c=>c.defaultOn).map(c=>c.id);
@@ -326,6 +333,34 @@ export default function PortfolioTab() {
     } catch {}
   }, []);
   useEffect(() => { loadQsScores(false); }, [loadQsScores]);
+
+  // 5 Filters scores — fetched once, cached in session (4h TTL).
+  const FF_CACHE_KEY = 'five-filters-v1';
+  const [fiveFilters, setFiveFilters] = useState({});
+  const loadFiveFilters = useCallback(async (force = false) => {
+    const TTL_MS = 4 * 60 * 60 * 1000;
+    if (!force) {
+      try {
+        const raw = sessionStorage.getItem(FF_CACHE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.ts && (Date.now() - parsed.ts) < TTL_MS) {
+            setFiveFilters(parsed.data || {});
+            return;
+          }
+        }
+      } catch {}
+    }
+    try {
+      const r = await fetch(`${API_URL}/api/five-filters`);
+      const d = await r.json();
+      if (d.ok && d.scores) {
+        setFiveFilters(d.scores);
+        try { sessionStorage.setItem(FF_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: d.scores })); } catch {}
+      }
+    } catch {}
+  }, []);
+  useEffect(() => { loadFiveFilters(false); }, [loadFiveFilters]);
   const [showRebalance, setShowRebalance] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);
   const [alertForm, setAlertForm] = useState({ ticker: "", price: "", direction: "below" });
@@ -928,8 +963,9 @@ export default function PortfolioTab() {
                         </div>
                       </td>
                       {activeCols.map(c => {
-                        // Inject _qs into position object so columns can read it
-                        const pWithQs = qsScores && qsScores[p.ticker] ? { ...p, _qs: qsScores[p.ticker] } : p;
+                        // Inject _qs and _5f into position object so columns can read them
+                        let pWithQs = qsScores && qsScores[p.ticker] ? { ...p, _qs: qsScores[p.ticker] } : p;
+                        if (fiveFilters && fiveFilters[p.ticker]) pWithQs = { ...pWithQs, _5f: fiveFilters[p.ticker] };
                         if (c.id === "ticker") {
                           const ibTitle = p.dataSource==="IB" ? "Sincronizado desde Interactive Brokers" : "";
                           return (<td key={c.id} style={{padding:"3px 3px",verticalAlign:"middle",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>
@@ -946,6 +982,13 @@ export default function PortfolioTab() {
                         if (c.id === "sector") {
                           const sc = getSectorColor(p.sector);
                           return (<td key={c.id} style={{padding:"3px 3px",verticalAlign:"middle",textAlign:"left",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}><span style={{fontSize:9,color:sc||"var(--text-tertiary)"}} title={p.sector||""}>{c.fmt(c.val(p),p)}</span></td>);
+                        }
+                        // 5 Filters column: 5-bar SVG + composite score + hover tooltip
+                        if (c.is5F) {
+                          const ff = pWithQs._5f;
+                          return (<td key={c.id} onClick={e=>e.stopPropagation()} style={{padding:"3px 3px",textAlign:"center",verticalAlign:"middle",whiteSpace:"nowrap"}}>
+                            <FiveFiltersBars scores={ff} ticker={p.ticker} />
+                          </td>);
                         }
                         // Q/S columns: clickable to open drill-down modal
                         if (c.isQS) {

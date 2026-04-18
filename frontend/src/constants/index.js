@@ -119,7 +119,6 @@ export const HOME_TAB_GROUPS = [
       {id:"analytics",lbl:"Analytics",ico:"📐"},
       {id:"attribution",lbl:"Atribución",ico:"📈"},
       {id:"rebalance",lbl:"Rebalance",ico:"⚖️"},
-      {id:"watchlist",lbl:"Watchlist",ico:"👁"},
       {id:"historial",lbl:"Historial",ico:"📦"},
       {id:"alert-rules",lbl:"Alertas",ico:"🔔"},
     ],
@@ -173,7 +172,7 @@ export const HOME_TAB_GROUPS = [
     tabs: [
       {id:"cantera",lbl:"Cantera",ico:"🎯"},
       {id:"cartas-sabios",lbl:"Cartas Sabios",ico:"📜"},
-      {id:"research",lbl:"Radar",ico:"📡"},
+      {id:"research",lbl:"Watchlist",ico:"👁"},
       {id:"smart-money",lbl:"Smart Money",ico:"🏛️"},
       {id:"videos-youtube",lbl:"Vídeos YouTube",ico:"▶️"},
       {id:"library",lbl:"Library",ico:"📚"},

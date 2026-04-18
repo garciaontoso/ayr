@@ -3,6 +3,7 @@ import { API_URL } from '../../constants/index.js';
 import { InlineLoading } from '../ui/EmptyState.jsx';
 import { Button, Toast } from '../ui';
 import { useDraggableOrder } from '../../hooks/useDraggableOrder.js';
+import AccountabilityWidget from './AccountabilityWidget.jsx';
 
 /* ═══════════════════════════════════════════
    AI Agents Dashboard — A&R v4.1 (FMP Ultimate)
@@ -357,6 +358,9 @@ export default function AgentesTab() {
           </div>
         );
       })()}
+
+      {/* ── Accountability widget: how well have past recommendations performed? ── */}
+      <AccountabilityWidget />
 
       {/* ── Agent Cards Grid ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 24 }}>

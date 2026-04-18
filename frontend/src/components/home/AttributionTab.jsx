@@ -327,9 +327,9 @@ export default function AttributionTab() {
           </Section>
 
           {/* Sector attribution */}
-          <Section title={`Atribución por Sector (${data.by_sector?.length || 0} sectores)`}>
-            <BarChart rows={data.by_sector} labelKey="sector" />
-            {data.by_sector?.some(s => s.contribution_pct) && (
+          <Section title={`Atribución por Sector (${(data.by_sector || []).length} sectores)`}>
+            <BarChart rows={data.by_sector || []} labelKey="sector" />
+            {Array.isArray(data.by_sector) && data.by_sector.some(s => s.contribution_pct) && (
               <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {data.by_sector.slice(0, 6).map(s => (
                   <div key={s.sector} style={{ background: 'var(--surface)', borderRadius: 7, padding: '4px 10px', border: '1px solid var(--border)', fontSize: 10, fontFamily: 'var(--fm)' }}>

@@ -1,5 +1,64 @@
+import { useState, useEffect, useCallback } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
+import { useDraggableOrder } from '../../hooks/useDraggableOrder.js';
+
+const CUSTOM_LISTS_KEY = 'ayr_research_custom_lists';
+
+// Draggable horizontal pills for watchlists. Uses useDraggableOrder with a
+// persisted key so the order survives reloads. "+ Nueva lista" button at end.
+// Custom lists (id prefix "custom_") get an inline ✕ to delete.
+function ListsPillsBar({ lists, activeId, setActiveId, onAddList, onDeleteList }) {
+  const items = lists.map(l => ({ id: l.id, list: l }));
+  const { orderedItems, dragHandlers, getDragVisuals } = useDraggableOrder(items, 'ui_research_lists_order');
+  return (
+    <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"4px 0 6px",alignItems:"center"}}>
+      {orderedItems.map(item => {
+        const list = item.list;
+        const isActive = activeId === list.id;
+        const { isDragging, isDragOver, extraStyle } = getDragVisuals(list.id);
+        const isCustom = list.id.startsWith('custom_');
+        return (
+          <div key={list.id} {...dragHandlers(list.id)}
+            style={{
+              display:"inline-flex", alignItems:"center", gap:0,
+              borderRadius:8,
+              border: isDragOver ? '1px solid var(--gold)' : (isActive ? `1px solid ${list.color}` : '1px solid var(--border)'),
+              background: isDragOver ? 'rgba(200,164,78,.25)' : (isActive ? `${list.color}18` : 'var(--card)'),
+              opacity: isDragging ? 0.4 : 1,
+              ...extraStyle,
+            }}>
+            <button onClick={()=>setActiveId(list.id)}
+              title={list.desc + " · " + list.tickers.length + " empresas · arrastra para reordenar"}
+              style={{
+                padding:"6px 11px", border:"none", background:"transparent",
+                color: isActive ? list.color : 'var(--text-secondary)',
+                fontSize:11, fontWeight: isActive ? 700 : 500,
+                cursor:"pointer", fontFamily:"var(--fm)", whiteSpace:"nowrap",
+                display:"flex", alignItems:"center", gap:5,
+              }}>
+              {list.name}
+              <span style={{fontSize:9, opacity: isActive ? 1 : 0.6, padding:"0 5px", borderRadius:10, background: isActive ? `${list.color}25` : 'var(--subtle-bg)'}}>{list.tickers.length}</span>
+            </button>
+            {isCustom && (
+              <button onClick={(e)=>{ e.stopPropagation(); onDeleteList(list.id); }}
+                title="Borrar lista personalizada"
+                style={{padding:"6px 7px 6px 2px",border:"none",background:"transparent",color:"var(--text-tertiary)",fontSize:11,cursor:"pointer",fontFamily:"var(--fm)"}}>✕</button>
+            )}
+          </div>
+        );
+      })}
+      <button onClick={onAddList}
+        title="Crear nueva lista personalizada"
+        style={{
+          padding:"6px 11px", borderRadius:8,
+          border:'1px dashed #64d2ff60', background:'rgba(100,210,255,.06)',
+          color:'#64d2ff', fontSize:11, fontWeight:600,
+          cursor:"pointer", fontFamily:"var(--fm)", whiteSpace:"nowrap",
+        }}>+ Nueva lista</button>
+    </div>
+  );
+}
 
 export default function ResearchTab() {
   const {
@@ -13,6 +72,17 @@ export default function ResearchTab() {
     openAnalysis, POS_STATIC,
     loadFromAPI, fmpLoading, fmpError, setViewMode, setTab, setCfg,
   } = useHome();
+
+  // Custom lists — user-created watchlists, persisted in localStorage.
+  // Each: { id: 'custom_NNN', name, desc, color, tickers: [...] }
+  const [customLists, setCustomLists] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(CUSTOM_LISTS_KEY) || '[]'); }
+    catch { return []; }
+  });
+  const saveCustomLists = useCallback((lists) => {
+    setCustomLists(lists);
+    try { localStorage.setItem(CUSTOM_LISTS_KEY, JSON.stringify(lists)); } catch {}
+  }, []);
 
   return (
 <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -70,34 +140,64 @@ export default function ResearchTab() {
   {/* Stock Lists */}
   {(() => {
     const portfolioTickers = Object.entries(POS_STATIC).filter(([,v])=>(v.cat==="COMPANY"||v.cat==="REIT")&&(v.sh||0)>0&&(v.c||"USD")==="USD").map(([t])=>t).sort();
-    const lists = [
-      {name:"Mi Cartera",desc:`${portfolioTickers.length} posiciones activas US`,color:"#d4af37",tickers:portfolioTickers,isPortfolio:true},
-      {name:"Dividend Kings",desc:"50+ años de incrementos consecutivos de dividendo",color:"#d4af37",tickers:["ABM","ABT","AWR","BKH","BRC","CBU","CL","CWT","DOV","EMR","FRT","FUL","GPC","GWW","HRL","ITW","JNJ","KMB","KO","LANC","LEG","LOW","MCD","MMM","MSEX","MO","NFG","NWN","PG","PH","PNR","PPG","SCL","SJW","SWK","SYY","TGT","TR","UVV","VFC"]},
-      {name:"Dividend Aristocrats",desc:"25+ años de incrementos (S&P 500)",color:"#30d158",tickers:["ABBV","ABT","ADM","ADP","AFL","ALB","AMCR","AOS","APD","APTV","ATT","ATO","BDX","BEN","BF.B","CAH","CAT","CB","CHRW","CINF","CL","CLX","CTAS","CVX","DOV","ECL","ED","EMR","ESS","EXPD","FRT","GD","GPC","GWW","HRL","IBM","ICE","ITW","JNJ","KMB","KO","LIN","LOW","MCD","MDT","MKC","MMM","NDSN","NEE","NUE","O","OTIS","PEP","PG","PNR","PPG","ROP","ROPER","SHW","SPGI","SWK","SYY","T","TGT","TROW","VFC","WBA","WMT","WST","XOM"]},
-      {name:"Dividend Champions",desc:"25+ años de incrementos (todas las caps)",color:"#0a84ff",tickers:["ABBV","ABM","ABT","ADM","ADP","AFL","ALB","AMCR","AOS","APD","APTV","ATO","ATR","BDX","BEN","BKH","BRC","CAH","CAT","CB","CBU","CHRW","CINF","CL","CLX","CTAS","CWT","CVX","DOV","ECL","ED","EMR","ESS","EXPD","FRT","FUL","GD","GPC","GWW","HRL","IBM","ITW","JNJ","KMB","KO","LANC","LEG","LIN","LOW","MCD","MDT","MKC","MMM","MO","MSEX","NDSN","NEE","NFG","NUE","NWN","O","PEP","PG","PH","PNR","PPG","ROP","SCL","SHW","SJW","SPGI","SWK","SYY","TGT","TR","TROW","UVV","VFC","WBA","WMT","WST","XOM"]},
-      {name:"High Yield (+4%)",desc:"Dividend yield superior al 4%",color:"#ff9f0a",tickers:["MO","T","VZ","ABBV","PM","KMI","OKE","EPD","ET","BEN","WBA","MMM","LYB","VFC","LEG","IRM","OHI","AGNC","NLY","MPW","PFE","KHC","DOW","IBM","CVX","XOM","AMCR","UVV"]},
-      {name:"REITs Dividendo",desc:"REITs con historial de dividendo estable",color:"#a855f7",tickers:["O","VICI","NNN","STAG","STOR","ADC","WPC","EPRT","COLD","AMT","CCI","DLR","PSA","EXR","AVB","ESS","MAA","SPG","FRT","ARE","OHI","MPW","IRM","IIPR","LAND"]},
-      {name:"Dividend Growth",desc:"Alto crecimiento de dividendo (>10% CAGR 5y)",color:"#34d399",tickers:["AVGO","MSFT","AAPL","V","MA","HD","COST","UNH","LMT","TXN","QCOM","SBUX","CME","ICE","FAST","WST","ROP","ODFL","POOL","CTAS","TROW","ADP","SPGI","MCO","FIS"]},
-      {name:"Buffett / Ideas A&R",desc:"Selección personal de ideas de inversión",color:"#f59e0b",tickers:["ARE","BDX","BMY","CAG","CMCSA","CPB","CZR","DEO","EMN","GIS","HASI","IIPR","IPG","KHC","LULU","LYB","MO","MRK","MDV","MTN","NNN","NOMD","NVO","O","OBDC","OWL","PEP","PFE","QQQX","REXR","RICK","RYN","SAFE","STZ","SUI","TAP","TROW","UPS","VZ","WEN","WES","WPC","CNC","DIDIY","LUV","PATH","PYPL","SWKS"]},
-      {name:"Radar USA",desc:"Empresas USA de calidad en seguimiento",color:"#60a5fa",tickers:["IPAR","BN","STZ","DIS","EL","FDS","FTV","GGG","HSY","HRB","ICE","ITW","KHC","JNJ","JKHY","KO","MA","MCD","MCO","NKE","PAYX","PM","SNA","SBUX","SYK","TROW","TFX","VRSN","V","WAT","ZTS"]},
-      {name:"Radar China / Asia",desc:"Empresas China y Asia en seguimiento",color:"#ef4444",tickers:["2020.HK","0392.HK","0388.HK","9997.HK","0669.HK","0168.HK","1368.HK","0995.HK","0762.HK","0855.HK","1038.HK","0001.HK","0883.HK","0177.HK","3768.HK","0270.HK","2281.HK","6198.HK","0548.HK","0152.HK","1065.HK","1052.HK","0576.HK","0371.HK","3983.HK","0257.HK","0144.HK","2189.HK","1258.HK","1382.HK","2678.HK","0288.HK"]},
-      {name:"Radar Internacional",desc:"Europa, Australia y materias primas",color:"#8b5cf6",tickers:["BHP","RIO","LYB","ICL","WPP"]},
-      {name:"REITs A&R",desc:"Selección de REITs en seguimiento",color:"#ec4899",tickers:["ADC","COLD","DOC","EPR","EQR","FRT","MPW","MAA","NHI","NSA","OHI","PSA","RICK","O","SBRA","SILA","SPG","VTR","WELL","WPC"]},
-      {name:"DividendST Ranking",desc:"Ranking DividendStreet.com — Score /5, actualizado periódicamente",color:"#14b8a6",tickers:["MKTX","SNA","GOOGL","MSFT","CTAS","TROW","FDS","V","RHI","NKE","GGG","MCO","LVMH","PAYX","AXP","ROK","MMM","MA","ZTS","FAST","BF-A","PFE","BRBY","AAPL","JNJ","CME","UNP","HSY","EMR","MRK","PEP","CSCO","HRL","FDX","IBE","LMT","PG","DGE","SPGI","INTC","WM","BMY","DIS","EL","KO","SBUX","ORCL","TAP","MO","WMT","IBM","T","CLX","VFC","MANU"]},
+    const defaultLists = [
+      {id:"portfolio",name:"Mi Cartera",desc:`${portfolioTickers.length} posiciones activas US`,color:"#d4af37",tickers:portfolioTickers,isPortfolio:true},
+      {id:"kings",name:"Dividend Kings",desc:"50+ años de incrementos consecutivos de dividendo",color:"#d4af37",tickers:["ABM","ABT","AWR","BKH","BRC","CBU","CL","CWT","DOV","EMR","FRT","FUL","GPC","GWW","HRL","ITW","JNJ","KMB","KO","LANC","LEG","LOW","MCD","MMM","MSEX","MO","NFG","NWN","PG","PH","PNR","PPG","SCL","SJW","SWK","SYY","TGT","TR","UVV","VFC"]},
+      {id:"aristocrats",name:"Dividend Aristocrats",desc:"25+ años de incrementos (S&P 500)",color:"#30d158",tickers:["ABBV","ABT","ADM","ADP","AFL","ALB","AMCR","AOS","APD","APTV","ATT","ATO","BDX","BEN","BF.B","CAH","CAT","CB","CHRW","CINF","CL","CLX","CTAS","CVX","DOV","ECL","ED","EMR","ESS","EXPD","FRT","GD","GPC","GWW","HRL","IBM","ICE","ITW","JNJ","KMB","KO","LIN","LOW","MCD","MDT","MKC","MMM","NDSN","NEE","NUE","O","OTIS","PEP","PG","PNR","PPG","ROP","ROPER","SHW","SPGI","SWK","SYY","T","TGT","TROW","VFC","WBA","WMT","WST","XOM"]},
+      {id:"champions",name:"Dividend Champions",desc:"25+ años de incrementos (todas las caps)",color:"#0a84ff",tickers:["ABBV","ABM","ABT","ADM","ADP","AFL","ALB","AMCR","AOS","APD","APTV","ATO","ATR","BDX","BEN","BKH","BRC","CAH","CAT","CB","CBU","CHRW","CINF","CL","CLX","CTAS","CWT","CVX","DOV","ECL","ED","EMR","ESS","EXPD","FRT","FUL","GD","GPC","GWW","HRL","IBM","ITW","JNJ","KMB","KO","LANC","LEG","LIN","LOW","MCD","MDT","MKC","MMM","MO","MSEX","NDSN","NEE","NFG","NUE","NWN","O","PEP","PG","PH","PNR","PPG","ROP","SCL","SHW","SJW","SPGI","SWK","SYY","TGT","TR","TROW","UVV","VFC","WBA","WMT","WST","XOM"]},
+      {id:"highyield",name:"High Yield (+4%)",desc:"Dividend yield superior al 4%",color:"#ff9f0a",tickers:["MO","T","VZ","ABBV","PM","KMI","OKE","EPD","ET","BEN","WBA","MMM","LYB","VFC","LEG","IRM","OHI","AGNC","NLY","MPW","PFE","KHC","DOW","IBM","CVX","XOM","AMCR","UVV"]},
+      {id:"reits",name:"REITs Dividendo",desc:"REITs con historial de dividendo estable",color:"#a855f7",tickers:["O","VICI","NNN","STAG","STOR","ADC","WPC","EPRT","COLD","AMT","CCI","DLR","PSA","EXR","AVB","ESS","MAA","SPG","FRT","ARE","OHI","MPW","IRM","IIPR","LAND"]},
+      {id:"growth",name:"Dividend Growth",desc:"Alto crecimiento de dividendo (>10% CAGR 5y)",color:"#34d399",tickers:["AVGO","MSFT","AAPL","V","MA","HD","COST","UNH","LMT","TXN","QCOM","SBUX","CME","ICE","FAST","WST","ROP","ODFL","POOL","CTAS","TROW","ADP","SPGI","MCO","FIS"]},
+      {id:"buffett",name:"Buffett / Ideas A&R",desc:"Selección personal de ideas de inversión",color:"#f59e0b",tickers:["ARE","BDX","BMY","CAG","CMCSA","CPB","CZR","DEO","EMN","GIS","HASI","IIPR","IPG","KHC","LULU","LYB","MO","MRK","MDV","MTN","NNN","NOMD","NVO","O","OBDC","OWL","PEP","PFE","QQQX","REXR","RICK","RYN","SAFE","STZ","SUI","TAP","TROW","UPS","VZ","WEN","WES","WPC","CNC","DIDIY","LUV","PATH","PYPL","SWKS"]},
+      {id:"radar_usa",name:"Radar USA",desc:"Empresas USA de calidad en seguimiento",color:"#60a5fa",tickers:["IPAR","BN","STZ","DIS","EL","FDS","FTV","GGG","HSY","HRB","ICE","ITW","KHC","JNJ","JKHY","KO","MA","MCD","MCO","NKE","PAYX","PM","SNA","SBUX","SYK","TROW","TFX","VRSN","V","WAT","ZTS"]},
+      {id:"radar_china",name:"Radar China / Asia",desc:"Empresas China y Asia en seguimiento",color:"#ef4444",tickers:["2020.HK","0392.HK","0388.HK","9997.HK","0669.HK","0168.HK","1368.HK","0995.HK","0762.HK","0855.HK","1038.HK","0001.HK","0883.HK","0177.HK","3768.HK","0270.HK","2281.HK","6198.HK","0548.HK","0152.HK","1065.HK","1052.HK","0576.HK","0371.HK","3983.HK","0257.HK","0144.HK","2189.HK","1258.HK","1382.HK","2678.HK","0288.HK"]},
+      {id:"radar_intl",name:"Radar Internacional",desc:"Europa, Australia y materias primas",color:"#8b5cf6",tickers:["BHP","RIO","LYB","ICL","WPP"]},
+      {id:"reits_ar",name:"REITs A&R",desc:"Selección de REITs en seguimiento",color:"#ec4899",tickers:["ADC","COLD","DOC","EPR","EQR","FRT","MPW","MAA","NHI","NSA","OHI","PSA","RICK","O","SBRA","SILA","SPG","VTR","WELL","WPC"]},
+      {id:"dividendst",name:"DividendST Ranking",desc:"Ranking DividendStreet.com — Score /5, actualizado periódicamente",color:"#14b8a6",tickers:["MKTX","SNA","GOOGL","MSFT","CTAS","TROW","FDS","V","RHI","NKE","GGG","MCO","LVMH","PAYX","AXP","ROK","MMM","MA","ZTS","FAST","BF-A","PFE","BRBY","AAPL","JNJ","CME","UNP","HSY","EMR","MRK","PEP","CSCO","HRL","FDX","IBE","LMT","PG","DGE","SPGI","INTC","WM","BMY","DIS","EL","KO","SBUX","ORCL","TAP","MO","WMT","IBM","T","CLX","VFC","MANU"]},
     ];
-    const openList = researchOpenList; const setOpenList = setResearchOpenList;
+    const lists = [...defaultLists, ...customLists];
+    const activeId = researchOpenList || 'portfolio';
+    const setActiveId = setResearchOpenList;
+    const selectedList = lists.find(l => l.id === activeId) || lists[0];
+    const handleAddList = () => {
+      const name = window.prompt('Nombre de la nueva lista (ej: "Mis REITs", "Cyclicals 2026"):');
+      if (!name || !name.trim()) return;
+      const tickersRaw = window.prompt(`Tickers separados por coma para "${name.trim()}":\nEj: KO, PEP, PG, MCD`);
+      if (tickersRaw == null) return;
+      const tickers = tickersRaw.split(/[,\s]+/).map(t => t.trim().toUpperCase()).filter(Boolean);
+      if (!tickers.length) { alert('Tickers vacíos'); return; }
+      const colors = ["#c8a44e","#30d158","#0a84ff","#ff9f0a","#a855f7","#34d399","#f59e0b","#60a5fa","#ef4444","#8b5cf6","#ec4899","#14b8a6"];
+      const newList = {
+        id: 'custom_' + Date.now(),
+        name: name.trim(),
+        desc: 'Lista personalizada',
+        color: colors[customLists.length % colors.length],
+        tickers,
+      };
+      saveCustomLists([...customLists, newList]);
+      setActiveId(newList.id);
+    };
+    const handleDeleteList = (id) => {
+      if (!id.startsWith('custom_')) { alert('Solo se pueden borrar listas personalizadas'); return; }
+      const list = customLists.find(l => l.id === id);
+      if (!list) return;
+      if (!window.confirm(`¿Borrar la lista "${list.name}"?`)) return;
+      saveCustomLists(customLists.filter(l => l.id !== id));
+      if (activeId === id) setActiveId('portfolio');
+    };
     return <div style={{display:"flex",flexDirection:"column",gap:10}}>
-      {lists.map((list,li) => (
-        <div key={li} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden"}}>
-          <div onClick={()=>setOpenList(openList===li?null:li)} style={{padding:"14px 16px",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}
-            onMouseEnter={e=>e.currentTarget.style.background="var(--row-alt)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+      <ListsPillsBar lists={lists} activeId={activeId} setActiveId={setActiveId} onAddList={handleAddList} onDeleteList={handleDeleteList} />
+      {/* Selected list content */}
+      {selectedList && (
+        <div style={{background:"var(--card)",border:`1px solid ${selectedList.color}30`,borderRadius:14,overflow:"hidden"}}>
+          <div style={{padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"1px solid var(--border)"}}>
             <div>
-              <div style={{fontSize:13,fontWeight:700,color:list.color,fontFamily:"var(--fd)"}}>{list.name}</div>
-              <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>{list.desc} · {list.tickers.length} empresas</div>
+              <div style={{fontSize:14,fontWeight:700,color:selectedList.color,fontFamily:"var(--fd)"}}>{selectedList.name}</div>
+              <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>{selectedList.desc} · {selectedList.tickers.length} empresas</div>
             </div>
-            <span style={{fontSize:14,color:"var(--text-tertiary)",transition:"transform .2s",transform:openList===li?"rotate(180deg)":"rotate(0)"}}>▾</span>
           </div>
-          {openList===li && (() => {
+          {(() => {
+            const list = selectedList;
             const sData = (screenerData?.screener || []);
             const sMap = {}; sData.forEach(s => { sMap[s.symbol] = s; });
             const pharmaSectors = new Set(["Healthcare","Biotechnology","Drug Manufacturers","Diagnostics & Research","Medical Devices","Pharmaceutical Retailers"]);
@@ -199,7 +299,7 @@ export default function ResearchTab() {
             </div>;
           })()}
         </div>
-      ))}
+      )}
     </div>;
   })()}
 </div>

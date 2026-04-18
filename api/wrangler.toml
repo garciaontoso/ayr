@@ -21,14 +21,16 @@ database_id = "d9dc97c1-1ea5-4e05-b637-89e52229d099"
 binding = "EARNINGS_R2"
 bucket_name = "ayr-earnings-archive"
 
-# Cron DISABLED 2026-04-08 — AI agents now triggered manually by user from
-# the "Ejecutar agentes" button in the AgentesTab. Saves ~$33/month when
-# user doesn't open the app. To re-enable, uncomment the block below.
-#
-# [triggers]
-# crons = ["0 9 * * 1-5"]
-
-# Weekly Digest cron — runs every Monday at 06:00 UTC (08:00 Madrid summer / 07:00 winter)
-# Only the buildWeeklyDigest() call inside scheduled() fires; agents are NOT re-enabled.
+# Cron schedule 2026-04-18:
+# - Daily agents pipeline: 13:00 UTC weekdays = 15:00 Madrid (CEST summer) /
+#   14:00 Madrid (CET winter). Runs ~30 min before US market open (15:30
+#   Madrid summer) so the user can read insights with Asia + Europe closed
+#   and make trading decisions before NYSE opens.
+# - Weekly digest: Monday 06:00 UTC (before the daily run so it summarizes
+#   last week). Will NOT trigger a full agents pipeline (scheduled handler
+#   only runs agents on the 13:00 UTC cron; see src/worker.js).
 [triggers]
-crons = ["0 6 * * 1"]
+crons = [
+  "0 6 * * 1",     # Weekly digest (Monday 06:00 UTC)
+  "0 13 * * 1-5",  # Daily AI agents pipeline (weekdays 13:00 UTC = 15:00 Madrid summer)
+]

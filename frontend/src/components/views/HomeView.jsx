@@ -133,13 +133,16 @@ function MiniGauge({ value, min, max, colors, size = 80, label }) {
 // Fetches /api/agent-run/status once on mount. Click → switches to AgentesTab.
 function RunReminderBadge({ onClick }) {
   const [status, setStatus] = useState(null);
+  const [health, setHealth] = useState(null);
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const r = await fetch(API_URL + "/api/agent-run/status");
-        const d = await r.json();
-        if (!cancelled) setStatus(d);
+        const [s, h] = await Promise.all([
+          fetch(API_URL + "/api/agent-run/status").then(r => r.json()),
+          fetch(API_URL + "/api/agents/health").then(r => r.json()),
+        ]);
+        if (!cancelled) { setStatus(s); setHealth(h); }
       } catch {}
     })();
     return () => { cancelled = true; };
@@ -153,14 +156,26 @@ function RunReminderBadge({ onClick }) {
       </button>
     );
   }
-  const todayUtc = new Date().toISOString().slice(0, 10);
-  const lastDay = status.finished_at ? status.finished_at.slice(0, 10) : (status.started_at || "").slice(0, 10);
-  const ranToday = lastDay === todayUtc;
-  if (ranToday) return null; // Hide badge when fresh
+  // Derive per-agent health. Green when all agents ran today.
+  // Yellow if 10–14 ran, red if <10 ran (something broken).
+  // ran_today already includes idle_ok since 2026-04-18 backend fix.
+  const healthy = health?.ran_today ?? 0;
+  const total = health?.total_agents ?? 15;
+  let color = '#30d158'; // green
+  let bg = 'rgba(48,209,88,.12)';
+  let border = 'rgba(48,209,88,.4)';
+  let dot = '🟢';
+  let label = 'OK';
+  if (healthy < 10) { color = '#f87171'; bg = 'rgba(248,113,113,.14)'; border = 'rgba(248,113,113,.4)'; dot = '🔴'; label = 'Falla'; }
+  else if (healthy < total) { color = '#fbbf24'; bg = 'rgba(251,191,36,.14)'; border = 'rgba(251,191,36,.4)'; dot = '🟡'; label = 'Parcial'; }
+  const missing = (health?.missing_today || []).join(', ');
+  const title = healthy === total
+    ? `Sistema OK — ${total} agentes ejecutados hoy`
+    : `Sistema ${label} — ${healthy}/${total} agentes hoy${missing ? ` · Faltan: ${missing}` : ''}`;
   return (
-    <button onClick={onClick} title="Los agentes no se han ejecutado hoy — pulsa para ir al tab Agentes"
-      style={{padding:"4px 9px",borderRadius:6,border:"1px solid #f87171",background:"rgba(248,113,113,.14)",color:"#f87171",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)",whiteSpace:"nowrap"}}>
-      🤖 Sin ejecutar hoy
+    <button onClick={onClick} title={title}
+      style={{padding:"4px 9px",borderRadius:6,border:`1px solid ${border}`,background:bg,color,fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)",whiteSpace:"nowrap"}}>
+      {dot} {healthy}/{total}
     </button>
   );
 }
@@ -210,6 +225,8 @@ const MARQUEE_SPEEDS = [
   { id: 'normal',  label: '🚶',    duration: 90,  title: 'Normal' },
   { id: 'fast',    label: '🏃',    duration: 50,  title: 'Rápido' },
   { id: 'racing',  label: '🏎',    duration: 25,  title: 'Muy rápido' },
+  { id: 'f1',      label: '🏎💨', duration: 12,  title: 'Fórmula 1' },
+  { id: 'rocket',  label: '🚀',    duration: 6,   title: 'Cohete' },
 ];
 
 function SentimentBar() {
@@ -308,20 +325,22 @@ function SentimentBar() {
             .ayr-ticker-track { animation: ayr-ticker-scroll var(--ayr-marquee-duration, 90s) linear infinite; }
             .ayr-ticker-track:hover { animation-play-state: paused; }
           `}</style>
-          {/* Speed selector — click to cycle 🐢→🐢💨→🚶→🏃→🏎 */}
+          {/* Speed selector — ALWAYS on top so scrolling text doesn't cover it */}
           <button
             onClick={cycleSpeed}
             title={`Velocidad: ${currentSpeed.title} — click para cambiar`}
             style={{
-              flex: '0 0 auto', background: 'var(--subtle-bg)',
-              border: 'none', borderRight: '1px solid var(--border)',
-              padding: '0 10px', height: '100%', cursor: 'pointer',
+              flex: '0 0 auto', background: 'var(--card)',
+              border: 'none', borderRight: '2px solid var(--gold-dim)',
+              padding: '0 12px', height: '100%', cursor: 'pointer',
               fontSize: 14, lineHeight: 1, minHeight: 30,
-              display: 'flex', alignItems: 'center', gap: 4,
+              display: 'flex', alignItems: 'center', gap: 5,
+              position: 'relative', zIndex: 10,
+              boxShadow: '2px 0 6px rgba(0,0,0,0.3)',
             }}
           >
             <span>{currentSpeed.label}</span>
-            <span style={{ fontSize: 7, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', fontWeight: 700 }}>
+            <span style={{ fontSize: 7, color: 'var(--gold)', fontFamily: 'var(--fm)', fontWeight: 700, letterSpacing: '.3px' }}>
               {currentSpeed.title}
             </span>
           </button>

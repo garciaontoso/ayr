@@ -12,6 +12,20 @@ export function makeAgents(deps) {
     toFMP, fetchYahoo, sendWebPush, FCF_PAYOUT_CARVEOUT,
   } = deps;
 
+// Sum last N values from a trend array (newest-first). Returns null if no valid nums.
+// Used by earnings_trend agent for TTM/YoY calculations. Ported from worker.js Q+S.
+const _qs_sum = (arr, n) => {
+  if (!Array.isArray(arr) || arr.length < n) return null;
+  let sum = 0, count = 0;
+  for (let i = 0; i < n; i++) {
+    const v = arr[i];
+    if (v == null || Number.isNaN(v)) continue;
+    sum += Number(v);
+    count++;
+  }
+  return count === 0 ? null : sum;
+};
+
 // ─── Agent 0: Market Regime (runs FIRST) ───────────────────────
 async function runRegimeAgent(env, fecha) {
   const mkt = await getMarketIndicators(env);
@@ -2384,17 +2398,34 @@ async function runAllAgents(env) {
     ['postmortem', runPostmortemAgent], // No LLM — runs last, evaluates yesterday's signals
   ];
 
+  // Opus-only agents that need spacing to avoid TPM burst. Others are Haiku/no-LLM.
+  const OPUS_AGENTS = new Set(['dividend', 'earnings', 'trade']);
+  // Track last Opus finish timestamp — only space between OPUS calls, not every agent.
+  let lastOpusFinish = 0;
   for (let i = 0; i < agents.length; i++) {
     const [name, fn] = agents[i];
-    // Wait 10s between LLM agents to respect rate limits (skip for postmortem)
-    if (i > 0 && name !== 'postmortem') await new Promise(r => setTimeout(r, 10000));
+    // Space consecutive Opus calls by 3s (rate-limit-friendly) but do not throttle
+    // Haiku/no-LLM agents — they caused the 30s-wall-time kill on Workers.
+    // Total pipeline now fits in ~100s instead of ~400s. (2026-04-18 fix)
+    if (OPUS_AGENTS.has(name) && lastOpusFinish > 0) {
+      const sinceLast = Date.now() - lastOpusFinish;
+      if (sinceLast < 3000) await new Promise(r => setTimeout(r, 3000 - sinceLast));
+    }
     try {
       results[name] = await fn(env, fecha);
       console.log(`[Agents] ${name} done:`, JSON.stringify(results[name]));
+      // Track successful run — so the health endpoint can show "ran OK even with 0 signals"
+      // (e.g. analyst_downgrade returns 0 alerts when no recent downgrades).
+      try {
+        await setAgentMemory(env, `agent_last_run_${name}`, {
+          fecha, ran_at: new Date().toISOString(), result: results[name],
+        });
+      } catch {}
     } catch (e) {
       results[name] = { error: e.message };
       console.error(`[Agents] ${name} failed:`, e.message);
     }
+    if (OPUS_AGENTS.has(name)) lastOpusFinish = Date.now();
   }
 
   // Build executive summary + push notification
