@@ -688,13 +688,18 @@ export default function RebalancingTab() {
       'Health Care':              'healthcare',
       'Industrials':              'industrials',
       'Consumer Staples':         'staples',
+      'Consumer Defensive':       'staples',
+      'Consumer Cyclical':        'other', // no dedicated bucket — goes to Other
       'Financials':               'financials',
       'Financial Services':       'financials',
       'Energy':                   'energy',
       'Utilities':                'utilities',
+      'Basic Materials':          'materials',
       'Materials':                'materials',
       'Communication Services':   'comms',
       'Communication':            'comms',
+      'Cash':                     'other',
+      'Other':                    'other',
     };
 
     const ctrl = new AbortController();
@@ -708,25 +713,39 @@ export default function RebalancingTab() {
           setLiveDataStatus('error');
           return;
         }
-        // Compute total portfolio value to derive weight percentages
+        // Compute total portfolio value to derive weight percentages.
         const totalValue = bySector.reduce((s, r) => s + Math.abs(r.current_value ?? r.value_usd ?? 0), 0);
         if (totalValue === 0) { setLiveDataStatus('error'); return; }
 
+        // Accumulate by mapped id. Multiple server sectors can map to the same
+        // frontend id (e.g. "Real Estate" + "REITs" → reits); SUM not overwrite.
+        // Unmapped server sectors fall into "other" so the total reconciles to
+        // 100%. (2026-04-18 fix: prior version overwrote within same id AND
+        // left unmapped sectors uncounted, causing TOTAL 124% after live sync.)
         const liveWeights = {};
+        let unmappedValue = 0;
         bySector.forEach(r => {
+          const val = Math.abs(r.current_value ?? r.value_usd ?? 0);
           const id = SECTOR_MAP[r.sector];
           if (id) {
-            liveWeights[id] = ((Math.abs(r.current_value ?? r.value_usd ?? 0) / totalValue) * 100);
+            liveWeights[id] = (liveWeights[id] || 0) + (val / totalValue) * 100;
+          } else {
+            unmappedValue += val;
           }
         });
+        if (unmappedValue > 0) {
+          liveWeights['other'] = (liveWeights['other'] || 0) + (unmappedValue / totalValue) * 100;
+        }
 
         if (Object.keys(liveWeights).length === 0) { setLiveDataStatus('error'); return; }
 
+        // Reset ALL sectors to 0 first, then apply liveWeights. Prevents stale
+        // hardcoded `current` values for sectors the server didn't return.
         setSectors(prev => prev.map(s => ({
           ...s,
           current: liveWeights[s.id] != null
             ? parseFloat(liveWeights[s.id].toFixed(1))
-            : s.current,
+            : 0,
         })));
         setLiveDataStatus('ok');
       })

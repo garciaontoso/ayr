@@ -556,7 +556,10 @@ export default function ResearchAgentTab() {
         });
         if (!r.ok) throw new Error(`${r.status}`);
         const data = await r.json();
-        if (!cancelled) setHistory(data.investigations || data || []);
+        // Filter out investigations without a final_verdict (abandoned, errored,
+        // or SQL-query-as-question test artifacts). UI only shows completed runs.
+        const raw = data.investigations || data || [];
+        if (!cancelled) setHistory(raw.filter(x => x && x.final_verdict));
       } catch (e) {
         console.warn('[ResearchAgent] history fetch failed:', e.message);
       } finally {
@@ -617,7 +620,8 @@ export default function ResearchAgentTab() {
       const hr = await fetch(`${API_URL}/api/research-agent/list?limit=30`, { credentials: 'include' });
       if (hr.ok) {
         const hd = await hr.json();
-        setHistory(hd.investigations || hd || []);
+        const raw = hd.investigations || hd || [];
+        setHistory(raw.filter(x => x && x.final_verdict));
       }
     } catch (e) {
       if (e.name !== 'AbortError') setScanError(e.message);

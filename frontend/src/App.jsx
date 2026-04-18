@@ -798,8 +798,30 @@ function buildPositionsFromCB() {
       totalDivs: 0, totalOptCredit: 0, txnCount: 0, pnlAbs: v.pnlAbs||0,
       currency: v.c||"USD", hasCB: true, list: "historial"
     }));
-    // Merge: static entries take priority (they have more data)
-    const merged = [...fromStatic, ...fromDB.filter(h => !fromStatic.find(s => s.ticker === h.ticker))];
+    // Merge smart: static provides shares/basis/currency, DB provides
+    // totalDivs/totalOptCredit/txnCount (the whole point of the historial tab).
+    // Previous version ignored DB data when a static entry existed → all values
+    // shown as "—". (2026-04-18 fix.)
+    const dbIndex = Object.fromEntries(fromDB.map(h => [h.ticker, h]));
+    const staticIndex = Object.fromEntries(fromStatic.map(s => [s.ticker, s]));
+    const allTickers = new Set([...fromStatic.map(s => s.ticker), ...fromDB.map(h => h.ticker)]);
+    const merged = [...allTickers].map(t => {
+      const s = staticIndex[t];
+      const d = dbIndex[t];
+      return {
+        ticker: t,
+        name: s?.name || d?.name || t,
+        shares: s?.shares ?? d?.shares ?? 0,
+        adjustedBasis: s?.adjustedBasis ?? 0,
+        totalDivs: d?.totalDivs ?? 0,
+        totalOptCredit: d?.totalOptCredit ?? 0,
+        txnCount: d?.txnCount ?? 0,
+        pnlAbs: s?.pnlAbs ?? 0,
+        currency: s?.currency || d?.currency || "USD",
+        hasCB: true,
+        list: "historial",
+      };
+    });
     setHistorialList(merged);
   }, [HIST_INIT, D1_POSITIONS]);
   
