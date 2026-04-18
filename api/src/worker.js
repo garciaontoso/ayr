@@ -12848,6 +12848,7 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
 
         const params = [since];
         let sql;
+        let col;
         if (latest) {
           sql = `SELECT ai.* FROM agent_insights ai
             INNER JOIN (
@@ -12860,13 +12861,15 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
             AND ai.ticker = lt.ticker
             AND ai.fecha = lt.max_fecha
             WHERE 1=1`;
+          col = "ai.";
         } else {
           sql = "SELECT * FROM agent_insights WHERE fecha >= ?";
+          col = "";
         }
-        if (agent) { sql += " AND agent_name = ?"; params.push(agent); }
-        if (severity) { sql += " AND severity = ?"; params.push(severity); }
-        if (ticker) { sql += " AND ticker = ?"; params.push(ticker); }
-        sql += " ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END, fecha DESC LIMIT 200";
+        if (agent) { sql += ` AND ${col}agent_name = ?`; params.push(agent); }
+        if (severity) { sql += ` AND ${col}severity = ?`; params.push(severity); }
+        if (ticker) { sql += ` AND ${col}ticker = ?`; params.push(ticker); }
+        sql += ` ORDER BY CASE ${col}severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END, ${col}fecha DESC LIMIT 200`;
 
         const { results } = await env.DB.prepare(sql).bind(...params).all();
         const parsed = results.map(r => ({ ...r, details: r.details ? JSON.parse(r.details) : {} }));
