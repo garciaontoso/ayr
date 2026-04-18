@@ -85,19 +85,26 @@ const extractLongTermSeries = (gfDoc) => {
   return { years, divs, fcfPerShare: fcf, epsNRI: eps, revPerShare: rev, yearsOfDivs, divCuts };
 };
 
-// Batch-fetch R2 long-term series for N tickers in parallel. Returns
-// { [ticker]: extractedSeries }. Missing tickers simply omitted from the map.
+// Batch-fetch R2 long-term series for N tickers. Returns
+// { [ticker]: extractedSeries }. Missing tickers simply omitted.
+// Chunked (10 at a time) to avoid blowing Worker concurrent-fetch limits
+// or memory (80 × 310KB JSON = 25MB if done fully parallel). First manual
+// re-run 2026-04-18 stalled for >11min with full parallelism. (2026-04-18 fix)
 const getR2LongTermSeriesBatch = async (env, tickers) => {
   if (!env.EARNINGS_R2 || !tickers?.length) return {};
-  const entries = await Promise.all(tickers.map(async (t) => {
-    const doc = await getR2Financials(env, t);
-    if (!doc) return null;
-    const series = extractLongTermSeries(doc);
-    if (!series) return null;
-    return [t, series];
-  }));
   const out = {};
-  for (const e of entries) if (e) out[e[0]] = e[1];
+  const CHUNK = 10;
+  for (let i = 0; i < tickers.length; i += CHUNK) {
+    const chunk = tickers.slice(i, i + CHUNK);
+    const entries = await Promise.all(chunk.map(async (t) => {
+      const doc = await getR2Financials(env, t);
+      if (!doc) return null;
+      const series = extractLongTermSeries(doc);
+      if (!series) return null;
+      return [t, series];
+    }));
+    for (const e of entries) if (e) out[e[0]] = e[1];
+  }
   return out;
 };
 
