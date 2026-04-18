@@ -12955,6 +12955,20 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         const _agentAuth = (isAllowed && origin) ? null : ytRequireToken(request, env);
         if (_agentAuth) return _agentAuth;
         await ensureMigrations(env);
+        // Warm-isolate guard for v2 memory table
+        try {
+          await env.DB.prepare(`CREATE TABLE IF NOT EXISTS ticker_notebook (
+            ticker TEXT PRIMARY KEY,
+            summary TEXT,
+            open_questions TEXT DEFAULT '[]',
+            agent_history TEXT DEFAULT '{}',
+            last_research_id INTEGER,
+            last_research_date TEXT,
+            last_research_verdict TEXT,
+            sector TEXT,
+            updated_at TEXT DEFAULT (datetime('now'))
+          )`).run();
+        } catch {}
         const agentParam = url.searchParams.get("agent");
         const fecha = new Date().toISOString().slice(0, 10);
         if (agentParam) {
@@ -13156,7 +13170,19 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         if (_resAuth) return _resAuth;
         await ensureMigrations(env);
         // Explicit CREATE here — ensureMigrations is cached per isolate and may
-        // skip the new table on a warm isolate from a prior deploy. (2026-04-18)
+        // skip new tables on a warm isolate from a prior deploy. (2026-04-18)
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS ticker_notebook (
+          ticker TEXT PRIMARY KEY,
+          summary TEXT,
+          open_questions TEXT DEFAULT '[]',
+          agent_history TEXT DEFAULT '{}',
+          last_research_id INTEGER,
+          last_research_date TEXT,
+          last_research_verdict TEXT,
+          sector TEXT,
+          updated_at TEXT DEFAULT (datetime('now'))
+        )`).run();
+        await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_ticker_notebook_sector ON ticker_notebook(sector)`).run();
         await env.DB.prepare(`CREATE TABLE IF NOT EXISTS research_investigations (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           ticker TEXT,

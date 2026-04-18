@@ -2615,6 +2615,23 @@ async function runAllAgents(env) {
   console.log(`[Agents] Starting all agents for ${fecha}`);
   const results = {};
 
+  // Ensure v2 memory table exists (warm-isolate guard — ensureMigrations is
+  // cached after first invocation per isolate, so a deploy that adds new
+  // tables may not re-run migrations until isolate recycling).
+  try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS ticker_notebook (
+      ticker TEXT PRIMARY KEY,
+      summary TEXT,
+      open_questions TEXT DEFAULT '[]',
+      agent_history TEXT DEFAULT '{}',
+      last_research_id INTEGER,
+      last_research_date TEXT,
+      last_research_verdict TEXT,
+      sector TEXT,
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+  } catch {}
+
   // Step 0a: Cache market indicators (no LLM, just Yahoo Finance)
   try {
     const mktData = await cacheMarketIndicators(env);
