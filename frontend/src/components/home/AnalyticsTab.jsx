@@ -53,22 +53,24 @@ const SCENARIOS = [
 ];
 
 // ─── shared fetch helper ───────────────────────────────────────────────
-function useAnalytics(endpoint, enabled, token) {
+// No token required — backend accepts same-origin requests (ayr.onto-so.com)
+// without auth, since the worker's isAllowed check bypasses ytRequireToken
+// for requests from the frontend origin.
+function useAnalytics(endpoint, enabled) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   const load = useCallback((force = false) => {
-    if (!token) return;
     setLoading(true);
     setError(null);
     const url = force ? `${API_URL}${endpoint}?refresh=1` : `${API_URL}${endpoint}`;
-    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(url, { credentials: 'include' })
       .then(r => r.json())
-      .then(d => { if (d.ok) setData(d); else setError(d.error || 'Error'); })
+      .then(d => { if (d.ok !== false) setData(d); else setError(d.error || 'Error'); })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, [endpoint, token]);
+  }, [endpoint]);
 
   useEffect(() => { if (enabled) load(); }, [enabled, load]);
 
@@ -76,8 +78,8 @@ function useAnalytics(endpoint, enabled, token) {
 }
 
 // ─── Correlation Heatmap ───────────────────────────────────────────────
-function CorrelationView({ token }) {
-  const { data, loading, error, reload } = useAnalytics('/api/analytics/correlation', true, token);
+function CorrelationView() {
+  const { data, loading, error, reload } = useAnalytics('/api/analytics/correlation', true);
 
   if (loading) return <LoadingSpinner label="Calculando correlaciones (3 años datos)" />;
   if (error)   return <ErrorBox msg={error} onRetry={() => reload(true)} />;
@@ -233,8 +235,8 @@ function CorrelationView({ token }) {
 }
 
 // ─── Factor Exposure Radar ─────────────────────────────────────────────
-function FactorsView({ token }) {
-  const { data, loading, error, reload } = useAnalytics('/api/analytics/factors', true, token);
+function FactorsView() {
+  const { data, loading, error, reload } = useAnalytics('/api/analytics/factors', true);
 
   if (loading) return <LoadingSpinner label="Calculando exposición a factores" />;
   if (error)   return <ErrorBox msg={error} onRetry={() => reload(true)} />;
@@ -360,9 +362,9 @@ function FactorsView({ token }) {
 }
 
 // ─── Stress Test ───────────────────────────────────────────────────────
-function StressView({ token }) {
+function StressView() {
   const [scenario, setScenario] = useState('gfc');
-  const { data, loading, error, reload } = useAnalytics(`/api/analytics/stress-test?scenario=${scenario}`, true, token);
+  const { data, loading, error, reload } = useAnalytics(`/api/analytics/stress-test?scenario=${scenario}`, true);
 
   // reload when scenario changes
   useEffect(() => { reload(); }, [scenario]);  // eslint-disable-line react-hooks/exhaustive-deps
@@ -540,9 +542,6 @@ const REFRESH_BTN_STYLE = {
 export default function AnalyticsTab() {
   const [sub, setSub] = useState(() => localStorage.getItem('analytics_sub') || 'correlation');
 
-  // Read auth token from localStorage (set by App.jsx login flow)
-  const token = localStorage.getItem('ayr_token') || '';
-
   const handleSub = (id) => {
     setSub(id);
     localStorage.setItem('analytics_sub', id);
@@ -550,10 +549,8 @@ export default function AnalyticsTab() {
 
   return (
     <div style={{ padding: '0 0 40px' }}>
-      {/* spin keyframe */}
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
 
-      {/* Header */}
       <div style={{ marginBottom: 16 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--fb)' }}>
           Portfolio Analytics
@@ -563,7 +560,6 @@ export default function AnalyticsTab() {
         </p>
       </div>
 
-      {/* Sub-tab bar */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 20, borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>
         {SUB_TABS.map(t => (
           <button key={t.id} onClick={() => handleSub(t.id)}
@@ -579,15 +575,9 @@ export default function AnalyticsTab() {
         ))}
       </div>
 
-      {/* Sub-tab content */}
-      {!token && (
-        <div style={{ background: 'rgba(255,69,58,.08)', border: '1px solid rgba(255,69,58,.25)', borderRadius: 10, padding: '14px 18px', color: '#ff453a', fontSize: 12 }}>
-          Se requiere autenticación para acceder a los endpoints de analytics.
-        </div>
-      )}
-      {token && sub === 'correlation' && <CorrelationView token={token} />}
-      {token && sub === 'factors'     && <FactorsView     token={token} />}
-      {token && sub === 'stress'      && <StressView      token={token} />}
+      {sub === 'correlation' && <CorrelationView />}
+      {sub === 'factors'     && <FactorsView     />}
+      {sub === 'stress'      && <StressView      />}
     </div>
   );
 }

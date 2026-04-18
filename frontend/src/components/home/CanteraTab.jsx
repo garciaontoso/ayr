@@ -333,7 +333,6 @@ function RadarView() {
     try {
       const r = await fetch(`${API_URL}/api/cantera/refresh`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
       });
       const data = await r.json();
       if (data.ok) {
@@ -373,7 +372,6 @@ function RadarView() {
     try {
       const r = await fetch(`${API_URL}/api/cantera/${candidate.id}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
       });
       const data = await r.json();
       if (data.ok) {

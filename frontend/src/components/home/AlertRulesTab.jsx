@@ -246,7 +246,6 @@ function RuleRow({ rule, onToggle, onDelete, token }) {
     try {
       await fetch(`${API_URL}/api/alert-rules/${rule.id}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
       });
       onDelete(rule.id);
     } finally {
@@ -442,7 +441,6 @@ export default function AlertRulesTab() {
     try {
       const res = await fetch(`${API_URL}/api/alert-rules/check`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       setCheckResult(data);

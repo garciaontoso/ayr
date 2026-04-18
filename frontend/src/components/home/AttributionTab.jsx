@@ -207,26 +207,23 @@ function BenchmarkBar({ portfolioRet, spyRet }) {
 }
 
 // ─── Main component ───────────────────────────────────────────────────
+// Backend accepts same-origin requests without auth (isAllowed bypass).
 export default function AttributionTab() {
-  const token = localStorage.getItem('ayr_token') || '';
   const [period, setPeriod] = useState(() => localStorage.getItem('attribution_period') || 'ytd');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   const load = useCallback((force = false) => {
-    if (!token) return;
     setLoading(true);
     setError(null);
     const qs = force ? `period=${period}&refresh=1` : `period=${period}`;
-    fetch(`${API_URL}/api/analytics/attribution?${qs}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    fetch(`${API_URL}/api/analytics/attribution?${qs}`, { credentials: 'include' })
       .then(r => r.json())
-      .then(d => { if (d.ok) setData(d); else setError(d.error || 'Error'); })
+      .then(d => { if (d.ok !== false) setData(d); else setError(d.error || 'Error'); })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, [period, token]);
+  }, [period]);
 
   useEffect(() => {
     setData(null);
@@ -273,12 +270,6 @@ export default function AttributionTab() {
           </button>
         </div>
       </div>
-
-      {!token && (
-        <div style={{ background: 'rgba(255,69,58,.08)', border: '1px solid rgba(255,69,58,.25)', borderRadius: 10, padding: '14px 18px', color: '#ff453a', fontSize: 12, fontFamily: 'var(--fm)' }}>
-          Se requiere autenticación.
-        </div>
-      )}
 
       {error && (
         <div style={{ background: 'rgba(255,69,58,.08)', border: '1px solid rgba(255,69,58,.25)', borderRadius: 10, padding: '14px 18px', color: '#ff453a', fontSize: 12, fontFamily: 'var(--fm)', marginBottom: 16 }}>
