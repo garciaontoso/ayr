@@ -13806,8 +13806,8 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
       // 3-year weekly returns for all portfolio tickers → pairwise Pearson
       // correlation matrix + cluster detection at r > 0.7.
       if (path === "/api/analytics/correlation" && request.method === "GET") {
-        const unauth = ytRequireToken(request, env);
-        if (unauth) return unauth;
+        const _auth = (isAllowed && origin) ? null : ytRequireToken(request, env);
+        if (_auth) return _auth;
         try {
           await ensureMigrations(env);
           const FMP_KEY = env.FMP_KEY;
@@ -14008,8 +14008,8 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
       // Factors: Value, Growth, Quality, Momentum, Yield, Size.
       // Each factor score 0-100. Benchmark is S&P 500 median (hardcoded).
       if (path === "/api/analytics/factors" && request.method === "GET") {
-        const unauth = ytRequireToken(request, env);
-        if (unauth) return unauth;
+        const _auth = (isAllowed && origin) ? null : ytRequireToken(request, env);
+        if (_auth) return _auth;
         try {
           await ensureMigrations(env);
           const FMP_KEY = env.FMP_KEY;
@@ -14324,8 +14324,8 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
       // Returns per-holding historical drawdowns during that period
       // and a portfolio-weighted drawdown estimate.
       if (path === "/api/analytics/stress-test" && request.method === "GET") {
-        const unauth = ytRequireToken(request, env);
-        if (unauth) return unauth;
+        const _auth = (isAllowed && origin) ? null : ytRequireToken(request, env);
+        if (_auth) return _auth;
         try {
           await ensureMigrations(env);
           const FMP_KEY = env.FMP_KEY;
@@ -14552,8 +14552,8 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
       // Uses FMP /historical-price-eod/light for start-of-period prices.
       // Cached 24h in analytics_cache under key `attribution_{period}`.
       if (path === "/api/analytics/attribution" && request.method === "GET") {
-        const unauth = ytRequireToken(request, env);
-        if (unauth) return unauth;
+        const _attrAuth = (isAllowed && origin) ? null : ytRequireToken(request, env);
+        if (_attrAuth) return _attrAuth;
         try {
           await ensureMigrations(env);
           const FMP_KEY = env.FMP_KEY;
