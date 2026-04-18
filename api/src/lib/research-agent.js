@@ -8,6 +8,8 @@
 // gets results, iterates until it reaches a verdict. Citable evidence
 // required. Hard caps: 15 tool calls, 5 min wall, $3 cost.
 
+import { getTickerNotebook, writeResearchNotebook, appendAgentVerdict, formatNotebookForPrompt } from "./ticker-memory.js";
+
 const MAX_TOOL_CALLS = 15;
 const MAX_WALL_TIME_MS = 5 * 60 * 1000;
 const MAX_COST_USD = 3.0;
@@ -120,14 +122,23 @@ const TOOLS = [
     },
   },
   {
+    name: "get_ticker_notebook",
+    description: "Lee el NOTEBOOK persistente de un ticker — la memoria que los agentes acumulan entre runs. Incluye: summary (2-3 frases vivas), open_questions (cosas a confirmar), agent_history (últimas verdicts de cada agente), last_research_id/date/verdict. Úsalo para PEERS o para recordar qué dijiste tú mismo en el pasado sobre este ticker o empresas similares. El notebook del ticker actual ya está inyectado en tu system prompt — este tool es para otros.",
+    input_schema: {
+      type: "object",
+      properties: { ticker: { type: "string" } },
+      required: ["ticker"],
+    },
+  },
+  {
     name: "finish",
-    description: "TERMINA la investigación con veredicto final. Debe citar 3-5 piezas de evidencia concreta (números, transcripts, filings). No llames si te falta claridad — sigue investigando hasta que tengas respuesta o dictamina NEEDS_HUMAN.",
+    description: "TERMINA la investigación con veredicto final. Debe citar 3-5 piezas de evidencia concreta (números, transcripts, filings). OPCIONAL: open_questions[] — cosas concretas a verificar en el próximo earnings call o filing. Se persistirán en el notebook del ticker. No llames finish si te falta claridad — sigue investigando o dictamina NEEDS_HUMAN.",
     input_schema: {
       type: "object",
       properties: {
         verdict: { type: "string", enum: ["ADD", "HOLD", "TRIM", "SELL", "NEEDS_HUMAN", "INSUFFICIENT_DATA"] },
         confidence: { type: "string", enum: ["low", "medium", "high"] },
-        summary: { type: "string", description: "1-2 frases en español. Debe resolver la pregunta inicial." },
+        summary: { type: "string", description: "1-2 frases en español. Debe resolver la pregunta inicial. Este texto se guardará como summary vivo del ticker." },
         evidence: {
           type: "array",
           items: {
@@ -139,6 +150,11 @@ const TOOLS = [
             },
             required: ["type", "citation", "snippet"],
           },
+        },
+        openQuestions: {
+          type: "array",
+          description: "Opcional. 2-5 preguntas concretas a verificar en el próximo earnings o filing del ticker. Ej: '¿Coverage Q1 2026 se recupera ≥1.1x?', '¿CEO reafirmará div en mayo?'.",
+          items: { type: "string" },
         },
       },
       required: ["verdict", "confidence", "summary", "evidence"],
@@ -542,6 +558,26 @@ async function tool_get_analyst_grades_historical(env, { ticker }) {
   }
 }
 
+async function tool_get_ticker_notebook(env, { ticker }) {
+  if (!ticker) throw new Error("ticker required");
+  const nb = await getTickerNotebook(env, ticker);
+  if (!nb) return { ticker, found: false };
+  return {
+    ticker: nb.ticker,
+    found: true,
+    summary: nb.summary,
+    openQuestions: nb.openQuestions,
+    agentHistory: nb.agentHistory,
+    lastResearch: nb.lastResearchId ? {
+      id: nb.lastResearchId,
+      date: nb.lastResearchDate,
+      verdict: nb.lastResearchVerdict,
+    } : null,
+    sector: nb.sector,
+    updatedAt: nb.updatedAt,
+  };
+}
+
 const TOOL_HANDLERS = {
   query_agent_insights: tool_query_agent_insights,
   get_fundamentals: tool_get_fundamentals,
@@ -552,6 +588,7 @@ const TOOL_HANDLERS = {
   get_sec_filing_body: tool_get_sec_filing_body,
   get_price_history: tool_get_price_history,
   get_analyst_grades_historical: tool_get_analyst_grades_historical,
+  get_ticker_notebook: tool_get_ticker_notebook,
 };
 
 // ─── Orchestrator ────────────────────────────────────────────────────────────
@@ -607,21 +644,42 @@ export async function runResearchAgent(env, { ticker, question, triggerReason = 
   ).bind(investigation.ticker, investigation.question, triggerReason).first();
   const investigationId = insertRes?.id;
 
+  // Load existing notebook for this ticker — ends the agent's amnesia.
+  // Contains: summary (2-3 frases vivas), openQuestions (cosas a verificar),
+  // agentHistory (últimas verdicts de cada agente LLM + self), lastResearch.
+  const tickerNotebook = ticker ? await getTickerNotebook(env, ticker) : null;
+
+  const notebookContext = tickerNotebook ? `
+
+NOTEBOOK PERSISTENTE DE ${ticker} (memoria acumulada entre runs):
+Summary: ${tickerNotebook.summary || '(sin summary previa)'}
+Última investigación Research: ${tickerNotebook.lastResearchVerdict || 'ninguna'} ${tickerNotebook.lastResearchDate ? `(${tickerNotebook.lastResearchDate})` : ''}
+Open questions: ${(tickerNotebook.openQuestions || []).slice(0, 5).map(q => `• ${q}`).join(' ') || '(ninguna)'}
+Últimas verdicts por agente:
+${['dividend', 'earnings', 'trade', 'research'].map(a => {
+  const hist = tickerNotebook.agentHistory?.[a];
+  if (!hist || !hist.length) return '';
+  return `  ${a}: ${hist.slice(0, 4).map(h => `${h.fecha.slice(5)}=${h.verdict || h.severity}`).join(' → ')}`;
+}).filter(Boolean).join('\n')}
+
+Usa esta memoria: si estás repitiendo una investigación reciente, DEBES añadir contexto nuevo (datos frescos, cambios desde la última verdict) en vez de rehacer el análisis. Si las open_questions previas ya tienen respuesta → cítalo en evidence. Si sigues sin datos para responderlas → mantén ese contexto en tu nueva openQuestions.` : '';
+
   const system = `Eres un analista senior de equity haciendo due diligence sobre una empresa en un portfolio de dividendos long-term (China fiscal resident, buy-and-hold, goal = ingresos crecientes por décadas).
 
 TIENES ACCESO A TOOLS. Úsalos. Piensa en cada paso: ¿qué dato me falta? ¿qué tool me lo da más barato?
 
 Heurística de coste (de más barato a más caro):
-  query_agent_insights < get_fundamentals < get_long_term_series < get_price_history < get_analyst_grades_historical < query_peer_positions < query_db < get_transcript_excerpt < get_sec_filing_body
+  query_agent_insights < get_ticker_notebook < get_fundamentals < get_long_term_series < get_price_history < get_analyst_grades_historical < query_peer_positions < query_db < get_transcript_excerpt < get_sec_filing_body
 
-Empieza SIEMPRE por query_agent_insights para ver qué han dicho los agentes hoy. Luego pivota hacia la pregunta concreta.
+Empieza SIEMPRE por query_agent_insights para ver qué han dicho los agentes hoy. Luego pivota hacia la pregunta concreta. Para peers, usa get_ticker_notebook sobre sus tickers.
 
 Reglas:
 - Máximo ${MAX_TOOL_CALLS} tool calls. Presupuesto $${MAX_COST_USD}. No desperdicies llamadas.
 - Cita evidencia concreta: números, fechas, frases. Nada de vaguedades.
 - Si los datos no alcanzan para decidir → finish() con verdict NEEDS_HUMAN o INSUFFICIENT_DATA.
 - El veredicto debe resolver la pregunta inicial, no ser un essay.
-- SELL es raro. ADD/HOLD/TRIM deberían cubrir 95% de los casos. SELL sólo si negocio roto permanentemente O dividendo eliminado.`;
+- SELL es raro. ADD/HOLD/TRIM deberían cubrir 95% de los casos. SELL sólo si negocio roto permanentemente O dividendo eliminado.
+- Al llamar finish(), RELLENA openQuestions[] con 2-5 cosas a verificar en el próximo earnings o filing del ticker. Así la próxima investigación sabe qué chequear.${notebookContext}`;
 
   const initialUserContent = ticker
     ? `TICKER: ${ticker}\nPREGUNTA: ${question || `¿Cuál es el veredicto actualizado sobre ${ticker} dadas las señales de hoy?`}`
@@ -742,6 +800,40 @@ Reglas:
     summary: finishResult?.summary || null,
     evidence: finishResult?.evidence || [],
   };
+
+  // Persist ticker_notebook (memory for future runs) BEFORE persisting the
+  // investigation row, so even if the investigation write fails, the notebook
+  // still has the new verdict for subsequent queries.
+  if (ticker && finishResult?.verdict) {
+    try {
+      const fecha = new Date().toISOString().slice(0, 10);
+      // Load sector for persistence (first notebook write for a ticker stamps it)
+      let sector = tickerNotebook?.sector;
+      if (!sector) {
+        const posRow = await env.DB.prepare(
+          "SELECT sector FROM positions WHERE ticker = ? LIMIT 1"
+        ).bind(ticker).first();
+        sector = posRow?.sector || null;
+      }
+      await writeResearchNotebook(env, ticker, {
+        researchId: investigationId,
+        verdict: finishResult.verdict,
+        summary: finishResult.summary,
+        openQuestions: finishResult.openQuestions,
+        fecha,
+        sector,
+      });
+      await appendAgentVerdict(env, ticker, "research", {
+        verdict: finishResult.verdict,
+        severity: finishResult.confidence === "high" ? "critical" : finishResult.confidence === "medium" ? "warning" : "info",
+        brief: finishResult.summary,
+        fecha,
+        sector,
+      });
+    } catch (e) {
+      console.error("[Research] notebook persist failed:", e.message);
+    }
+  }
 
   // Persist to D1
   try {

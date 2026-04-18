@@ -467,6 +467,24 @@ async function ensureMigrations(env) {
       updated_at TEXT DEFAULT (datetime('now'))
     )`).run();
 
+    // ticker_notebook — Agent Intelligence v2. Memoria persistente por ticker
+    // que SIGUE el agente entre runs. Cada run puede ver qué dijo (este mismo
+    // agente u otro) sobre este ticker en el pasado y qué preguntas quedaron
+    // abiertas. Research Agent escribe summary + open_questions; dividend/
+    // earnings/trade escriben un line-item por verdict emitido.
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS ticker_notebook (
+      ticker TEXT PRIMARY KEY,
+      summary TEXT,
+      open_questions TEXT DEFAULT '[]',
+      agent_history TEXT DEFAULT '{}',
+      last_research_id INTEGER,
+      last_research_date TEXT,
+      last_research_verdict TEXT,
+      sector TEXT,
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_ticker_notebook_sector ON ticker_notebook(sector)`).run();
+
     // research_investigations — Research Agent (tool-use Opus). Stores each
     // investigation run with full tool-call trail so we can audit cost/quality.
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS research_investigations (

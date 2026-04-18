@@ -4,6 +4,14 @@
 // factory so worker.js can inject helpers without circular imports.
 // ═══════════════════════════════════════════════════════════════════════════
 
+import {
+  getTickerNotebooksBatch,
+  appendAgentVerdictsBatch,
+  getSectorStressMap,
+  getAgentAccuracy,
+  formatNotebookForPrompt,
+} from "../ticker-memory.js";
+
 export function makeAgents(deps) {
   const {
     callAgentClaude, storeInsights, getAgentMemory, setAgentMemory,
@@ -206,9 +214,12 @@ async function runEarningsAgent(env, fecha) {
   // Opus spot multi-decade trends that 6-quarter FMP data can't see — e.g.
   // "EPS below 10y median" or "only the 4th negative FCF year in 30y".
   // Absent → agent still works with FMP-only data.
-  const longTermMap = await getR2LongTermSeriesBatch(env, tickers);
+  const [longTermMap, notebookMap] = await Promise.all([
+    getR2LongTermSeriesBatch(env, tickers),
+    getTickerNotebooksBatch(env, tickers),
+  ]);
   if (Object.keys(longTermMap).length) {
-    console.log(`[Earnings] long-term R2 coverage: ${Object.keys(longTermMap).length}/${tickers.length} tickers`);
+    console.log(`[Earnings] long-term R2: ${Object.keys(longTermMap).length}/${tickers.length} · notebooks: ${Object.keys(notebookMap).length}/${tickers.length}`);
   }
 
   // ── Cross-agent ground-truth: earnings_trend signals (added 2026-04-08) ──
@@ -325,6 +336,8 @@ async function runEarningsAgent(env, fecha) {
       earningsTrendSignal: earningsTrendMap[p.ticker] || null,
       // 30y annual per-share series from GuruFocus (R2 — docs/{ticker}/gf_financials.json)
       longTerm30y: longTermMap[p.ticker] || null,
+      // Notebook memory (v2, 2026-04-18)
+      memoryBrief: formatNotebookForPrompt(notebookMap[p.ticker]),
     };
   });
 
@@ -383,6 +396,12 @@ DISTINGUISH TEMPORARY VS STRUCTURAL:
 - Temporary: one-time charges, FX headwinds, weather, supply chain hiccups, restructuring with clear plan, deferred revenue timing, M&A integration costs. → info (or warning if large but explained).
 - Structural: secular demand decline, market share loss to disruptors, margin compression with no plan, repeated guidance cuts, management evasiveness on the call. → warning or critical.
 
+PERSISTENT MEMORY — memoryBrief (Agent Intelligence v2, 2026-04-18):
+Each ticker carries a compact memory string from past runs (verdicts from dividend/trade/research + your own). If memoryBrief is non-empty:
+- You've seen this ticker before. Don't restate the same analysis. Either ADD new information or explicitly acknowledge continuity ("consistent with my prior flag on 04-10 — no material change").
+- If Research Agent recently investigated (🔬 marker), that's your best ground truth. Align or explicitly disagree with specific reason.
+- If YOU (earnings agent) already flagged warning/critical on this ticker recently, progressing the narrative: what changed? If nothing — reduce severity or add forward test ("confirm in Q2 2026").
+
 SEVERITY (conservative — long-term portfolio):
 - critical = structural business decline: revenue falling 3+ consecutive quarters AND margins compressing AND no credible turnaround in transcript. Max 2 criticals across the portfolio.
 - warning = operational miss that could affect dividends OR management tone clearly negative on forward demand
@@ -409,6 +428,24 @@ Include entries for tickers with notable findings (beat/miss, guidance change, o
   }
 
   const stored = await storeInsights(env, "earnings", fecha, allInsights);
+
+  // Write verdicts back to ticker_notebook (v2 memory)
+  try {
+    const posSector = {};
+    for (const p of positions) posSector[p.ticker] = p.sector;
+    const notebookWrites = allInsights.filter(i => i.ticker && !String(i.ticker).startsWith("_")).map(i => ({
+      ticker: i.ticker,
+      verdict: i.severity === "critical" ? "MISS_STRUCTURAL" : i.severity === "warning" ? "MISS" : "OK",
+      severity: i.severity,
+      brief: (i.title ? `${i.title}. ` : "") + (i.details?.transcript_insight || i.summary || "").slice(0, 180),
+      fecha,
+      sector: posSector[i.ticker],
+    }));
+    await appendAgentVerdictsBatch(env, "earnings", notebookWrites, fecha);
+  } catch (e) {
+    console.error("[Earnings] notebook write failed:", e.message);
+  }
+
   return { agent: "earnings", insights: stored, total: allPosData.length };
 }
 
@@ -535,13 +572,16 @@ async function runDividendAgent(env, fecha) {
   // Also attempt to load 30-year series from R2 (supplementary — this agent
   // still works if R2 is empty; data comes from docs/{ticker}/gf_financials.json
   // uploaded via scripts/upload-docs-to-r2.sh).
-  const [gfMap, fmpFinMap, longTermMap] = await Promise.all([
+  const [gfMap, fmpFinMap, longTermMap, notebookMap, sectorStressMap] = await Promise.all([
     getGfData(env, tickers),
     getFmpFinancials(env, tickers),
     getR2LongTermSeriesBatch(env, tickers),
+    getTickerNotebooksBatch(env, tickers),
+    getSectorStressMap(env, fecha),
   ]);
   const longTermCoverage = Object.keys(longTermMap).length;
-  console.log(`[Dividend] long-term R2 coverage: ${longTermCoverage}/${tickers.length} tickers`);
+  const notebookCoverage = Object.keys(notebookMap).length;
+  console.log(`[Dividend] long-term R2: ${longTermCoverage}/${tickers.length} · notebooks: ${notebookCoverage}/${tickers.length}`);
 
   // Classify tickers for context
   const REITS = new Set(['AMT','ARE','CLPR','CUBE','ESS','HR','IIPR','KRG','MDV','NNN','O','STAG','SUI','VICI','WPC','XLRE','NET.UN']);
@@ -613,6 +653,23 @@ async function runDividendAgent(env, fecha) {
       // streaks, detect past cuts, and compare current coverage against
       // decades of history. Null if R2 has no upload for this ticker.
       longTerm30y: longTermMap[p.ticker] || null,
+
+      // Ticker notebook (Agent Intelligence v2, 2026-04-18). Memory that
+      // persiste entre runs. Expone: memoryBrief — última línea del Research
+      // Agent si existe + verdicts recientes de los LLM agents. Usa esto para
+      // evitar repetir críticos sin contexto nuevo.
+      memoryBrief: formatNotebookForPrompt(notebookMap[p.ticker]),
+      sectorStress: (() => {
+        const st = sectorStressMap[p.sector];
+        if (!st) return null;
+        return {
+          sector: p.sector,
+          criticalPeers: st.criticalCount,
+          peersInSector: st.totalPositions,
+          isContagion: st.isContagion,
+          primarySignal: st.primarySignal,
+        };
+      })(),
     };
   });
 
@@ -670,6 +727,18 @@ current TTM coverage against a decade-plus history (e.g. "FCF coverage 0.8 is be
 10y median of 1.4 → real deterioration, not seasonal").
 If longTerm30y is null, no R2 history available — proceed with TTM-only analysis.
 
+PERSISTENT MEMORY — memoryBrief (Agent Intelligence v2, 2026-04-18):
+Each ticker carries a compact memory string from runs past. Format examples:
+- "📓 AHRT en transformación estratégica vendiendo multifamily… | 🔬 Research 2026-04-18: HOLD | dividend: 04-18=critical → 04-15=critical → 04-10=warning | ❓ ¿Coverage Q1?"
+- "" (empty — first time seeing this ticker, no prior verdicts)
+Use this memoryBrief to:
+1. NOT repeat identical criticals without acknowledging the prior flags. If you flagged critical 5 times in the last 30d on the same ticker with the same reasoning, your 6th critical adds NO value. Either escalate (new evidence = now "critical + cut likely within 30d") or downgrade ("pattern persists but no acute trigger — warning").
+2. REFERENCE el Research Agent si acaba de investigar. If Research said TRIM high 2 weeks ago and fundamentals haven't moved, you should ALIGN with that or explicitly disagree with reason.
+3. PROGRESS the analysis. Next verdict should add information: "FCF deterioró otro 5% vs mi verdict anterior" > "FCF coverage 0.9x, critical" (same as last time).
+
+SECTORAL CONTEXT — sectorStress:
+If sectorStress.isContagion === true (>=40% of sector's portfolio positions are critical today), your verdict must acknowledge it. Criticals en contagio son menos individualmente accionables (rate-driven macro, no idiosincrático) que criticals aislados. Mark context="stressed" but tone down severity unless idiosyncratic signal is overwhelming.
+
 SEVERITY (be conservative — only "critical" for REAL danger):
 - critical = company is genuinely at risk of bankruptcy or permanent dividend elimination. Max 2-3 across entire portfolio.
 - warning = dividend freeze likely, or payout unsustainable WITHOUT a clear strategic reason
@@ -699,6 +768,27 @@ Include ALL tickers. Score: 1=bankruptcy risk, 5=needs monitoring, 8=solid, 10=f
   }
 
   const stored = await storeInsights(env, "dividend", fecha, allInsights);
+
+  // Write verdicts back to ticker_notebook so next run sees them. (v2 memory)
+  // One append per ticker with the verdict brief — dedup by fecha keeps at most
+  // one entry per day per (agent, ticker).
+  try {
+    const posSector = {};
+    for (const p of positions) posSector[p.ticker] = p.sector;
+    const notebookWrites = allInsights.filter(i => i.ticker && !String(i.ticker).startsWith("_")).map(i => ({
+      ticker: i.ticker,
+      verdict: i.details?.cutRisk === "high" ? "CRITICAL" : i.details?.cutRisk === "medium" ? "WARNING" : "OK",
+      severity: i.severity,
+      brief: (i.title ? `${i.title}. ` : "") + (i.summary || "").slice(0, 180),
+      fecha,
+      sector: posSector[i.ticker],
+    }));
+    await appendAgentVerdictsBatch(env, "dividend", notebookWrites, fecha);
+    console.log(`[Dividend] notebook updated: ${notebookWrites.length} tickers`);
+  } catch (e) {
+    console.error("[Dividend] notebook write failed:", e.message);
+  }
+
   return { agent: "dividend", insights: stored, total: allPosData.length };
 }
 
@@ -982,7 +1072,11 @@ async function runTradeAgent(env, fecha) {
   const regime = await getAgentMemory(env, "regime_current");
 
   // GuruFocus: valuation + insider/guru activity
-  const gfMap = await getGfData(env, tickers);
+  const [gfMap, tradeAccuracy, tradeNotebooks] = await Promise.all([
+    getGfData(env, tickers),
+    getAgentAccuracy(env, "trade", 30),
+    getTickerNotebooksBatch(env, tickers),
+  ]);
 
   const posData = positions.map(p => {
     const gf = gfMap[p.ticker] || {};
@@ -1002,6 +1096,8 @@ async function runTradeAgent(env, fecha) {
       guruBuys13f: gf.guruBuys13f, guruSells13f: gf.guruSells13f,
       insiderBuys3m: gf.insiderBuys3m, insiderSells3m: gf.insiderSells3m,
       rsi14: gf.rsi14,
+      // Memory: your own past verdicts + Research + other agents (v2, 2026-04-18)
+      memoryBrief: formatNotebookForPrompt(tradeNotebooks[p.ticker]),
     };
   });
   // No slice — we feed ALL positions. Previous 30/20 cap left 69 of 89 positions
@@ -1028,6 +1124,17 @@ FUNDAMENTAL PHILOSOPHY (CRITICAL):
 - Companies restructuring (cutting costs, paying debt, refocusing) are often BUYS not SELLS.
 
 Current market: ${regime?.regime || 'unknown'} (${regime?.actionGuidance || 'unknown'})
+${tradeAccuracy ? `
+YOUR OWN ACCURACY (last 30d, trade signals postmortem):
+- 30-day accuracy: ${Math.round((tradeAccuracy.accuracy30 || 0) * 100)}% (${tradeAccuracy.correct30}/${tradeAccuracy.evaluated30} evaluated)
+- 7-day accuracy: ${tradeAccuracy.accuracy7 != null ? Math.round(tradeAccuracy.accuracy7 * 100) + '%' : 'pending'}
+If accuracy <50%, be MORE cautious — your recent signals have not been validated. If >70%, your model is calibrated, express higher conviction.` : ''}
+
+PERSISTENT MEMORY (v2, 2026-04-18):
+Each position now carries memoryBrief with YOUR past verdicts and those of dividend/earnings/research agents. Use it to:
+- Avoid repeating identical ADD/TRIM/SELL calls without new information. Progress the narrative.
+- Align with Research Agent verdicts when fresh (<7 days) unless you have material new data.
+- Spot your OWN pattern: if you've emitted 3 HOLD on the same ticker, maybe it's time to commit (ADD or TRIM) or explicitly flag "insufficient info".
 
 SEVERITY (conservative — don't recommend selling quality companies):
 - critical = SELL only if business is in genuine structural decline. Max 1-2 sells across entire portfolio.
@@ -1078,6 +1185,24 @@ Max 10 most actionable recommendations. Favor ADD over HOLD over TRIM over SELL.
   }
 
   const stored = await storeInsights(env, "trade", fecha, signals);
+
+  // Write verdicts back to ticker_notebook (v2 memory)
+  try {
+    const posSector = {};
+    for (const p of positions) posSector[p.ticker] = p.sector;
+    const notebookWrites = signals.filter(s => s.ticker && !String(s.ticker).startsWith("_") && s.details?.action).map(s => ({
+      ticker: s.ticker,
+      verdict: s.details.action,
+      severity: s.severity,
+      brief: (s.title ? `${s.title}. ` : "") + (s.summary || "").slice(0, 180),
+      fecha,
+      sector: posSector[s.ticker],
+    }));
+    await appendAgentVerdictsBatch(env, "trade", notebookWrites, fecha);
+  } catch (e) {
+    console.error("[Trade] notebook write failed:", e.message);
+  }
+
   return { agent: "trade", insights: stored };
 }
 
