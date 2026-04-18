@@ -12839,10 +12839,30 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         const severity = url.searchParams.get("severity");
         const ticker = url.searchParams.get("ticker");
         const days = parseInt(url.searchParams.get("days") || "7", 10);
+        // Default: only latest insight per (agent, ticker). Daily crons otherwise
+        // flood the UI with N copies of the same recurring insight (e.g. ACN
+        // value-signal emitted every day for 10 days = 10 rows). Pass
+        // ?latest=0 to get the full history.
+        const latest = url.searchParams.get("latest") !== "0";
         const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
 
-        let sql = "SELECT * FROM agent_insights WHERE fecha >= ?";
         const params = [since];
+        let sql;
+        if (latest) {
+          sql = `SELECT ai.* FROM agent_insights ai
+            INNER JOIN (
+              SELECT agent_name, ticker, MAX(fecha) AS max_fecha
+              FROM agent_insights
+              WHERE fecha >= ?
+              GROUP BY agent_name, ticker
+            ) lt
+            ON ai.agent_name = lt.agent_name
+            AND ai.ticker = lt.ticker
+            AND ai.fecha = lt.max_fecha
+            WHERE 1=1`;
+        } else {
+          sql = "SELECT * FROM agent_insights WHERE fecha >= ?";
+        }
         if (agent) { sql += " AND agent_name = ?"; params.push(agent); }
         if (severity) { sql += " AND severity = ?"; params.push(severity); }
         if (ticker) { sql += " AND ticker = ?"; params.push(ticker); }

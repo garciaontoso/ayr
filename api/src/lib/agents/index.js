@@ -141,7 +141,9 @@ async function runEarningsAgent(env, fecha) {
           revGrowthYoY: det.revGrowthYoY,
           summary: r.summary,
         };
-      } catch {}
+      } catch (pe) {
+        console.warn(`[Earnings] earnings_trend row parse failed for ${r.ticker}:`, pe.message);
+      }
     }
   } catch (e) { console.error("[Earnings] earnings_trend load failed:", e.message); }
 
@@ -169,12 +171,19 @@ async function runEarningsAgent(env, fecha) {
     for (const row of trRows) {
       // Keep only the most recent per ticker
       if (!transcriptMap[row.ticker]) {
+        const raw = typeof row.content === "string" ? row.content : "";
+        // Widened from 3000 → 10000 chars (2026-04-18). 3K only covered the CEO
+        // opening remarks; the Q&A with analysts (usually starts ~3-5K chars in)
+        // is where management reveals forward demand, cost pressure, and concrete
+        // numbers under pushback. 10K captures the opening + most of the Q&A
+        // for typical transcripts. Batches of 12 × 10K = 120K chars ≈ 30K
+        // tokens which still fits comfortably in Opus 200K context.
         transcriptMap[row.ticker] = {
           quarter: row.quarter,
           year: row.year,
           date: row.date,
-          // First ~3000 chars = management prepared remarks (highest signal)
-          excerpt: typeof row.content === "string" ? row.content.slice(0, 3000) : "",
+          excerpt: raw.slice(0, 10000),
+          totalLen: raw.length,
         };
       }
     }
@@ -220,7 +229,7 @@ async function runEarningsAgent(env, fecha) {
       // Quarterly trends (last 6 quarters) — context for "trend vs one-off"
       trends: buildTrends(p.ticker),
       // Most recent earnings call transcript (management commentary)
-      transcript: tr ? { period: `${tr.quarter} ${tr.year}`, date: tr.date, excerpt: tr.excerpt } : null,
+      transcript: tr ? { period: `${tr.quarter} ${tr.year}`, date: tr.date, excerpt: tr.excerpt, totalLen: tr.totalLen } : null,
       // Cross-agent ground-truth — only present if flagged today
       earningsTrendSignal: earningsTrendMap[p.ticker] || null,
     };
@@ -341,7 +350,9 @@ async function runDividendAgent(env, fecha) {
           qualityScore: r.quality_score,
           safetyScore: r.safety_score,
         };
-      } catch {}
+      } catch (pe) {
+        console.warn(`[Dividend] Q+S inputs_json parse failed for ${r.ticker}:`, pe.message);
+      }
     }
   } catch (e) {
     console.error("[Dividend] Q+S inputs load failed:", e.message);
@@ -380,7 +391,9 @@ async function runDividendAgent(env, fecha) {
           fcfGrowthYoY: det.fcfGrowthYoY,
           summary: r.summary,
         };
-      } catch {}
+      } catch (pe) {
+        console.warn(`[Dividend] cut_warning row parse failed for ${r.ticker}:`, pe.message);
+      }
     }
   } catch (e) { console.error("[Dividend] cut_warning load failed:", e.message); }
   try {
@@ -397,7 +410,9 @@ async function runDividendAgent(env, fecha) {
           analystsCovering: det.analystsCovering,
           summary: r.summary,
         };
-      } catch {}
+      } catch (pe) {
+        console.warn(`[Dividend] analyst_downgrade row parse failed for ${r.ticker}:`, pe.message);
+      }
     }
   } catch (e) { console.error("[Dividend] analyst_downgrade load failed:", e.message); }
 
@@ -632,9 +647,24 @@ Respond ONLY JSON:
   // template-style synthesis. If we ever want real Opus-quality macro analysis
   // we should bring it back only weekly, not daily, and track one concrete
   // prediction (e.g. "HYG will drop >2% in 5d") to score the agent.
-  const rawInsight = await callAgentClaude(env, system, userContent, { model: "claude-haiku-4-5-20251001" });
-  let insight = Array.isArray(rawInsight) ? rawInsight[0] : rawInsight;
-  if (!insight || typeof insight !== 'object') insight = { severity: "info", title: "Macro analysis", summary: String(rawInsight).slice(0, 500), details: {}, score: 5 };
+  // 2026-04-18: wrap in try/catch so LLM failure still stores a _STATUS_ insight
+  // (previously an Anthropic 529/timeout left macro completely absent from the
+  // daily feed — user couldn't tell if agent was alive).
+  let insight;
+  try {
+    const rawInsight = await callAgentClaude(env, system, userContent, { model: "claude-haiku-4-5-20251001" });
+    insight = Array.isArray(rawInsight) ? rawInsight[0] : rawInsight;
+    if (!insight || typeof insight !== 'object') insight = { severity: "info", title: "Macro analysis", summary: String(rawInsight).slice(0, 500), details: {}, score: 5 };
+  } catch (e) {
+    console.error("[Macro] LLM call failed:", e.message);
+    insight = {
+      severity: "info",
+      title: "Macro — síntesis no disponible",
+      summary: `Fallo al llamar a Haiku (${e.message.slice(0, 100)}). Indicadores de mercado se cachearon correctamente; reintenta mañana o desde el botón manual.`,
+      details: { error: e.message.slice(0, 200), regime: regime?.regime, fallback: true },
+      score: 0,
+    };
+  }
   insight.ticker = "_MACRO_";
   const stored = await storeInsights(env, "macro", fecha, [insight]);
   return { agent: "macro", insights: stored };
@@ -756,11 +786,23 @@ Do NOT return an array. Do NOT return per-position rows. Return ONE object descr
   // code BEFORE the LLM is called. Opus was only paraphrasing them while
   // fighting its own instinct to recommend SELL. Haiku can paraphrase fine.
   // Saves ~$0.03/run.
-  const rawInsight = await callAgentClaude(env, system, userContent, { model: "claude-haiku-4-5-20251001" });
-  let insight = Array.isArray(rawInsight) ? rawInsight[0] : rawInsight;
-  // Validate it's a portfolio insight (has severity/title), otherwise wrap or fallback
-  if (!insight || typeof insight !== 'object' || !insight.severity || !insight.title) {
-    insight = { severity: "warning", title: "Risk analysis fallback", summary: typeof rawInsight === 'string' ? rawInsight.slice(0, 500) : JSON.stringify(rawInsight).slice(0, 500), details: {}, score: 5 };
+  // 2026-04-18: wrap in try/catch so LLM failure still stores a status insight.
+  let insight;
+  try {
+    const rawInsight = await callAgentClaude(env, system, userContent, { model: "claude-haiku-4-5-20251001" });
+    insight = Array.isArray(rawInsight) ? rawInsight[0] : rawInsight;
+    if (!insight || typeof insight !== 'object' || !insight.severity || !insight.title) {
+      insight = { severity: "warning", title: "Risk analysis fallback", summary: typeof rawInsight === 'string' ? rawInsight.slice(0, 500) : JSON.stringify(rawInsight).slice(0, 500), details: {}, score: 5 };
+    }
+  } catch (e) {
+    console.error("[Risk] LLM call failed:", e.message);
+    insight = {
+      severity: "info",
+      title: "Risk — síntesis no disponible",
+      summary: `Fallo al llamar a Haiku (${e.message.slice(0, 100)}). Métricas numéricas disponibles en details; síntesis textual no generada.`,
+      details: { error: e.message.slice(0, 200), top5Weight: userContent.top5Weight, sectorHHI: userContent.sectorHHI, weightedBeta: userContent.weightedBeta, fallback: true },
+      score: 0,
+    };
   }
   insight.ticker = "_PORTFOLIO_";
   const stored = await storeInsights(env, "risk", fecha, [insight]);
@@ -833,7 +875,10 @@ async function runTradeAgent(env, fecha) {
       insiderBuys3m: gf.insiderBuys3m, insiderSells3m: gf.insiderSells3m,
       rsi14: gf.rsi14,
     };
-  }).slice(0, 30);
+  });
+  // No slice — we feed ALL positions. Previous 30/20 cap left 69 of 89 positions
+  // invisible to the advisor. Opus 200K context easily fits 89 × ~300 bytes
+  // of position data plus ~500 signals. (2026-04-18)
 
   // ── Single-step Opus synthesis (replaces 3-call bull/bear/synth) ──
   const synthSystem = `You are a senior portfolio advisor for a LONG-TERM dividend income portfolio ($1.35M, buy-and-hold, China fiscal resident).
@@ -874,7 +919,7 @@ Max 10 most actionable recommendations. Favor ADD over HOLD over TRIM over SELL.
   try {
     synthResult = await callAgentClaude(env, synthSystem, {
       todayInsights,
-      positions: posData.slice(0, 20),
+      positions: posData,
       regime,
     }, { model: "claude-opus-4-20250514" });
   } catch (e) {
@@ -2152,7 +2197,10 @@ async function runAnalystDowngradeAgent(env, fecha) {
   ).all();
   if (!positions.length) return { agent: "analyst_downgrade", skipped: true };
 
-  const cutoff14 = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
+  // 14-day window was too short — most FMP grades-historical rows are stable
+  // for weeks, so old == latest → drop = 0 → zero insights. Widened to 30 days
+  // which matches the typical quarterly analyst revision cadence. (2026-04-18)
+  const cutoff30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
   const cutoff90 = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
 
   // Load previous snapshot from agent_memory
@@ -2161,6 +2209,7 @@ async function runAnalystDowngradeAgent(env, fecha) {
   const insights = [];
   let scanned = 0;
   let withDowngrades = 0;
+  let fmpErrors = 0;
   const newMem = {};
 
   // Process in batches of 5 to respect rate limits
@@ -2181,8 +2230,8 @@ async function runAnalystDowngradeAgent(env, fecha) {
           const latest = sorted[0];
           if (!latest) return null;
 
-          // Find a row from ~14 days ago for comparison
-          const old = sorted.find(r => (r.date || '') <= cutoff14) || sorted[Math.min(2, sorted.length - 1)];
+          // Find a row from ~30 days ago for comparison.
+          const old = sorted.find(r => (r.date || '') <= cutoff30) || sorted[Math.min(2, sorted.length - 1)];
           if (!old) return null;
 
           // Score = strongBuy*2 + buy - sell - strongSell*2 (positive = bullish)
@@ -2219,7 +2268,11 @@ async function runAnalystDowngradeAgent(env, fecha) {
             sell: Number(latest.analystRatingsSell) || 0,
             strongSell: Number(latest.analystRatingsStrongSell) || 0,
           };
-        } catch { return null; }
+        } catch (e) {
+          fmpErrors++;
+          console.error(`[analyst_downgrade] FMP fetch failed for ${sym}:`, e.message);
+          return null;
+        }
       })
     );
 
@@ -2286,8 +2339,21 @@ async function runAnalystDowngradeAgent(env, fecha) {
     return (b.score || 0) - (a.score || 0);
   });
 
+  // Always emit a _STATUS_ marker so the UI / audit can see the agent ran.
+  // Otherwise an empty-insight day looks identical to "agent died" in the API.
+  if (insights.length === 0) {
+    insights.push({
+      ticker: "_STATUS_",
+      severity: "info",
+      title: "Analyst grades estables",
+      summary: `Escaneados ${scanned}/${positions.length} tickers. Sin deltas de sentimiento que disparen alertas (ventana 30d). ${fmpErrors ? `FMP errors: ${fmpErrors}.` : ''}`,
+      details: { scanned, total: positions.length, fmpErrors, window: "30d" },
+      score: 0,
+    });
+  }
+
   const stored = await storeInsights(env, "analyst_downgrade", fecha, insights);
-  return { agent: "analyst_downgrade", scanned, alerts: insights.length, withDowngrades, stored };
+  return { agent: "analyst_downgrade", scanned, alerts: insights.length, withDowngrades, fmpErrors, stored };
 }
 
 // ─── Agent Orchestrator ────────────────────────────────────────

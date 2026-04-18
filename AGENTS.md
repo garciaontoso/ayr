@@ -1,7 +1,17 @@
 # A&R AI Agents — Technical Documentation
 
 > **Source of truth**: `AGENTS_METADATA` array in `api/src/worker.js:5406` (served by `GET /api/agents/prompts`).
-> Last sync: 2026-04-08 (post night-sweep audit). When you edit a `runXxxAgent` prompt, also update this file AND the `system_prompt` field in `AGENTS_METADATA`.
+> Last sync: 2026-04-18 (audit B). When you edit a `runXxxAgent` prompt, also update this file AND the `system_prompt` field in `AGENTS_METADATA`.
+
+## 2026-04-18 audit B — changes
+
+- **value agent "duplicados" NO eran bug en DB.** El API `/api/agent-insights` devolvía la historia de snapshots diarios (ACN insight emitido cada día → 10 rows visibles). Añadido `?latest=1` (default) que dedup por (agent, ticker) mostrando sólo el más reciente. Pass `?latest=0` para historial crudo.
+- **analyst_downgrade reactivado.** Ventana cambiada de 14d → 30d (las revisiones de analistas no son diarias), silent catch ahora loguea FMP errors, y emite un `_STATUS_` insight cuando 0 alerts para que el agente nunca parezca muerto.
+- **earnings transcript 3000 → 10000 chars.** El Q&A con analistas (normalmente chars 3K-10K del transcript) ahora llega al LLM. Antes sólo veía CEO opening remarks.
+- **trade agent: 20 → 89 posiciones.** Quitado el `.slice(0, 20)` / `.slice(0, 30)` — Opus 200K context sobra para ver la cartera entera. Antes 69 de 89 posiciones eran invisibles al asesor.
+- **macro + risk con try/catch LLM.** Si Haiku 529/timeout, ahora se graba un insight `_MACRO_` / `_PORTFOLIO_` fallback con estado, en vez de desaparecer del feed diario.
+- **Silent catches mejorados** (`earnings_trend`, `cut_warning`, `analyst_downgrade` inner parses, Q+S inputs_json) — ahora `console.warn` con ticker en vez de tragar silenciosamente.
+- **docs/{ticker}/*.json → R2** preparado script (`scripts/upload-docs-to-r2.sh`). Antes los 57 GF financials locales y 63 SEC filing links eran inalcanzables desde Workers. Cableado a earnings/dividend agents: pendiente (siguiente sesión).
 
 ## Architecture Overview
 
