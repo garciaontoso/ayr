@@ -16,6 +16,10 @@ import { useFreshness } from '../../hooks/useFreshness.js';
    📅 CalendarioSection — Mac Calendar-style dividend calendar
    ═══════════════════════════════════════════════════════════════ */
 function CalendarioSection({ divLog, POS_STATIC, ownedTickers, soloActuales }) {
+  // CRITICAL: privacyMode was accessed ungated throughout render → ReferenceError
+  // on mount (empty {} in ErrorBoundary). Now pulled from context explicitly.
+  // (2026-04-18 audit fix.)
+  const { privacyMode } = useHome();
   const now = new Date();
   const [calMonth, setCalMonth] = useState({ year: now.getFullYear(), month: now.getMonth() });
   const [selectedDay, setSelectedDay] = useState(null);

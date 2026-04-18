@@ -186,7 +186,10 @@ function EvidenceList({ evidence }) {
 // ─── Vista: Detalle de una investigación ─────────────────────
 function DetailView({ investigation, onBack }) {
   if (!investigation) return null;
-  const vc = verdictColor(investigation.verdict);
+  // API returns `final_verdict` (from research_investigations DB); the inline
+  // orchestrator output uses `verdict`. Aceptar ambos.
+  const v = investigation.final_verdict ?? investigation.verdict;
+  const vc = verdictColor(v);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Back button */}
@@ -211,7 +214,7 @@ function DetailView({ investigation, onBack }) {
           <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--gold)', fontFamily: FM }}>
             {investigation.ticker || '—'}
           </span>
-          <VerdictBadge verdict={investigation.verdict} large />
+          <VerdictBadge verdict={v} large />
           {investigation.confidence && (
             <span style={{
               fontSize: 10, padding: '3px 10px', borderRadius: 6,
@@ -314,7 +317,10 @@ function ListView({ items, loading, onSelect, onLaunch }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       {items.map((inv, i) => {
-        const vc = verdictColor(inv.verdict);
+        // API returns `final_verdict` (DB column); detail view uses `verdict`.
+        // Accept both to render correctly. (2026-04-18 fix — antes siempre "—")
+        const v = inv.final_verdict ?? inv.verdict;
+        const vc = verdictColor(v);
         return (
           <div
             key={inv.id || i}
@@ -335,7 +341,7 @@ function ListView({ items, loading, onSelect, onLaunch }) {
               <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--gold)', fontFamily: FM }}>
                 {inv.ticker || '—'}
               </div>
-              <VerdictBadge verdict={inv.verdict} />
+              <VerdictBadge verdict={v} />
             </div>
 
             {/* Summary truncado */}
