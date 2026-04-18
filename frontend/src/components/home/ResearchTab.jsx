@@ -199,21 +199,23 @@ export default function ResearchTab() {
       saveCustomLists(customLists.filter(l => l.id !== id));
       if (activeId === id) setActiveId('portfolio');
     };
-    // Edit tickers of an existing custom list. Prompt with current tickers
-    // pre-filled, replace entire list on submit.
-    const handleEditList = (id) => {
+    // Add a single ticker to an existing custom list (appended, duplicates skipped).
+    // Each call prompts for ONE ticker — never replaces the list.
+    const handleAddTickerToList = (id) => {
       if (!id.startsWith('custom_')) return;
       const list = customLists.find(l => l.id === id);
       if (!list) return;
-      const current = list.tickers.join(', ');
-      const raw = window.prompt(`Edita los tickers de "${list.name}" (separados por coma).\nHK: "1066" se convierte a "1066.HK"`, current);
+      const raw = window.prompt(`Añadir UN ticker a "${list.name}" (ej: KO, BRK.B, 1066 → 1066.HK):`);
       if (raw == null) return;
-      const tickers = raw.split(/[,\s]+/).map(normalizeTicker).filter(Boolean);
-      saveCustomLists(customLists.map(l => l.id === id ? { ...l, tickers } : l));
+      const t = normalizeTicker(raw);
+      if (!t) { alert('Ticker vacío'); return; }
+      if (list.tickers.includes(t)) { alert(`${t} ya está en la lista`); return; }
+      saveCustomLists(customLists.map(l => l.id === id ? { ...l, tickers: [...l.tickers, t] } : l));
     };
     // Remove a single ticker from the active custom list.
     const handleRemoveTicker = (listId, ticker) => {
       if (!listId.startsWith('custom_')) return;
+      if (!window.confirm(`¿Quitar ${ticker} de la lista?`)) return;
       saveCustomLists(customLists.map(l => l.id === listId ? { ...l, tickers: l.tickers.filter(t => t !== ticker) } : l));
     };
     const isCustomList = selectedList && selectedList.id.startsWith('custom_');
@@ -228,10 +230,10 @@ export default function ResearchTab() {
               <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>{selectedList.desc} · {selectedList.tickers.length} empresas</div>
             </div>
             {isCustomList && (
-              <button onClick={()=>handleEditList(selectedList.id)}
-                title="Editar tickers de esta lista (añadir/quitar)"
+              <button onClick={()=>handleAddTickerToList(selectedList.id)}
+                title="Añadir un ticker a esta lista (para quitar: ✕ en cada fila)"
                 style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${selectedList.color}60`,background:`${selectedList.color}18`,color:selectedList.color,fontSize:9,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>
-                ✏️ Editar tickers
+                + Añadir ticker
               </button>
             )}
           </div>
