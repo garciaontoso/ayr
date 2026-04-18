@@ -13020,9 +13020,11 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         // Check if another run is already in progress (prevents double-click from user)
         const existingStatus = (await getAgentMemory(env, "agent_run_status")) || {};
         if (existingStatus.state === "running") {
-          // Timeout old runs > 15 minutes (pipeline shouldn't take that long)
+          // Timeout old runs > 25 minutes. 2026-04-18: widened from 15 → 25
+          // min after R2 integration + 6 Opus batches push cold-cache runs to
+          // ~18-20 min. The cron (hot cache) still finishes in 3-5 min.
           const startedMs = Date.parse(existingStatus.started_at || 0);
-          if (startedMs && (Date.now() - startedMs) < 15 * 60 * 1000) {
+          if (startedMs && (Date.now() - startedMs) < 25 * 60 * 1000) {
             return json({
               ok: false,
               already_running: true,
