@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { API_URL, CURRENCIES } from '../../constants/index.js';
 import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
@@ -946,7 +946,7 @@ export default function PresupuestoTab() {
                   lastCat = item.categoria;
                   const alert = alerts.find(a => a.item_id === item.id);
                   return (
-                    <>
+                    <Fragment key={item.id}>
                       {showCatHeader && (
                         <tr key={`hdr-${item.categoria}`}>
                           <td colSpan={displayCcy !== 'EUR' ? 10 : 9} style={{ padding: '8px 12px', fontSize: 11, fontWeight: 700, color: cat.color, background: 'var(--row-alt)', borderBottom: '1px solid var(--border)' }}>
@@ -1110,7 +1110,7 @@ export default function PresupuestoTab() {
                           </tr>
                         );
                       })()}
-                    </>
+                    </Fragment>
                   );
                 });
               })()}

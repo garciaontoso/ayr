@@ -166,7 +166,8 @@ export default function TaxOptimizationTab() {
   useEffect(() => { load(); }, []);
 
   if (loading) return (
-    <div style={{ ...S.wrap, textAlign: 'center', paddingTop: 60 }}>
+    // padding shorthand complete (no mezclar con S.wrap.padding — React warning)
+    <div style={{ ...S.wrap, textAlign: 'center', padding: '60px 0 16px' }}>
       <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>Calculando retenciones...</div>
     </div>
   );
