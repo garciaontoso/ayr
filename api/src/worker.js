@@ -7,6 +7,7 @@
 import { SPANISH_FUNDS_1S2025 } from './data/spanish_funds.js';
 
 import { makeAgents } from "./lib/agents/index.js";
+import { runResearchAgent } from "./lib/research-agent.js";
 
 // Mapping from our tickers to FMP symbols (foreign tickers need exchange suffix)
 // CRITICAL: bare "ENG" on FMP = ENGlobal Corp (wrong!), "RAND" = Rand Capital (wrong!)
@@ -465,6 +466,31 @@ async function ensureMigrations(env) {
       data TEXT NOT NULL DEFAULT '{}',
       updated_at TEXT DEFAULT (datetime('now'))
     )`).run();
+
+    // research_investigations — Research Agent (tool-use Opus). Stores each
+    // investigation run with full tool-call trail so we can audit cost/quality.
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS research_investigations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT,
+      question TEXT,
+      trigger_reason TEXT,
+      started_at TEXT NOT NULL DEFAULT (datetime('now')),
+      finished_at TEXT,
+      duration_s REAL,
+      tool_calls_json TEXT DEFAULT '[]',
+      total_tool_calls INTEGER DEFAULT 0,
+      total_tokens_in INTEGER DEFAULT 0,
+      total_tokens_out INTEGER DEFAULT 0,
+      cost_usd REAL DEFAULT 0,
+      final_verdict TEXT,
+      confidence TEXT,
+      summary TEXT,
+      evidence_json TEXT DEFAULT '[]',
+      full_response TEXT,
+      error TEXT
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_research_ticker ON research_investigations(ticker)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_research_started ON research_investigations(started_at DESC)`).run();
 
     // signal_tracking table (postmortem: did trade signals work?)
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS signal_tracking (
@@ -13080,6 +13106,67 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
           state: "running",
           message: "Agentes lanzados en background (~2-5 min). Poll /api/agent-run/status para progreso.",
           started_at: new Date().toISOString(),
+        }, corsHeaders);
+      }
+
+      // ── Research Agent (Opus + tool use) ──
+      // POST /api/research-agent { ticker?, question?, reason? }
+      // Authenticated same as /api/agent-run. Budget-capped (15 tool calls,
+      // 5 min wall, $3). Stores the investigation row in research_investigations.
+      if (path === "/api/research-agent" && request.method === "POST") {
+        const _resAuth = (isAllowed && origin) ? null : ytRequireToken(request, env);
+        if (_resAuth) return _resAuth;
+        await ensureMigrations(env);
+        let body = {};
+        try { body = await request.json(); } catch {}
+        const ticker = body.ticker ? String(body.ticker).trim().toUpperCase() : null;
+        const question = body.question ? String(body.question).trim().slice(0, 500) : null;
+        const reason = body.reason ? String(body.reason).slice(0, 50) : "manual";
+        if (!ticker && !question) {
+          return json({ error: "pass ticker or question" }, corsHeaders, 400);
+        }
+        try {
+          const result = await runResearchAgent(env, { ticker, question, triggerReason: reason });
+          return json(result, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+      // GET /api/research-agent/list?ticker=XX&limit=20 — historial
+      if (path === "/api/research-agent/list" && request.method === "GET") {
+        const qTicker = url.searchParams.get("ticker");
+        const limit = Math.min(100, parseInt(url.searchParams.get("limit") || "20", 10));
+        let sql = `SELECT id, ticker, question, trigger_reason, started_at, finished_at,
+                          duration_s, total_tool_calls, cost_usd, final_verdict, confidence,
+                          summary, evidence_json, error
+                   FROM research_investigations`;
+        const params = [];
+        if (qTicker) { sql += " WHERE ticker = ?"; params.push(qTicker); }
+        sql += " ORDER BY started_at DESC LIMIT ?";
+        params.push(limit);
+        const { results } = await env.DB.prepare(sql).bind(...params).all();
+        const safeParse = (s) => { try { return JSON.parse(s); } catch { return null; } };
+        return json({
+          investigations: results.map(r => ({
+            ...r,
+            evidence: r.evidence_json ? safeParse(r.evidence_json) : [],
+          })),
+        }, corsHeaders);
+      }
+      // GET /api/research-agent/:id — una investigación completa con tool trail
+      if (path.startsWith("/api/research-agent/") && request.method === "GET") {
+        const id = parseInt(path.slice("/api/research-agent/".length), 10);
+        if (!Number.isInteger(id)) return json({ error: "invalid id" }, corsHeaders, 400);
+        const row = await env.DB.prepare(
+          `SELECT * FROM research_investigations WHERE id = ?`
+        ).bind(id).first();
+        if (!row) return json({ error: "not found" }, corsHeaders, 404);
+        const safeParse = (s) => { try { return JSON.parse(s); } catch { return null; } };
+        return json({
+          ...row,
+          tool_calls: row.tool_calls_json ? safeParse(row.tool_calls_json) : [],
+          evidence: row.evidence_json ? safeParse(row.evidence_json) : [],
+          full_response: row.full_response ? safeParse(row.full_response) : null,
         }, corsHeaders);
       }
 

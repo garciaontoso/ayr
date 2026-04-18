@@ -1,0 +1,487 @@
+// ═══════════════════════════════════════════════════════════════════════════
+// RESEARCH AGENT — Opus with tool use. Multi-step investigation of a ticker
+// or question. Design: docs/research-agent-design.md
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Unlike the 14 one-shot agents that classify, this agent INVESTIGATES.
+// Opus decides which tool to call (query D1, read transcript, fetch SEC),
+// gets results, iterates until it reaches a verdict. Citable evidence
+// required. Hard caps: 15 tool calls, 5 min wall, $3 cost.
+
+const MAX_TOOL_CALLS = 15;
+const MAX_WALL_TIME_MS = 5 * 60 * 1000;
+const MAX_COST_USD = 3.0;
+
+// Opus 4 pricing: $15/M input, $75/M output (stable as of 2026-04).
+const COST_PER_INPUT_TOKEN = 15 / 1_000_000;
+const COST_PER_OUTPUT_TOKEN = 75 / 1_000_000;
+
+// Tool definitions (Anthropic tool-use schema). Each tool has a backend
+// implementation in TOOL_HANDLERS below.
+const TOOLS = [
+  {
+    name: "query_agent_insights",
+    description: "Lee los insights que los 14 agentes han emitido sobre un ticker en los últimos N días (o todos los tickers si se omite). Uso: ver qué opinan dividend / earnings / trade / insider / analyst_downgrade sobre este ticker hoy. Empieza POR AQUÍ para entender el estado.",
+    input_schema: {
+      type: "object",
+      properties: {
+        ticker: { type: "string", description: "Ticker (ej. 'AHRT'). Omitir para scan portfolio-wide." },
+        days: { type: "number", description: "Ventana en días (default 7, máx 30)." },
+        agent: { type: "string", description: "Filtrar por un agente específico (ej. 'dividend', 'insider', 'trade')." },
+      },
+    },
+  },
+  {
+    name: "get_fundamentals",
+    description: "Snapshot de fundamentales de un ticker: Q+S scores (0-100), TTM FCF/dividendos/coverage, payout ratios, D/EBITDA, rating FMP, insider activity 3m, GuruFocus Value. Úsalo para verificar números citados por los agentes LLM.",
+    input_schema: {
+      type: "object",
+      properties: { ticker: { type: "string" } },
+      required: ["ticker"],
+    },
+  },
+  {
+    name: "get_long_term_series",
+    description: "Serie histórica hasta 30 años (GuruFocus en R2): dividendos/FCF/EPS/revenue por acción anualizado. Incluye yearsOfDivs (streak) y divCuts (lista de años con corte >5%). Útil para verificar claims tipo '43-year streak' o detectar cortes pasados.",
+    input_schema: {
+      type: "object",
+      properties: { ticker: { type: "string" } },
+      required: ["ticker"],
+    },
+  },
+  {
+    name: "get_transcript_excerpt",
+    description: "Devuelve un tramo del transcript más reciente (earnings call). Usa offset para paginar si necesitas el Q&A completo. Retorna chars start-end del content raw. Úsalo cuando los agentes citen algo del management y quieras verificar o ampliar.",
+    input_schema: {
+      type: "object",
+      properties: {
+        ticker: { type: "string" },
+        offset: { type: "number", description: "Char offset (default 0)." },
+        length: { type: "number", description: "Max chars a devolver (default 5000, máx 15000)." },
+      },
+      required: ["ticker"],
+    },
+  },
+  {
+    name: "query_peer_positions",
+    description: "Devuelve tickers peer (mismo sector + rango cap similar) del portfolio. Útil para detectar si un problema del ticker es idiosincrático o sectorial.",
+    input_schema: {
+      type: "object",
+      properties: {
+        sector: { type: "string", description: "Ej. 'Real Estate', 'Healthcare', 'Consumer Defensive'." },
+        category: { type: "string", description: "Opcional: 'REIT', 'BDC', 'COMPANY'." },
+      },
+      required: ["sector"],
+    },
+  },
+  {
+    name: "query_db",
+    description: "Escape hatch: ejecuta una SQL READ-ONLY (SELECT …) contra D1. Útil para cruces que no tienen tool dedicada. Prohibido: INSERT/UPDATE/DELETE/DROP/CREATE (el tool rechaza). Limita a 50 filas por query.",
+    input_schema: {
+      type: "object",
+      properties: { sql: { type: "string", description: "SELECT statement. Se añade LIMIT 50 automáticamente si falta." } },
+      required: ["sql"],
+    },
+  },
+  {
+    name: "finish",
+    description: "TERMINA la investigación con veredicto final. Debe citar 3-5 piezas de evidencia concreta (números, transcripts, filings). No llames si te falta claridad — sigue investigando hasta que tengas respuesta o dictamina NEEDS_HUMAN.",
+    input_schema: {
+      type: "object",
+      properties: {
+        verdict: { type: "string", enum: ["ADD", "HOLD", "TRIM", "SELL", "NEEDS_HUMAN", "INSUFFICIENT_DATA"] },
+        confidence: { type: "string", enum: ["low", "medium", "high"] },
+        summary: { type: "string", description: "1-2 frases en español. Debe resolver la pregunta inicial." },
+        evidence: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              type: { type: "string", description: "tipo de evidencia: 'fundamentals', 'transcript', 'long_term', 'agent_insight', 'peer', 'sec', 'db'" },
+              citation: { type: "string", description: "fuente concreta (ej. 'Q3 2025 transcript', 'dividend agent insight id 2577')." },
+              snippet: { type: "string", description: "frase o número exacto (≤200 chars)." },
+            },
+            required: ["type", "citation", "snippet"],
+          },
+        },
+      },
+      required: ["verdict", "confidence", "summary", "evidence"],
+    },
+  },
+];
+
+// ─── Tool implementations ────────────────────────────────────────────────────
+
+async function tool_query_agent_insights(env, { ticker, days = 7, agent }) {
+  const dayNum = Math.min(30, Math.max(1, Number(days) || 7));
+  const since = new Date(Date.now() - dayNum * 86400000).toISOString().slice(0, 10);
+  let sql = "SELECT agent_name, ticker, fecha, severity, title, summary, details, score FROM agent_insights WHERE fecha >= ?";
+  const params = [since];
+  if (ticker) { sql += " AND ticker = ?"; params.push(ticker); }
+  if (agent) { sql += " AND agent_name = ?"; params.push(agent); }
+  sql += " ORDER BY fecha DESC, CASE severity WHEN 'critical' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END LIMIT 40";
+  const { results } = await env.DB.prepare(sql).bind(...params).all();
+  return results.map(r => ({
+    ...r,
+    details: r.details ? tryParse(r.details) : {},
+  }));
+}
+
+async function tool_get_fundamentals(env, { ticker }) {
+  if (!ticker) throw new Error("ticker required");
+  // Q+S (authoritative TTM)
+  const qs = await env.DB.prepare(
+    `SELECT ticker, quality_score, safety_score, inputs_json, snapshot_date
+     FROM quality_safety_scores WHERE ticker = ? ORDER BY snapshot_date DESC LIMIT 1`
+  ).bind(ticker).first();
+  // Position
+  const pos = await env.DB.prepare(
+    `SELECT ticker, name, sector, shares, market_value, avg_price, last_price, pnl_pct, div_ttm, div_yield, yoc, category
+     FROM positions WHERE ticker = ? LIMIT 1`
+  ).bind(ticker).first();
+  // Fundamentals cache (profile + ratios latest)
+  const fund = await env.DB.prepare(
+    `SELECT profile, rating, ratios, dcf, key_metrics FROM fundamentals WHERE symbol = ? LIMIT 1`
+  ).bind(ticker).first();
+  // GuruFocus cache
+  const gf = await env.DB.prepare(
+    `SELECT data FROM gurufocus_cache WHERE ticker = ? LIMIT 1`
+  ).bind(ticker).first();
+
+  const out = {
+    ticker,
+    position: pos || null,
+    qs: qs ? {
+      qualityScore: qs.quality_score,
+      safetyScore: qs.safety_score,
+      snapshotDate: qs.snapshot_date,
+      inputs: tryParse(qs.inputs_json || "{}"),
+    } : null,
+    profile: fund?.profile ? tryParse(fund.profile) : null,
+    latestRatios: fund?.ratios ? (tryParse(fund.ratios)?.[0] || null) : null,
+    rating: fund?.rating ? tryParse(fund.rating) : null,
+    dcf: fund?.dcf ? tryParse(fund.dcf) : null,
+    gurufocus: gf?.data ? tryParse(gf.data) : null,
+  };
+  return out;
+}
+
+async function tool_get_long_term_series(env, { ticker }) {
+  if (!env.EARNINGS_R2) return { error: "R2 not bound" };
+  if (!ticker) throw new Error("ticker required");
+  try {
+    const obj = await env.EARNINGS_R2.get(`docs/${ticker}/gf_financials.json`);
+    if (!obj) return { ticker, found: false };
+    const doc = JSON.parse(await obj.text());
+    const a = doc?.financials?.annuals;
+    if (!a) return { ticker, found: false };
+    const fy = a["Fiscal Year"] || [];
+    const psa = a.per_share_data_array || {};
+    const lastNum = (arr, n = 30) => Array.isArray(arr) ? arr.slice(-n).map(v => {
+      const num = Number(v);
+      return Number.isFinite(num) ? num : null;
+    }) : [];
+    const years = fy.slice(-30);
+    const divs = lastNum(psa["Dividends per Share"], 30);
+    const fcf = lastNum(psa["Free Cash Flow per Share"], 30);
+    const eps = lastNum(psa["EPS without NRI"], 30);
+    const rev = lastNum(psa["Revenue per Share"], 30);
+    let yearsOfDivs = 0;
+    for (let i = divs.length - 1; i >= 0; i--) {
+      if (divs[i] && divs[i] > 0) yearsOfDivs++;
+      else if (yearsOfDivs > 0) break;
+    }
+    const divCuts = [];
+    for (let i = 1; i < divs.length; i++) {
+      const prev = divs[i - 1], curr = divs[i];
+      if (prev && curr && curr < prev * 0.95) divCuts.push(years[i]);
+    }
+    return { ticker, found: true, years, divs, fcfPerShare: fcf, epsNRI: eps, revPerShare: rev, yearsOfDivs, divCuts };
+  } catch (e) {
+    return { ticker, error: e.message };
+  }
+}
+
+async function tool_get_transcript_excerpt(env, { ticker, offset = 0, length = 5000 }) {
+  if (!ticker) throw new Error("ticker required");
+  const maxLen = Math.min(15000, Math.max(200, Number(length) || 5000));
+  const startOffset = Math.max(0, Number(offset) || 0);
+  const stripped = ticker.replace(/^(BME:|HKG:|LSE:)/, "");
+  const row = await env.DB.prepare(
+    `SELECT ticker, quarter, year, date, content FROM earnings_transcripts
+     WHERE ticker = ? ORDER BY year DESC, quarter DESC, date DESC LIMIT 1`
+  ).bind(stripped).first();
+  if (!row) return { ticker, found: false };
+  const raw = typeof row.content === "string" ? row.content : "";
+  return {
+    ticker, found: true,
+    quarter: row.quarter, year: row.year, date: row.date,
+    totalLength: raw.length,
+    offset: startOffset,
+    excerpt: raw.slice(startOffset, startOffset + maxLen),
+    hasMore: startOffset + maxLen < raw.length,
+  };
+}
+
+async function tool_query_peer_positions(env, { sector, category }) {
+  if (!sector) throw new Error("sector required");
+  let sql = `SELECT ticker, name, shares, market_value, pnl_pct, div_yield, category FROM positions WHERE sector = ? AND shares > 0`;
+  const params = [sector];
+  if (category) { sql += " AND category = ?"; params.push(category); }
+  sql += " ORDER BY market_value DESC LIMIT 25";
+  const { results } = await env.DB.prepare(sql).bind(...params).all();
+  return results;
+}
+
+async function tool_query_db(env, { sql }) {
+  if (!sql || typeof sql !== "string") throw new Error("sql required");
+  const trimmed = sql.trim();
+  // READ-ONLY guard: only allow SELECT. Defense in depth — D1 binding is
+  // read-write but we never want the agent modifying data.
+  if (!/^\s*SELECT\b/i.test(trimmed)) throw new Error("only SELECT queries allowed");
+  if (/\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|ATTACH|DETACH)\b/i.test(trimmed)) {
+    throw new Error("mutation keyword detected — rejected");
+  }
+  // Force LIMIT ≤ 50
+  const withLimit = /\bLIMIT\s+\d+/i.test(trimmed) ? trimmed : `${trimmed} LIMIT 50`;
+  const { results } = await env.DB.prepare(withLimit).all();
+  return results.slice(0, 50);
+}
+
+const TOOL_HANDLERS = {
+  query_agent_insights: tool_query_agent_insights,
+  get_fundamentals: tool_get_fundamentals,
+  get_long_term_series: tool_get_long_term_series,
+  get_transcript_excerpt: tool_get_transcript_excerpt,
+  query_peer_positions: tool_query_peer_positions,
+  query_db: tool_query_db,
+};
+
+// ─── Orchestrator ────────────────────────────────────────────────────────────
+
+function tryParse(s) { try { return JSON.parse(s); } catch { return null; } }
+
+function truncateForModel(obj, maxChars = 4000) {
+  const s = typeof obj === "string" ? obj : JSON.stringify(obj);
+  if (s.length <= maxChars) return s;
+  return s.slice(0, maxChars) + `\n… [truncated ${s.length - maxChars} chars]`;
+}
+
+async function callAnthropicToolUse(env, messages, opts = {}) {
+  const body = {
+    model: opts.model || "claude-opus-4-20250514",
+    max_tokens: opts.maxTokens || 4096,
+    system: opts.system,
+    tools: TOOLS,
+    messages,
+  };
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": env.ANTHROPIC_API_KEY || "",
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const txt = await resp.text();
+    throw new Error(`Anthropic API ${resp.status}: ${txt.slice(0, 300)}`);
+  }
+  return resp.json();
+}
+
+export async function runResearchAgent(env, { ticker, question, triggerReason = "manual" }) {
+  const t0 = Date.now();
+  const investigation = {
+    ticker: ticker || null,
+    question: question || null,
+    trigger_reason: triggerReason,
+    tool_calls: [],
+    total_tokens_in: 0,
+    total_tokens_out: 0,
+    cost_usd: 0,
+  };
+
+  // Insert started_at row — we'll update on finish.
+  const insertRes = await env.DB.prepare(
+    `INSERT INTO research_investigations (ticker, question, trigger_reason, started_at)
+     VALUES (?, ?, ?, datetime('now')) RETURNING id`
+  ).bind(investigation.ticker, investigation.question, triggerReason).first();
+  const investigationId = insertRes?.id;
+
+  const system = `Eres un analista senior de equity haciendo due diligence sobre una empresa en un portfolio de dividendos long-term (China fiscal resident, buy-and-hold, goal = ingresos crecientes por décadas).
+
+TIENES ACCESO A TOOLS. Úsalos. Piensa en cada paso: ¿qué dato me falta? ¿qué tool me lo da más barato?
+
+Heurística de coste (de más barato a más caro):
+  query_agent_insights < get_fundamentals < get_long_term_series < query_peer_positions < query_db < get_transcript_excerpt
+
+Empieza SIEMPRE por query_agent_insights para ver qué han dicho los agentes hoy. Luego pivota hacia la pregunta concreta.
+
+Reglas:
+- Máximo ${MAX_TOOL_CALLS} tool calls. Presupuesto $${MAX_COST_USD}. No desperdicies llamadas.
+- Cita evidencia concreta: números, fechas, frases. Nada de vaguedades.
+- Si los datos no alcanzan para decidir → finish() con verdict NEEDS_HUMAN o INSUFFICIENT_DATA.
+- El veredicto debe resolver la pregunta inicial, no ser un essay.
+- SELL es raro. ADD/HOLD/TRIM deberían cubrir 95% de los casos. SELL sólo si negocio roto permanentemente O dividendo eliminado.`;
+
+  const initialUserContent = ticker
+    ? `TICKER: ${ticker}\nPREGUNTA: ${question || `¿Cuál es el veredicto actualizado sobre ${ticker} dadas las señales de hoy?`}`
+    : `PREGUNTA: ${question}`;
+
+  const messages = [{ role: "user", content: initialUserContent }];
+
+  let finishResult = null;
+  let iterations = 0;
+  let stopReason = null;
+
+  try {
+    while (iterations < MAX_TOOL_CALLS + 1) {
+      if (Date.now() - t0 > MAX_WALL_TIME_MS) {
+        stopReason = "wall_time_exceeded";
+        break;
+      }
+      if (investigation.cost_usd > MAX_COST_USD) {
+        stopReason = "cost_cap_exceeded";
+        break;
+      }
+
+      const resp = await callAnthropicToolUse(env, messages, { system });
+
+      investigation.total_tokens_in += resp.usage?.input_tokens || 0;
+      investigation.total_tokens_out += resp.usage?.output_tokens || 0;
+      investigation.cost_usd =
+        investigation.total_tokens_in * COST_PER_INPUT_TOKEN +
+        investigation.total_tokens_out * COST_PER_OUTPUT_TOKEN;
+
+      if (resp.stop_reason === "end_turn") {
+        stopReason = "end_turn_without_finish";
+        break;
+      }
+      if (resp.stop_reason !== "tool_use") {
+        stopReason = `unexpected_stop_${resp.stop_reason}`;
+        break;
+      }
+
+      // Push assistant message (contains tool_use blocks) as-is.
+      messages.push({ role: "assistant", content: resp.content });
+
+      // Execute every tool_use block in this response.
+      const toolResults = [];
+      let finishCalled = false;
+
+      for (const block of resp.content) {
+        if (block.type !== "tool_use") continue;
+        iterations++;
+
+        if (block.name === "finish") {
+          finishResult = block.input;
+          finishCalled = true;
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: JSON.stringify({ ok: true }),
+          });
+          break;
+        }
+
+        const handler = TOOL_HANDLERS[block.name];
+        let result;
+        try {
+          if (!handler) throw new Error(`unknown tool: ${block.name}`);
+          result = await handler(env, block.input || {});
+        } catch (e) {
+          result = { error: e.message };
+        }
+
+        const payload = truncateForModel(result);
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: block.id,
+          content: payload,
+        });
+
+        investigation.tool_calls.push({
+          tool: block.name,
+          args: block.input,
+          resultPreview: payload.slice(0, 300),
+          iteration: iterations,
+        });
+
+        if (iterations >= MAX_TOOL_CALLS) break;
+      }
+
+      messages.push({ role: "user", content: toolResults });
+
+      if (finishCalled) {
+        stopReason = "finished";
+        break;
+      }
+      if (iterations >= MAX_TOOL_CALLS) {
+        stopReason = "tool_call_cap_exceeded";
+        break;
+      }
+    }
+  } catch (e) {
+    stopReason = `error: ${e.message}`;
+  }
+
+  const duration_s = (Date.now() - t0) / 1000;
+
+  const outcome = {
+    investigationId,
+    ticker: investigation.ticker,
+    question: investigation.question,
+    stopReason,
+    iterations,
+    duration_s: Math.round(duration_s * 10) / 10,
+    cost_usd: Math.round(investigation.cost_usd * 10000) / 10000,
+    tokens_in: investigation.total_tokens_in,
+    tokens_out: investigation.total_tokens_out,
+    tool_calls: investigation.tool_calls,
+    verdict: finishResult?.verdict || null,
+    confidence: finishResult?.confidence || null,
+    summary: finishResult?.summary || null,
+    evidence: finishResult?.evidence || [],
+  };
+
+  // Persist to D1
+  try {
+    await env.DB.prepare(
+      `UPDATE research_investigations SET
+         finished_at = datetime('now'),
+         duration_s = ?,
+         tool_calls_json = ?,
+         total_tool_calls = ?,
+         total_tokens_in = ?,
+         total_tokens_out = ?,
+         cost_usd = ?,
+         final_verdict = ?,
+         confidence = ?,
+         summary = ?,
+         evidence_json = ?,
+         full_response = ?,
+         error = ?
+       WHERE id = ?`
+    ).bind(
+      outcome.duration_s,
+      JSON.stringify(outcome.tool_calls).slice(0, 100_000),
+      outcome.iterations,
+      outcome.tokens_in,
+      outcome.tokens_out,
+      outcome.cost_usd,
+      outcome.verdict,
+      outcome.confidence,
+      outcome.summary,
+      JSON.stringify(outcome.evidence).slice(0, 10_000),
+      JSON.stringify({ stopReason, messages: messages.length }),
+      outcome.verdict ? null : outcome.stopReason,
+      investigationId
+    ).run();
+  } catch (e) {
+    console.error("[Research] persist failed:", e.message);
+  }
+
+  return outcome;
+}
