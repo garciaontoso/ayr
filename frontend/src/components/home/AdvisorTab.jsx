@@ -751,24 +751,58 @@ export default function AdvisorTab() {
         if (s.tir > 12) positives.push(`TIR estimada ${_sf(s.tir, 1)}%`);
         if ((s.divYield || 0) > 3 && s.payoutFCF < 70) positives.push(`Yield ${_sf(s.divYield, 1)}% con payout sostenible`);
 
-        // ── Verdict ──
+        // ── Verdict ── (recalibrado 2026-04-18 audit)
+        // Filosofía buy-and-hold long-term: SELL es raro. Anterior versión
+        // decía VENDER para score<45 → 50/84 posiciones flaggeadas, ruido.
+        // Nuevos criterios:
+        //   - ETFs y BDCs no se VENDEN automático (no cumplen métricas pero
+        //     siguen siendo holdings legítimos para income portfolio)
+        //   - Score 0 con no-data → REVISAR (no VENDER) — probablemente falta
+        //     de cobertura, no fundamentales malos
+        //   - VENDER requiere >=2 high alerts O score<25 (antes <45)
+        //   - En contra, payout FCF >100 + 2+ high es VENDER claro
         const highCount = alerts.filter(a => a.sev === 'high').length;
+        const category = (p.category || p.cat || '').toUpperCase();
+        const isEtfOrBdc = category === 'ETF' || category === 'BDC' || category === 'PREFERRED';
+        const hasNoData = !s.score && !s.payoutFCF && !s.roic;  // screener didn't cover
         let verdict, color, reason, action;
-        if (score >= 75 && highCount === 0) {
+        if (hasNoData && !isEtfOrBdc) {
+          // Sin datos → no podemos juzgar. Default MANTENER with warning.
+          verdict = 'VIGILAR'; color = YELLOW;
+          reason = 'Sin cobertura screener — verificar manual';
+          action = 'Revisar fundamentales en otra fuente';
+        } else if (isEtfOrBdc) {
+          // ETFs/BDCs: no aplica score de stocks — usa yield + historial
+          const yieldPct = (p.divYield || s.divYield || 0);
+          if (yieldPct > 4 && (p.pnlPct || 0) > -10) {
+            verdict = 'MANTENER'; color = GREEN;
+            reason = `Yield ${_sf(yieldPct, 1)}% — ETF/BDC income holding`;
+            action = null;
+          } else if ((p.pnlPct || 0) < -25) {
+            verdict = 'REVISAR'; color = YELLOW;
+            reason = `ETF/BDC -${Math.abs(p.pnlPct).toFixed(0)}% — revisar tesis`;
+            action = 'Evaluar si mantener la exposición';
+          } else {
+            verdict = 'VIGILAR'; color = YELLOW;
+            reason = 'ETF/BDC — evaluar en contexto de allocation';
+            action = null;
+          }
+        } else if (score >= 75 && highCount === 0) {
           verdict = 'MANTENER'; color = GREEN;
           reason = positives[0] || 'Fundamentales solidos';
           action = null;
-        } else if (score >= 60 && highCount === 0) {
+        } else if (score >= 55 && highCount <= 1) {
           verdict = 'VIGILAR'; color = YELLOW;
-          reason = alerts.find(a => a.sev === 'med')?.msg || 'Revisar periodicamente';
+          reason = alerts.find(a => a.sev === 'high')?.msg || alerts.find(a => a.sev === 'med')?.msg || 'Revisar periodicamente';
           action = 'Mantener pero vigilar de cerca';
-        } else if (score >= 45 && highCount <= 1) {
+        } else if (score >= 30 || highCount <= 2) {
           verdict = 'REVISAR'; color = YELLOW;
           reason = alerts[0]?.msg || 'Multiples indicadores de riesgo';
           action = 'Evaluar si mantener o reducir posicion';
         } else {
+          // VENDER: sólo si score <30 Y >=3 high alerts, O dividend at risk real
           verdict = 'VENDER'; color = RED;
-          reason = alerts[0]?.msg || 'Fundamentales debiles';
+          reason = alerts[0]?.msg || 'Fundamentales debiles + multiples banderas rojas';
           action = 'Considerar vender o recortar significativamente';
         }
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { API_URL } from '../../constants/index.js';
 import { fmtUSD, fmtPct, fmtPctSigned } from '../../utils/formatters.js';
+import { VerdictBadge } from '../ui/VerdictBadge.jsx';
 
 // ─── Helpers ───────────────────────────────────────────────────────────
 const card = {
@@ -470,12 +471,7 @@ export default function DailyBriefingTab() {
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
                   <span style={{ ...mono, fontSize: 13, fontWeight: 700, color: 'var(--gold)' }}>{r.ticker}</span>
-                  <span style={{
-                    fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
-                    background: verdictColor(r.final_verdict) + '22',
-                    color: verdictColor(r.final_verdict),
-                    border: `1px solid ${verdictColor(r.final_verdict)}`,
-                  }}>{r.final_verdict} {r.confidence}</span>
+                  <VerdictBadge verdict={r.final_verdict} confidence={r.confidence} />
                   <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>
                     {r.trigger_reason === 'auto_contradiction' ? '🤖 auto' : '✋ manual'} · {r.duration_s?.toFixed?.(0) || '—'}s · ${r.cost_usd?.toFixed?.(2) || '—'}
                   </span>

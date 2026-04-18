@@ -78,19 +78,23 @@ const PILL_STYLE_INACTIVE = {
 };
 
 // ─── Sub-componente: Verdict Badge ────────────────────────────
+// Border + background for visual weight (anterior versión apenas se distinguía
+// del texto plano — 2026-04-18 audit feedback).
 function VerdictBadge({ verdict, large }) {
   const color = verdictColor(verdict);
   return (
     <span style={{
       display: 'inline-block',
-      padding: large ? '4px 14px' : '2px 8px',
-      borderRadius: 6,
-      background: `${color}20`,
+      padding: large ? '4px 14px' : '2px 10px',
+      borderRadius: 5,
+      background: `${color}22`,
       color,
-      fontSize: large ? 14 : 9,
+      border: `1px solid ${color}`,
+      fontSize: large ? 14 : 10,
       fontWeight: 800,
       fontFamily: FM,
       letterSpacing: large ? .5 : .3,
+      whiteSpace: 'nowrap',
     }}>
       {verdict || '—'}
     </span>

@@ -1252,8 +1252,10 @@ export default function HomeView() {
 
     {/* ── Second-level nav: tabs inside the active group ── */}
     {/* Drag-and-drop reorder works WITHIN this group only. */}
+    {/* 2026-04-18: mask-image gradient al borde derecho — hint de scroll */}
+    {/* porque scrollbarWidth:none ocultaba el indicador nativo. */}
     <div style={{display:"flex",alignItems:"center",gap:3,marginBottom:6,paddingLeft:34,position:"relative"}}>
-      <div className="ar-home-tabs" style={{display:"flex",alignItems:"center",gap:3,overflowX:"auto",flexWrap:"nowrap",scrollbarWidth:"none",padding:"2px 0",flex:1,minWidth:0}}>
+      <div className="ar-home-tabs" style={{display:"flex",alignItems:"center",gap:3,overflowX:"auto",flexWrap:"nowrap",scrollbarWidth:"none",padding:"2px 0",flex:1,minWidth:0,maskImage:"linear-gradient(to right, black calc(100% - 24px), transparent 100%)",WebkitMaskImage:"linear-gradient(to right, black calc(100% - 24px), transparent 100%)"}}>
         {orderedTabs.map(t=>{
           const isActive = homeTab===t.id;
           const isDragging = draggedTabId === t.id;
