@@ -58,15 +58,18 @@ const extractLongTermSeries = (gfDoc) => {
   const fy = a['Fiscal Year'] || [];
   if (!Array.isArray(fy) || fy.length < 5) return null;
   const psa = a.per_share_data_array || {};
-  const last = (arr, n = 30) => Array.isArray(arr) ? arr.slice(-n).map(v => {
+  // Years are labels like "2015-12" / "TTM" — keep as strings.
+  const yearsArr = fy.slice(-30);
+  // Numeric series — coerce to Number, null on invalid.
+  const lastNum = (arr, n = 30) => Array.isArray(arr) ? arr.slice(-n).map(v => {
     const num = Number(v);
     return Number.isFinite(num) ? num : null;
   }) : null;
-  const years = last(fy, 30);
-  const divs = last(psa['Dividends per Share'], 30) || [];
-  const fcf = last(psa['Free Cash Flow per Share'], 30) || [];
-  const eps = last(psa['EPS without NRI'], 30) || [];
-  const rev = last(psa['Revenue per Share'], 30) || [];
+  const years = yearsArr;
+  const divs = lastNum(psa['Dividends per Share'], 30) || [];
+  const fcf = lastNum(psa['Free Cash Flow per Share'], 30) || [];
+  const eps = lastNum(psa['EPS without NRI'], 30) || [];
+  const rev = lastNum(psa['Revenue per Share'], 30) || [];
   // Count consecutive years of div payment (non-zero) ending at most recent non-TTM
   let yearsOfDivs = 0;
   for (let i = divs.length - 1; i >= 0; i--) {
