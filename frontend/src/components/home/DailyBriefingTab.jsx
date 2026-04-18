@@ -107,13 +107,6 @@ export default function DailyBriefingTab() {
     }
   }, []);
 
-  useEffect(() => {
-    load();
-    return () => { if (abortRef.current) abortRef.current.abort(); };
-  }, [load]);
-
-  useEffect(() => { loadDigest(); }, [loadDigest]);
-
   const generateOpus = useCallback(async () => {
     setOpusLoading(true);
     setOpusError(null);
@@ -173,6 +166,16 @@ export default function DailyBriefingTab() {
       setDigestGenerating(false);
     }
   }, []);
+
+  // useEffects DESPUÉS de los useCallbacks (TDZ: los callbacks deben estar
+  // declarados antes de los effects que los referencian — Vite minifier los
+  // hoista pero no las inicializaciones).
+  useEffect(() => {
+    load();
+    return () => { if (abortRef.current) abortRef.current.abort(); };
+  }, [load]);
+
+  useEffect(() => { loadDigest(); }, [loadDigest]);
 
   // ─── Skeleton ─────────────────────────────────────────────────────
   if (loading && !data) {
