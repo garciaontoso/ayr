@@ -1121,6 +1121,26 @@ async function ensureMigrations(env) {
     )`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_pv_active ON prompt_versions(prompt_key, is_active)`).run();
 
+    // Oracle verdicts — Buffett-persona synthesis over Deep Dividend + agents +
+    // fundamentals + transcripts + 10y GF metrics. One verdict per ticker,
+    // 24h TTL (unless force=1). Powers the Buy Wizard's hero panel.
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS oracle_verdicts (
+      ticker TEXT PRIMARY KEY,
+      action TEXT NOT NULL,
+      conviction INTEGER,
+      one_liner TEXT,
+      summary TEXT,
+      verdict_json TEXT NOT NULL,
+      context_used TEXT,
+      model TEXT,
+      tokens_in INTEGER,
+      tokens_out INTEGER,
+      cost_usd REAL,
+      generated_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_oracle_expires ON oracle_verdicts(expires_at)`).run();
+
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS agent_predictions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       agent_name TEXT NOT NULL,
@@ -7135,20 +7155,26 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         for (const ticker of allTickers) {
           const q = quoteMap[ticker];
           if (!q || q.price == null) { errors.push({ ticker, error: "no quote" }); continue; }
+          // LSE tickers quote in pence (GBp). D1 positions store last_price and
+          // avg_price already in GBP (divided by 100), so we normalize live
+          // quotes to GBP here — otherwise the frontend overlays £4969 instead
+          // of £49.69 and computes a $2M market value from 300 shares of ITRK.
+          const isPence = CURRENCY_MAP[ticker] === "GBp";
+          const div = isPence ? 100 : 1;
           prices[ticker] = {
             ticker,
-            price: q.price,
-            prevClose: q.previousClose,
-            currency: CURRENCY_MAP[ticker] || "USD",
+            price: q.price / div,
+            prevClose: q.previousClose != null ? q.previousClose / div : null,
+            currency: isPence ? "GBP" : (CURRENCY_MAP[ticker] || "USD"),
             exchange: q.exchange,
             spark: [], // sparklines fetched below in non-live mode
-            change: q.change ?? (q.price - (q.previousClose || q.price)),
+            change: (q.change ?? (q.price - (q.previousClose || q.price))) / div,
             changePct: q.changesPercentage ?? (q.previousClose ? (q.price - q.previousClose) / q.previousClose * 100 : 0),
-            dayHigh: q.dayHigh,
-            dayLow: q.dayLow,
+            dayHigh: q.dayHigh != null ? q.dayHigh / div : null,
+            dayLow: q.dayLow != null ? q.dayLow / div : null,
             volume: q.volume,
-            fiftyTwoWeekHigh: q.yearHigh,
-            fiftyTwoWeekLow: q.yearLow,
+            fiftyTwoWeekHigh: q.yearHigh != null ? q.yearHigh / div : null,
+            fiftyTwoWeekLow: q.yearLow != null ? q.yearLow / div : null,
             ts: Date.now(),
           };
         }
@@ -13285,6 +13311,561 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         return json(out, corsHeaders);
       }
 
+      // ─── ORACLE VERDICT ──────────────────────────────────────────────────
+      // POST /api/oracle-verdict { ticker, force? }
+      // Warren-Buffett-style partner. Reads EVERYTHING we have about the
+      // ticker (Deep Dividend 8K-word report, Research Agent pre-mortem, last
+      // 14 agent insights, 10y GF financials, 2 earnings transcripts, FMP
+      // fundamentals, timing) and returns a structured institutional verdict.
+      //
+      // Output JSON shape (see systemPrompt below): action, conviction,
+      // one_liner, summary, reasons_yes[5], reasons_no[5], margin_of_safety,
+      // permanent_loss_probability, circle_of_competence, buffett_test,
+      // catalyst, exit_trigger, size_guidance, data_gaps.
+      //
+      // 24h cache per ticker. ~$0.50-$1.50 per Opus call (user approved cost).
+      if (path === "/api/oracle-verdict" && (request.method === "POST" || request.method === "GET")) {
+        await ensureMigrations(env);
+        const body = request.method === "POST" ? await request.json().catch(() => ({})) : {};
+        const tk = String(body.ticker || url.searchParams.get("ticker") || "").trim().toUpperCase();
+        const force = body.force === true || url.searchParams.get("force") === "1";
+        if (!tk) return json({ error: "ticker required" }, corsHeaders, 400);
+
+        // 1) Cache check
+        if (!force) {
+          const cached = await env.DB.prepare(
+            `SELECT * FROM oracle_verdicts WHERE ticker = ? AND expires_at > ?`
+          ).bind(tk, Date.now()).first();
+          if (cached) {
+            try {
+              const parsed = JSON.parse(cached.verdict_json);
+              return json({
+                ok: true, cached: true,
+                ticker: tk,
+                generated_at: cached.generated_at,
+                expires_at: cached.expires_at,
+                model: cached.model,
+                verdict: parsed,
+                context_used: cached.context_used ? JSON.parse(cached.context_used) : null,
+              }, corsHeaders);
+            } catch {}
+          }
+        }
+
+        // 2) Context assembly — parallel reads from all sources
+        const ctxUsed = { sources: [] };
+
+        async function loadDeepDividend() {
+          try {
+            const row = await env.DB.prepare(
+              `SELECT * FROM deep_dividend_analysis WHERE ticker = ? ORDER BY created_at DESC LIMIT 1`
+            ).bind(tk).first();
+            if (!row) return null;
+            ctxUsed.sources.push(`deep_dividend:${row.quarter}`);
+            let rj = null, da = null;
+            try { rj = JSON.parse(row.result_json); } catch {}
+            try { da = row.devils_advocate_json ? JSON.parse(row.devils_advocate_json) : null; } catch {}
+            return {
+              quarter: row.quarter,
+              sector_bucket: row.sector_bucket,
+              safety_score: row.safety_score,
+              growth_score: row.growth_score,
+              honesty_score: row.honesty_score,
+              moat_score: row.moat_score,
+              capital_alloc_score: row.capital_alloc_score,
+              composite_score: row.composite_score,
+              verdict: row.verdict,
+              confidence: row.confidence,
+              cut_probability_3y: row.cut_probability_3y,
+              raise_probability_12m: row.raise_probability_12m,
+              red_flags_count: row.red_flags_count,
+              green_flags_count: row.green_flags_count,
+              result_md: row.result_md,  // 8K-word institutional report
+              structured: rj,             // JSON breakdown of scores + reasoning
+              devils_advocate: da,        // red team counter-arguments
+              generated_at: row.created_at,
+            };
+          } catch (e) { return { error: e.message }; }
+        }
+
+        async function loadResearch() {
+          try {
+            const { results } = await env.DB.prepare(
+              `SELECT id, question, trigger_reason, finished_at, final_verdict, confidence, summary, evidence_json
+               FROM research_investigations
+               WHERE ticker = ? AND final_verdict IS NOT NULL
+               ORDER BY finished_at DESC LIMIT 2`
+            ).bind(tk).all();
+            if (!results?.length) return [];
+            ctxUsed.sources.push(`research:${results.length}`);
+            return results.map(r => {
+              let ev = null;
+              try { ev = r.evidence_json ? JSON.parse(r.evidence_json) : null; } catch {}
+              return {
+                question: r.question,
+                trigger: r.trigger_reason,
+                verdict: r.final_verdict,
+                confidence: r.confidence,
+                summary: r.summary,
+                date: r.finished_at,
+                evidence_count: Array.isArray(ev) ? ev.length : 0,
+                evidence_preview: Array.isArray(ev) ? ev.slice(0, 8).map(e => {
+                  const text = (e.result_text || e.result || e.output || "").slice(0, 800);
+                  return { tool: e.tool_name, input: e.input, text };
+                }) : null,
+              };
+            });
+          } catch (e) { return []; }
+        }
+
+        async function loadAgentInsights() {
+          try {
+            const cutoff = new Date(Date.now() - 30 * 86400 * 1000).toISOString().slice(0, 10);
+            const { results } = await env.DB.prepare(
+              `SELECT agent_name, fecha, severity, title, summary, details, score
+               FROM agent_insights
+               WHERE ticker = ? AND fecha >= ?
+               ORDER BY fecha DESC`
+            ).bind(tk, cutoff).all();
+            if (!results?.length) return {};
+            ctxUsed.sources.push(`agents:${results.length}`);
+            const grouped = {};
+            for (const r of results) {
+              if (!grouped[r.agent_name]) grouped[r.agent_name] = [];
+              if (grouped[r.agent_name].length < 3) {
+                let details = null;
+                try { details = r.details ? JSON.parse(r.details) : null; } catch {}
+                grouped[r.agent_name].push({
+                  date: r.fecha,
+                  severity: r.severity,
+                  title: r.title,
+                  summary: r.summary,
+                  score: r.score,
+                  details,
+                });
+              }
+            }
+            return grouped;
+          } catch (e) { return {}; }
+        }
+
+        async function loadFundamentals() {
+          try {
+            const row = await env.DB.prepare(
+              `SELECT profile, ratios, key_metrics, dcf, price_target, fin_growth, dgr, income, cashflow, balance, dividends
+               FROM fundamentals WHERE symbol = ?`
+            ).bind(tk).first();
+            if (!row) return null;
+            ctxUsed.sources.push("fundamentals");
+            const parse = s => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
+            const profile = parse(row.profile);
+            const ratios = parse(row.ratios);
+            const keyMetrics = parse(row.key_metrics);
+            const dcf = parse(row.dcf);
+            const pt = parse(row.price_target);
+            const finGrowth = parse(row.fin_growth);
+            const dgr = parse(row.dgr);
+            const income = parse(row.income);
+            const cashflow = parse(row.cashflow);
+            const balance = parse(row.balance);
+            const dividends = parse(row.dividends);
+            const latestRatios = Array.isArray(ratios) ? ratios.slice(0, 5) : ratios;
+            const latestKM = Array.isArray(keyMetrics) ? keyMetrics.slice(0, 5) : keyMetrics;
+            const latestFG = Array.isArray(finGrowth) ? finGrowth.slice(0, 5) : finGrowth;
+            const latestIncome = Array.isArray(income) ? income.slice(0, 5) : income;
+            const latestCashflow = Array.isArray(cashflow) ? cashflow.slice(0, 5) : cashflow;
+            const latestBalance = Array.isArray(balance) ? balance.slice(0, 2) : balance;
+            return {
+              profile: profile ? {
+                name: profile[0]?.companyName, sector: profile[0]?.sector, industry: profile[0]?.industry,
+                marketCap: profile[0]?.mktCap, beta: profile[0]?.beta, country: profile[0]?.country,
+                ipoDate: profile[0]?.ipoDate, lastDiv: profile[0]?.lastDiv, description: (profile[0]?.description || "").slice(0, 600),
+              } : null,
+              ratios_latest_5y: latestRatios,
+              key_metrics_5y: latestKM,
+              income_5y: latestIncome,
+              cashflow_5y: latestCashflow,
+              balance_latest: latestBalance,
+              dcf: Array.isArray(dcf) ? dcf[0] : dcf,
+              price_target: pt,
+              growth_5y: latestFG,
+              dgr,
+              dividends_history: Array.isArray(dividends) ? dividends.slice(0, 20) : dividends,
+            };
+          } catch (e) { return null; }
+        }
+
+        async function loadContext() {
+          // Reuse buy-wizard/context helpers inline (long-term GF + earnings + timing + notebook)
+          const out = {};
+          // GF long-term from R2
+          try {
+            if (env.EARNINGS_R2) {
+              const obj = await env.EARNINGS_R2.get(`docs/${tk}/gf_financials.json`);
+              if (obj) {
+                const doc = JSON.parse(await obj.text());
+                const a = doc?.financials?.annuals;
+                if (a) {
+                  ctxUsed.sources.push("gf_financials");
+                  const fy = a["Fiscal Year"] || [];
+                  const psa = a.per_share_data_array || {};
+                  const ca = a.common_size_array || {};
+                  const via = a.valuation_and_quality || {};
+                  const bsa = a.balance_sheet_array || {};
+                  const isa = a.income_statement_array || {};
+                  const cfsa = a.cashflow_statement_array || {};
+                  const pickN = (arr, n) => Array.isArray(arr) ? arr.slice(-n).map(v => { const num = Number(v); return Number.isFinite(num) ? num : null; }) : [];
+                  const years15 = fy.slice(-15);
+                  const divs15 = pickN(psa["Dividends per Share"], 15);
+                  const eps15 = pickN(psa["EPS without NRI"], 15);
+                  const fcf15 = pickN(psa["Free Cash Flow per Share"], 15);
+                  const rev15 = pickN(isa["Revenue"], 15);
+                  const roe15 = pickN(via["ROE %"], 15);
+                  const roic15 = pickN(via["ROIC %"], 15);
+                  const debt_ebitda15 = pickN(via["Debt-to-EBITDA"], 15);
+                  const interest_cov15 = pickN(via["Interest Coverage"], 15);
+                  const payout15 = pickN(via["Dividend Payout Ratio"], 15);
+                  const gross_margin15 = pickN(ca["Gross Margin %"], 15);
+                  const op_margin15 = pickN(ca["Operating Margin %"], 15);
+                  const net_margin15 = pickN(ca["Net Margin %"], 15);
+                  let yearsOfDivs = 0;
+                  for (let i = divs15.length - 1; i >= 0; i--) {
+                    if (divs15[i] && divs15[i] > 0) yearsOfDivs++;
+                    else if (yearsOfDivs > 0) break;
+                  }
+                  const divCuts = [];
+                  for (let i = 1; i < divs15.length; i++) {
+                    if (divs15[i - 1] && divs15[i] && divs15[i] < divs15[i - 1] * 0.95) divCuts.push(years15[i]);
+                  }
+                  out.longTerm = {
+                    yearsOfDivs, divCuts, divCutsCount: divCuts.length,
+                    years: years15,
+                    dividends_per_share_15y: divs15,
+                    eps_15y: eps15,
+                    fcf_per_share_15y: fcf15,
+                    revenue_15y: rev15,
+                    roe_15y: roe15,
+                    roic_15y: roic15,
+                    debt_ebitda_15y: debt_ebitda15,
+                    interest_coverage_15y: interest_cov15,
+                    payout_ratio_15y: payout15,
+                    gross_margin_15y: gross_margin15,
+                    operating_margin_15y: op_margin15,
+                    net_margin_15y: net_margin15,
+                  };
+                }
+              }
+            }
+          } catch {}
+
+          // Last 8 earnings
+          try {
+            const row = await env.DB.prepare(`SELECT earnings FROM fundamentals WHERE symbol = ?`).bind(tk).first();
+            if (row?.earnings) {
+              const arr = JSON.parse(row.earnings);
+              if (Array.isArray(arr)) {
+                ctxUsed.sources.push("earnings");
+                const recent = arr.slice(0, 8).map(e => ({
+                  date: e.date, eps: e.eps, estimate: e.epsEstimated,
+                  beat: e.eps != null && e.epsEstimated != null ? e.eps >= e.epsEstimated : null,
+                }));
+                out.recentEarnings = {
+                  recent, beats: recent.filter(r => r.beat === true).length,
+                  misses: recent.filter(r => r.beat === false).length,
+                };
+              }
+            }
+          } catch {}
+
+          // Notebook
+          try {
+            const nb = await env.DB.prepare(
+              `SELECT summary, last_research_verdict, last_research_date, open_questions FROM ticker_notebook WHERE ticker = ?`
+            ).bind(tk).first();
+            if (nb) {
+              ctxUsed.sources.push("notebook");
+              let oq = [];
+              try { oq = nb.open_questions ? JSON.parse(nb.open_questions) : []; } catch {}
+              out.notebook = {
+                summary: nb.summary,
+                lastResearch: nb.last_research_verdict ? { verdict: nb.last_research_verdict, date: nb.last_research_date } : null,
+                openQuestions: Array.isArray(oq) ? oq.slice(0, 5) : [],
+              };
+            }
+          } catch {}
+
+          return out;
+        }
+
+        async function loadTranscripts() {
+          try {
+            if (!env.EARNINGS_R2) return [];
+            const { results } = await env.DB.prepare(
+              `SELECT r2_key, fiscal_year, fiscal_quarter, filing_date, doc_type
+               FROM earnings_documents
+               WHERE ticker = ? AND doc_type = 'TRANSCRIPT'
+               ORDER BY filing_date DESC LIMIT 2`
+            ).bind(tk).all();
+            if (!results?.length) return [];
+            ctxUsed.sources.push(`transcripts:${results.length}`);
+            const out = [];
+            for (const r of results) {
+              try {
+                const obj = await env.EARNINGS_R2.get(r.r2_key);
+                if (obj) {
+                  const txt = await obj.text();
+                  // Trim: keep first 18K chars (CEO commentary) + last 12K chars (analyst Q&A)
+                  let trimmed = txt;
+                  if (txt.length > 32000) {
+                    trimmed = txt.slice(0, 18000) + "\n\n[...middle truncated...]\n\n" + txt.slice(-12000);
+                  }
+                  out.push({
+                    period: `${r.fiscal_year} ${r.fiscal_quarter}`,
+                    date: r.filing_date,
+                    content: trimmed,
+                  });
+                }
+              } catch {}
+            }
+            return out;
+          } catch { return []; }
+        }
+
+        async function loadCurrentPrice() {
+          try {
+            const pos = await env.DB.prepare(
+              `SELECT last_price, avg_price, currency, shares, market_value, usd_value, pnl_pct FROM positions WHERE ticker = ?`
+            ).bind(tk).first();
+            if (pos) {
+              ctxUsed.sources.push("position");
+              return pos;
+            }
+            // Try live quote
+            const qm = await fmpQuote([tk], env);
+            const q = qm[tk];
+            if (q) {
+              const isPence = CURRENCY_MAP[tk] === "GBp";
+              const div = isPence ? 100 : 1;
+              return {
+                last_price: q.price / div,
+                currency: isPence ? "GBP" : (CURRENCY_MAP[tk] || "USD"),
+                year_high: q.yearHigh / div,
+                year_low: q.yearLow / div,
+                prev_close: q.previousClose / div,
+                change_pct: q.changesPercentage,
+              };
+            }
+          } catch {}
+          return null;
+        }
+
+        const [deepDividend, research, agents, fundamentals, context, transcripts, priceData] = await Promise.all([
+          loadDeepDividend(), loadResearch(), loadAgentInsights(),
+          loadFundamentals(), loadContext(), loadTranscripts(), loadCurrentPrice(),
+        ]);
+
+        // 2b) Compute valuation methods server-side — deterministic math, 9 methods:
+        //   - FMP DCF + FMP Analyst Price Target (consensus)
+        //   - Phil Town: Ten Cap, Payback Time, Sticker Price + MOS
+        //   - P/E histórico 10y, DDM (dividend stocks), Graham Number
+        //   - Reverse DCF (what growth is the market pricing)
+        // Opus receives these as structured data — no arithmetic delegated.
+        const valuations = computeValuationMethods({ fundamentals, context, priceData });
+        ctxUsed.sources.push(`valuations:${valuations.usable_count}/5`);
+
+        // 3) Buffett-persona system prompt
+        const systemPrompt = `Eres el socio de inversión de Warren Buffett especializado en dividend compounders a horizonte 20+ años. Tu mandato: EVITAR LA PÉRDIDA PERMANENTE DE CAPITAL por encima de todo. Prefieres pasar diez oportunidades antes que meter capital en una trampa de valor.
+
+Tu estilo:
+- Escéptico, humilde, directo. No te gusta el jargón hueco.
+- Exiges entender el negocio (círculo de competencia). Si no lo entiendes, AVOID sin complejos.
+- Buscas: ventaja competitiva durable, management con skin-in-the-game y track record de capital allocation, balance sólido, free cash flow predecible, payout sostenible.
+- Rechazas: apalancamiento excesivo sin justificar, ingeniería financiera agresiva, compensación perversa, crecimiento por compras sin retorno, negocios en commoditización estructural.
+- Aplicas siempre "margen de seguridad": precio vs valor intrínseco estimado, con colchón para errores.
+- Distingues entre "buena empresa" (holdeable) y "buena idea hoy" (entry point razonable).
+
+Tienes acceso a:
+- Deep Dividend Report institucional (8K palabras, ya sintetizado con cross-validation + devil's advocate)
+- Últimas Research Agent investigations con pre-mortem y red-team
+- 14 agentes AI con señales diarias (regime, earnings, dividend, risk, macro, trade, insider, value, options, dividend_cut_warning, analyst_downgrade, earnings_trend, sec_filings, postmortem)
+- 15 años de fundamentals por acción (GF): EPS, DPS, FCF/share, revenue, ROE, ROIC, debt/EBITDA, payout, márgenes
+- 2 transcripts recientes de earnings calls
+- FMP ratios, key metrics, DCF, price target consensus
+- Posición actual del usuario (si existe) y precio vivo
+- **valuations**: 5 métodos ya calculados deterministamente por el backend — DCF (FMP), Phil Town Ten Cap (OE×10), Dividend Discount Model, P/E histórico 5y, EV/EBITDA histórico. Cada uno con fair_value o null si no aplica. USA ESTOS VALORES, no inventes tu propio cálculo. Tu trabajo es interpretar, ponderar, y dar un comentario crítico por método.
+
+OUTPUT OBLIGATORIO — JSON estricto, NADA fuera del JSON. Sin markdown fences, sin preámbulo. Schema:
+
+{
+  "action": "BUY" | "ADD" | "HOLD" | "TRIM" | "SELL" | "AVOID",
+  "conviction": 1-10,
+  "sector": "Consumer Staples | Technology | Healthcare | Industrials | Financials | Energy | Utilities | Real Estate | Communication Services | Basic Materials | Consumer Discretionary",
+  "one_liner": "Tesis en 15 palabras o menos",
+  "summary": "3-4 frases. Qué es el negocio, por qué importa, veredicto y por qué ahora (o por qué no).",
+  "thesis": "6-10 frases. La tesis central desarrollada: qué genera los cashflows, cuál es la ventaja, cómo encaja en un portfolio de dividendos a 20 años.",
+  "reasons_yes": [
+    { "title": "Título 5-8 palabras", "detail": "2-3 frases con número/dato específico del input" }
+    // EXACTAMENTE 5 items
+  ],
+  "reasons_no": [
+    { "title": "...", "detail": "..." }
+    // EXACTAMENTE 5 items — si cuesta encontrar 5, crítica el precio, la complejidad, la competencia, o los riesgos regulatorios
+  ],
+  "margin_of_safety": {
+    "fair_value_estimate": "rango $X-$Y por acción (blended de métodos abajo)",
+    "current_price": "precio actual con divisa",
+    "discount_pct": número (+ = descuento, - = prima),
+    "verdict": "CHEAP" | "FAIR" | "EXPENSIVE",
+    "comment": "1-2 frases explicando por qué ese verdict dado el blend de métodos"
+  },
+  "valuation_methods": [
+    // EXACTAMENTE 5 métodos — copia de valuations.methods del input, añade tu comentario crítico.
+    // Si un método vino con fair_value=null, explica por qué no aplica y marca usable=false.
+    { "method": "DCF (FMP consensus)", "fair_value": número o null, "usable": true|false, "comment": "tu interpretación — ¿asunciones razonables?" },
+    { "method": "Phil Town Ten Cap", "fair_value": número o null, "usable": true|false, "comment": "owner earnings × 10, Buffett-style" },
+    { "method": "Dividend Discount Model", "fair_value": número o null, "usable": true|false, "comment": "DPS × (1+g) / (r-g), imprescindible para dividend compounder" },
+    { "method": "P/E histórico 5y", "fair_value": número o null, "usable": true|false, "comment": "EPS × multiple histórico vs actual" },
+    { "method": "EV/EBITDA histórico", "fair_value": número o null, "usable": true|false, "comment": "EBITDA × múltiplo normalizado − net debt, por acción" }
+  ],
+  "permanent_loss_probability": {
+    "pct_estimate": número 0-100,
+    "scenarios": ["escenario concreto 1 con trigger", "escenario 2", "escenario 3"]
+  },
+  "circle_of_competence": {
+    "in_circle": true | false,
+    "business_summary": "cómo gana dinero en 1-2 frases",
+    "moat_type": "cost advantage | network effect | brand | switching costs | regulatory | none",
+    "moat_strength": "wide | narrow | none",
+    "comment": "1 frase"
+  },
+  "buffett_test": {
+    "would_own_20_years": true | false,
+    "management_aligned": true | false,
+    "simple_business": true | false,
+    "durable_advantage": true | false,
+    "passes_all_four": true | false
+  },
+  "dividend_analysis": {
+    "safety_1to10": número,
+    "growth_sustainability_1to10": número,
+    "payout_comment": "1 frase sobre payout vs FCF",
+    "streak_years": número o null,
+    "cut_risk_comment": "1 frase"
+  },
+  "catalyst": "Qué podría rerate la acción en 12-36 meses — concreto, con métrica",
+  "exit_trigger": "Qué me haría vender — condición falsable con umbral numérico",
+  "size_guidance": {
+    "action_if_buying": "BUY" | "ADD" | "WAIT",
+    "base_case_pct_nlv": número,
+    "max_pct_nlv": número,
+    "comment": "1 frase sobre timing y sizing"
+  },
+  "time_horizon_years": número,
+  "key_metrics_snapshot": {
+    "pe_ttm": número o null,
+    "pe_forward": número o null,
+    "dividend_yield_pct": número o null,
+    "payout_fcf_pct": número o null,
+    "net_debt_to_ebitda": número o null,
+    "roic_5y_avg_pct": número o null,
+    "fcf_coverage_dividend": número o null
+  },
+  "confidence_level": "alta" | "media" | "baja",
+  "data_gaps": ["Lo que no tengo y cambiaría veredicto si lo supiera — como Buffett pediría al CFO"]
+}
+
+REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
+1. Usa SOLO los datos del input. Si algo no está, di "por verificar" — NO inventes cifras.
+2. El portfolio objetivo es DIVIDEND COMPOUNDERS a 20 años. Una BUY/ADD requiere AMBOS:
+   (a) yield actual >= 1.8% O DGR 10y >= 10%/año (el dividendo debe ser material en la tesis)
+   (b) streak sin cortes >= 5 años (salvo spin-off reciente con historial de parent ≥10y)
+   Si (a) o (b) falla → action máximo HOLD, nunca BUY/ADD.
+3. Si in_circle=false O simple_business=false → conviction ≤ 3 Y action ∈ {HOLD, AVOID}. NUNCA BUY/ADD fuera de círculo.
+4. Si margin_of_safety.verdict = "EXPENSIVE" → action NUNCA puede ser BUY (puede ser ADD si ya la tienes por debajo de target y la tesis se mantiene, pero conviction ≤ 5).
+5. Si falla ≥1 de los 4 Buffett tests → conviction ≤ 5 obligatorio, aun si el negocio es atractivo.
+6. Si conviction >= 7 debe haber EXACTAMENTE 3+ reasons_yes citando números específicos del input (ROIC X%, FCF $Y B, streak Z años, margen N%) y MoS ∈ {CHEAP, FAIR}.
+7. Si payout_fcf_pct > 100% (FCF insuficiente) → red flag crítico en reasons_no; action no puede ser BUY; conviction ≤ 4.
+8. Si net_debt_to_ebitda > 3.5x → action no puede ser BUY sin justificación explícita de capacidad de desapalancamiento.
+9. Si el Deep Dividend Report existe con verdict distinto al tuyo, EXPLÍCALO en data_gaps o en un reason_no — no lo ignores.
+10. Historia de growth NO compensa ausencia de dividendo: un 0.8% yield con 60x P/E no es BUY para este portfolio. Si la empresa no paga dividendo material, AVOID con justificación "fuera del mandato dividend-compounder".
+11. Idioma: ESPAÑOL.
+12. Tono: humilde, tú le estás diciendo a un amigo dónde meter dinero real. Evita "amazing", "incredible", "explosivo" — sospechoso si te suena eufórico.
+13. Antes de devolver, ejecuta CHECKLIST mental: ¿Mi action respeta las reglas 2-10? ¿La conviction es consistente con MoS + tests + yield? Si no, baja acción/conviction hasta que lo sea.
+14. NADA fuera del JSON. Valida que parsea antes de responder.`;
+
+        // 4) Assemble user content — structured, compact, every known signal
+        const userPayload = {
+          ticker: tk,
+          as_of: new Date().toISOString().slice(0, 10),
+          current_price: priceData,
+          deep_dividend_report: deepDividend,
+          research_investigations: research,
+          agent_signals_last_30d: agents,
+          fundamentals_fmp: fundamentals,
+          long_term_gf: context?.longTerm,
+          recent_earnings: context?.recentEarnings,
+          notebook: context?.notebook,
+          transcripts_last_2_calls: transcripts,
+          valuations,  // 5 deterministic valuation methods — Opus NO hace aritmética
+        };
+
+        // 5) Call Opus with retry
+        let verdict, tokensIn = 0, tokensOut = 0;
+        const startCall = Date.now();
+        try {
+          verdict = await callAgentClaude(env, systemPrompt, userPayload, {
+            model: "claude-opus-4-20250514",
+            maxTokens: 6000,
+            temperature: 0,  // Deterministic — same ticker + same context must give same verdict
+          });
+        } catch (e) {
+          return json({ error: `Oracle Claude failed: ${String(e.message || e)}` }, corsHeaders, 502);
+        }
+        const callMs = Date.now() - startCall;
+
+        // Validate required fields (basic shape check)
+        if (!verdict || typeof verdict !== "object" || !verdict.action) {
+          return json({ error: "Oracle returned invalid JSON", raw: verdict }, corsHeaders, 502);
+        }
+
+        // 6) Persist
+        const now = Date.now();
+        const expires = now + 24 * 3600 * 1000;
+        try {
+          await env.DB.prepare(
+            `INSERT INTO oracle_verdicts
+              (ticker, action, conviction, one_liner, summary, verdict_json, context_used, model, generated_at, expires_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(ticker) DO UPDATE SET
+               action = excluded.action,
+               conviction = excluded.conviction,
+               one_liner = excluded.one_liner,
+               summary = excluded.summary,
+               verdict_json = excluded.verdict_json,
+               context_used = excluded.context_used,
+               model = excluded.model,
+               generated_at = excluded.generated_at,
+               expires_at = excluded.expires_at`
+          ).bind(
+            tk, verdict.action, verdict.conviction || null,
+            verdict.one_liner || null, verdict.summary || null,
+            JSON.stringify(verdict), JSON.stringify(ctxUsed),
+            "claude-opus-4-20250514", now, expires,
+          ).run();
+        } catch (e) { console.error("oracle persist:", e.message); }
+
+        return json({
+          ok: true, cached: false,
+          ticker: tk,
+          generated_at: now,
+          expires_at: expires,
+          call_ms: callMs,
+          model: "claude-opus-4-20250514",
+          verdict,
+          context_used: ctxUsed,
+        }, corsHeaders);
+      }
+
       // POST /api/research-agent { ticker?, question?, reason? }
       // Authenticated same as /api/agent-run. Budget-capped (15 tool calls,
       // 5 min wall, $3). Stores the investigation row in research_investigations.
@@ -17371,15 +17952,280 @@ REGLAS CRÍTICAS
 10. Idioma: ESPAÑOL (el usuario es hispanohablante).
 11. NO escribas nada fuera del JSON. Sin preámbulo, sin epílogo, sin markdown fences.`;
 
+// ─── Valuation methods for Oracle — 4 institutional methods, deterministic math ───
+// Called from /api/oracle-verdict. Each method returns a single fair value
+// (or null if inputs missing) so Opus just interprets — no arithmetic delegated.
+//
+// 1) DCF (FMP consensus):   fundamentals.dcf.dcf
+// 2) Phil Town Ten Cap:     FCF/share × 10
+// 3) Dividend Discount:     DPS × (1+g) / (r-g),  r=10%, g=DGR 10y capped below r
+// 4) P/E histórico 10y:     EPS TTM × avg_PE_5y (closest we have from FMP ratios)
+//
+// Returns: { methods: [{name, fair_value, usable, inputs, comment}], current_price,
+//           blended_low, blended_high, discount_pct }.
+function computeValuationMethods({ fundamentals, context, priceData }) {
+  const current = Number(priceData?.last_price ?? 0) || null;
+  const currency = priceData?.currency || "USD";
+  const methods = [];
+
+  // Helper to pull latest non-null from an array of quarterly/annual records
+  const pickLatest = (arr, field) => {
+    if (!Array.isArray(arr)) return null;
+    for (const r of arr) {
+      const v = Number(r?.[field]);
+      if (Number.isFinite(v)) return v;
+    }
+    return null;
+  };
+  const avg = (arr, field) => {
+    if (!Array.isArray(arr)) return null;
+    const vals = arr.map(r => Number(r?.[field])).filter(v => Number.isFinite(v) && v > 0);
+    return vals.length ? vals.reduce((a,b) => a+b, 0) / vals.length : null;
+  };
+
+  // ─── 1) DCF (FMP consensus) ───────────────────────────────────────────
+  try {
+    const dcfVal = Number(fundamentals?.dcf?.dcf);
+    if (Number.isFinite(dcfVal) && dcfVal > 0) {
+      methods.push({
+        name: "DCF (FMP consensus)",
+        fair_value: Math.round(dcfVal * 100) / 100,
+        usable: true,
+        inputs: { dcf_raw: dcfVal, stockPrice_fmp: fundamentals?.dcf?.["Stock Price"] },
+        comment: "DCF FCF 5y + terminal con WACC ~8-10% (asunciones FMP)",
+      });
+    } else {
+      methods.push({ name: "DCF (FMP consensus)", fair_value: null, usable: false,
+        inputs: null, comment: "FMP no devolvió DCF para este ticker" });
+    }
+  } catch { methods.push({ name: "DCF (FMP consensus)", fair_value: null, usable: false, inputs: null, comment: "error computing" }); }
+
+  // ─── 2) Phil Town Ten Cap (Owner Earnings × 10) ───────────────────────
+  // OE ≈ FCF per share (proxy — simpler and robust vs full OE = NI + D&A - CapEx - ΔWC)
+  try {
+    // 1st: GF 15y series (most reliable if available)
+    let fcfPS = null;
+    let source = null;
+    const fcfSeries = context?.longTerm?.fcf_per_share_15y || [];
+    const gfRecent = fcfSeries.filter(v => Number.isFinite(v) && v > 0).slice(-3);
+    if (gfRecent.length) {
+      fcfPS = gfRecent.reduce((a,b) => a+b, 0) / gfRecent.length;
+      source = `GF 3y avg`;
+    }
+    // 2nd fallback: FMP ratios 5y avg freeCashFlowPerShare
+    if (fcfPS == null) {
+      const ratiosFCF = avg(fundamentals?.ratios_latest_5y, "freeCashFlowPerShare")
+        ?? avg(fundamentals?.key_metrics_5y, "freeCashFlowPerShare");
+      if (Number.isFinite(ratiosFCF) && ratiosFCF > 0) {
+        fcfPS = ratiosFCF;
+        source = `FMP 5y avg`;
+      }
+    }
+    if (fcfPS != null && fcfPS > 0) {
+      const fv = Math.round(fcfPS * 10 * 100) / 100;
+      methods.push({
+        name: "Phil Town Ten Cap",
+        fair_value: fv,
+        usable: true,
+        inputs: { fcf_per_share: Math.round(fcfPS * 100) / 100, source },
+        comment: `Pagar ≤10x owner earnings = yield 10% negocio. FCF/share $${fcfPS.toFixed(2)} (${source}).`,
+      });
+    } else {
+      methods.push({ name: "Phil Town Ten Cap", fair_value: null, usable: false,
+        inputs: null, comment: "FCF/share negativo o no disponible" });
+    }
+  } catch { methods.push({ name: "Phil Town Ten Cap", fair_value: null, usable: false, inputs: null, comment: "error computing" }); }
+
+  // ─── 3) Dividend Discount Model (Gordon Growth) ───────────────────────
+  // FV = DPS × (1+g) / (r-g). r=10% equity cost. g capped at 8% (below r).
+  try {
+    // DPS — try multiple sources: GF currentDPS, FMP profile.lastDiv, FMP ratios.dividendPerShare
+    let dps = Number(context?.longTerm?.currentDPS);
+    let dpsSource = "GF";
+    if (!Number.isFinite(dps) || dps <= 0) {
+      const profileDiv = Number(fundamentals?.profile?.lastDiv);
+      if (Number.isFinite(profileDiv) && profileDiv > 0) { dps = profileDiv; dpsSource = "FMP profile"; }
+    }
+    if (!Number.isFinite(dps) || dps <= 0) {
+      const ratioDiv = pickLatest(fundamentals?.ratios_latest_5y, "dividendPerShare")
+        ?? pickLatest(fundamentals?.key_metrics_5y, "dividendPerShare");
+      if (Number.isFinite(ratioDiv) && ratioDiv > 0) { dps = ratioDiv; dpsSource = "FMP ratios"; }
+    }
+    // Growth rate — multiple sources in priority order:
+    //   1) GF 10y CAGR from gf_financials (preferred — uses annual DPS)
+    //   2) Computed from FMP dividends_history (quarterly → annual → 5-10y CAGR)
+    //   3) FMP dgr blob if present
+    //   4) 3% conservative default
+    let g = Number(context?.longTerm?.cagr10y) / 100;
+    let gSource = "GF 10y CAGR";
+    if (!Number.isFinite(g)) {
+      // Try computing from dividend history
+      const divHist = fundamentals?.dividends_history;
+      if (Array.isArray(divHist) && divHist.length >= 8) {
+        // Group by year: sum 4 most recent quarterly divs vs 4 from ~5y ago
+        const byYear = {};
+        for (const d of divHist) {
+          const y = String(d.date || d.paymentDate || "").slice(0, 4);
+          const amt = Number(d.dividend) || Number(d.adjDividend) || 0;
+          if (!y || amt <= 0) continue;
+          byYear[y] = (byYear[y] || 0) + amt;
+        }
+        const years = Object.keys(byYear).sort();
+        if (years.length >= 5) {
+          const recent = byYear[years[years.length - 2]];  // last full year (not current partial)
+          const ref = byYear[years[Math.max(0, years.length - 6)]];  // ~5y ago
+          if (recent > 0 && ref > 0) {
+            const yrsDiff = Number(years[years.length - 2]) - Number(years[Math.max(0, years.length - 6)]);
+            if (yrsDiff >= 3) {
+              const computed = Math.pow(recent / ref, 1 / yrsDiff) - 1;
+              if (Number.isFinite(computed) && computed >= -0.1) {
+                g = computed;
+                gSource = `FMP dividends ${yrsDiff}y CAGR`;
+              }
+            }
+          }
+        }
+      }
+    }
+    if (!Number.isFinite(g)) {
+      const dgrVal = Number(fundamentals?.dgr?.["5y"]) || Number(fundamentals?.dgr?.dgr5y);
+      if (Number.isFinite(dgrVal)) { g = dgrVal / 100; gSource = "FMP dgr"; }
+    }
+    if (!Number.isFinite(g)) { g = 0.03; gSource = "default 3%"; }
+    const r = 0.10;
+    g = Math.max(0, Math.min(0.08, g));
+    if (Number.isFinite(dps) && dps > 0) {
+      const fv = Math.round(dps * (1 + g) / (r - g) * 100) / 100;
+      methods.push({
+        name: "Dividend Discount Model",
+        fair_value: fv,
+        usable: true,
+        inputs: { dps_current: dps, dps_source: dpsSource, growth_rate_used_pct: Math.round(g * 1000) / 10, growth_source: gSource, cost_of_equity_pct: 10 },
+        comment: `DPS $${dps.toFixed(2)} (${dpsSource}) × (1+${(g*100).toFixed(1)}% via ${gSource}) / (10% − ${(g*100).toFixed(1)}%). r=10%.`,
+      });
+    } else {
+      methods.push({ name: "Dividend Discount Model", fair_value: null, usable: false,
+        inputs: { dps_current: dps }, comment: "sin DPS material — no aplica para dividend compounder" });
+    }
+  } catch { methods.push({ name: "Dividend Discount Model", fair_value: null, usable: false, inputs: null, comment: "error computing" }); }
+
+  // ─── 4) P/E histórico × EPS TTM ───────────────────────────────────────
+  // Use avg P/E from FMP ratios 5y (closest to 10y historical we have readily)
+  try {
+    const epsFromLongTerm = Array.isArray(context?.longTerm?.eps_15y)
+      ? context.longTerm.eps_15y.filter(v => Number.isFinite(v)).slice(-1)[0]
+      : null;
+    const epsLatest = pickLatest(fundamentals?.ratios_latest_5y, "netIncomePerShare")
+      ?? pickLatest(fundamentals?.ratios_latest_5y, "eps")
+      ?? epsFromLongTerm;
+    const avgPE = avg(fundamentals?.ratios_latest_5y, "priceEarningsRatio")
+      ?? avg(fundamentals?.ratios_latest_5y, "priceToEarningsRatio")
+      ?? avg(fundamentals?.ratios_latest_5y, "peRatio");
+    if (Number.isFinite(epsLatest) && epsLatest > 0 && Number.isFinite(avgPE) && avgPE > 0 && avgPE < 80) {
+      const fv = Math.round(epsLatest * avgPE * 100) / 100;
+      methods.push({
+        name: "P/E histórico 5y",
+        fair_value: fv,
+        usable: true,
+        inputs: { eps_ttm: Math.round(epsLatest * 100) / 100, avg_pe_5y: Math.round(avgPE * 10) / 10 },
+        comment: `EPS $${epsLatest.toFixed(2)} × P/E histórico ${avgPE.toFixed(1)}x`,
+      });
+    } else {
+      methods.push({ name: "P/E histórico 5y", fair_value: null, usable: false,
+        inputs: { eps_ttm: epsLatest, avg_pe_5y: avgPE },
+        comment: "EPS o P/E histórico no confiables (ratio >80x o negativo = distorsión)" });
+    }
+  } catch { methods.push({ name: "P/E histórico 5y", fair_value: null, usable: false, inputs: null, comment: "error computing" }); }
+
+  // ─── 5) EV/EBITDA histórico ───────────────────────────────────────────
+  // FV per share = (EBITDA_ttm × avg_EVEBITDA_5y − net_debt) / sharesOutstanding
+  try {
+    const income = fundamentals?.income_5y;
+    const bal = fundamentals?.balance_latest;
+    const km = fundamentals?.key_metrics_5y;
+
+    // EBITDA: from income statement (reliable source)
+    const latestEBITDA = pickLatest(income, "ebitda")
+      ?? pickLatest(income, "EBITDA")
+      ?? pickLatest(km, "ebitda");
+
+    // Shares: weightedAverageShsOut (income) or latest from profile
+    const shares = pickLatest(income, "weightedAverageShsOut")
+      ?? pickLatest(income, "weightedAverageShsOutDil")
+      ?? pickLatest(km, "sharesOutstanding");
+
+    // Net Debt: totalDebt - cashAndCashEquivalents
+    const totalDebt = pickLatest(bal, "totalDebt");
+    const cash = pickLatest(bal, "cashAndCashEquivalents") ?? pickLatest(bal, "cashAndShortTermInvestments");
+    const netDebt = Number.isFinite(totalDebt) ? (totalDebt - (Number.isFinite(cash) ? cash : 0))
+      : pickLatest(km, "netDebt");
+
+    // Avg 5y EV/EBITDA — tolerate multiple field names
+    const avgEVEBITDA = avg(km, "enterpriseValueOverEBITDA")
+      ?? avg(km, "evToEBITDA")
+      ?? avg(km, "evToOperatingCashFlow");
+
+    if (Number.isFinite(avgEVEBITDA) && avgEVEBITDA > 0 && avgEVEBITDA < 40
+        && Number.isFinite(latestEBITDA) && latestEBITDA > 0
+        && Number.isFinite(shares) && shares > 0) {
+      const targetEV = latestEBITDA * avgEVEBITDA;
+      const equityValue = targetEV - (Number.isFinite(netDebt) ? netDebt : 0);
+      const fv = Math.round((equityValue / shares) * 100) / 100;
+      if (fv > 0) {
+        methods.push({
+          name: "EV/EBITDA histórico",
+          fair_value: fv,
+          usable: true,
+          inputs: {
+            avg_ev_ebitda_5y: Math.round(avgEVEBITDA * 10) / 10,
+            ebitda_ttm_B: Math.round(latestEBITDA / 1e9 * 10) / 10,
+            net_debt_B: Number.isFinite(netDebt) ? Math.round(netDebt / 1e9 * 10) / 10 : null,
+            shares_M: Math.round(shares / 1e6),
+          },
+          comment: `EBITDA $${(latestEBITDA/1e9).toFixed(1)}B × ${avgEVEBITDA.toFixed(1)}x histórico − net debt, por acción`,
+        });
+      } else {
+        methods.push({ name: "EV/EBITDA histórico", fair_value: null, usable: false,
+          inputs: null, comment: "equity value negativo — deuda > EV target" });
+      }
+    } else {
+      methods.push({ name: "EV/EBITDA histórico", fair_value: null, usable: false,
+        inputs: { avg_ev_ebitda_5y: avgEVEBITDA, ebitda_ttm: latestEBITDA, shares },
+        comment: `Datos incompletos: EV/EBITDA ${avgEVEBITDA ? avgEVEBITDA.toFixed(1)+'x' : 'n/d'}, EBITDA ${latestEBITDA ? '$'+(latestEBITDA/1e9).toFixed(1)+'B' : 'n/d'}, shares ${shares ? (shares/1e6).toFixed(0)+'M' : 'n/d'}`,
+      });
+    }
+  } catch { methods.push({ name: "EV/EBITDA histórico", fair_value: null, usable: false, inputs: null, comment: "error computing" }); }
+
+  // Blended fair value range = min/max of usable methods
+  const usableFVs = methods.filter(m => m.usable && Number.isFinite(m.fair_value)).map(m => m.fair_value);
+  const blended_low = usableFVs.length ? Math.min(...usableFVs) : null;
+  const blended_high = usableFVs.length ? Math.max(...usableFVs) : null;
+  const blended_mid = usableFVs.length ? usableFVs.reduce((a,b) => a+b, 0) / usableFVs.length : null;
+  const discount_pct = (current && blended_mid) ? Math.round(((blended_mid - current) / current) * 1000) / 10 : null;
+
+  return {
+    methods,
+    current_price: current,
+    currency,
+    usable_count: usableFVs.length,
+    blended_low,
+    blended_high,
+    blended_mid,
+    discount_pct,  // + = blended FV above price (undervalued) / - = overvalued
+  };
+}
+
 async function callAgentClaude(env, systemPrompt, userContent, opts = {}) {
   const model = opts.model || "claude-haiku-4-5-20251001";
   const maxTokens = opts.maxTokens || 3000;
-  const body = JSON.stringify({
+  const bodyObj = {
     model,
     max_tokens: maxTokens,
     system: systemPrompt,
     messages: [{ role: "user", content: typeof userContent === "string" ? userContent : JSON.stringify(userContent) }],
-  });
+  };
+  if (opts.temperature != null) bodyObj.temperature = opts.temperature;
+  const body = JSON.stringify(bodyObj);
   // ── Retry with exponential backoff on transient failures ──
   // Anthropic returns 529 "overloaded_error" intermittently. Previously this
   // would crash any single-Opus-call agent (macro, trade synth) mid-cron.

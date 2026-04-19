@@ -9,6 +9,7 @@ const VERDICT_CONFIG = {
   HOLD:        { color: '#64d2ff', bg: 'rgba(100,210,255,0.12)', label: 'HOLD' },
   TRIM:        { color: '#f59e0b', bg: 'rgba(245,158,11,0.14)',  label: 'TRIM' },
   SELL:        { color: '#ef4444', bg: 'rgba(239,68,68,0.14)',   label: 'SELL' },
+  AVOID:       { color: '#ef4444', bg: 'rgba(239,68,68,0.14)',   label: 'AVOID' },
   NEEDS_HUMAN: { color: '#a78bfa', bg: 'rgba(167,139,250,0.14)', label: 'NEEDS HUMAN' },
   INSUFFICIENT_DATA: { color: 'var(--text-tertiary)', bg: 'rgba(100,100,100,0.1)', label: 'INSUF. DATA' },
 };
