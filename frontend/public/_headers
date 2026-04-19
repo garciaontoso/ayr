@@ -1,3 +1,7 @@
+/reset.html
+  Cache-Control: no-store, must-revalidate
+  CDN-Cache-Control: no-store
+
 /index.html
   Cache-Control: no-store, must-revalidate
   CDN-Cache-Control: no-store
