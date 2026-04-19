@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { useDraggableOrder } from '../../hooks/useDraggableOrder.js';
+import BuyWizard from '../ui/BuyWizard.jsx';
+import { API_URL } from '../../constants/index.js';
 
 const CUSTOM_LISTS_KEY = 'ayr_research_custom_lists';
 
@@ -60,6 +62,30 @@ function ListsPillsBar({ lists, activeId, setActiveId, onAddList, onDeleteList }
   );
 }
 
+// Oracle verdict cell — badge if cached, ↻ icon otherwise. Click fires
+// the passed onClick (which opens BuyWizard with the ticker).
+function OracleCell({ cs, ticker, verdict, onClick }) {
+  const onC = (e) => { e.stopPropagation(); onClick && onClick(); };
+  if (verdict && verdict.action) {
+    const rank = { BUY: 6, ADD: 5, ACCUMULATE: 5, HOLD: 3, TRIM: 2, SELL: 1, AVOID: 0 }[verdict.action] ?? 3;
+    const color = rank >= 5 ? "#22c55e" : rank === 3 ? "#64d2ff" : rank === 2 ? "#f59e0b" : "#ef4444";
+    const tip = `${verdict.action} ${verdict.conviction || ''}/10\n${verdict.one_liner || ''}\n\nClick para ver análisis completo.`;
+    return (
+      <td title={tip} onClick={onC} style={{...cs, textAlign:"center", cursor:"pointer"}}>
+        <span style={{display:"inline-flex",alignItems:"center",gap:3,padding:"1px 5px",borderRadius:4,background:`${color}22`,border:`1px solid ${color}66`,color,fontSize:9,fontWeight:800,fontFamily:"var(--fm)",letterSpacing:.2}}>
+          {verdict.action}{verdict.conviction ? ` ${verdict.conviction}` : ''}
+        </span>
+      </td>
+    );
+  }
+  return (
+    <td onClick={onC} title={`Generar veredicto Oracle para ${ticker} (~$0.75)`}
+      style={{...cs, textAlign:"center", cursor:"pointer", color:"var(--text-tertiary)", opacity:.5}}>
+      ↻
+    </td>
+  );
+}
+
 // Normalize a user-typed ticker. Pure-numeric 3-5 digits = HK stock → pad to
 // 4 digits + .HK suffix (FMP format). Everything else is uppercased.
 function normalizeTicker(raw) {
@@ -97,6 +123,25 @@ export default function ResearchTab() {
     try { sessionStorage.setItem('prefill_alert_ticker', ticker); } catch {}
     if (setHomeTab) setHomeTab('alert-rules');
   }, [setHomeTab]);
+
+  // ─── Oracle verdicts for the table — cached only (no auto-gen) ─────────
+  // When a list is selected, we batch-fetch cached verdicts for its tickers.
+  // User clicks the 🎯 cell to open BuyWizard and generate a verdict.
+  const [oracleVerdicts, setOracleVerdicts] = useState({});
+  const [oracleWizardTicker, setOracleWizardTicker] = useState(null);
+  const loadOracleVerdicts = useCallback(async (tickers) => {
+    if (!tickers?.length) return;
+    try {
+      const r = await fetch(`${API_URL}/api/oracle-verdict/batch?tickers=${encodeURIComponent(tickers.join(','))}`);
+      const d = await r.json();
+      if (d?.verdicts) setOracleVerdicts(prev => ({ ...prev, ...d.verdicts }));
+    } catch {}
+  }, []);
+  const screenerTickers = useMemo(() => {
+    const syms = (screenerData?.screener || []).map(s => s.symbol).filter(Boolean);
+    return [...new Set(syms)].slice(0, 300);  // cap to avoid very long URLs
+  }, [screenerData]);
+  useEffect(() => { loadOracleVerdicts(screenerTickers); }, [screenerTickers, loadOracleVerdicts]);
 
   return (
 <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -268,8 +313,8 @@ export default function ResearchTab() {
             const typeC = t => t==="Calidad MAX"?"var(--green)":t==="REIT"?"#a855f7":t==="Cíclica"?"var(--orange)":"var(--text-secondary)";
             const bd = "1px solid var(--subtle-bg)";
             const cs = {padding:"4px 7px",fontFamily:"var(--fm)",borderBottom:bd,whiteSpace:"nowrap"};
-            const basicCols = ["SCORE","TICKER","EMPRESA","SECTOR","YIELD%","PAYOUT FCF%","D/EBITDA","ROIC%","P/E","FMP",""];
-            const advCols = ["SCORE","TICKER","EMPRESA","TIPO","RIESGO","DIV","MKT CAP","D.NETA","BPA","DPA","D/FCF","RD%","PAYOUT","PER","PER JUSTO","CREC.","TIR","P.JUSTO","DESC.","FMP"];
+            const basicCols = ["SCORE","TICKER","EMPRESA","SECTOR","YIELD%","PAYOUT FCF%","D/EBITDA","ROIC%","P/E","🎯","FMP",""];
+            const advCols = ["SCORE","TICKER","EMPRESA","TIPO","RIESGO","DIV","MKT CAP","D.NETA","BPA","DPA","D/FCF","RD%","PAYOUT","PER","PER JUSTO","CREC.","TIR","P.JUSTO","DESC.","🎯","FMP"];
             const cols = researchAdvanced ? advCols : basicCols;
             return <div style={{padding:"0 0 14px"}}>
               {/* List toolbar */}
@@ -303,6 +348,7 @@ export default function ResearchTab() {
                           <td style={{...cs,textAlign:"right",color:item.debtEBITDA<3?"var(--green)":item.debtEBITDA<5?"var(--gold)":"var(--red)"}}>{_sf(item.debtEBITDA,1)}x</td>
                           <td style={{...cs,textAlign:"right",color:item.roic>15?"var(--green)":item.roic>8?"var(--text-secondary)":"var(--red)"}}>{_sf(item.roic,1)}%</td>
                           <td style={{...cs,textAlign:"right",color:item.pe>0&&item.pe<20?"var(--green)":item.pe>0&&item.pe<35?"var(--text-secondary)":"var(--red)"}}>{item.pe>0?_sf(item.pe,1):"—"}</td>
+                          <OracleCell cs={cs} ticker={item.symbol} verdict={oracleVerdicts[item.symbol]} onClick={() => setOracleWizardTicker(item.symbol)} />
                         </>}
                         {researchAdvanced && <>
                           <td style={{...cs,textAlign:"right"}}><span style={{fontSize:8,padding:"1px 5px",borderRadius:3,background:`${typeC(item.compType)}15`,color:typeC(item.compType),fontWeight:600}}>{item.compType||"—"}</span></td>
@@ -321,6 +367,7 @@ export default function ResearchTab() {
                           <td style={{...cs,textAlign:"right",color:item.tir>10?"var(--green)":item.tir>6?"var(--gold)":"var(--red)",fontWeight:600}}>{_sf(item.tir,1)}%</td>
                           <td style={{...cs,textAlign:"right",color:"var(--text-primary)",fontWeight:600}}>{item.fairPrice>0?_sf(item.fairPrice,1):"—"}</td>
                           <td style={{...cs,textAlign:"right",fontWeight:700,color:item.discount>20?"var(--green)":item.discount>0?"var(--gold)":item.discount>-20?"var(--orange)":"var(--red)"}}>{item.discount>0?"+":""}{item.discount}%</td>
+                          <OracleCell cs={cs} ticker={item.symbol} verdict={oracleVerdicts[item.symbol]} onClick={() => setOracleWizardTicker(item.symbol)} />
                         </>}
                         <td style={{...cs,textAlign:"center"}}><span style={{fontSize:9,padding:"2px 7px",borderRadius:4,fontWeight:700,background:`${rc(fr.rating)}18`,color:rc(fr.rating)}}>{fr.rating||"—"}</span></td>
                         <td style={{...cs,textAlign:"center"}}>
@@ -366,6 +413,16 @@ export default function ResearchTab() {
       )}
     </div>;
   })()}
+
+  {/* Oracle BuyWizard — opens from any 🎯 cell in the table */}
+  <BuyWizard
+    open={!!oracleWizardTicker}
+    initialTicker={oracleWizardTicker}
+    onClose={() => {
+      setOracleWizardTicker(null);
+      if (screenerTickers.length) loadOracleVerdicts(screenerTickers);
+    }}
+  />
 </div>
   );
 }

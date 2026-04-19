@@ -21,19 +21,15 @@ database_id = "d9dc97c1-1ea5-4e05-b637-89e52229d099"
 binding = "EARNINGS_R2"
 bucket_name = "ayr-earnings-archive"
 
-# Cron schedule 2026-04-18:
-# - Daily agents pipeline: 13:00 UTC weekdays = 15:00 Madrid (CEST summer) /
-#   14:00 Madrid (CET winter). Runs ~30 min before US market open (15:30
-#   Madrid summer) so the user can read insights with Asia + Europe closed
-#   and make trading decisions before NYSE opens.
-# - Weekly digest: Monday 06:00 UTC (before the daily run so it summarizes
-#   last week). Will NOT trigger a full agents pipeline (scheduled handler
-#   only runs agents on the 13:00 UTC cron; see src/worker.js).
-# - Research auto-scan: 14:30 UTC weekdays = ~90 min after agents pipeline,
-#   giving runAllAgents time to finish before contradiction detection starts.
-[triggers]
-crons = [
-  "0 6 * * 1",     # Weekly digest (Monday 06:00 UTC)
-  "0 13 * * 1-5",  # Daily AI agents pipeline (weekdays 13:00 UTC = 15:00 Madrid summer)
-  "30 14 * * 1-5", # Research auto-scan (weekdays 14:30 UTC = 90 min after agents)
-]
+# Crons DESACTIVADOS (2026-04-19) — a petición del usuario para eliminar
+# todo gasto automático en API. Las consultas Oracle / agentes ahora son
+# ON-DEMAND: click de botón en la UI o petición manual (POST /api/agent-run).
+# Ahorro estimado: ~$33-45/mes.
+#
+# Schedules preservados como referencia:
+# [triggers]
+# crons = [
+#   "0 6 * * 1",     # Weekly digest (Monday 06:00 UTC)
+#   "0 13 * * 1-5",  # Daily AI agents pipeline
+#   "30 14 * * 1-5", # Research auto-scan
+# ]

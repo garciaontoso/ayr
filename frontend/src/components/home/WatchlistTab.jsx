@@ -1,8 +1,11 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf } from '../../utils/formatters.js';
 import { EmptyState } from '../ui/EmptyState.jsx';
 import { useDraggableOrder } from '../../hooks/useDraggableOrder.js';
+import BuyWizard from '../ui/BuyWizard.jsx';
+import FiveFiltersBars from '../ui/FiveFiltersBars.jsx';
+import { API_URL } from '../../constants/index.js';
 
 const WL_KEY = "ayr_wl_tabs";
 
@@ -18,7 +21,7 @@ export default function WatchlistTab() {
     watchlistList,
     searchTicker, setSearchTicker, updatePosition,
     openAnalysis, CompanyRow, FLAGS, getCountry,
-    displayCcy, privacyMode, hide,
+    displayCcy, privacyMode, hide, openScoresModal,
   } = useHome();
 
   // Persistent tabs in localStorage
@@ -48,6 +51,49 @@ export default function WatchlistTab() {
   } = useDraggableOrder(tabs, 'ui_watchlist_tabs_order');
 
   const saveTabs = useCallback((t) => { setTabs(t); localStorage.setItem(WL_KEY, JSON.stringify(t)); }, []);
+
+  // ─── Enrichment: Quality/Safety, 5 Filters, Oracle verdicts ─────────────
+  // All three are READ-ONLY fetches (no Opus). Oracle batch only returns
+  // whatever is already cached in D1 — user generates new verdicts by
+  // clicking the 🎯 cell (opens BuyWizard → $0.75 per request).
+  const [qsScores, setQsScores] = useState({});
+  const [fiveFilters, setFiveFilters] = useState({});
+  const [oracleVerdicts, setOracleVerdicts] = useState({});
+  const [oracleWizardTicker, setOracleWizardTicker] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(`${API_URL}/api/scores`);
+        const d = await r.json();
+        const map = {};
+        for (const row of (d.scores || [])) map[row.ticker] = row;
+        setQsScores(map);
+      } catch {}
+    })();
+    (async () => {
+      try {
+        const r = await fetch(`${API_URL}/api/five-filters`);
+        const d = await r.json();
+        if (d.ok && d.scores) setFiveFilters(d.scores);
+      } catch {}
+    })();
+  }, []);
+
+  const watchlistTickers = useMemo(
+    () => (watchlistList || []).map(p => p.ticker).filter(Boolean),
+    [watchlistList]
+  );
+  const loadOracleBatch = useCallback(async (tickers) => {
+    if (!tickers?.length) return;
+    try {
+      const qs = tickers.join(',');
+      const r = await fetch(`${API_URL}/api/oracle-verdict/batch?tickers=${encodeURIComponent(qs)}`);
+      const d = await r.json();
+      if (d?.verdicts) setOracleVerdicts(d.verdicts);
+    } catch {}
+  }, []);
+  useEffect(() => { loadOracleBatch(watchlistTickers); }, [watchlistTickers, loadOracleBatch]);
 
   const addTab = () => {
     if (!newTabName.trim()) return;
@@ -230,8 +276,21 @@ export default function WatchlistTab() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5, minWidth: 700 }}>
               <thead>
                 <tr style={{ borderBottom: "2px solid var(--border)" }}>
-                  {["", "TICKER", "PRECIO", "CAMBIO", "52W RANGE", "DIV YIELD", "SECTOR", ""].map((h, i) => (
-                    <th key={i} style={{ padding: "6px 10px", textAlign: i <= 1 || i === 6 ? "left" : "right", color: "var(--text-tertiary)", fontSize: 9, fontWeight: 700, fontFamily: "var(--fm)", letterSpacing: .3, whiteSpace: "nowrap" }}>{h}</th>
+                  {[
+                    { l: "", align: "left" },
+                    { l: "TICKER", align: "left" },
+                    { l: "PRECIO", align: "right" },
+                    { l: "CAMBIO", align: "right" },
+                    { l: "52W RANGE", align: "right" },
+                    { l: "DIV YIELD", align: "right" },
+                    { l: "Q", align: "center" },
+                    { l: "S", align: "center" },
+                    { l: "5F", align: "center" },
+                    { l: "🎯", align: "center" },
+                    { l: "SECTOR", align: "left" },
+                    { l: "", align: "center" },
+                  ].map((h, i) => (
+                    <th key={i} style={{ padding: "6px 10px", textAlign: h.align, color: "var(--text-tertiary)", fontSize: 9, fontWeight: 700, fontFamily: "var(--fm)", letterSpacing: .3, whiteSpace: "nowrap" }}>{h.l}</th>
                   ))}
                 </tr>
               </thead>
@@ -282,6 +341,52 @@ export default function WatchlistTab() {
                       <td style={{ padding: "5px 10px", textAlign: "right", fontFamily: "var(--fm)", color: "var(--gold)", fontSize: 11 }}>
                         {(p.divYieldTTM || 0) > 0 ? _sf(p.divYieldTTM * 100, 1) + "%" : "—"}
                       </td>
+                      {/* Q / S / 5F — read-only scoring fetched above */}
+                      {(() => {
+                        const qs = qsScores[p.ticker];
+                        const qVal = qs?.quality_score;
+                        const sVal = qs?.safety_score;
+                        const qColor = v => v == null ? 'var(--text-tertiary)' : v >= 80 ? 'var(--gold)' : v >= 65 ? 'var(--green)' : v >= 50 ? '#ffd60a' : '#ff6b6b';
+                        const onScoreClick = qs ? (e) => { e.stopPropagation(); openScoresModal && openScoresModal(p.ticker); } : undefined;
+                        return (
+                          <>
+                            <td onClick={onScoreClick} title={qs ? `Quality ${qVal}/100 · click para detalles` : 'Sin datos'} style={{ padding: "5px 10px", textAlign: "center", fontFamily: "var(--fm)", fontSize: 11, fontWeight: 800, color: qColor(qVal), cursor: qs ? 'pointer' : 'default' }}>
+                              {qVal != null ? qVal.toFixed(0) : '—'}
+                            </td>
+                            <td onClick={onScoreClick} title={qs ? `Safety ${sVal}/100` : 'Sin datos'} style={{ padding: "5px 10px", textAlign: "center", fontFamily: "var(--fm)", fontSize: 11, fontWeight: 800, color: qColor(sVal), cursor: qs ? 'pointer' : 'default' }}>
+                              {sVal != null ? sVal.toFixed(0) : '—'}
+                            </td>
+                          </>
+                        );
+                      })()}
+                      <td onClick={e => e.stopPropagation()} style={{ padding: "5px 10px", textAlign: "center" }}>
+                        <FiveFiltersBars scores={fiveFilters[p.ticker]} ticker={p.ticker} />
+                      </td>
+                      {/* Oracle badge — cached only; click opens BuyWizard (~$0.75/request) */}
+                      {(() => {
+                        const o = oracleVerdicts[p.ticker];
+                        const onClickOracle = (e) => { e.stopPropagation(); setOracleWizardTicker(p.ticker); };
+                        if (o && o.action) {
+                          const rank = { BUY: 6, ADD: 5, ACCUMULATE: 5, HOLD: 3, TRIM: 2, SELL: 1, AVOID: 0 }[o.action] ?? 3;
+                          const color = rank >= 5 ? "#22c55e" : rank === 3 ? "#64d2ff" : rank === 2 ? "#f59e0b" : "#ef4444";
+                          const tip = `${o.action} ${o.conviction || ''}/10\n${o.one_liner || ''}\n\nClick para ver análisis completo.`;
+                          return (
+                            <td title={tip} onClick={onClickOracle} style={{ padding: "5px 10px", textAlign: "center", cursor: "pointer" }}>
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, padding: "1px 5px", borderRadius: 4, background: `${color}22`, border: `1px solid ${color}66`, color, fontSize: 9, fontWeight: 800, fontFamily: "var(--fm)", letterSpacing: .2 }}>
+                                {o.action}{o.conviction ? ` ${o.conviction}` : ''}
+                              </span>
+                            </td>
+                          );
+                        }
+                        return (
+                          <td title="Generar veredicto Oracle — ~$0.75" onClick={onClickOracle}
+                            style={{ padding: "5px 10px", textAlign: "center", cursor: "pointer", fontSize: 12, color: "var(--text-tertiary)", opacity: .6 }}
+                            onMouseEnter={e => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.color = "var(--gold)"; }}
+                            onMouseLeave={e => { e.currentTarget.style.opacity = ".6"; e.currentTarget.style.color = "var(--text-tertiary)"; }}>
+                            ↻
+                          </td>
+                        );
+                      })()}
                       <td style={{ padding: "5px 10px", fontFamily: "var(--fm)", color: "var(--text-tertiary)", fontSize: 10 }}>
                         {p.sector || ""}
                       </td>
@@ -310,6 +415,16 @@ export default function WatchlistTab() {
       <div style={{ fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>
         Doble-click en el nombre de una pestaña para renombrarla · Las pestañas se guardan en tu navegador
       </div>
+
+      {/* Oracle BuyWizard — opens from 🎯 column. Refresca verdicts on close. */}
+      <BuyWizard
+        open={!!oracleWizardTicker}
+        initialTicker={oracleWizardTicker}
+        onClose={() => {
+          setOracleWizardTicker(null);
+          if (watchlistTickers.length) loadOracleBatch(watchlistTickers);
+        }}
+      />
     </div>
   );
 }

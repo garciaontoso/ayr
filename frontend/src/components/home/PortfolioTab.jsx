@@ -6,6 +6,7 @@ import { _sf, fDol, fmtMC } from '../../utils/formatters.js';
 import { EmptyState, LoadingSkeleton } from '../ui/EmptyState.jsx';
 import { TrustBadge } from '../ui/TrustBadge.jsx';
 import FiveFiltersBars from '../ui/FiveFiltersBars.jsx';
+import BuyWizard from '../ui/BuyWizard.jsx';
 import { API_URL } from '../../constants/index.js';
 
 const ALERTS_KEY = "ayr_price_alerts";
@@ -29,7 +30,7 @@ const getSectorColor = (sector) => {
   return SECTOR_COLORS[sector] || "#6b7280";
 };
 
-const COL_DEFS = [
+export const COL_DEFS = [
   { id:"ticker", label:"TICKER", group:"Core", w:"160px", align:"left", locked:true, defaultOn:true,
     val:p=>p.ticker, fmt:v=>v, sortV:p=>(p.name||p.ticker).toLowerCase() },
   { id:"price", label:"PRECIO", group:"Core", w:"58px", defaultOn:true,
@@ -124,6 +125,17 @@ const COL_DEFS = [
     val:p=>p._5f?.composite,
     fmt:v=>v!=null?v.toFixed(1):"\u2014",
     sortV:p=>p._5f?.composite||0 },
+  // Oracle verdict — Buffett-style on-demand. Shows cached action + conviction
+  // if available (green/blue/amber/red), else ↻ icon. Click opens BuyWizard
+  // with the ticker pre-loaded (consultas ~$0.75 solo cuando el usuario pulsa).
+  { id:"oracle", label:"🎯", group:"Calidad", w:"54px", defaultOn:true, isOracle:true,
+    val:p=>p._oracle,
+    fmt:v=>v?.action||"",
+    sortV:p=>{
+      if(!p._oracle) return -1;
+      const rank={BUY:6,ADD:5,ACCUMULATE:5,HOLD:3,TRIM:2,SELL:1,AVOID:0}[p._oracle.action]||0;
+      return rank*10+(p._oracle.conviction||0);
+    } },
 ];
 
 const DEFAULT_COLS = COL_DEFS.filter(c=>c.defaultOn).map(c=>c.id);
@@ -361,6 +373,49 @@ export default function PortfolioTab() {
     } catch {}
   }, []);
   useEffect(() => { loadFiveFilters(false); }, [loadFiveFilters]);
+
+  // ─── Oracle verdicts — cached ones only, NO auto-generation ───────────
+  // Hit /api/oracle-verdict/batch to populate the "O" column with whatever
+  // is already in D1 (prior user clicks or chat-driven verdicts). Tickers
+  // without cache show ↻ — user clicks to run Oracle on-demand. Session
+  // cache 10 min to avoid re-fetching on every re-render.
+  const ORACLE_CACHE_KEY = 'oracle-verdicts-v1';
+  const [oracleVerdicts, setOracleVerdicts] = useState({});
+  const loadOracleVerdicts = useCallback(async (tickers, force = false) => {
+    const TTL_MS = 10 * 60 * 1000;
+    if (!Array.isArray(tickers) || !tickers.length) return;
+    if (!force) {
+      try {
+        const raw = sessionStorage.getItem(ORACLE_CACHE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && parsed.ts && (Date.now() - parsed.ts) < TTL_MS) {
+            setOracleVerdicts(parsed.data || {});
+            return;
+          }
+        }
+      } catch {}
+    }
+    try {
+      const qs = tickers.join(',');
+      const r = await fetch(`${API_URL}/api/oracle-verdict/batch?tickers=${encodeURIComponent(qs)}`);
+      const d = await r.json();
+      if (d && d.verdicts) {
+        setOracleVerdicts(d.verdicts);
+        try { sessionStorage.setItem(ORACLE_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: d.verdicts })); } catch {}
+      }
+    } catch {}
+  }, []);
+  const portfolioTickers = useMemo(
+    () => (portfolioTotals?.positions || []).map(p => p.ticker).filter(Boolean),
+    [portfolioTotals]
+  );
+  useEffect(() => {
+    if (portfolioTickers.length) loadOracleVerdicts(portfolioTickers, false);
+  }, [portfolioTickers, loadOracleVerdicts]);
+
+  // Shared Buy Wizard state — opened when user clicks the "O" cell
+  const [oracleWizardTicker, setOracleWizardTicker] = useState(null);
   const [showRebalance, setShowRebalance] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);
   const [alertForm, setAlertForm] = useState({ ticker: "", price: "", direction: "below" });
@@ -378,6 +433,7 @@ export default function PortfolioTab() {
         if (!s.includes('quality'))     migrated.push('quality');
         if (!s.includes('safety'))      migrated.push('safety');
         if (!s.includes('smartMoney'))  migrated.push('smartMoney');
+        if (!s.includes('oracle'))      migrated.push('oracle');
         return migrated;
       }
     } catch {}
@@ -963,9 +1019,10 @@ export default function PortfolioTab() {
                         </div>
                       </td>
                       {activeCols.map(c => {
-                        // Inject _qs and _5f into position object so columns can read them
+                        // Inject _qs, _5f, _oracle into position object so columns can read them
                         let pWithQs = qsScores && qsScores[p.ticker] ? { ...p, _qs: qsScores[p.ticker] } : p;
                         if (fiveFilters && fiveFilters[p.ticker]) pWithQs = { ...pWithQs, _5f: fiveFilters[p.ticker] };
+                        if (oracleVerdicts && oracleVerdicts[p.ticker]) pWithQs = { ...pWithQs, _oracle: oracleVerdicts[p.ticker] };
                         if (c.id === "ticker") {
                           const ibTitle = p.dataSource==="IB" ? "Sincronizado desde Interactive Brokers" : "";
                           return (<td key={c.id} style={{padding:"3px 3px",verticalAlign:"middle",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>
@@ -988,6 +1045,30 @@ export default function PortfolioTab() {
                           const ff = pWithQs._5f;
                           return (<td key={c.id} onClick={e=>e.stopPropagation()} style={{padding:"3px 3px",textAlign:"center",verticalAlign:"middle",whiteSpace:"nowrap"}}>
                             <FiveFiltersBars scores={ff} ticker={p.ticker} />
+                          </td>);
+                        }
+                        // Oracle verdict column: badge with action + conviction if cached,
+                        // else ↻ to generate on-demand. Click opens BuyWizard pre-loaded.
+                        if (c.isOracle) {
+                          const o = pWithQs._oracle;
+                          const onClickOracle = (e) => { e.stopPropagation(); setOracleWizardTicker(p.ticker); };
+                          if (o && o.action) {
+                            const rank = { BUY: 6, ADD: 5, ACCUMULATE: 5, HOLD: 3, TRIM: 2, SELL: 1, AVOID: 0 }[o.action] ?? 3;
+                            const color = rank >= 5 ? "#22c55e" : rank === 3 ? "#64d2ff" : rank === 2 ? "#f59e0b" : "#ef4444";
+                            const tip = `${o.action} ${o.conviction || ''}/10\n${o.one_liner || ''}\n\nClick para ver análisis completo.`;
+                            return (<td key={c.id} title={tip} onClick={onClickOracle}
+                              style={{padding:"3px 3px",textAlign:"center",verticalAlign:"middle",whiteSpace:"nowrap",cursor:"pointer"}}>
+                              <span style={{display:"inline-flex",alignItems:"center",gap:3,padding:"1px 5px",borderRadius:4,background:`${color}22`,border:`1px solid ${color}66`,color,fontSize:9,fontWeight:800,fontFamily:"var(--fm)",letterSpacing:.2}}>
+                                {o.action}{o.conviction ? ` ${o.conviction}` : ''}
+                              </span>
+                            </td>);
+                          }
+                          return (<td key={c.id} title="Generar veredicto Oracle (Buffett-style) — ~$0.75 por consulta"
+                            onClick={onClickOracle}
+                            style={{padding:"3px 3px",textAlign:"center",verticalAlign:"middle",cursor:"pointer",fontSize:12,color:"var(--text-tertiary)",opacity:.6}}
+                            onMouseEnter={e=>{e.currentTarget.style.opacity="1";e.currentTarget.style.color="var(--gold)";}}
+                            onMouseLeave={e=>{e.currentTarget.style.opacity=".6";e.currentTarget.style.color="var(--text-tertiary)";}}>
+                            ↻
                           </td>);
                         }
                         // Q/S columns: clickable to open drill-down modal
@@ -1164,6 +1245,18 @@ export default function PortfolioTab() {
             })()}
           </div>
         )}
+        {/* Oracle verdict modal — opens when any "O" column cell is clicked.
+            Reuses the BuyWizard component with initialTicker. When it closes,
+            we force-reload oracleVerdicts so the column reflects the newly
+            generated verdict (if the user ran one). */}
+        <BuyWizard
+          open={!!oracleWizardTicker}
+          initialTicker={oracleWizardTicker}
+          onClose={() => {
+            setOracleWizardTicker(null);
+            if (portfolioTickers.length) loadOracleVerdicts(portfolioTickers, true);
+          }}
+        />
       </div>
   );
 }

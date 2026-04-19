@@ -13311,6 +13311,53 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         return json(out, corsHeaders);
       }
 
+      // GET /api/oracle-verdict/batch?tickers=KO,PEP,ITRK
+      // Returns cached verdicts (action + conviction + sector + one_liner)
+      // for all requested tickers. Used by the portfolio/watchlist "O" column
+      // to populate badges without triggering fresh Opus calls. Tickers with
+      // no cache are omitted from the response (not added as null).
+      if (path === "/api/oracle-verdict/batch" && request.method === "GET") {
+        await ensureMigrations(env);
+        const raw = url.searchParams.get("tickers") || "";
+        const tickers = raw.split(",").map(t => t.trim().toUpperCase()).filter(Boolean);
+        if (!tickers.length) return json({ verdicts: {} }, corsHeaders);
+        // Chunk to respect SQLite expression limit (max ~100 bindings per stmt)
+        const out = {};
+        for (let i = 0; i < tickers.length; i += 90) {
+          const batch = tickers.slice(i, i + 90);
+          const placeholders = batch.map(() => "?").join(",");
+          const { results } = await env.DB.prepare(
+            `SELECT ticker, action, conviction, one_liner, summary, generated_at, expires_at, verdict_json
+             FROM oracle_verdicts
+             WHERE ticker IN (${placeholders})`
+          ).bind(...batch).all();
+          for (const r of results || []) {
+            let extra = null;
+            try {
+              const parsed = JSON.parse(r.verdict_json);
+              extra = {
+                sector: parsed.sector,
+                margin_of_safety: parsed.margin_of_safety?.verdict,
+                discount_pct: parsed.margin_of_safety?.discount_pct,
+                buffett_passes_all: parsed.buffett_test?.passes_all_four,
+                loss_prob: parsed.permanent_loss_probability?.pct_estimate,
+              };
+            } catch {}
+            out[r.ticker] = {
+              action: r.action,
+              conviction: r.conviction,
+              one_liner: r.one_liner,
+              summary: r.summary,
+              generated_at: r.generated_at,
+              expires_at: r.expires_at,
+              fresh: r.expires_at > Date.now(),
+              ...extra,
+            };
+          }
+        }
+        return json({ verdicts: out, count: Object.keys(out).length }, corsHeaders);
+      }
+
       // ─── ORACLE VERDICT ──────────────────────────────────────────────────
       // POST /api/oracle-verdict { ticker, force? }
       // Warren-Buffett-style partner. Reads EVERYTHING we have about the
