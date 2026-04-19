@@ -763,7 +763,18 @@ export default function AdvisorTab() {
         //   - En contra, payout FCF >100 + 2+ high es VENDER claro
         const highCount = alerts.filter(a => a.sev === 'high').length;
         const category = (p.category || p.cat || '').toUpperCase();
-        const isEtfOrBdc = category === 'ETF' || category === 'BDC' || category === 'PREFERRED';
+        const name = (p.name || s.name || '').toLowerCase();
+        // Heuristic para preferred shares: Preferreds tienen dividendo FIJO por
+        // contrato → payout FCF/earnings NO aplica (puede salir 999% y seguir
+        // siendo sostenible porque la coverage relevante es income/dividend
+        // requirement, no FCF). LANDP fue falso positivo ayer porque POS_STATIC
+        // no le pone category=PREFERRED, así que ahora detectamos preferreds
+        // por NOMBRE — más robusto que un set hardcoded. (2026-04-19 fix)
+        const tickerStr = String(p.ticker || '');
+        const isPreferred = category === 'PREFERRED'
+          || /preferred/i.test(name)              // "Preferred Stock Series C"
+          || /-PR[A-Z]?$/.test(tickerStr);        // BAC-PR, IIPR-PRA convention
+        const isEtfOrBdc = category === 'ETF' || category === 'BDC' || isPreferred;
         const hasNoData = !s.score && !s.payoutFCF && !s.roic;  // screener didn't cover
         let verdict, color, reason, action;
         if (hasNoData && !isEtfOrBdc) {
