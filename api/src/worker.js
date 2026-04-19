@@ -13162,6 +13162,129 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
       }
 
       // ── Research Agent (Opus + tool use) ──
+      // GET /api/buy-wizard/context?ticker=X
+      // Powers the Buy Wizard's Track Record + Technical sections.
+      // Reads ALL relevant data en paralelo: R2 30y series, last 8 earnings
+      // from cache, RSI 14 + 200d MA from price_cache, ticker_notebook history.
+      // (2026-04-19 — surface long-term context que ya existe pero estaba enterrada)
+      if (path === "/api/buy-wizard/context" && request.method === "GET") {
+        await ensureMigrations(env);
+        const tk = (url.searchParams.get("ticker") || "").trim().toUpperCase();
+        if (!tk) return json({ error: "ticker required" }, corsHeaders, 400);
+
+        const out = { ticker: tk };
+
+        // 1) Long-term series from R2 (gf_financials.json)
+        try {
+          if (env.EARNINGS_R2) {
+            const obj = await env.EARNINGS_R2.get(`docs/${tk}/gf_financials.json`);
+            if (obj) {
+              const doc = JSON.parse(await obj.text());
+              const a = doc?.financials?.annuals;
+              if (a) {
+                const fy = a["Fiscal Year"] || [];
+                const psa = a.per_share_data_array || {};
+                const lastN = (arr, n) => Array.isArray(arr) ? arr.slice(-n).map(v => { const num = Number(v); return Number.isFinite(num) ? num : null; }) : [];
+                const years30 = fy.slice(-30);
+                const divs30 = lastN(psa["Dividends per Share"], 30);
+                const fcf30 = lastN(psa["Free Cash Flow per Share"], 30);
+                const eps30 = lastN(psa["EPS without NRI"], 30);
+                let yearsOfDivs = 0;
+                for (let i = divs30.length - 1; i >= 0; i--) {
+                  if (divs30[i] && divs30[i] > 0) yearsOfDivs++;
+                  else if (yearsOfDivs > 0) break;
+                }
+                const divCuts = [];
+                for (let i = 1; i < divs30.length; i++) {
+                  if (divs30[i - 1] && divs30[i] && divs30[i] < divs30[i - 1] * 0.95) divCuts.push(years30[i]);
+                }
+                // 10y CAGR (excluyendo TTM)
+                const annDivs = divs30.filter((v, i) => years30[i] && !String(years30[i]).startsWith("TTM"));
+                let cagr10 = null;
+                if (annDivs.length >= 11 && annDivs[annDivs.length - 11] > 0 && annDivs[annDivs.length - 1] > 0) {
+                  cagr10 = Math.pow(annDivs[annDivs.length - 1] / annDivs[annDivs.length - 11], 1/10) - 1;
+                }
+                out.longTerm = {
+                  yearsOfDivs,
+                  divCuts,
+                  divCutsCount: divCuts.length,
+                  currentDPS: divs30[divs30.length - 1],
+                  cagr10y: cagr10 != null ? Math.round(cagr10 * 1000) / 10 : null,
+                  fcfTrend: fcf30.slice(-5),  // last 5 years
+                  epsTrend: eps30.slice(-5),
+                };
+              }
+            }
+          }
+        } catch (e) { /* swallow */ }
+
+        // 2) Last 8 earnings from D1 fundamentals.earnings cache
+        try {
+          const row = await env.DB.prepare(
+            `SELECT earnings FROM fundamentals WHERE symbol = ?`
+          ).bind(tk).first();
+          if (row?.earnings) {
+            const earningsArr = JSON.parse(row.earnings);
+            if (Array.isArray(earningsArr) && earningsArr.length) {
+              const recent = earningsArr.slice(0, 8).map(e => ({
+                date: e.date,
+                eps: e.eps,
+                estimate: e.epsEstimated,
+                beat: e.eps != null && e.epsEstimated != null ? e.eps >= e.epsEstimated : null,
+                surprisePct: e.eps != null && e.epsEstimated != null && e.epsEstimated !== 0
+                  ? Math.round(((e.eps - e.epsEstimated) / Math.abs(e.epsEstimated)) * 1000) / 10 : null,
+              }));
+              const beats = recent.filter(r => r.beat === true).length;
+              const misses = recent.filter(r => r.beat === false).length;
+              out.recentEarnings = { recent, beats, misses, total: recent.length };
+            }
+          }
+        } catch (e) { /* swallow */ }
+
+        // 3) Price-based timing (RSI + 200dMA + 52w range) — from price_cache if available
+        try {
+          const row = await env.DB.prepare(
+            `SELECT data, updated_at FROM price_cache WHERE id = ?`
+          ).bind(tk).first();
+          if (row?.data) {
+            const p = JSON.parse(row.data);
+            // price_cache may store {price, change, changePct, ...} or historical array
+            // Compute RSI + MA only if we have a series; otherwise just expose current price
+            if (p && typeof p === "object") {
+              out.timing = {
+                price: p.price ?? p.last ?? null,
+                changePct: p.changePct ?? p.dayChangePct ?? null,
+                week52High: p.week52High ?? p.high52 ?? null,
+                week52Low: p.week52Low ?? p.low52 ?? null,
+                ma200: p.ma200 ?? p.ma_200 ?? null,
+                rsi14: p.rsi14 ?? p.rsi ?? null,
+                fromHigh52Pct: p.price && (p.week52High ?? p.high52)
+                  ? Math.round(((p.price - (p.week52High ?? p.high52)) / (p.week52High ?? p.high52)) * 1000) / 10 : null,
+              };
+            }
+          }
+        } catch (e) { /* swallow */ }
+
+        // 4) Ticker notebook (past verdicts + outcomes)
+        try {
+          const nb = await env.DB.prepare(
+            `SELECT summary, agent_history, last_research_verdict, last_research_date, open_questions
+             FROM ticker_notebook WHERE ticker = ?`
+          ).bind(tk).first();
+          if (nb) {
+            const safeParse = (s, fb) => { try { return JSON.parse(s); } catch { return fb; } };
+            out.notebook = {
+              summary: nb.summary,
+              lastResearch: nb.last_research_verdict ? { verdict: nb.last_research_verdict, date: nb.last_research_date } : null,
+              openQuestions: safeParse(nb.open_questions, []).slice(0, 3),
+              agentHistoryCount: Object.keys(safeParse(nb.agent_history, {})).length,
+            };
+          }
+        } catch (e) { /* swallow */ }
+
+        return json(out, corsHeaders);
+      }
+
       // POST /api/research-agent { ticker?, question?, reason? }
       // Authenticated same as /api/agent-run. Budget-capped (15 tool calls,
       // 5 min wall, $3). Stores the investigation row in research_investigations.

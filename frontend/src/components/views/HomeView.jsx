@@ -7,6 +7,7 @@ import { fetchAllYouTubeForOffline } from '../../utils/youtubeOffline.js';
 import { PortfolioTab } from '../home';  // PortfolioTab stays eager — it's the default tab
 import { ErrorBoundary } from '../ui';
 import SettingsPanel from '../home/SettingsPanel';  // tiny (122 lines), stays eager
+import BuyWizard from '../ui/BuyWizard.jsx';  // 🛒 single-screen buy flow
 
 // ─── Lazy-loaded home tabs ─────────────────────────────────────────────────────
 // The AirplaneMode downloader already crawls all JS chunks from the entry bundle
@@ -886,6 +887,7 @@ function AirplaneMode({ portfolioList }) {
 export default function HomeView() {
   const [showHealthCheck, setShowHealthCheck] = useState(false);
   const [healthData, setHealthData] = useState({loading:false,results:[],status:null});
+  const [showBuyWizard, setShowBuyWizard] = useState(false);  // 🛒 evaluar compra modal
   const {
     homeTab, setHomeTab,
     portfolioList, watchlistList, historialList,
@@ -1217,6 +1219,18 @@ export default function HomeView() {
         {/* AI Agents run reminder — badge red if agents haven't run today */}
         <RunReminderBadge onClick={() => setHomeTab("agentes")} />
 
+        {/* Buy Wizard — single-screen flow for evaluating + registering a buy */}
+        <button
+          onClick={() => setShowBuyWizard(true)}
+          title="🛒 Evaluar compra — síntesis de agentes + sector check + size + Journal en 1 pantalla"
+          style={{
+            padding: '4px 9px', borderRadius: 6,
+            border: '1px solid var(--gold)',
+            background: 'var(--gold-dim)',
+            color: 'var(--gold)', fontSize: 11, fontWeight: 700,
+            cursor: 'pointer', fontFamily: 'var(--fm)',
+          }}>🛒 Comprar</button>
+
         {/* Settings */}
         {/* Health Check */}
         <button onClick={async ()=>{
@@ -1338,6 +1352,9 @@ export default function HomeView() {
         )}
       </div>
     )}
+
+    {/* Buy Wizard modal — global, always available */}
+    <BuyWizard open={showBuyWizard} onClose={() => setShowBuyWizard(false)} />
 
     {/* Health Check Panel */}
     {showHealthCheck && (
