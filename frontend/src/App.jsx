@@ -33,6 +33,7 @@ const DividendsTab = lazy(() => import('./components/analysis/DividendsTab'));
 const GrowthTab = lazy(() => import('./components/analysis/GrowthTab'));
 const MOSTab = lazy(() => import('./components/analysis/MOSTab'));
 const FastGraphsTab = lazy(() => import('./components/analysis/FastGraphsTab'));
+const FastTab = lazy(() => import('./components/analysis/FastTab'));
 const WeissTab = lazy(() => import('./components/analysis/WeissTab'));
 const ChecklistTab = lazy(() => import('./components/analysis/ChecklistTab'));
 const PaybackTab = lazy(() => import('./components/analysis/PaybackTab'));
@@ -1830,6 +1831,7 @@ function buildPositionsFromCB() {
     debt:() => <DebtTab />,
     divAll:() => <div><div style={_sec}>Seguridad del Dividendo</div><DividendsTab /><div style={_sec}>Yield Bands — Weiss</div><WeissTab /></div>,
     valAll:() => <div><div style={_sec}>Múltiplos Actuales</div><ValuationTab /><DCFTab /><div style={_sec}>Margen de Seguridad (6 Métodos)</div><MOSTab /><div style={_sec}>FastGraphs — Proyección</div><FastGraphsTab /><div style={_sec}>10 Cap Rate</div><TenCapTab /><div style={_sec}>Payback Time</div><PaybackTab /></div>,
+    fast:() => <FastTab />,
     verdict:() => <div><div style={_sec}>Checklist de Inversión</div><ChecklistTab /><div style={_sec}>Veredicto Final</div><ScoreTab /></div>,
     report:() => <ReportTab />,
     dst:() => <DSTTab />,

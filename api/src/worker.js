@@ -13193,6 +13193,132 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
       // Reads ALL relevant data en paralelo: R2 30y series, last 8 earnings
       // from cache, RSI 14 + 200d MA from price_cache, ticker_notebook history.
       // (2026-04-19 — surface long-term context que ya existe pero estaba enterrada)
+      // GET /api/fg-history?ticker=X&years=20
+      // Devuelve precio histórico mensual (close del último día de cada mes)
+      // + ratios clave anuales (P/E por año) + rating + per-year EPS/DPS.
+      // Todo lo necesario para renderizar una carta tipo FAST Graphs client-side.
+      // Fuente: FMP historical-price-eod + ratios + rating (cacheados 24h).
+      if (path === "/api/fg-history" && request.method === "GET") {
+        const ticker = (url.searchParams.get("ticker") || "").trim().toUpperCase();
+        const years = Math.min(Math.max(parseInt(url.searchParams.get("years") || "20", 10) || 20, 1), 30);
+        if (!ticker) return json({ error: "ticker required" }, corsHeaders, 400);
+
+        const cacheKey = `fghist_${ticker}_${years}`;
+        try {
+          const cached = await env.DB.prepare(
+            `SELECT data, updated_at FROM price_cache WHERE id = ?`
+          ).bind(cacheKey).first();
+          if (cached?.data) {
+            const age = Date.now() - new Date(cached.updated_at.replace(' ', 'T') + 'Z').getTime();
+            if (age < 24 * 3600 * 1000) {
+              return json({ ...JSON.parse(cached.data), cached: true }, corsHeaders);
+            }
+          }
+        } catch {}
+
+        const FMP_KEY = env.FMP_KEY;
+        if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
+        const fromDate = new Date(Date.now() - years * 365 * 86400000).toISOString().slice(0, 10);
+        const ratSym = ticker.replace("HKG:", "").replace("BME:", "").replace(":", ".");
+
+        // Parallel fetches: historical EOD + full ratios (annual) + rating + profile
+        let eodRaw = [], ratiosRaw = [], ratingRaw = [], profileRaw = [];
+        try {
+          const [eodR, ratR, ratingR, profR] = await Promise.all([
+            fetch(`https://financialmodelingprep.com/stable/historical-price-eod/light?symbol=${encodeURIComponent(ratSym)}&from=${fromDate}&apikey=${FMP_KEY}`),
+            fetch(`https://financialmodelingprep.com/stable/ratios?symbol=${encodeURIComponent(ratSym)}&limit=${years}&apikey=${FMP_KEY}`),
+            fetch(`https://financialmodelingprep.com/stable/ratings-snapshot?symbol=${encodeURIComponent(ratSym)}&apikey=${FMP_KEY}`),
+            fetch(`https://financialmodelingprep.com/stable/profile?symbol=${encodeURIComponent(ratSym)}&apikey=${FMP_KEY}`),
+          ]);
+          eodRaw = eodR.ok ? await eodR.json() : [];
+          ratiosRaw = ratR.ok ? await ratR.json() : [];
+          ratingRaw = ratingR.ok ? await ratingR.json() : [];
+          profileRaw = profR.ok ? await profR.json() : [];
+        } catch (e) {
+          return json({ error: `FMP fetch failed: ${e.message}` }, corsHeaders, 502);
+        }
+
+        // Monthly closes — pick last trading day of each month
+        const monthlyMap = {};
+        for (const p of (Array.isArray(eodRaw) ? eodRaw : [])) {
+          const d = p.date || p.priceDate;
+          if (!d) continue;
+          const ym = d.slice(0, 7);
+          const close = Number(p.adjClose ?? p.close ?? p.price);
+          if (!Number.isFinite(close)) continue;
+          // Keep the latest date in each month (closes iterate newest-first in FMP)
+          if (!monthlyMap[ym] || monthlyMap[ym].date < d) {
+            monthlyMap[ym] = { date: d, close };
+          }
+        }
+        const monthly = Object.keys(monthlyMap).sort().map(k => monthlyMap[k]);
+
+        // Yearly ratios indexed by fiscalYear
+        const ratiosByYear = {};
+        for (const r of (Array.isArray(ratiosRaw) ? ratiosRaw : [])) {
+          const y = r.fiscalYear || (r.date ? r.date.slice(0, 4) : null);
+          if (!y) continue;
+          ratiosByYear[y] = {
+            pe: r.priceToEarningsRatio ?? r.priceEarningsRatio ?? null,
+            ps: r.priceToSalesRatio ?? null,
+            pb: r.priceToBookRatio ?? null,
+            payout: r.dividendPayoutRatio ?? null,
+            yield: r.dividendYield ?? null,
+            dps: r.dividendPerShare ?? null,
+            de: r.debtToEquityRatio ?? null,
+            roe: r.returnOnEquity ?? null,
+            eps: r.netIncomePerShare ?? null,
+          };
+        }
+        const peSeries = Object.keys(ratiosByYear).sort().map(y => ({ year: +y, pe: ratiosByYear[y].pe }))
+          .filter(r => Number.isFinite(r.pe) && r.pe > 0 && r.pe < 200);
+        const avgPE = peSeries.length ? peSeries.reduce((a, b) => a + b.pe, 0) / peSeries.length : null;
+        const avg5 = peSeries.slice(-5);
+        const avgPE5 = avg5.length ? avg5.reduce((a, b) => a + b.pe, 0) / avg5.length : null;
+        const avg10 = peSeries.slice(-10);
+        const avgPE10 = avg10.length ? avg10.reduce((a, b) => a + b.pe, 0) / avg10.length : null;
+
+        // Rating + profile
+        const rating = Array.isArray(ratingRaw) ? ratingRaw[0] : ratingRaw;
+        const profile = Array.isArray(profileRaw) ? profileRaw[0] : profileRaw;
+
+        const result = {
+          ticker,
+          monthly_prices: monthly,  // [{date, close}]
+          ratios_by_year: ratiosByYear,  // {2020:{pe,ps,...}, ...}
+          pe_series: peSeries,  // [{year, pe}]
+          avg_pe_all: avgPE,
+          avg_pe_5y: avgPE5,
+          avg_pe_10y: avgPE10,
+          rating: rating ? {
+            overall: rating.rating || rating.overallRating,
+            recommendation: rating.ratingRecommendation,
+            score: rating.ratingScore,
+          } : null,
+          profile: profile ? {
+            name: profile.companyName,
+            sector: profile.sector,
+            industry: profile.industry,
+            country: profile.country,
+            mktCap: profile.mktCap,
+            beta: profile.beta,
+            isEtf: profile.isEtf,
+            isReit: profile.industry?.includes("REIT") || false,
+          } : null,
+          cached: false,
+          generated_at: new Date().toISOString(),
+        };
+
+        try {
+          await env.DB.prepare(
+            `INSERT INTO price_cache (id, data, updated_at) VALUES (?, ?, datetime('now'))
+             ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
+          ).bind(cacheKey, JSON.stringify(result)).run();
+        } catch {}
+
+        return json(result, corsHeaders);
+      }
+
       if (path === "/api/buy-wizard/context" && request.method === "GET") {
         await ensureMigrations(env);
         const tk = (url.searchParams.get("ticker") || "").trim().toUpperCase();

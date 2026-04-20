@@ -70,6 +70,7 @@ export const TABS = [
   {id:"debt",lbl:"Deuda",ico:"⬡"},
   {id:"divAll",lbl:"Dividendos",ico:"💰"},
   {id:"valAll",lbl:"Valoración",ico:"◎"},
+  {id:"fast",lbl:"FAST",ico:"⚡"},
   {id:"verdict",lbl:"Veredicto",ico:"★"},
   {id:"data",lbl:"Datos",ico:"▤"},
   {id:"report",lbl:"Informe",ico:"📄"},
