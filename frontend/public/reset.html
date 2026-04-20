@@ -39,11 +39,9 @@
       await Promise.all(keys.map(k => caches.delete(k)));
       status.textContent = `${status.textContent} · ${keys.length} caches borrados`;
     }
-    // 3. Clear localStorage / sessionStorage (preserve ayr_auth if present)
-    const savedAuth = localStorage.getItem('ayr_auth');
-    try { localStorage.clear(); } catch {}
+    // 3. NO borrar localStorage — contiene listas custom del usuario
+    //    (Gorka, tabs watchlist, preferencias). Solo clean sessionStorage.
     try { sessionStorage.clear(); } catch {}
-    if (savedAuth) localStorage.setItem('ayr_auth', savedAuth);
     // 4. Redirect to root with cache-busting param
     status.textContent = 'Listo · cargando versión nueva…';
     setTimeout(() => {

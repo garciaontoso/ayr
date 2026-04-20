@@ -13311,6 +13311,72 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         return json(out, corsHeaders);
       }
 
+      // POST /api/oracle-verdict/upload-manual
+      // Stores an Oracle verdict synthesized manually by Claude Code in chat
+      // (NO Anthropic API call). Free for the user — no Opus tokens consumed.
+      // Body: { ticker, action, conviction, one_liner, summary, verdict_json }
+      // verdict_json should match the same shape /api/oracle-verdict produces.
+      // Same TTL (24h) and same dashboard rendering as Opus-generated verdicts.
+      if (path === "/api/oracle-verdict/upload-manual" && request.method === "POST") {
+        await ensureMigrations(env);
+        let body;
+        try { body = await request.json(); }
+        catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+
+        // Fallback: if caller only sent verdict_json (without top-level wrapper),
+        // pull the displayed fields from inside verdict_json. Esto evita que
+        // agentes que envían sólo el objeto completo vean badges con HOLD/null.
+        const vj = body.verdict_json || {};
+        const ticker = String(body.ticker || vj.ticker || "").trim().toUpperCase();
+        const action = String(body.action || vj.action || "HOLD").toUpperCase();
+        const conviction = body.conviction != null ? parseInt(body.conviction, 10)
+          : (vj.conviction != null ? parseInt(vj.conviction, 10) : null);
+        const one_liner = body.one_liner ? String(body.one_liner).slice(0, 280)
+          : (vj.one_liner ? String(vj.one_liner).slice(0, 280) : null);
+        const summary = body.summary ? String(body.summary).slice(0, 2000)
+          : (vj.summary ? String(vj.summary).slice(0, 2000) : null);
+
+        if (!ticker) return json({ error: "ticker required" }, corsHeaders, 400);
+        if (!body.verdict_json || typeof body.verdict_json !== "object") {
+          return json({ error: "verdict_json required (full Oracle JSON)" }, corsHeaders, 400);
+        }
+        if (!['BUY','ADD','HOLD','TRIM','SELL','AVOID','ACCUMULATE'].includes(action)) {
+          return json({ error: "action must be BUY|ADD|HOLD|TRIM|SELL|AVOID|ACCUMULATE" }, corsHeaders, 400);
+        }
+
+        const now = Date.now();
+        const expires = now + 24 * 3600 * 1000;
+        const ctxUsed = body.context_used || { sources: ["claude-code-manual"] };
+
+        try {
+          await env.DB.prepare(
+            `INSERT INTO oracle_verdicts
+              (ticker, action, conviction, one_liner, summary, verdict_json, context_used, model, generated_at, expires_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(ticker) DO UPDATE SET
+               action = excluded.action,
+               conviction = excluded.conviction,
+               one_liner = excluded.one_liner,
+               summary = excluded.summary,
+               verdict_json = excluded.verdict_json,
+               context_used = excluded.context_used,
+               model = excluded.model,
+               generated_at = excluded.generated_at,
+               expires_at = excluded.expires_at`
+          ).bind(
+            ticker, action, conviction, one_liner, summary,
+            JSON.stringify(body.verdict_json),
+            JSON.stringify(ctxUsed),
+            "claude-code-manual",
+            now, expires,
+          ).run();
+        } catch (e) {
+          return json({ error: `D1 insert failed: ${e.message}` }, corsHeaders, 500);
+        }
+
+        return json({ ok: true, ticker, action, conviction, generated_at: now, expires_at: expires }, corsHeaders);
+      }
+
       // GET /api/oracle-verdict/batch?tickers=KO,PEP,ITRK
       // Returns cached verdicts (action + conviction + sector + one_liner)
       // for all requested tickers. Used by the portfolio/watchlist "O" column
@@ -16985,8 +17051,14 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
 
   // Cloudflare Cron Trigger — runs daily at 9:00 UTC (11:00 Madrid) Mon-Fri
   async scheduled(event, env, ctx) {
-    // Differentiate which cron fired so Monday 06:00 (digest) and Monday 13:00
-    // (daily pipeline) do not both run the full agent pipeline.
+    // KILL-SWITCH (2026-04-19): usuario ha pedido CERO consumo automático
+    // Anthropic API. Aunque los triggers en wrangler.toml están comentados,
+    // si Cloudflare tuviera un cron residual activo, este early-return
+    // garantiza que scheduled() nunca llama a agentes/Opus/Research.
+    console.log("[scheduled] KILL-SWITCH activo — no se ejecuta nada");
+    return;
+    // ─── CÓDIGO ORIGINAL SILENCIADO (mantener para referencia futura) ───
+    // eslint-disable-next-line no-unreachable
     const cronExpr = event?.cron || "";
     const isWeeklyDigestCron  = cronExpr === "0 6 * * 1";
     const isDailyAgentsCron   = cronExpr === "0 13 * * 1-5";

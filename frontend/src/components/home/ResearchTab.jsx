@@ -109,15 +109,36 @@ export default function ResearchTab() {
     setHomeTab,
   } = useHome();
 
-  // Custom lists — user-created watchlists, persisted in localStorage.
+  // Custom lists — user-created watchlists, sincronizadas en cloud via
+  // /api/preferences/ui_research_custom_lists. Sobreviven a /reset, clear
+  // cache, cambio de dispositivo. Fallback a localStorage si la API falla.
   // Each: { id: 'custom_NNN', name, desc, color, tickers: [...] }
   const [customLists, setCustomLists] = useState(() => {
     try { return JSON.parse(localStorage.getItem(CUSTOM_LISTS_KEY) || '[]'); }
     catch { return []; }
   });
+  // Cargar desde cloud al montar (una sola vez)
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(`${API_URL}/api/preferences/ui_research_custom_lists`);
+        const d = await r.json();
+        if (d && Array.isArray(d.value)) {
+          setCustomLists(d.value);
+          try { localStorage.setItem(CUSTOM_LISTS_KEY, JSON.stringify(d.value)); } catch {}
+        }
+      } catch {}
+    })();
+  }, []);
   const saveCustomLists = useCallback((lists) => {
     setCustomLists(lists);
+    // Write-through: cloud primero, localStorage como cache inmediato
     try { localStorage.setItem(CUSTOM_LISTS_KEY, JSON.stringify(lists)); } catch {}
+    fetch(`${API_URL}/api/preferences`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: 'ui_research_custom_lists', value: lists }),
+    }).catch(() => {});
   }, []);
   const openAlertForTicker = useCallback((ticker) => {
     try { sessionStorage.setItem('prefill_alert_ticker', ticker); } catch {}
