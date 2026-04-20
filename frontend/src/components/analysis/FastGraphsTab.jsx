@@ -6,11 +6,37 @@ export default function FastGraphsTab() {
   const { DATA_YEARS, L, cfg, comp, fgGrowth, fgMode, fgPE, fgProjYears, fin, setFgGrowth, setFgMode, setFgPE, setFgProjYears, setShowDiv, showDiv } = useAnalysis();
     // Historical data (oldest → newest) — only years with actual financial data
     const histYrs = [...DATA_YEARS].reverse();
+    // Metric per-share per year. Soporta 8 bases de correlación precio-valor.
+    // Todas son per-share (dividido por shares outstanding). Unidad: $/acción.
     const getMetric = (y) => {
-      if(fgMode === "fcf") return comp[y]?.fcfps;
-      if(fgMode === "ocf") return div(fin[y]?.ocf, fin[y]?.sharesOut);
-      return fin[y]?.eps;
+      const f = fin[y]; if (!f) return null;
+      const so = f.sharesOut;
+      if (fgMode === "eps_adj")      return f.eps;           // diluted op earnings (FMP default)
+      if (fgMode === "eps_basic")    return f.epsBasic;      // basic EPS
+      if (fgMode === "eps_diluted")  return f.epsDiluted;    // diluted EPS
+      if (fgMode === "fcf")          return comp[y]?.fcfps;   // FCF per share
+      if (fgMode === "fcfe")         return comp[y]?.fcfps;   // FCFE proxy = FCF (sin ajuste debt)
+      if (fgMode === "ocf")          return div(f.ocf, so);
+      if (fgMode === "ebitda")       return div((f.operatingIncome || 0) + (f.depreciation || 0), so);
+      if (fgMode === "ebit")         return div(f.operatingIncome, so);
+      if (fgMode === "sales")        return div(f.revenue, so);
+      // Backward compat: modes antiguos "eps" → eps_adj
+      if (fgMode === "eps")          return f.eps;
+      return f.eps;
     };
+    // Label + unit for current mode (axis Y)
+    const metricLabel = {
+      eps_adj: 'EPS Ajustado (Operating)',
+      eps_basic: 'EPS Básico',
+      eps_diluted: 'EPS Diluido',
+      ocf: 'OCF / acción',
+      fcfe: 'FCFE / acción',
+      fcf: 'FCF / acción',
+      ebitda: 'EBITDA / acción',
+      ebit: 'EBIT / acción',
+      sales: 'Ventas / acción',
+      eps: 'EPS',
+    }[fgMode] || 'EPS';
 
     // Filter valid historical years — must have non-zero metric value
     const validHist = histYrs.map(y => ({
@@ -108,10 +134,42 @@ export default function FastGraphsTab() {
     const futurePrice = futureEPS ? futureEPS * fgPE : null;
     const futureReturn = (futurePrice && cfg.price > 0) ? Math.pow(futurePrice / cfg.price, 1 / fgProjYears) - 1 : null;
 
-    const modeBtn = (id, label) => (
-      <button onClick={() => setFgMode(id)} style={{padding:"5px 12px",borderRadius:8,border:`1px solid ${fgMode===id?"var(--gold)":"var(--border)"}`,background:fgMode===id?"var(--gold-dim)":"transparent",color:fgMode===id?"var(--gold)":"var(--text-secondary)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)",transition:"all .2s"}}>
-        {label}
-      </button>
+    // Dropdown agrupado (8 métricas en 3 secciones). Ej: earnings basis /
+    // cash flow basis / otros (sales, ebitda, ebit). Todas industry-standard.
+    const metricOptions = [
+      { group: 'Earnings', id: 'eps_adj',     label: 'EPS Ajustado (Operating)' },
+      { group: 'Earnings', id: 'eps_basic',   label: 'EPS Básico' },
+      { group: 'Earnings', id: 'eps_diluted', label: 'EPS Diluido' },
+      { group: 'Cash Flow', id: 'ocf',        label: 'Operating Cash Flow (OCF, FFO)' },
+      { group: 'Cash Flow', id: 'fcfe',       label: 'Free Cash Flow to Equity (FCFE, AFFO)' },
+      { group: 'Otras',    id: 'ebitda',      label: 'EBITDA' },
+      { group: 'Otras',    id: 'ebit',        label: 'EBIT' },
+      { group: 'Otras',    id: 'sales',       label: 'Ventas / Revenue' },
+    ];
+    const MetricDropdown = () => (
+      <select value={fgMode} onChange={e => setFgMode(e.target.value)}
+        style={{
+          padding:"6px 12px", borderRadius:8,
+          border:"1px solid var(--gold)",
+          background:"var(--gold-dim)",
+          color:"var(--gold)",
+          fontSize:11, fontWeight:600, fontFamily:"var(--fm)",
+          cursor:"pointer", outline:"none",
+          maxWidth: 280,
+        }}>
+        <optgroup label="Earnings">
+          {metricOptions.filter(m => m.group === 'Earnings').map(m =>
+            <option key={m.id} value={m.id}>{m.label}</option>)}
+        </optgroup>
+        <optgroup label="Cash Flow">
+          {metricOptions.filter(m => m.group === 'Cash Flow').map(m =>
+            <option key={m.id} value={m.id}>{m.label}</option>)}
+        </optgroup>
+        <optgroup label="Otras métricas">
+          {metricOptions.filter(m => m.group === 'Otras').map(m =>
+            <option key={m.id} value={m.id}>{m.label}</option>)}
+        </optgroup>
+      </select>
     );
 
     return (
@@ -119,12 +177,13 @@ export default function FastGraphsTab() {
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16,flexWrap:"wrap",gap:12}}>
           <div>
             <h2 style={{margin:"0 0 4px",fontSize:20,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fd)"}}>📊 FastGraphs — Precio vs Valor</h2>
-            <p style={{margin:0,fontSize:12,color:"var(--text-secondary)"}}>Línea naranja = EPS × P/E Normal. Zona verde = histórico. Zona azul = proyección. Punto blanco = precio actual.</p>
+            <p style={{margin:0,fontSize:12,color:"var(--text-secondary)"}}>Línea dorada = {metricLabel} × P/E Normal. Zona sombreada = histórico. Punteado = proyección. Punto blanco = precio actual.</p>
           </div>
           <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-            {modeBtn("eps","EPS")}
-            {modeBtn("fcf","FCF/Acc")}
-            {modeBtn("ocf","OCF/Acc")}
+            <div style={{display:"flex",flexDirection:"column",gap:2}}>
+              <span style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:".3px",textTransform:"uppercase"}}>Price correlated with</span>
+              <MetricDropdown />
+            </div>
             <button onClick={() => setShowDiv(!showDiv)} style={{padding:"5px 12px",borderRadius:8,border:`1px solid ${showDiv?"var(--gold)":"var(--border)"}`,background:showDiv?"rgba(255,214,10,.08)":"transparent",color:showDiv?"#ffd60a":"var(--text-secondary)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>
               +Div
             </button>

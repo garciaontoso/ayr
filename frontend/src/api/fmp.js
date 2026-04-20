@@ -90,6 +90,8 @@ export async function fetchViaFMP(ticker, { forceRefresh = false } = {}) {
       operatingIncome: M(inc.operatingIncome),
       netIncome: M(inc.netIncome),
       eps: inc.epsDiluted || inc.eps || 0,
+      epsBasic: inc.eps || 0,
+      epsDiluted: inc.epsDiluted || inc.eps || 0,
       dps: rat.dividendPerShare || 0,
       sharesOut: M(inc.weightedAverageShsOutDil || inc.weightedAverageShsOut),
       totalDebt: M((bal.totalDebt || 0) || ((bal.longTermDebt || 0) + (bal.shortTermDebt || 0))),

@@ -170,7 +170,7 @@ export default function ARApp() {
   const [cfg, setCfg] = useState({ticker:"",name:"",price:0,currency:"USD",beta:1.0,riskFree:4.0,marketPremium:5.5,taxRate:28,manualDiscount:0,manualGrowth:0,useWACC:true});
   const [tab, setTab] = useState("dash");
   const [anim, setAnim] = useState(false);
-  const [fgMode, setFgMode] = useState("eps");
+  const [fgMode, setFgMode] = useState("eps_adj");
   const [fgPE, setFgPE] = useState(15);
   const [fgGrowth, setFgGrowth] = useState(8);
   const [fgProjYears, setFgProjYears] = useState(5);
