@@ -150,6 +150,8 @@ export default function ResearchTab() {
   // User clicks the 🎯 cell to open BuyWizard and generate a verdict.
   const [oracleVerdicts, setOracleVerdicts] = useState({});
   const [oracleWizardTicker, setOracleWizardTicker] = useState(null);
+  // ─── Rank modal — para rankear listas custom (ej: Universo 20k) por quality ───
+  const [rankModalListId, setRankModalListId] = useState(null);
   const loadOracleVerdicts = useCallback(async (tickers) => {
     if (!tickers?.length) return;
     try {
@@ -295,13 +297,22 @@ export default function ResearchTab() {
               <div style={{fontSize:14,fontWeight:700,color:selectedList.color,fontFamily:"var(--fd)"}}>{selectedList.name}</div>
               <div style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2}}>{selectedList.desc} · {selectedList.tickers.length} empresas</div>
             </div>
-            {isCustomList && (
-              <button onClick={()=>handleAddTickerToList(selectedList.id)}
-                title="Añadir un ticker a esta lista (para quitar: ✕ en cada fila)"
-                style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${selectedList.color}60`,background:`${selectedList.color}18`,color:selectedList.color,fontSize:9,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>
-                + Añadir ticker
-              </button>
-            )}
+            <div style={{display:'flex',gap:6}}>
+              {isCustomList && (
+                <button onClick={()=>handleAddTickerToList(selectedList.id)}
+                  title="Añadir un ticker a esta lista (para quitar: ✕ en cada fila)"
+                  style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${selectedList.color}60`,background:`${selectedList.color}18`,color:selectedList.color,fontSize:9,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>
+                  + Añadir ticker
+                </button>
+              )}
+              {selectedList.tickers.length >= 20 && (
+                <button onClick={()=>setRankModalListId(selectedList.id)}
+                  title="Rankear esta lista por quality composite (yield + ROIC − PE − Debt − Payout). Solo usa datos cacheados, $0 coste."
+                  style={{padding:"5px 12px",borderRadius:6,border:"1px solid #64d2ff",background:"rgba(100,210,255,0.1)",color:"#64d2ff",fontSize:9,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>
+                  ⚡ Rank por calidad
+                </button>
+              )}
+            </div>
           </div>
           {(() => {
             const list = selectedList;
@@ -444,6 +455,145 @@ export default function ResearchTab() {
       if (screenerTickers.length) loadOracleVerdicts(screenerTickers);
     }}
   />
+
+  {/* Rank modal — rankea lista custom por composite quality usando cache FMP */}
+  {rankModalListId && (
+    <RankModal
+      listId={rankModalListId}
+      onClose={() => setRankModalListId(null)}
+      onOracle={(ticker) => { setRankModalListId(null); setOracleWizardTicker(ticker); }}
+    />
+  )}
 </div>
+  );
+}
+
+// ─── Rank Modal — shows ranked results from /api/discovery/rank-custom-list ───
+function RankModal({ listId, onClose, onOracle }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [filters, setFilters] = useState({ minYield: 2, maxPE: 25, maxDE: 1.5 });
+
+  const fetchRanked = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const q = new URLSearchParams({
+        listId,
+        limit: '100',
+        minYield: String(filters.minYield),
+        maxPE: String(filters.maxPE),
+        maxDE: String(filters.maxDE),
+      });
+      const r = await fetch(`${API_URL}/api/discovery/rank-custom-list?${q}`);
+      const j = await r.json();
+      if (j.error) throw new Error(j.error);
+      setData(j);
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }, [listId, filters]);
+
+  useEffect(() => { fetchRanked(); }, [fetchRanked]);
+
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)',
+      zIndex: 9999, display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+      paddingTop: '3vh', paddingBottom: '3vh', overflowY: 'auto',
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: 'var(--bg)', border: '1px solid #64d2ff',
+        borderRadius: 16, padding: 20, maxWidth: 1100, width: '94%',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.7)',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#64d2ff', fontFamily: 'var(--fd)' }}>
+              ⚡ Rank por calidad — {data?.list_name || '...'}
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2 }}>
+              Composite: yield + ROIC − PE − Debt − Payout · Solo usa cache FMP · Coste $0
+            </div>
+          </div>
+          <button onClick={onClose} style={{
+            background: 'transparent', border: 'none', color: 'var(--text-tertiary)',
+            fontSize: 22, cursor: 'pointer', padding: 4,
+          }}>×</button>
+        </div>
+
+        {/* Filters */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap', padding: 10, background: 'var(--card)', borderRadius: 8 }}>
+          <label style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
+            Yield mín
+            <input type="number" value={filters.minYield} onChange={e => setFilters(f => ({ ...f, minYield: parseFloat(e.target.value) || 0 }))}
+              style={{ marginLeft: 6, width: 60, padding: 3, background: 'var(--subtle-bg)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-primary)', fontSize: 11 }} />
+          </label>
+          <label style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
+            P/E máx
+            <input type="number" value={filters.maxPE} onChange={e => setFilters(f => ({ ...f, maxPE: parseFloat(e.target.value) || 999 }))}
+              style={{ marginLeft: 6, width: 60, padding: 3, background: 'var(--subtle-bg)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-primary)', fontSize: 11 }} />
+          </label>
+          <label style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
+            D/E máx
+            <input type="number" step="0.1" value={filters.maxDE} onChange={e => setFilters(f => ({ ...f, maxDE: parseFloat(e.target.value) || 999 }))}
+              style={{ marginLeft: 6, width: 60, padding: 3, background: 'var(--subtle-bg)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-primary)', fontSize: 11 }} />
+          </label>
+          {data && (
+            <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginLeft: 'auto', alignSelf: 'center' }}>
+              Cobertura: {data.coverage} · {data.with_data} con datos cacheados
+            </div>
+          )}
+        </div>
+
+        {loading && <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>Cargando...</div>}
+        {error && <div style={{ color: '#ff453a', padding: 10 }}>⚠ {error}</div>}
+
+        {data && !loading && (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                  {['#', 'SCORE', 'TICKER', 'EMPRESA', 'SECTOR', 'YIELD%', 'P/E', 'PAYOUT%', 'ROIC%', 'FCF Y%', 'D/E', '🎯'].map((h, i) => (
+                    <th key={h} style={{ padding: '6px 8px', textAlign: i <= 3 ? 'left' : 'right', color: 'var(--text-tertiary)', fontSize: 9, fontWeight: 700, fontFamily: 'var(--fm)' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.ranked.map((r, i) => (
+                  <tr key={r.ticker} style={{ borderBottom: '1px solid rgba(255,255,255,.05)' }}>
+                    <td style={{ padding: '4px 8px', color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>{i + 1}</td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 800, color: r.score >= 15 ? '#30d158' : r.score >= 8 ? '#c8a44e' : 'var(--text-primary)', fontFamily: 'var(--fm)' }}>{r.score}</td>
+                    <td style={{ padding: '4px 8px', fontWeight: 700, color: '#64d2ff', fontFamily: 'var(--fm)' }}>{r.ticker}</td>
+                    <td style={{ padding: '4px 8px', color: 'var(--text-primary)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</td>
+                    <td style={{ padding: '4px 8px', color: 'var(--text-tertiary)', fontSize: 10 }}>{r.sector}</td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right', color: 'var(--gold)', fontFamily: 'var(--fm)' }}>{r.yield_pct.toFixed(1)}%</td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'var(--fm)', color: r.pe > 0 && r.pe < 20 ? '#30d158' : r.pe > 30 ? '#ff453a' : 'var(--text-primary)' }}>{r.pe || '—'}</td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'var(--fm)', color: r.payout_pct > 80 ? '#ff453a' : r.payout_pct > 60 ? '#c8a44e' : 'var(--text-primary)' }}>{r.payout_pct}%</td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'var(--fm)', color: r.roic_pct > 15 ? '#30d158' : 'var(--text-primary)' }}>{r.roic_pct.toFixed(1)}</td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'var(--fm)', color: 'var(--text-secondary)' }}>{r.fcf_yield_pct.toFixed(1)}</td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'var(--fm)', color: r.debt_equity > 1 ? '#ff453a' : 'var(--text-primary)' }}>{r.debt_equity.toFixed(2)}</td>
+                    <td style={{ padding: '4px 8px', textAlign: 'center' }}>
+                      <button onClick={() => onOracle(r.ticker)} title="Consultar Oracle"
+                        style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid var(--gold)', background: 'var(--gold-dim)', color: 'var(--gold)', fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--fm)' }}>
+                        🎯
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {data.ranked.length === 0 && (
+              <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-tertiary)' }}>
+                Ningún ticker pasa los filtros. Ajusta los mínimos arriba.
+              </div>
+            )}
+            <div style={{ fontSize: 9, color: 'var(--text-tertiary)', marginTop: 10, fontStyle: 'italic' }}>
+              De {data.total_in_list} tickers en la lista, {data.with_data} tienen fundamentals cacheados.
+              Los que no aparecen: sin cache FMP (puedes cargarlos uno a uno vía Analizar).
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

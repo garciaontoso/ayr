@@ -14548,6 +14548,115 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
         }
       }
 
+      // GET /api/discovery/rank-custom-list?listId=custom_universo20k
+      // Rankea tickers de una lista custom (watchlist) por composite quality.
+      // Usa SOLO datos cacheados en tabla `fundamentals` (no llama a FMP ni
+      // Anthropic). Tickers sin data en fundamentals se omiten silenciosamente.
+      // Composite: yield + ROIC/10 − PE_penalty − debt_penalty − payout_penalty.
+      // Coste: $0 (pura SQL sobre cache existente).
+      if (path === "/api/discovery/rank-custom-list" && request.method === "GET") {
+        try {
+          await ensureMigrations(env);
+          const listId = url.searchParams.get("listId") || "custom_universo20k";
+          const limit = Math.min(parseInt(url.searchParams.get("limit") || "100", 10), 500);
+          const minYield = parseFloat(url.searchParams.get("minYield") || "0");
+          const maxPE = parseFloat(url.searchParams.get("maxPE") || "999");
+          const maxDE = parseFloat(url.searchParams.get("maxDE") || "999");
+
+          // Read custom list from preferences
+          const prefVal = await getAgentMemory(env, "pref_ui_research_custom_lists");
+          const lists = Array.isArray(prefVal) ? prefVal : [];
+          const list = lists.find(l => l.id === listId);
+          if (!list) return json({ error: "list not found: " + listId }, corsHeaders, 404);
+          const tickers = Array.isArray(list.tickers) ? list.tickers : [];
+          if (!tickers.length) return json({ ok: true, ranked: [], total: 0, coverage: "0/0", list_name: list.name }, corsHeaders);
+
+          // Chunked fetch from fundamentals (max ~90 bindings per SQLite stmt)
+          const rows = [];
+          for (let i = 0; i < tickers.length; i += 90) {
+            const batch = tickers.slice(i, i + 90);
+            const placeholders = batch.map(() => "?").join(",");
+            const { results } = await env.DB.prepare(
+              `SELECT symbol, ratios, profile, key_metrics FROM fundamentals WHERE symbol IN (${placeholders})`
+            ).bind(...batch).all();
+            rows.push(...(results || []));
+          }
+
+          // Parse + score
+          const scored = [];
+          for (const r of rows) {
+            try {
+              let ratios, profile, km;
+              try { ratios = JSON.parse(r.ratios || "[]"); } catch { ratios = []; }
+              try { profile = JSON.parse(r.profile || "[]"); } catch { profile = []; }
+              try { km = JSON.parse(r.key_metrics || "[]"); } catch { km = []; }
+              const latestR = Array.isArray(ratios) ? ratios[0] : ratios;
+              const latestK = Array.isArray(km) ? km[0] : km;
+              const prof = Array.isArray(profile) ? profile[0] : profile;
+              if (!latestR || !prof) continue;
+
+              // FMP ratios field names (checked against live data):
+              // dividendYield (decimal), priceToEarningsRatio, dividendPayoutRatio,
+              // debtToEquityRatio, netProfitMargin, assetTurnover
+              const yieldPct = (latestR.dividendYield || 0) * 100;
+              const pe = latestR.priceToEarningsRatio || latestR.priceEarningsRatio || 0;
+              const payout = latestR.dividendPayoutRatio || latestR.payoutRatio || 0;
+              const de = latestR.debtToEquityRatio || latestR.debtEquityRatio || 0;
+              // ROIC proxy: netProfitMargin × assetTurnover = return on assets × (1-taxrate)
+              const npm = latestR.netProfitMargin || 0;
+              const at = latestR.assetTurnover || 0;
+              const roic = npm * at * 100;  // % return on assets as ROIC proxy
+              // Earnings yield and FCF yield from key_metrics (direct % quality signal)
+              const earningsYield = (latestK?.earningsYield || 0) * 100;
+              const fcfYield = (latestK?.freeCashFlowYield || 0) * 100;
+              const roe = earningsYield;  // use earnings yield as ROE proxy
+
+              // Apply filters
+              if (yieldPct < minYield) continue;
+              if (pe > 0 && pe > maxPE) continue;
+              if (de > maxDE) continue;
+
+              // Composite score
+              let score = yieldPct + roic / 10 + roe / 20;
+              if (pe > 0 && pe > 25) score -= (pe - 25) / 5;
+              if (pe <= 0 || pe > 60) score -= 5;
+              if (de > 1) score -= (de - 1) * 2;
+              if (payout > 0.80) score -= 2;
+              if (payout > 0 && payout < 0.60) score += 1;
+
+              scored.push({
+                ticker: r.symbol,
+                name: prof.companyName || r.symbol,
+                sector: prof.sector || "",
+                country: prof.country || "",
+                mktCap: prof.mktCap || 0,
+                yield_pct: Math.round(yieldPct * 10) / 10,
+                pe: Math.round(pe * 10) / 10,
+                payout_pct: Math.round(payout * 100),
+                roic_pct: Math.round(roic * 10) / 10,
+                fcf_yield_pct: Math.round(fcfYield * 10) / 10,
+                earnings_yield_pct: Math.round(earningsYield * 10) / 10,
+                debt_equity: Math.round(de * 100) / 100,
+                score: Math.round(score * 10) / 10,
+              });
+            } catch {}
+          }
+
+          scored.sort((a, b) => b.score - a.score);
+
+          return json({
+            ok: true,
+            list_name: list.name,
+            total_in_list: tickers.length,
+            with_data: scored.length,
+            ranked: scored.slice(0, limit),
+            coverage: `${scored.length}/${tickers.length}`,
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
       // ─────────────────────────────────────────────────────────
       // GET /api/dividend-scanner — Dividend Compounder Scanner
       // Finds high-conviction dividend growth stocks from a curated
