@@ -59,6 +59,10 @@ export default function FastTab() {
     setFgGrowth, setFgMode, setFgPE, setFgProjYears } = useAnalysis();
 
   const ticker = cfg?.ticker || '';
+  // ETF / fondo / instrumento sin fundamentales por acción: FMP devuelve
+  // ratios/key-metrics/estimates vacíos. Detectar temprano para mostrar
+  // empty-states útiles en cada sub-tab.
+  const isNonFundamental = (h) => h && (!h.ratios_by_year || Object.keys(h.ratios_by_year).length === 0);
   const [history, setHistory] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -957,6 +961,15 @@ export default function FastTab() {
         ))}
       </div>
 
+      {/* Banner ETF / instrumento sin fundamentales — cuando el ticker no tiene
+          ratios por acción (ETFs, fondos, ADRs sin reporting). El chart sigue
+          mostrando evolución de precio, pero FAST Graphs no aplica. */}
+      {isNonFundamental(history) && (
+        <div style={{marginBottom:12,padding:'10px 14px',background:'rgba(74,144,226,0.08)',border:'1px solid rgba(74,144,226,0.3)',borderRadius:10,fontSize:11,color:'var(--text-primary)',fontFamily:'var(--fm)',lineHeight:1.5}}>
+          ℹ️ <strong>{ticker}</strong> es un <strong>ETF o instrumento sin fundamentales por acción</strong>. FMP no devuelve EPS/P/E/ratios, así que las curvas de Fair Value y Normal P/E no se pueden calcular. El chart muestra solo evolución de precio mensual. Para análisis fundamental usa acciones individuales.
+        </div>
+      )}
+
       {/* Main layout: chart a la izquierda + panel de métricas clave a la derecha,
           replicando la columna "Metrics" de FAST Graphs. En pantallas <1200px
           colapsa a 1 columna (sidebar debajo del chart). SOLO en tab Summary. */}
@@ -1480,7 +1493,12 @@ export default function FastTab() {
       {/* Tendencias operativas — 4 mini-sparklines: EV/EBITDA, ROIC, FCF Yield,
           DPS Growth. Primeros 3 del backend (keyMetricsRaw). DPS growth derivado
           client-side del ratios_by_year. */}
-      {innerTab === 'trends' && history && (
+      {innerTab === 'trends' && isNonFundamental(history) && (
+        <div style={{marginTop:14,padding:40,textAlign:'center',background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,color:'var(--text-secondary)',fontSize:12}}>
+          ETFs y fondos no tienen métricas operativas por acción. Cambia a un ticker individual para ver tendencias de EV/EBITDA, ROIC, FCF Yield.
+        </div>
+      )}
+      {innerTab === 'trends' && history && !isNonFundamental(history) && (
         <div style={{marginTop:14,display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(240px, 1fr))',gap:10}}>
           <SparkCard label="EV/EBITDA" data={history.ev_ebitda_series} fmt={v => v.toFixed(1)+'x'} colorHi="#ff9500" colorLo="#30d158" hiIsBad/>
           <SparkCard label="ROIC" data={history.roic_series} fmt={v => (v*100).toFixed(1)+'%'} colorHi="#30d158" colorLo="#ff453a"/>
@@ -1519,7 +1537,12 @@ export default function FastTab() {
       )}
 
       {/* Row: FG Scores (radar) + Analyst Scorecard */}
-      {innerTab === 'scorecard' && history && (
+      {innerTab === 'scorecard' && isNonFundamental(history) && (
+        <div style={{marginTop:14,padding:40,textAlign:'center',background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,color:'var(--text-secondary)',fontSize:12}}>
+          ETFs/fondos no tienen FG Scores ni earnings scorecard. Aplica solo a empresas con reporting trimestral.
+        </div>
+      )}
+      {innerTab === 'scorecard' && history && !isNonFundamental(history) && (
         <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1.2fr)',gap:12,marginTop:14}}>
           <FGScoresPanel scores={history.fg_scores} />
           <AnalystScorecard scorecard={history.earnings_scorecard} />
