@@ -1437,6 +1437,18 @@ export default function FastTab() {
         )}
       </div>
 
+      {/* Tendencias operativas — 3 mini-sparklines: EV/EBITDA, ROIC, FCF Yield.
+          Series vienen de /api/fg-history (keyMetricsRaw por año). Se ocultan
+          si no hay datos. Útiles para ver si el business se está encareciendo
+          o deteriorando operativamente a lo largo del tiempo. */}
+      {history && (
+        <div style={{marginTop:14,display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(240px, 1fr))',gap:10}}>
+          <SparkCard label="EV/EBITDA" data={history.ev_ebitda_series} fmt={v => v.toFixed(1)+'x'} colorHi="#ff9500" colorLo="#30d158" hiIsBad/>
+          <SparkCard label="ROIC" data={history.roic_series} fmt={v => (v*100).toFixed(1)+'%'} colorHi="#30d158" colorLo="#ff453a"/>
+          <SparkCard label="FCF Yield" data={history.fcf_yield_series} fmt={v => (v*100).toFixed(1)+'%'} colorHi="#30d158" colorLo="#ff453a"/>
+        </div>
+      )}
+
       {/* Row: FG Scores (radar) + Analyst Scorecard */}
       {history && (
         <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1.2fr)',gap:12,marginTop:14}}>
@@ -1451,6 +1463,52 @@ export default function FastTab() {
           <SplitsTable splits={history.splits} />
         </div>
       )}
+    </div>
+  );
+}
+
+function SparkCard({ label, data, fmt, colorHi = '#30d158', colorLo = '#ff453a', hiIsBad = false }) {
+  // Mini-sparkline card — muestra tendencia de una métrica por año.
+  // `data`: [{year, value}]. `fmt` formatea el valor último. `hiIsBad` invierte
+  // semántica (p.ej. EV/EBITDA alto = caro, no bueno).
+  if (!Array.isArray(data) || data.length < 2) return null;
+  const values = data.map(d => d.value);
+  const last = values[values.length - 1];
+  const first = values[0];
+  const change = first !== 0 ? (last - first) / Math.abs(first) : 0;
+  // Semántica: si hiIsBad, subir = malo (rojo). Else, subir = bueno (verde).
+  const isGood = hiIsBad ? change < 0 : change > 0;
+  const trendColor = isGood ? colorHi : colorLo;
+
+  const W = 220, H = 54, P = 4;
+  const minV = Math.min(...values);
+  const maxV = Math.max(...values);
+  const range = maxV - minV || 1;
+  const xs = (i) => P + (i / (values.length - 1)) * (W - 2 * P);
+  const ys = (v) => P + (1 - (v - minV) / range) * (H - 2 * P);
+  const poly = values.map((v, i) => `${xs(i)},${ys(v)}`).join(' ');
+  const area = `${xs(0)},${H - P} ${poly} ${xs(values.length - 1)},${H - P}`;
+
+  return (
+    <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:12,padding:12,minWidth:0}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:4,gap:8}}>
+        <span style={{fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)',textTransform:'uppercase',letterSpacing:.3}}>{label}</span>
+        <span style={{fontSize:10,fontWeight:700,color:trendColor,fontFamily:'var(--fm)'}}>
+          {change > 0 ? '+' : ''}{(change * 100).toFixed(0)}%
+        </span>
+      </div>
+      <div style={{fontSize:16,fontWeight:700,color:'var(--text-primary)',fontFamily:'var(--fm)',marginBottom:4}}>
+        {fmt(last)}
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{width:'100%',height:40,display:'block'}}>
+        <polygon points={area} fill={trendColor} fillOpacity={0.14} stroke="none"/>
+        <polyline points={poly} fill="none" stroke={trendColor} strokeWidth={1.6} strokeLinejoin="round" strokeLinecap="round"/>
+        <circle cx={xs(values.length - 1)} cy={ys(last)} r={2.2} fill={trendColor} stroke="var(--card)" strokeWidth={0.8}/>
+      </svg>
+      <div style={{display:'flex',justifyContent:'space-between',fontSize:8,color:'var(--text-tertiary)',fontFamily:'var(--fm)',marginTop:2}}>
+        <span>{data[0].year}</span>
+        <span>{data[data.length - 1].year}</span>
+      </div>
     </div>
   );
 }

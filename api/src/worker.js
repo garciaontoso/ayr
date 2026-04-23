@@ -13445,6 +13445,33 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         const avg10 = peSeries.slice(-10);
         const avgPE10 = avg10.length ? avg10.reduce((a, b) => a + b.pe, 0) / avg10.length : null;
 
+        // Series de métricas operativas derivadas de keyMetricsRaw (ya fetcheado
+        // para FG scores). Expuestas al frontend para mini-charts de tendencias:
+        //   - ev_ebitda_series : múltiplo enterprise value / EBITDA por año
+        //   - roic_series      : return on invested capital por año
+        //   - fcf_yield_series : free cash flow yield por año
+        // Todas ordenadas asc por año, filtradas a valores finitos.
+        const kmByYear = (() => {
+          const out = {};
+          for (const k of (Array.isArray(keyMetricsRaw) ? keyMetricsRaw : [])) {
+            const y = k.fiscalYear || (k.date ? k.date.slice(0, 4) : null);
+            if (!y) continue;
+            out[y] = k;
+          }
+          return out;
+        })();
+        const kmSeries = (...fields) => Object.keys(kmByYear).sort().map(y => {
+          const rec = kmByYear[y];
+          for (const f of fields) {
+            const v = +rec[f];
+            if (Number.isFinite(v) && v !== 0) return { year: +y, value: v };
+          }
+          return { year: +y, value: null };
+        }).filter(r => r.value != null);
+        const evEbitdaSeries = kmSeries('enterpriseValueOverEBITDA', 'evToEBITDA', 'evToOperatingCashFlow');
+        const roicSeries = kmSeries('returnOnInvestedCapital');
+        const fcfYieldSeries = kmSeries('freeCashFlowYield');
+
         // Rating + profile
         const rating = Array.isArray(ratingRaw) ? ratingRaw[0] : ratingRaw;
         const profile = Array.isArray(profileRaw) ? profileRaw[0] : profileRaw;
@@ -13580,6 +13607,9 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
           avg_pe_all: avgPE,
           avg_pe_5y: avgPE5,
           avg_pe_10y: avgPE10,
+          ev_ebitda_series: evEbitdaSeries,  // [{year, value}] — múltiplo EV/EBITDA
+          roic_series: roicSeries,           // [{year, value}] — return on invested capital
+          fcf_yield_series: fcfYieldSeries,  // [{year, value}] — free cash flow yield
           estimates_by_year: estimatesByYear,  // {2026:{epsAvg,epsHigh,epsLow,revenueAvg,analystsEps}, ...}
           price_target: priceTargetRaw ? {
             consensus: priceTargetRaw.targetConsensus ?? priceTargetRaw.priceTarget ?? null,
