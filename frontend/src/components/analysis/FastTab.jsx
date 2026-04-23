@@ -285,10 +285,10 @@ export default function FastTab() {
   const rawMax = sortedY.length ? p95 * 1.15 : 100;
   const rawMin = sortedY.length ? Math.max(0, p05 * 0.80) : 0;
 
-  // Chart dims — más ancho y alto para aproximarse al look FAST Graphs
-  // original (ocupan todo el ancho del contenido visible). PADR ampliado a 60
-  // para acomodar el eje derecho (yield % y payout %).
-  const W = 1400, H = 560;
+  // Chart dims — proporcionado para ocupar ~1000px reales tras sidebar de
+  // métricas (260px). W=1200/H=500 → ratio 2.4 similar a FAST Graphs original
+  // sin apelmazar labels al comprimirse. PADR=60 acomoda eje derecho.
+  const W = 1200, H = 500;
   const PADL = 70, PADR = 60, PADT = 28, PADB = 50;
   const chartW = W - PADL - PADR;
   const chartH = H - PADT - PADB;
