@@ -70,6 +70,7 @@ export default function FastTab() {
   const [showCones, setShowCones] = useState(true);  // margin-of-error cones ±margin_1y/2y
   const [tablePeriod, setTablePeriod] = useState('yearly'); // yearly | quarterly
   const [showRecessions, setShowRecessions] = useState(true);  // bandas de recesiones
+  const [smoothEps, setSmoothEps] = useState(true);  // rolling median 3y para EPS (suaviza write-downs, FX, impairments)
   const [hover, setHover] = useState(null);  // {x, y, date, price, eps, pe, fair, yield, payout} o null
   const hoverRafRef = useRef(null);  // rAF id para throttle del onMouseMove → evita sobrecarga
 
@@ -196,7 +197,7 @@ export default function FastTab() {
     }
     smoothedEpsByYear.set(validHist[i].y, median3(window) ?? validHist[i].val);
   }
-  const getSmoothEps = (y) => smoothedEpsByYear.get(y) ?? getMetricExt(y);
+  const getSmoothEps = (y) => smoothEps ? (smoothedEpsByYear.get(y) ?? getMetricExt(y)) : getMetricExt(y);
 
   // Projection years (future)
   const lastHistY = validHist.length ? validHist[validHist.length - 1].y : new Date().getFullYear();
@@ -801,6 +802,11 @@ export default function FastTab() {
             </select>
           </div>
           {/* Yield + Payout ya son permanentes en el chart (estilo FAST Graphs). */}
+          <button onClick={()=>setSmoothEps(!smoothEps)}
+            title="Rolling median 3y del EPS: suaviza picos GAAP (write-downs, FX, impairments) en la línea de valor justo. OFF = EPS raw."
+            style={{padding:'6px 12px',borderRadius:8,border:`1px solid ${smoothEps?'var(--gold)':'var(--border)'}`,background:smoothEps?'rgba(200,164,78,0.10)':'transparent',color:smoothEps?'var(--gold)':'var(--text-secondary)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'var(--fm)'}}>
+            Smooth EPS {smoothEps ? '✓' : '○'}
+          </button>
           <button onClick={()=>setShowTrades(!showTrades)} style={{padding:'6px 12px',borderRadius:8,border:`1px solid ${showTrades?'#30d158':'var(--border)'}`,background:showTrades?'rgba(48,209,88,0.08)':'transparent',color:showTrades?'#30d158':'var(--text-secondary)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'var(--fm)'}} title={`${trades.length} transacciones de este ticker`}>+Trades ({trades.length})</button>
         </div>
       </div>
