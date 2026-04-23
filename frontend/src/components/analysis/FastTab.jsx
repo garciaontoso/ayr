@@ -175,6 +175,29 @@ export default function FastTab() {
     ? validHistRaw.filter(d => d.y >= firstPriceYear)
     : validHistRaw;
 
+  // ─── EPS suavizado 3y median ────────────────────────────────────────────
+  // FMP devuelve EPS GAAP (netIncomePerShare) que incluye write-downs,
+  // impairments y volatilidad FX — produce picos gigantes en años con
+  // cargos no-cash (ej. DEO 2022-2024: impairment Latam + swings sterling).
+  // Aplicamos rolling median de 3 años para la línea Fair Value, replicando
+  // lo que FAST Graphs hace con empresas de earnings volátiles. La tabla
+  // sigue mostrando EPS raw por año.
+  const median3 = (arr) => {
+    if (!arr.length) return null;
+    const sorted = arr.slice().sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)];
+  };
+  const smoothedEpsByYear = new Map();
+  for (let i = 0; i < validHist.length; i++) {
+    const window = [];
+    for (let k = 0; k < 3; k++) {
+      const j = i - k;
+      if (j >= 0 && validHist[j].val > 0) window.push(validHist[j].val);
+    }
+    smoothedEpsByYear.set(validHist[i].y, median3(window) ?? validHist[i].val);
+  }
+  const getSmoothEps = (y) => smoothedEpsByYear.get(y) ?? getMetricExt(y);
+
   // Projection years (future)
   const lastHistY = validHist.length ? validHist[validHist.length - 1].y : new Date().getFullYear();
   const lastVal = validHist.length ? validHist[validHist.length - 1].val : 0;
@@ -285,13 +308,13 @@ export default function FastTab() {
   });
   const pricePoly = pricePts.map(p => `${p.x},${p.yp}`).join(' ');
 
-  // Fair value historical line (metric × activePE).
+  // Fair value historical line (EPS suavizado × activePE).
   // Clip a [rawMin, rawMax] para que años outlier (spike × PE) no salgan
   // del chart y rompan visualmente la curva.
   const clipY = (v) => Math.max(rawMin, Math.min(v, rawMax));
   const fairHistPts = validHist.map(d => ({
     x: xScale(d.y),
-    yp: yScale(clipY(d.val * activePE)),
+    yp: yScale(clipY(getSmoothEps(d.y) * activePE)),
   }));
   const fairHistPoly = fairHistPts.map(p => `${p.x},${p.yp}`).join(' ');
 
@@ -354,8 +377,11 @@ export default function FastTab() {
   const interpEps = (yrFrac) => {
     const yr = Math.floor(yrFrac);
     const frac = yrFrac - yr;
-    const e1 = getMetricExt(yr);
-    const e2 = getMetricExt(yr + 1);
+    // Usa EPS suavizado 3y para curvas de fair-value / Normal P/E.
+    // Los outliers raw (impairments, write-downs) distorsionarían la
+    // línea de valor justo si se usan directamente.
+    const e1 = getSmoothEps(yr);
+    const e2 = getSmoothEps(yr + 1);
     if (!Number.isFinite(e1) || e1 <= 0) return null;
     if (!Number.isFinite(e2) || e2 <= 0) return e1;
     return e1 + (e2 - e1) * frac;
@@ -483,7 +509,7 @@ export default function FastTab() {
   const peHigh = pct(peValues, 0.85);  // percentil 85 ≈ "caro"
   const peBandLine = (peMult) => peMult == null ? '' : validHist.map(d => ({
     x: xScale(d.y),
-    yp: yScale(clipY(d.val * peMult)),
+    yp: yScale(clipY(getSmoothEps(d.y) * peMult)),
   })).map(p => `${p.x},${p.yp}`).join(' ');
   const bandLow = peBandLine(peLow);
   const bandMid = peBandLine(peMid);
@@ -1048,7 +1074,7 @@ export default function FastTab() {
                   la acción cotizara a su P/E histórico medio 10y. */}
               {bandMid && <polyline points={bandMid} fill="none" stroke="#4a90e2" strokeWidth={2.2} opacity={0.95} strokeLinejoin="round" strokeLinecap="round"/>}
               {bandMid && validHist.map((d, i) => peMid ? (
-                <circle key={'npe'+i} cx={xScale(d.y)} cy={yScale(clipY(d.val * peMid))} r={2.2} fill="#4a90e2" stroke="var(--bg)" strokeWidth={0.6}/>
+                <circle key={'npe'+i} cx={xScale(d.y)} cy={yScale(clipY(getSmoothEps(d.y) * peMid))} r={2.2} fill="#4a90e2" stroke="var(--bg)" strokeWidth={0.6}/>
               ) : null)}
 
               {/* Split flags — banderita vertical en cada stock split */}
