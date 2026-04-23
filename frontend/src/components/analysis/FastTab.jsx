@@ -1462,6 +1462,21 @@ export default function FastTab() {
         </div>
       )}
 
+      {/* Forecasting detallado — tabla 5y con proyección consensus → precio
+          @ fair value (15x custom) y @ Normal P/E. Return anual implícito si
+          se cumple el consenso y P/E converge al múltiplo seleccionado.
+          Replica el segundo chart + tabla de FAST Graphs "Forecasting". */}
+      {history && consensusAvailable && (
+        <ForecastingPanel
+          estimatesByYear={estimatesByYear}
+          estimateYears={estimateYears}
+          activePE={activePE}
+          normalPE={history.avg_pe_10y || history.avg_pe_5y || activePE}
+          currentPrice={cfg?.price}
+          latestDPS={latestDPS}
+        />
+      )}
+
       {/* Row: FG Scores (radar) + Analyst Scorecard */}
       {history && (
         <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1.2fr)',gap:12,marginTop:14}}>
@@ -1476,6 +1491,126 @@ export default function FastTab() {
           <SplitsTable splits={history.splits} />
         </div>
       )}
+    </div>
+  );
+}
+
+function ForecastingPanel({ estimatesByYear, estimateYears, activePE, normalPE, currentPrice, latestDPS }) {
+  // Panel de proyección 5y — replica el chart secundario + tabla de FAST Graphs.
+  // Por cada año con estimate del consenso, calcula:
+  //   - EPS bajo / promedio / alto
+  //   - Precio justo @ activePE (custom, típ. 15x)
+  //   - Precio justo @ normalPE (10y avg)
+  //   - Return anualizado si compras hoy y el P/E converge al fair.
+  const years = estimateYears.slice(0, 5);
+  if (!years.length || !currentPrice) return null;
+
+  const rows = years.map((y, i) => {
+    const est = estimatesByYear[y] || {};
+    const yearsOut = i + 1;
+    const priceAtActive = Number.isFinite(est.epsAvg) ? est.epsAvg * activePE : null;
+    const priceAtNormal = Number.isFinite(est.epsAvg) ? est.epsAvg * normalPE : null;
+    const priceLow = Number.isFinite(est.epsLow) ? est.epsLow * activePE : null;
+    const priceHigh = Number.isFinite(est.epsHigh) ? est.epsHigh * activePE : null;
+    const divIncluded = latestDPS ? latestDPS * yearsOut : 0;  // aproximación: DPS actual × años (sin crecimiento)
+    const returnActive = priceAtActive ? Math.pow((priceAtActive + divIncluded) / currentPrice, 1 / yearsOut) - 1 : null;
+    const returnNormal = priceAtNormal ? Math.pow((priceAtNormal + divIncluded) / currentPrice, 1 / yearsOut) - 1 : null;
+    return { y, est, priceAtActive, priceAtNormal, priceLow, priceHigh, returnActive, returnNormal };
+  });
+
+  // Mini-chart bar EPS projection
+  const W = 800, H = 180, P = 20;
+  const allVals = rows.flatMap(r => [r.est.epsLow, r.est.epsAvg, r.est.epsHigh]).filter(Number.isFinite);
+  if (!allVals.length) return null;
+  const minV = Math.min(...allVals, 0) * 0.9;
+  const maxV = Math.max(...allVals) * 1.1;
+  const xStep = (W - 2 * P) / rows.length;
+  const ys = (v) => P + (1 - (v - minV) / (maxV - minV || 1)) * (H - 2 * P);
+
+  const fmtPct = (v) => v == null ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%';
+  const fmtUSD = (v) => v == null ? '—' : '$' + v.toFixed(2);
+
+  return (
+    <div style={{marginTop:14,background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:14}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:10}}>
+        <div style={{fontSize:11,fontWeight:700,color:'var(--text-primary)',fontFamily:'var(--fm)',textTransform:'uppercase',letterSpacing:.5}}>
+          Forecasting · {years.length} años de consenso
+        </div>
+        <div style={{fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)'}}>
+          Precio hoy ${currentPrice.toFixed(2)} · P/E activo {activePE?.toFixed(1)}x · Normal P/E {normalPE?.toFixed(1)}x
+        </div>
+      </div>
+
+      {/* Bar chart EPS estimates año a año */}
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" style={{width:'100%',height:'auto',display:'block',marginBottom:10}}>
+        <rect x={0} y={0} width={W} height={H} fill="var(--chart-bg, #faf9f5)" rx={4}/>
+        {rows.map((r, i) => {
+          const cx = P + i * xStep + xStep / 2;
+          const barW = Math.max(xStep * 0.25, 8);
+          const epsLow = r.est.epsLow, epsAvg = r.est.epsAvg, epsHigh = r.est.epsHigh;
+          if (!Number.isFinite(epsAvg)) return null;
+          const yAvg = ys(epsAvg);
+          const yLow = Number.isFinite(epsLow) ? ys(epsLow) : yAvg;
+          const yHigh = Number.isFinite(epsHigh) ? ys(epsHigh) : yAvg;
+          return (
+            <g key={r.y}>
+              {/* Whisker high-low */}
+              {Number.isFinite(epsHigh) && Number.isFinite(epsLow) && (
+                <>
+                  <line x1={cx} y1={yHigh} x2={cx} y2={yLow} stroke="#64d2ff" strokeWidth={1.2}/>
+                  <line x1={cx-5} y1={yHigh} x2={cx+5} y2={yHigh} stroke="#64d2ff" strokeWidth={1.2}/>
+                  <line x1={cx-5} y1={yLow} x2={cx+5} y2={yLow} stroke="#64d2ff" strokeWidth={1.2}/>
+                </>
+              )}
+              {/* Bar avg */}
+              <rect x={cx - barW/2} y={yAvg} width={barW} height={H - P - yAvg} fill="#4a90e2" opacity={0.75} rx={2}/>
+              <text x={cx} y={yAvg - 4} textAnchor="middle" fontSize={10} fontWeight={700} fill="var(--text-primary)" fontFamily="monospace">
+                ${epsAvg.toFixed(2)}
+              </text>
+              <text x={cx} y={H - 4} textAnchor="middle" fontSize={10} fill="var(--text-secondary)" fontFamily="monospace">
+                {r.y}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* Tabla 5y */}
+      <table style={{width:'100%',borderCollapse:'collapse',fontSize:10,fontFamily:'var(--fm)',minWidth:520}}>
+        <thead>
+          <tr style={{borderBottom:'1px solid var(--border)',color:'var(--text-tertiary)'}}>
+            <th style={{textAlign:'left',padding:'4px 6px'}}>Año</th>
+            <th style={{textAlign:'right',padding:'4px 6px'}}>EPS bajo</th>
+            <th style={{textAlign:'right',padding:'4px 6px'}}>EPS avg</th>
+            <th style={{textAlign:'right',padding:'4px 6px'}}>EPS alto</th>
+            <th style={{textAlign:'right',padding:'4px 6px',color:'#f59e0b'}}>Precio @ {activePE?.toFixed(1)}x</th>
+            <th style={{textAlign:'right',padding:'4px 6px',color:'#4a90e2'}}>Precio @ {normalPE?.toFixed(1)}x</th>
+            <th style={{textAlign:'right',padding:'4px 6px',color:'#f59e0b'}}>CAGR @ {activePE?.toFixed(1)}x</th>
+            <th style={{textAlign:'right',padding:'4px 6px',color:'#4a90e2'}}>CAGR @ Normal</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.y} style={{borderBottom:'1px solid var(--subtle-border, rgba(20,23,38,0.04))'}}>
+              <td style={{padding:'4px 6px',fontWeight:700,color:'var(--text-primary)'}}>{r.y}</td>
+              <td style={{textAlign:'right',padding:'4px 6px',color:'var(--text-tertiary)'}}>{fmtUSD(r.est.epsLow)}</td>
+              <td style={{textAlign:'right',padding:'4px 6px',color:'var(--text-primary)',fontWeight:700}}>{fmtUSD(r.est.epsAvg)}</td>
+              <td style={{textAlign:'right',padding:'4px 6px',color:'var(--text-tertiary)'}}>{fmtUSD(r.est.epsHigh)}</td>
+              <td style={{textAlign:'right',padding:'4px 6px',color:'#f59e0b',fontWeight:700}}>{fmtUSD(r.priceAtActive)}</td>
+              <td style={{textAlign:'right',padding:'4px 6px',color:'#4a90e2',fontWeight:700}}>{fmtUSD(r.priceAtNormal)}</td>
+              <td style={{textAlign:'right',padding:'4px 6px',color:r.returnActive == null ? 'var(--text-tertiary)' : r.returnActive > 0.1 ? '#30d158' : r.returnActive > 0 ? '#f59e0b' : '#ff453a',fontWeight:700}}>
+                {fmtPct(r.returnActive)}
+              </td>
+              <td style={{textAlign:'right',padding:'4px 6px',color:r.returnNormal == null ? 'var(--text-tertiary)' : r.returnNormal > 0.1 ? '#30d158' : r.returnNormal > 0 ? '#f59e0b' : '#ff453a',fontWeight:700}}>
+                {fmtPct(r.returnNormal)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div style={{fontSize:8,color:'var(--text-tertiary)',fontFamily:'var(--fm)',marginTop:6,lineHeight:1.4}}>
+        CAGR incluye div. acumulado aproximado (DPS actual × años, sin crecimiento). Bar chart = EPS consenso avg · whisker = rango high-low.
+      </div>
     </div>
   );
 }
