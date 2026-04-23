@@ -1,4 +1,4 @@
-export const APP_VERSION = "3.3";
+export const APP_VERSION = "3.4";
 export const _CURRENT_YEAR = new Date().getFullYear();
 export const YEARS = Array.from({length:18}, (_,i) => _CURRENT_YEAR-i);
 export const PROJ_YEARS = Array.from({length:10}, (_,i) => _CURRENT_YEAR+i);

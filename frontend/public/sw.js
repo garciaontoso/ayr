@@ -1,31 +1,30 @@
-// KILL-SWITCH SW (2026-04-19) — reemplaza al SW anterior que cacheaba HTML y
-// dejaba a los usuarios con página en blanco tras deploys. Esta versión:
-//   1) Se activa inmediatamente (skipWaiting + clients.claim)
-//   2) Borra TODOS los caches (incluso el nuevo)
-//   3) Se des-registra sola
-//   4) Recarga todos los tabs abiertos
-// Tras la ejecución, el navegador ya no tiene SW, todas las peticiones van
-// directas a la red (Cloudflare). El usuario ya no ve páginas en blanco.
+// KILL-SWITCH SW v2 (2026-04-21) — versión silenciosa.
+// Reemplaza al SW anterior que además de auto-des-registrarse hacía
+// client.navigate(client.url). Ese reload competía con el mount de React
+// causando blank-screens recurrentes en ayr.onto-so.com (documentado
+// en 2026-04-08 / 2026-04-19 / 2026-04-21).
 //
-// El registro en main.jsx se mantiene sólo para distribuir este kill-switch.
-// Una vez pasado el parche, volveremos a un SW minimalista si queremos offline.
+// Esta versión:
+//   1) Se activa inmediatamente (skipWaiting + clients.claim)
+//   2) Borra TODOS los caches
+//   3) Se des-registra sola — y NADA MÁS. No fuerza reload.
+//
+// El index.html ya incluye un <script> inline que des-registra cualquier
+// SW antes de cargar el bundle, así que no necesitamos forzar reload aquí.
+// main.jsx ya NO registra este SW — sólo sigue aquí para navegadores que
+// aún tengan la versión v1 instalada.
 
 self.addEventListener('install', () => self.skipWaiting());
 
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
-    // 1) Borrar TODOS los caches
-    const keys = await caches.keys();
-    await Promise.all(keys.map(k => caches.delete(k)));
-    // 2) Des-registrar este SW
-    await self.registration.unregister();
-    // 3) Forzar reload en todos los clients (tabs abiertos)
-    const clients = await self.clients.matchAll({ type: 'window' });
-    for (const client of clients) {
-      try { client.navigate(client.url); } catch {}
-    }
+    try {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    } catch (_) {}
+    try { await self.registration.unregister(); } catch (_) {}
   })());
 });
 
-// Pass-through fetch — no cache, todo va a red directamente.
+// Pass-through fetch — nunca cachear, nunca interceptar.
 self.addEventListener('fetch', () => {});

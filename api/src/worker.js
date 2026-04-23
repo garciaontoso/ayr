@@ -2154,6 +2154,89 @@ export default {
         return json({ funds: funds || [] }, corsHeaders);
       }
 
+      // GET /api/funds/overlap — para cada superinvestor, calcula el % de
+      // tu portfolio que está en sus holdings. Útil para ver qué fondos
+      // comparten mejor tu filosofía. Respuesta:
+      // [{fund_id, fund_name, manager, style, overlap_count, overlap_pct,
+      //   portfolio_weighted_overlap_pct, shared_tickers: [{ticker, my_weight, fund_weight}]}]
+      if (path === "/api/funds/overlap" && request.method === "GET") {
+        try {
+          // Portfolio tickers + weights del usuario
+          const { results: posRows } = await env.DB.prepare(
+            `SELECT ticker, shares, COALESCE(market_value, usd_value, 0) AS market_value
+               FROM positions
+              WHERE COALESCE(shares,0) > 0`
+          ).all();
+          const portfolio = (posRows || []).filter(p => p.ticker);
+          const portfolioSet = new Set(portfolio.map(p => p.ticker.toUpperCase()));
+          const totalValue = portfolio.reduce((s, p) => s + (+p.market_value || 0), 0);
+          if (portfolio.length === 0) return json({ funds: [], portfolio_count: 0 }, corsHeaders);
+
+          // Todos los fondos seguidos
+          const { results: funds } = await env.DB.prepare(
+            `SELECT id, name, manager, style, conviction, source, last_quarter
+               FROM superinvestors WHERE followed = 1`
+          ).all();
+
+          // Holdings del último quarter de cada fondo para tickers en cartera
+          const placeholders = Array.from(portfolioSet).map(() => '?').join(',');
+          const { results: holds } = await env.DB.prepare(
+            `SELECT fh.fund_id, fh.ticker, fh.weight_pct, fh.value_usd
+               FROM fund_holdings fh
+               JOIN superinvestors s ON s.id = fh.fund_id
+              WHERE s.followed = 1 AND fh.quarter = s.last_quarter
+                AND UPPER(fh.ticker) IN (${placeholders})`
+          ).bind(...Array.from(portfolioSet)).all();
+
+          // Agrupar por fund_id
+          const byFund = {};
+          for (const h of (holds || [])) {
+            if (!byFund[h.fund_id]) byFund[h.fund_id] = [];
+            byFund[h.fund_id].push(h);
+          }
+
+          const result = (funds || []).map(f => {
+            const shared = byFund[f.id] || [];
+            const overlapCount = shared.length;
+            const overlapPct = Math.round((overlapCount / portfolio.length) * 1000) / 10;
+            // Peso-ponderado: qué % de mi portfolio (por valor) solapa con fondo
+            let weightedOverlap = 0;
+            const sharedTickers = shared.map(h => {
+              const myPos = portfolio.find(p => p.ticker.toUpperCase() === h.ticker.toUpperCase());
+              const myWeight = myPos ? (+myPos.market_value || 0) / (totalValue || 1) * 100 : 0;
+              weightedOverlap += myWeight;
+              return {
+                ticker: h.ticker,
+                my_weight_pct: Math.round(myWeight * 100) / 100,
+                fund_weight_pct: +h.weight_pct || 0,
+              };
+            });
+            sharedTickers.sort((a, b) => b.my_weight_pct - a.my_weight_pct);
+            return {
+              fund_id: f.id,
+              fund_name: f.name,
+              manager: f.manager,
+              style: f.style,
+              conviction: f.conviction,
+              source: f.source,
+              last_quarter: f.last_quarter,
+              overlap_count: overlapCount,
+              overlap_pct: overlapPct,
+              portfolio_weighted_overlap_pct: Math.round(weightedOverlap * 100) / 100,
+              shared_tickers: sharedTickers,
+            };
+          }).sort((a, b) => b.portfolio_weighted_overlap_pct - a.portfolio_weighted_overlap_pct);
+
+          return json({
+            funds: result,
+            portfolio_count: portfolio.length,
+            portfolio_total_value: totalValue,
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: String(e.message || e) }, corsHeaders, 500);
+        }
+      }
+
       // GET /api/funds/by-tickers?symbols=AAPL,KO,... — bulk lookup for
       // multiple tickers. Returns { [ticker]: [{ fund_id, fund_name, ... }] }.
       // Used by CompanyRow badge so we don't fire 84 individual requests.
@@ -3848,24 +3931,95 @@ export default {
         // mark them as such. The frontend label is "Recientes / Próximos".
         // If a future projection table exists later, swap the query.
         const past7 = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+        // Upcoming / recent dividends — dos fuentes merged:
+        //   (a) FMP dividend-calendar (ex-dates futuros próximos 14d) — intento
+        //   (b) D1 dividendos (pagos últimos 14 días ya cobrados) — siempre
+        // Concatenados: primero futuros, luego recientes, dedup por ticker.
         let upcomingDividends = [];
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const plus14 = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
+        const past14 = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
+        const FMP_BASE_LOCAL = "https://financialmodelingprep.com/stable";
+
+        // Position shares map — compartido para ambas fuentes
+        const sharesByTicker = {};
+        const fmpToTicker = {};
         try {
-          const divRs = await env.DB.prepare(
+          const { results: posRows } = await env.DB.prepare(
+            `SELECT ticker, shares FROM positions WHERE COALESCE(shares,0) > 0`
+          ).all();
+          for (const p of (posRows || [])) {
+            sharesByTicker[p.ticker] = p.shares;
+            fmpToTicker[toFMP(p.ticker)] = p.ticker;
+            fmpToTicker[p.ticker] = p.ticker;
+          }
+        } catch {}
+
+        // (a) FMP futuros
+        try {
+          if (FMP_KEY && Object.keys(fmpToTicker).length > 0) {
+            const calResp = await fetch(`${FMP_BASE_LOCAL}/stock-dividend-calendar?from=${todayStr}&to=${plus14}&apikey=${FMP_KEY}`);
+            if (calResp.ok) {
+              const calData = await calResp.json();
+              if (Array.isArray(calData)) {
+                for (const ev of calData) {
+                  const sym = String(ev.symbol || '').toUpperCase();
+                  const ourTicker = fmpToTicker[sym];
+                  if (!ourTicker) continue;
+                  const exDate = String(ev.date || ev.exDividendDate || '').slice(0, 10);
+                  if (!exDate || exDate < todayStr || exDate > plus14) continue;
+                  const dps = Number(ev.dividend || ev.adjDividend || 0);
+                  if (dps <= 0) continue;
+                  const shares = sharesByTicker[ourTicker] || 0;
+                  upcomingDividends.push({
+                    ticker: ourTicker,
+                    ex_date: exDate,
+                    payment_date: ev.paymentDate ? String(ev.paymentDate).slice(0, 10) : null,
+                    dps,
+                    amount: Math.round(dps * shares * 100) / 100,
+                    shares,
+                    upcoming: true,
+                  });
+                }
+              }
+            }
+          }
+        } catch {}
+
+        // (b) D1 pagos recientes
+        try {
+          const seen = new Set(upcomingDividends.map(x => x.ticker));
+          const fb = await env.DB.prepare(
             `SELECT d.ticker, d.fecha AS payment_date,
                     COALESCE(d.bruto, 0) AS amount, COALESCE(d.shares, 0) AS shares
-               FROM dividendos d
-               JOIN positions p ON p.ticker = d.ticker
+               FROM dividendos d JOIN positions p ON p.ticker = d.ticker
               WHERE d.fecha >= ? AND COALESCE(p.shares,0) > 0
-              ORDER BY d.fecha DESC LIMIT 20`
-          ).bind(past7).all();
-          upcomingDividends = (divRs.results || []).map(r => ({
-            ticker: r.ticker,
-            ex_date: null,
-            payment_date: r.payment_date,
-            amount: Number(r.amount) || 0,
-            shares: Number(r.shares) || 0,
-          }));
+              ORDER BY d.fecha DESC LIMIT 15`
+          ).bind(past14).all();
+          for (const r of (fb.results || [])) {
+            if (seen.has(r.ticker)) continue; // no duplicar si FMP ya lo trajo
+            const shares = Number(r.shares) || sharesByTicker[r.ticker] || 0;
+            const dpsEst = shares > 0 ? (Number(r.amount) / shares) : null;
+            upcomingDividends.push({
+              ticker: r.ticker,
+              ex_date: null,
+              payment_date: r.payment_date,
+              dps: dpsEst,
+              amount: Number(r.amount) || 0,
+              shares,
+              recent: true,
+            });
+          }
         } catch {}
+
+        // Ordenar: upcoming primero (por ex_date asc), luego recent (por payment_date desc)
+        upcomingDividends.sort((a, b) => {
+          if (a.upcoming && !b.upcoming) return -1;
+          if (!a.upcoming && b.upcoming) return 1;
+          if (a.upcoming && b.upcoming) return (a.ex_date || '').localeCompare(b.ex_date || '');
+          return (b.payment_date || '').localeCompare(a.payment_date || '');
+        });
+        upcomingDividends = upcomingDividends.slice(0, 15);
 
         // Pending actions — derived from critical alerts (deduped by ticker)
         // and trade agent signals if present.
@@ -13221,19 +13375,32 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         const fromDate = new Date(Date.now() - years * 365 * 86400000).toISOString().slice(0, 10);
         const ratSym = ticker.replace("HKG:", "").replace("BME:", "").replace(":", ".");
 
-        // Parallel fetches: historical EOD + full ratios (annual) + rating + profile
-        let eodRaw = [], ratiosRaw = [], ratingRaw = [], profileRaw = [];
+        // Parallel fetches: historical EOD + full ratios (annual) + rating + profile + analyst estimates
+        // + price target + earnings scorecard (past 20 quarters) + splits + key-metrics
+        let eodRaw = [], ratiosRaw = [], ratingRaw = [], profileRaw = [], estimatesRaw = [],
+            priceTargetRaw = null, earningsRaw = [], splitsRaw = [], keyMetricsRaw = [];
         try {
-          const [eodR, ratR, ratingR, profR] = await Promise.all([
+          const [eodR, ratR, ratingR, profR, estR, ptR, earR, spR, kmR] = await Promise.all([
             fetch(`https://financialmodelingprep.com/stable/historical-price-eod/light?symbol=${encodeURIComponent(ratSym)}&from=${fromDate}&apikey=${FMP_KEY}`),
             fetch(`https://financialmodelingprep.com/stable/ratios?symbol=${encodeURIComponent(ratSym)}&limit=${years}&apikey=${FMP_KEY}`),
             fetch(`https://financialmodelingprep.com/stable/ratings-snapshot?symbol=${encodeURIComponent(ratSym)}&apikey=${FMP_KEY}`),
             fetch(`https://financialmodelingprep.com/stable/profile?symbol=${encodeURIComponent(ratSym)}&apikey=${FMP_KEY}`),
+            fetch(`https://financialmodelingprep.com/stable/analyst-estimates?symbol=${encodeURIComponent(ratSym)}&period=annual&limit=5&apikey=${FMP_KEY}`),
+            fetch(`https://financialmodelingprep.com/stable/price-target-consensus?symbol=${encodeURIComponent(ratSym)}&apikey=${FMP_KEY}`),
+            fetch(`https://financialmodelingprep.com/stable/earnings?symbol=${encodeURIComponent(ratSym)}&limit=40&apikey=${FMP_KEY}`),
+            fetch(`https://financialmodelingprep.com/stable/splits?symbol=${encodeURIComponent(ratSym)}&limit=30&apikey=${FMP_KEY}`),
+            fetch(`https://financialmodelingprep.com/stable/key-metrics?symbol=${encodeURIComponent(ratSym)}&limit=${years}&apikey=${FMP_KEY}`),
           ]);
           eodRaw = eodR.ok ? await eodR.json() : [];
           ratiosRaw = ratR.ok ? await ratR.json() : [];
           ratingRaw = ratingR.ok ? await ratingR.json() : [];
           profileRaw = profR.ok ? await profR.json() : [];
+          estimatesRaw = estR.ok ? await estR.json() : [];
+          const ptJson = ptR.ok ? await ptR.json() : null;
+          priceTargetRaw = Array.isArray(ptJson) ? ptJson[0] : ptJson;
+          earningsRaw = earR.ok ? await earR.json() : [];
+          splitsRaw = spR.ok ? await spR.json() : [];
+          keyMetricsRaw = kmR.ok ? await kmR.json() : [];
         } catch (e) {
           return json({ error: `FMP fetch failed: ${e.message}` }, corsHeaders, 502);
         }
@@ -13282,6 +13449,129 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         const rating = Array.isArray(ratingRaw) ? ratingRaw[0] : ratingRaw;
         const profile = Array.isArray(profileRaw) ? profileRaw[0] : profileRaw;
 
+        // Analyst estimates — next 2-5 years consensus EPS + revenue
+        const estimatesByYear = {};
+        for (const e of (Array.isArray(estimatesRaw) ? estimatesRaw : [])) {
+          const y = e.date ? +e.date.slice(0, 4) : null;
+          if (!y) continue;
+          estimatesByYear[y] = {
+            epsAvg: Number.isFinite(+e.epsAvg) ? +e.epsAvg : null,
+            epsHigh: Number.isFinite(+e.epsHigh) ? +e.epsHigh : null,
+            epsLow: Number.isFinite(+e.epsLow) ? +e.epsLow : null,
+            revenueAvg: Number.isFinite(+e.revenueAvg) ? +e.revenueAvg : null,
+            analystsEps: e.numAnalystsEps ?? e.numAnalystEstimatedEps ?? null,
+          };
+        }
+
+        // Analyst Scorecard — past 40 quarters of (estimate vs actual) EPS.
+        // Produces (a) raw rows for display, (b) 1Y/2Y forward accuracy stats
+        // usable for margin-of-error cone bands.
+        const earningsHist = [];
+        for (const e of (Array.isArray(earningsRaw) ? earningsRaw : [])) {
+          const d = String(e.date || "").slice(0, 10);
+          const epsAct = e.epsActual != null ? +e.epsActual : null;
+          const epsEst = e.epsEstimated != null ? +e.epsEstimated : null;
+          if (!d) continue;
+          const surprise = (epsAct != null && epsEst != null && epsEst !== 0)
+            ? ((epsAct - epsEst) / Math.abs(epsEst)) * 100 : null;
+          earningsHist.push({
+            date: d,
+            eps_est: epsEst,
+            eps_act: epsAct,
+            surprise_pct: surprise,
+            beat: surprise != null ? surprise >= 0 : null,
+            abs_err_pct: surprise != null ? Math.abs(surprise) : null,
+          });
+        }
+        const withSurprise = earningsHist.filter(r => r.surprise_pct != null);
+        const beats = earningsHist.filter(r => r.beat === true).length;
+        const misses = earningsHist.filter(r => r.beat === false).length;
+        const inLine = earningsHist.filter(r => r.beat === null).length;
+        const avgAbsErr = withSurprise.length
+          ? withSurprise.reduce((s, r) => s + r.abs_err_pct, 0) / withSurprise.length : null;
+        const avgSurprise = withSurprise.length
+          ? withSurprise.reduce((s, r) => s + r.surprise_pct, 0) / withSurprise.length : null;
+        // Rolling 1Y / 2Y margins of error — aggregate absolute-err over last 4 / 8 quarters
+        const last4 = withSurprise.slice(0, 4);
+        const last8 = withSurprise.slice(0, 8);
+        const margin1y = last4.length ? last4.reduce((s, r) => s + r.abs_err_pct, 0) / last4.length : null;
+        const margin2y = last8.length ? last8.reduce((s, r) => s + r.abs_err_pct, 0) / last8.length : null;
+
+        // Splits + Spinoffs
+        const splits = [];
+        for (const s of (Array.isArray(splitsRaw) ? splitsRaw : [])) {
+          splits.push({
+            date: String(s.date || "").slice(0, 10),
+            ratio: s.numerator && s.denominator
+              ? `${s.numerator}:${s.denominator}`
+              : (s.ratio || null),
+            numerator: s.numerator ?? null,
+            denominator: s.denominator ?? null,
+          });
+        }
+
+        // Historic EPS CAGR (5y + 10y) from ratios_by_year.eps.
+        // Use the full year list (not filtered to >0) so the exponent "n" is always
+        // calendar-years, not "nth positive year". Skip computation if either endpoint
+        // is not positive (CAGR undefined with negative numbers).
+        const allYears = Object.keys(ratiosByYear).map(Number).sort();
+        const computeCAGR = (n) => {
+          if (allYears.length < n + 1) return null;
+          const y0 = allYears[allYears.length - n - 1];
+          const y1 = allYears[allYears.length - 1];
+          const v0 = ratiosByYear[y0]?.eps;
+          const v1 = ratiosByYear[y1]?.eps;
+          if (!Number.isFinite(v0) || !Number.isFinite(v1) || v0 <= 0 || v1 <= 0) return null;
+          return Math.pow(v1 / v0, 1 / n) - 1;
+        };
+        const cagr5y = computeCAGR(5);
+        const cagr10y = computeCAGR(10);
+
+        // FG Scores equivalent — 5 pillars computed from key-metrics + ratios.
+        // Each pillar 0–100 so they're comparable across tickers.
+        const km = Array.isArray(keyMetricsRaw) && keyMetricsRaw.length ? keyMetricsRaw[0] : {};
+        const rat = Array.isArray(ratiosRaw) && ratiosRaw.length ? ratiosRaw[0] : {};
+        const clamp = (v) => Math.max(0, Math.min(100, Math.round(v)));
+        // Profitability: ROE + ROIC + operating margin
+        const roe = +km.returnOnEquity || +rat.returnOnEquity || 0;
+        const roic = +km.returnOnInvestedCapital || 0;
+        const opMargin = +rat.operatingProfitMargin || 0;
+        const profitability = clamp((roe * 100 * 2) + (roic * 100 * 2) + (opMargin * 100 * 1));
+        // Cash Flow: FCF yield + OCF/NetIncome ratio. Never default ocfToNi to 1
+        // (would hand a free +30 points to any ticker missing this ratio).
+        const fcfYld = +km.freeCashFlowYield || 0;
+        const ocfToNi = Number.isFinite(+rat.cashFlowToNetIncomeRatio) ? +rat.cashFlowToNetIncomeRatio : null;
+        const cashFlow = clamp((fcfYld * 100 * 10) + (ocfToNi != null ? Math.min(ocfToNi * 30, 30) : 0));
+        // Financial Strength: inverse debt/equity + current ratio + interest coverage
+        const de = +rat.debtToEquityRatio || +km.debtToEquity || 0;
+        const cur = +rat.currentRatio || 1;
+        const intCov = +rat.interestCoverage || 0;
+        const strength = clamp(
+          Math.max(0, 70 - de * 35) +
+          Math.min(cur * 10, 20) +
+          Math.min(intCov, 10)
+        );
+        // Growth: 5y CAGR + consensus LT growth
+        const growth = clamp(
+          (cagr5y != null ? cagr5y * 100 * 5 : 0) +
+          (cagr10y != null ? cagr10y * 100 * 2 : 0) +
+          20
+        );
+        // Predictability: inverse avg |surprise|; high accuracy → high score
+        const predictability = avgAbsErr != null
+          ? clamp(Math.max(0, 100 - avgAbsErr * 5))
+          : null;
+        const fgScores = {
+          profitability,
+          cash_flow: cashFlow,
+          financial_strength: strength,
+          growth,
+          predictability,
+          overall: Math.round(
+            (profitability + cashFlow + strength + growth + (predictability ?? 50)) / 5
+          ),
+        };
+
         const result = {
           ticker,
           monthly_prices: monthly,  // [{date, close}]
@@ -13290,6 +13580,30 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
           avg_pe_all: avgPE,
           avg_pe_5y: avgPE5,
           avg_pe_10y: avgPE10,
+          estimates_by_year: estimatesByYear,  // {2026:{epsAvg,epsHigh,epsLow,revenueAvg,analystsEps}, ...}
+          price_target: priceTargetRaw ? {
+            consensus: priceTargetRaw.targetConsensus ?? priceTargetRaw.priceTarget ?? null,
+            high: priceTargetRaw.targetHigh ?? null,
+            low: priceTargetRaw.targetLow ?? null,
+            median: priceTargetRaw.targetMedian ?? null,
+            analysts: priceTargetRaw.numberOfAnalysts ?? priceTargetRaw.numAnalysts ?? null,
+          } : null,
+          earnings_scorecard: {
+            quarters: earningsHist.slice(0, 20),  // [{date, eps_est, eps_act, surprise_pct, beat, abs_err_pct}]
+            total: earningsHist.length,
+            beats, misses, in_line: inLine,
+            // beat_rate divides by quarters WITH both estimate+actual (where beat is determinable).
+            // Quarters with missing data shouldn't dilute the rate.
+            beat_rate: withSurprise.length ? Math.round((beats / withSurprise.length) * 100) : null,
+            avg_surprise_pct: avgSurprise != null ? Math.round(avgSurprise * 10) / 10 : null,
+            avg_abs_err_pct: avgAbsErr != null ? Math.round(avgAbsErr * 10) / 10 : null,
+            margin_1y_pct: margin1y != null ? Math.round(margin1y * 10) / 10 : null,
+            margin_2y_pct: margin2y != null ? Math.round(margin2y * 10) / 10 : null,
+          },
+          splits,  // [{date, ratio, numerator, denominator}]
+          historic_cagr_5y: cagr5y != null ? Math.round(cagr5y * 10000) / 10000 : null,
+          historic_cagr_10y: cagr10y != null ? Math.round(cagr10y * 10000) / 10000 : null,
+          fg_scores: fgScores,
           rating: rating ? {
             overall: rating.rating || rating.overallRating,
             recommendation: rating.ratingRecommendation,

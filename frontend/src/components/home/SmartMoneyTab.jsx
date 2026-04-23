@@ -25,10 +25,30 @@ const SUB_VIEWS = [
   { id: 'alerts', lbl: '🔔 Alerts', desc: 'Cambios materiales último Q' },
   { id: 'funds', lbl: '🏛️ US Superinvestors', desc: '13F filers' },
   { id: 'spanish', lbl: '🇪🇸 Fondos España', desc: 'Cobas / Magallanes / azValor' },
-  { id: 'mine',  lbl: '🎯 Mi cartera',     desc: 'Quién tiene tus tickers' },
+  { id: 'overlap', lbl: '🎯 Overlap', desc: 'Qué fondos coinciden más con mi cartera' },
+  { id: 'mine',  lbl: '👁 Mi cartera',     desc: 'Quién tiene tus tickers' },
   { id: 'consensus', lbl: '⭐ Consensus',  desc: 'Tickers en ≥3 fondos' },
   { id: 'performance', lbl: '📊 Performance', desc: 'Hit rate por fondo' },
 ];
+
+// Agrupación de styles para filtro dropdown
+const STYLE_GROUPS = {
+  all: 'Todos',
+  quality: 'Quality / Compounders',
+  value: 'Value / Deep Value',
+  dividend: 'Dividend Focus',
+  growth: 'Growth / Concentrated',
+  macro: 'Macro / Contrarian',
+};
+function styleGroupOf(style) {
+  if (!style) return 'all';
+  if (/quality|compound/i.test(style)) return 'quality';
+  if (/value|deep-value|contrarian/i.test(style)) return 'value';
+  if (/dividend|consumer-brands/i.test(style)) return 'dividend';
+  if (/growth|concentrated/i.test(style)) return 'growth';
+  if (/macro|activist/i.test(style)) return 'macro';
+  return 'all';
+}
 
 const ALERT_STATUS_COLOR = {
   NEW: 'var(--green)',
@@ -117,6 +137,9 @@ export default function SmartMoneyTab() {
   const [fundDetail, setFundDetail] = useState(null);
   const [consensusMin, setConsensusMin] = useState(3);
   const [consensus, setConsensus] = useState([]);
+  const [overlapData, setOverlapData] = useState(null);
+  const [overlapLoading, setOverlapLoading] = useState(false);
+  const [styleFilter, setStyleFilter] = useState('all');
   const [holdersByTicker, setHoldersByTicker] = useState({});
   const [byTickerLoading, setByTickerLoading] = useState(false);
   // ── Spanish funds state ──
@@ -405,6 +428,21 @@ export default function SmartMoneyTab() {
   useEffect(() => {
     if (view === 'consensus') loadConsensus();
   }, [view, loadConsensus]);
+
+  // ── Overlap con mi cartera ──
+  const loadOverlap = useCallback(async () => {
+    setOverlapLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/funds/overlap`);
+      const d = await r.json();
+      setOverlapData(d);
+    } catch { setOverlapData(null); }
+    finally { setOverlapLoading(false); }
+  }, []);
+
+  useEffect(() => {
+    if (view === 'overlap' && !overlapData) loadOverlap();
+  }, [view, overlapData, loadOverlap]);
 
   // ── Mi cartera: for each ticker, fetch holders ──
   const loadByPortfolio = useCallback(async () => {
@@ -733,8 +771,28 @@ export default function SmartMoneyTab() {
               description="Pulsa 'Refrescar 13F' para descargar los holdings de los 13 superinvestors desde FMP."
             />
           ) : (
+            <>
+              {/* Filter pills por estilo */}
+              <div style={{ ...card, marginBottom: 10, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ fontSize: 10, color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: .3, marginRight: 4 }}>Filtrar:</span>
+                {Object.entries(STYLE_GROUPS).map(([k, lbl]) => {
+                  const count = k === 'all' ? funds.length : funds.filter(f => styleGroupOf(f.style) === k).length;
+                  return (
+                    <button key={k} onClick={() => setStyleFilter(k)}
+                      style={{
+                        padding: '4px 10px', fontSize: 10, fontWeight: 700, borderRadius: 5,
+                        border: `1px solid ${styleFilter === k ? 'var(--gold)' : 'var(--border)'}`,
+                        background: styleFilter === k ? 'rgba(200,164,78,0.12)' : 'transparent',
+                        color: styleFilter === k ? 'var(--gold)' : 'var(--text-secondary)',
+                        cursor: 'pointer', fontFamily: 'var(--fm)',
+                      }}>
+                      {lbl} <span style={{ opacity: 0.6 }}>({count})</span>
+                    </button>
+                  );
+                })}
+              </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
-              {funds.map(f => (
+              {funds.filter(f => styleFilter === 'all' || styleGroupOf(f.style) === styleFilter).map(f => (
                 <div key={f.id} style={{ ...card, marginBottom: 0, cursor: 'pointer', borderColor: selectedFund === f.id ? 'var(--gold)' : 'var(--border)' }}
                      onClick={() => loadFundDetail(f.id)}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
@@ -789,6 +847,7 @@ export default function SmartMoneyTab() {
                 </div>
               ))}
             </div>
+            </>
           )}
         </>
       )}
@@ -1017,6 +1076,89 @@ export default function SmartMoneyTab() {
                 </tbody>
               </table>
             </div>
+          )}
+        </>
+      )}
+
+      {/* ─── View: 🎯 Overlap con mi cartera ─── */}
+      {view === 'overlap' && (
+        <>
+          {overlapLoading ? <InlineLoading label="Calculando overlap..." /> : !overlapData ? (
+            <EmptyState icon="🎯" title="Sin datos" description="No se pudo cargar el overlap."/>
+          ) : (
+            <>
+              <div style={{ ...card, marginBottom: 10 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                  Tu portfolio tiene <strong style={{ color: 'var(--gold)' }}>{overlapData.portfolio_count}</strong> tickers.
+                  Abajo ves qué superinvestors los comparten — ordenados por % peso-ponderado de tu cartera.
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>
+                  <strong>Overlap simple</strong>: tickers compartidos / total cartera.
+                  <strong> Peso-ponderado</strong>: suma del % de cartera que coincide con el fondo (refleja dónde está el dinero).
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 10 }}>
+                {overlapData.funds.filter(f => f.overlap_count > 0).map(f => (
+                  <div key={f.fund_id} style={{
+                    ...card, marginBottom: 0,
+                    borderColor: f.portfolio_weighted_overlap_pct > 10 ? 'var(--gold)' : 'var(--border)',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                          {f.fund_name} <Stars n={f.conviction}/>
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>
+                          {f.manager} · {STYLE_LABEL[f.style] || f.style}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--gold)', fontFamily: 'var(--fm)' }}>
+                          {f.portfolio_weighted_overlap_pct.toFixed(1)}%
+                        </div>
+                        <div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>
+                          {f.overlap_count} tickers · {f.overlap_pct.toFixed(0)}% simple
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
+                      {f.shared_tickers.slice(0, 12).map(t => (
+                        <span key={t.ticker} title={`Tú: ${t.my_weight_pct}% · Fondo: ${t.fund_weight_pct}%`}
+                          style={{
+                            padding: '2px 7px', borderRadius: 4,
+                            background: 'rgba(200,164,78,0.08)',
+                            border: '1px solid var(--border)',
+                            fontSize: 10, fontFamily: 'var(--fm)',
+                            color: t.my_weight_pct >= 3 ? 'var(--gold)' : 'var(--text-secondary)',
+                            fontWeight: t.my_weight_pct >= 3 ? 700 : 500,
+                            cursor: 'pointer',
+                          }}
+                          onClick={() => openAnalysis?.(t.ticker)}
+                        >
+                          {t.ticker}
+                          <span style={{ color: 'var(--text-tertiary)', marginLeft: 3, fontSize: 9 }}>
+                            {t.my_weight_pct.toFixed(1)}%
+                          </span>
+                        </span>
+                      ))}
+                      {f.shared_tickers.length > 12 && (
+                        <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>+{f.shared_tickers.length - 12}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {overlapData.funds.filter(f => f.overlap_count === 0).length > 0 && (
+                <div style={{ ...card, marginTop: 10, opacity: 0.5 }}>
+                  <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 4 }}>
+                    Sin overlap ({overlapData.funds.filter(f => f.overlap_count === 0).length} fondos):
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>
+                    {overlapData.funds.filter(f => f.overlap_count === 0).map(f => f.manager?.split(' ')[0] || f.fund_name).join(' · ')}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </>
       )}

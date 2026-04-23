@@ -198,7 +198,7 @@ export default function DailyBriefingTab() {
 
   const { portfolio, market, top_movers, critical_alerts, upcoming_earnings,
           new_filings, upcoming_dividends, pending_actions, date,
-          research_investigations } = data;
+          research_investigations, cantera_today } = data;
 
   const verdictColor = (v) => v === 'ADD' ? '#22c55e'
     : v === 'SELL' ? '#ef4444'
@@ -603,7 +603,8 @@ export default function DailyBriefingTab() {
             const iso = d.toISOString().slice(0, 10);
             const label = d.toLocaleDateString('es', { weekday: 'short', day: 'numeric', month: 'short' });
             const earningsToday = (upcoming_earnings || []).filter(e => e.report_date === iso);
-            const divsToday = (upcoming_dividends || []).filter(x => x.payment_date === iso);
+            // Filtrar por ex_date (fecha de corte futura) primero; fallback a payment_date.
+            const divsToday = (upcoming_dividends || []).filter(x => (x.ex_date || x.payment_date) === iso);
             return (
               <div key={di} style={{
                 minWidth: 130, padding: 8, borderRadius: 8,
@@ -631,6 +632,97 @@ export default function DailyBriefingTab() {
           })}
         </div>
       </div>
+
+      {/* Ex-dividends dedicated panel con monto estimado */}
+      {upcoming_dividends && upcoming_dividends.length > 0 && (
+        <div style={{ ...card, marginBottom: 12 }}>
+          <div style={title}>💰 Próximos dividendos</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
+            {upcoming_dividends.slice(0, 12).map((x, i) => {
+              const dateLabel = x.ex_date || x.payment_date || '—';
+              const daysTo = dateLabel && dateLabel !== '—'
+                ? Math.ceil((new Date(dateLabel) - new Date()) / 86400000)
+                : null;
+              const urgency = daysTo != null
+                ? daysTo <= 1 ? '#ef4444' : daysTo <= 3 ? '#f59e0b' : 'var(--gold)'
+                : 'var(--text-tertiary)';
+              return (
+                <div key={i} style={{
+                  padding: 8, borderRadius: 6,
+                  border: `1px solid ${urgency === 'var(--gold)' ? 'var(--border)' : urgency}`,
+                  background: 'rgba(255,255,255,0.02)',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+                    <strong style={{ color: 'var(--gold)', fontSize: 12, fontFamily: 'var(--fm)' }}>{x.ticker}</strong>
+                    <span style={{ fontSize: 10, color: urgency, fontWeight: 700, fontFamily: 'var(--fm)' }}>
+                      {x.recent ? '· cobrado' : daysTo != null ? (daysTo === 0 ? 'HOY' : daysTo === 1 ? 'mañana' : `en ${daysTo}d`) : dateLabel}
+                    </span>
+                  </div>
+                  <div style={{ ...mono, fontSize: 10, color: 'var(--text-secondary)' }}>
+                    {x.dps != null && <>${x.dps.toFixed(3)}/sh · </>}
+                    {x.shares > 0 && <>{x.shares}sh · </>}
+                    <strong style={{ color: 'var(--text-primary)' }}>${(x.amount || 0).toFixed(0)}</strong>
+                  </div>
+                  <div style={{ fontSize: 9, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', marginTop: 2 }}>
+                    {x.ex_date ? `ex-date ${x.ex_date}` : `pago ${x.payment_date}`}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Cantera today — sugerencias del screener. Backend devuelve top_5 + new_entries */}
+      {cantera_today && ((cantera_today.top_5 && cantera_today.top_5.length > 0) || (cantera_today.new_entries && cantera_today.new_entries.length > 0)) && (
+        <div style={{ ...card, marginBottom: 12 }}>
+          <div style={title}>🎯 Cantera hoy</div>
+          {cantera_today.new_entries && cantera_today.new_entries.length > 0 && (
+            <>
+              <div style={{ fontSize: 11, color: '#22c55e', marginBottom: 6, fontWeight: 700 }}>
+                ✨ {cantera_today.new_entries.length} nuevas entradas detectadas
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                {cantera_today.new_entries.slice(0, 10).map((t, i) => (
+                  <span key={'n'+i} style={{
+                    padding: '3px 9px', borderRadius: 5,
+                    border: '1px solid #22c55e',
+                    background: 'rgba(34,197,94,0.1)',
+                    fontSize: 11, ...mono, color: '#22c55e', fontWeight: 700,
+                  }}>
+                    {typeof t === 'string' ? t : t.ticker}
+                    {typeof t === 'object' && t.score != null && (
+                      <span style={{ color: 'var(--text-tertiary)', marginLeft: 4, fontWeight: 400 }}>· {t.score}</span>
+                    )}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+          {cantera_today.top_5 && cantera_today.top_5.length > 0 && (
+            <>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                Top 5 del screener (score más alto)
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {cantera_today.top_5.map((t, i) => (
+                  <span key={'t'+i} style={{
+                    padding: '3px 9px', borderRadius: 5,
+                    border: '1px solid var(--border)',
+                    background: 'rgba(200,164,78,0.05)',
+                    fontSize: 11, ...mono, color: 'var(--gold)', fontWeight: 700,
+                  }}
+                    title={t.name || t.ticker}>
+                    {t.ticker}
+                    {t.score != null && <span style={{ color: 'var(--text-tertiary)', marginLeft: 4, fontWeight: 400 }}>· {t.score}</span>}
+                    {t.yield_pct > 0 && <span style={{ color: 'var(--gold)', marginLeft: 4 }}>· {t.yield_pct.toFixed(1)}%</span>}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* New filings */}
       <div style={{ ...card, marginBottom: 12 }}>

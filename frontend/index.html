@@ -12,6 +12,29 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.json" />
+    <!-- ─── Defensa permanente contra página en blanco por SW residual ───
+         Des-registra CUALQUIER service worker antes de que el bundle JS
+         empiece a ejecutar. Evita la carrera entre el mount de React y
+         el "controllerchange" del SW que causó blank-screens recurrentes
+         en 2026-04-08 / 2026-04-19 / 2026-04-21.
+         Ejecuta SÍNCRONAMENTE — sin 'defer', sin 'async' — para que el
+         módulo bundle nunca arranque con un SW controlando.
+    -->
+    <script>
+      (function() {
+        if (!('serviceWorker' in navigator)) return;
+        try {
+          navigator.serviceWorker.getRegistrations().then(function(regs) {
+            for (var i = 0; i < regs.length; i++) regs[i].unregister().catch(function(){});
+          }).catch(function(){});
+          if (window.caches && caches.keys) {
+            caches.keys().then(function(keys) {
+              keys.forEach(function(k) { caches.delete(k).catch(function(){}); });
+            }).catch(function(){});
+          }
+        } catch (e) { /* never throw during unregister */ }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

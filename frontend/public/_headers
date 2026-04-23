@@ -1,4 +1,6 @@
-/reset.html
+# Root HTML — nunca cachear, siempre revalidar. Evita que un bundle con hash
+# viejo se sirva tras deploy.
+/
   Cache-Control: no-store, must-revalidate
   CDN-Cache-Control: no-store
 
@@ -6,10 +8,19 @@
   Cache-Control: no-store, must-revalidate
   CDN-Cache-Control: no-store
 
+/reset.html
+  Cache-Control: no-store, must-revalidate
+  CDN-Cache-Control: no-store
+  # Limpia TODO el storage del browser cuando visitas /reset.html.
+  # Útil ante cualquier problema recurrente de página en blanco.
+  Clear-Site-Data: "cache", "storage"
+
+# SW siempre fresh — un kill-switch antiguo quedaría stuck si se cachea.
 /sw.js
   Cache-Control: no-store, must-revalidate
   CDN-Cache-Control: no-store
 
+# Assets con hash en el nombre — seguros de cachear por siempre.
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
   Access-Control-Allow-Origin: *

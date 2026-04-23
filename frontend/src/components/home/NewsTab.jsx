@@ -60,7 +60,19 @@ export default function NewsTab() {
   const [lastUpdated, setLastUpdated] = useState(null);
   const [daysFilter, setDaysFilter] = useState(7);             // 1 | 7 | 30
   const [severityFilter, setSeverityFilter] = useState('all'); // 'all' | 'critical' | 'warning' | 'info'
+  const [tickerFilter, setTickerFilter] = useState('all');     // 'all' | 'portfolio' | specific ticker
+  const [categoryFilter, setCategoryFilter] = useState('all'); // 'all' | 'earnings' | ...
+  const [portfolioTickers, setPortfolioTickers] = useState(new Set());
+  const [groupMode, setGroupMode] = useState('day');           // 'day' | 'ticker'
   const [selected, setSelected] = useState(null);              // item object for modal
+
+  // Fetch portfolio tickers para el filter "Mi cartera"
+  useEffect(() => {
+    fetch(`${API_URL}/api/positions`).then(r => r.json()).then(d => {
+      const arr = Array.isArray(d) ? d : (d.positions || []);
+      setPortfolioTickers(new Set(arr.filter(p => (p.shares || 0) > 0).map(p => (p.ticker || '').toUpperCase())));
+    }).catch(() => {});
+  }, []);
 
   // ── Fetchers ──
   const fetchRecent = useCallback(async () => {
@@ -109,19 +121,66 @@ export default function NewsTab() {
     fetchRecent();
   }, [fetchRecent]);
 
-  // ── Derived: group by day ──
-  const groupedByDay = useMemo(() => {
-    const groups = new Map(); // dayKey -> { label, items[] }
-    for (const it of items) {
-      const k = dayKey(it.published_at);
-      if (!groups.has(k)) {
-        groups.set(k, { label: dayLabel(it.published_at), key: k, items: [] });
+  // ── Filtros client-side (ticker + portfolio + category) ──
+  const filteredItems = useMemo(() => {
+    return items.filter(it => {
+      // Ticker filter
+      if (tickerFilter === 'portfolio') {
+        const hasPortfolioTicker = (it.tickers || []).some(t => portfolioTickers.has(String(t).toUpperCase()));
+        if (!hasPortfolioTicker) return false;
+      } else if (tickerFilter !== 'all') {
+        const filterUp = tickerFilter.toUpperCase();
+        if (!(it.tickers || []).map(t => String(t).toUpperCase()).includes(filterUp)) return false;
       }
+      // Category filter
+      if (categoryFilter !== 'all' && it.category !== categoryFilter) return false;
+      return true;
+    });
+  }, [items, tickerFilter, categoryFilter, portfolioTickers]);
+
+  // Categorías disponibles + top tickers del resultado actual
+  const availableCategories = useMemo(() => {
+    const cs = new Set();
+    items.forEach(it => { if (it.category) cs.add(it.category); });
+    return Array.from(cs).sort();
+  }, [items]);
+
+  const tickerFrequency = useMemo(() => {
+    const freq = new Map();
+    filteredItems.forEach(it => {
+      (it.tickers || []).forEach(t => {
+        const T = String(t).toUpperCase();
+        freq.set(T, (freq.get(T) || 0) + 1);
+      });
+    });
+    return Array.from(freq.entries()).sort((a, b) => b[1] - a[1]);
+  }, [filteredItems]);
+
+  // ── Derived: group by day ó ticker ──
+  const groupedByDay = useMemo(() => {
+    const groups = new Map();
+    for (const it of filteredItems) {
+      const k = dayKey(it.published_at);
+      if (!groups.has(k)) groups.set(k, { label: dayLabel(it.published_at), key: k, items: [] });
       groups.get(k).items.push(it);
     }
-    // Sort groups desc by key (ISO date)
     return Array.from(groups.values()).sort((a, b) => (a.key < b.key ? 1 : -1));
-  }, [items]);
+  }, [filteredItems]);
+
+  const groupedByTicker = useMemo(() => {
+    const groups = new Map();
+    for (const it of filteredItems) {
+      const tickers = it.tickers && it.tickers.length ? it.tickers : ['_GENERAL_'];
+      for (const t of tickers) {
+        const T = String(t).toUpperCase();
+        if (!groups.has(T)) groups.set(T, { label: T === '_GENERAL_' ? 'Sin ticker' : T, key: T, items: [] });
+        groups.get(T).items.push(it);
+      }
+    }
+    return Array.from(groups.values()).sort((a, b) => b.items.length - a.items.length);
+  }, [filteredItems]);
+
+  const groups = groupMode === 'ticker' ? groupedByTicker : groupedByDay;
 
   // ── Render helpers ──
   const totalCount = items.length;
@@ -275,6 +334,27 @@ export default function NewsTab() {
         {chipBtn(severityFilter === 'critical', () => setSeverityFilter('critical'), '🔴 Critical')}
         {chipBtn(severityFilter === 'warning',  () => setSeverityFilter('warning'),  '🟡 Warning')}
         {chipBtn(severityFilter === 'info',     () => setSeverityFilter('info'),     '🔵 Info')}
+        <span style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 6px' }} />
+        <span style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginRight: 4 }}>Ticker:</span>
+        {chipBtn(tickerFilter === 'all', () => setTickerFilter('all'), 'Todos')}
+        {chipBtn(tickerFilter === 'portfolio', () => setTickerFilter('portfolio'), `💼 Mi cartera (${portfolioTickers.size})`)}
+        {tickerFrequency.slice(0, 5).map(([t, count]) => chipBtn(
+          tickerFilter === t,
+          () => setTickerFilter(t),
+          `${portfolioTickers.has(t) ? '★ ' : ''}${t} (${count})`,
+        ))}
+        {availableCategories.length > 1 && (
+          <>
+            <span style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 6px' }} />
+            <span style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginRight: 4 }}>Tipo:</span>
+            {chipBtn(categoryFilter === 'all', () => setCategoryFilter('all'), 'Todos')}
+            {availableCategories.map(c => chipBtn(categoryFilter === c, () => setCategoryFilter(c), c))}
+          </>
+        )}
+        <span style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 6px' }} />
+        <span style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginRight: 4 }}>Agrupar:</span>
+        {chipBtn(groupMode === 'day', () => setGroupMode('day'), '📅 Por día')}
+        {chipBtn(groupMode === 'ticker', () => setGroupMode('ticker'), '🏷 Por ticker')}
       </div>
 
       {/* ── REFRESH STATS BANNER ── */}
@@ -329,7 +409,7 @@ export default function NewsTab() {
         </div>
       )}
 
-      {groupedByDay.map((group) => (
+      {groups.map((group) => (
         <div
           key={group.key}
           style={{
