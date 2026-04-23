@@ -749,8 +749,9 @@ export default function FastTab() {
         /* Select dropdown legible */
         .fast-light-theme select { color: #141726; background: #fff; }
         .fast-light-theme select option { color: #141726; }
-        /* Responsive layout: panel lateral pasa abajo en pantallas estrechas */
-        @media (max-width: 900px) {
+        /* Responsive layout: sidebar de métricas a la derecha en ≥1200px,
+           colapsa a una columna debajo del chart en pantallas estrechas. */
+        @media (max-width: 1200px) {
           .fast-chart-layout { grid-template-columns: 1fr !important; }
         }
       `}</style>
@@ -900,9 +901,10 @@ export default function FastTab() {
         </div>
       </div>
 
-      {/* Main layout: chart ocupa todo el ancho (panel derecho va debajo).
-          Esto imita el look de FAST Graphs donde el chart es grande y domina. */}
-      <div className="fast-chart-layout" style={{display:'grid',gridTemplateColumns:'minmax(0,1fr)',gap:12,alignItems:'start'}}>
+      {/* Main layout: chart a la izquierda + panel de métricas clave a la derecha,
+          replicando la columna "Metrics" de FAST Graphs. En pantallas <1200px
+          colapsa a 1 columna (sidebar debajo del chart). */}
+      <div className="fast-chart-layout" style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) 260px',gap:12,alignItems:'start'}}>
         {/* Chart */}
         <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:14,minWidth:0}}>
           {loading && <div style={{padding:60,textAlign:'center',color:'var(--text-secondary)',fontSize:12}}>Cargando histórico de precio…</div>}
@@ -1290,6 +1292,47 @@ export default function FastTab() {
             </svg>
           )}
         </div>
+
+        {/* Sidebar de métricas — columna derecha estilo FAST Graphs. Agrupa
+            las 18 métricas clave en 3 bloques: Valoración / Retornos /
+            Perfil. Apilado vertical, compacto. */}
+        <aside style={{display:'flex',flexDirection:'column',gap:10,minWidth:0}}>
+          <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:12}}>
+            <div style={{fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)',letterSpacing:.5,textTransform:'uppercase',marginBottom:8}}>Valoración</div>
+            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+              <MetricRow label="Growth Rate (CAGR)" value={metricCAGR != null ? fP(metricCAGR) : '—'} color={metricCAGR && metricCAGR > 0.05 ? '#30d158' : 'var(--text-primary)'}/>
+              <MetricRow label="P/E actual (blended)" value={blendedPE ? blendedPE.toFixed(2)+'x' : '—'} color="var(--gold)"/>
+              <MetricRow label="Normal P/E (10y)" value={history?.avg_pe_10y ? history.avg_pe_10y.toFixed(1)+'x' : '—'}/>
+              <MetricRow label="Normal P/E (5y)" value={history?.avg_pe_5y ? history.avg_pe_5y.toFixed(1)+'x' : '—'}/>
+              <MetricRow label="Fair Value Ratio" value={mosVsFair != null ? fP(mosVsFair) : '—'} color={mosVsFair && mosVsFair > 0.15 ? '#30d158' : mosVsFair && mosVsFair > 0 ? 'var(--gold)' : '#ff453a'}/>
+              <MetricRow label="Precio justo" value={fC(fairValue)} color="var(--gold)"/>
+              <MetricRow label="Price Target" value={priceTarget ? fC(priceTarget) + (history?.price_target?.analysts ? ` (${history.price_target.analysts})` : '') : '—'} color="#bf5af2"/>
+            </div>
+          </div>
+
+          <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:12}}>
+            <div style={{fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)',letterSpacing:.5,textTransform:'uppercase',marginBottom:8}}>Retornos</div>
+            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+              <MetricRow label="Precio futuro proj." value={fC(futureFair)} color="#64d2ff"/>
+              <MetricRow label="Retorno anual impl." value={futureReturn != null ? fP(futureReturn) : '—'} color={futureReturn && futureReturn > 0.10 ? '#30d158' : futureReturn && futureReturn > 0.05 ? 'var(--gold)' : '#ff453a'}/>
+              <MetricRow label="Consenso ΔEPS" value={consensusImpliedGrowth != null ? fP(consensusImpliedGrowth) : '—'} color={consensusImpliedGrowth && consensusImpliedGrowth > 0.08 ? '#30d158' : '#64d2ff'}/>
+              <MetricRow label="EPS Yield" value={epsYield != null ? fP(epsYield) : '—'}/>
+              <MetricRow label="Div Yield" value={divYield != null ? fP(divYield) : '—'} color="var(--gold)"/>
+            </div>
+          </div>
+
+          <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:12}}>
+            <div style={{fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)',letterSpacing:.5,textTransform:'uppercase',marginBottom:8}}>Perfil</div>
+            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+              <MetricRow label="S&P Rating" value={history?.rating?.overall || '—'}/>
+              <MetricRow label="Market Cap" value={profile.mktCap ? `$${(profile.mktCap/1e9).toFixed(1)}B` : '—'}/>
+              <MetricRow label="LT Debt/Capital" value={debtCap != null ? fP(debtCap) : '—'}/>
+              <MetricRow label="Country" value={profile.country || '—'}/>
+              <MetricRow label="Industry" value={profile.industry || '—'} small/>
+              <MetricRow label="Beta" value={profile.beta != null ? profile.beta.toFixed(2) : '—'}/>
+            </div>
+          </div>
+        </aside>
       </div>
 
       {/* Numbers table — FY / Metric / Chg/Yr / Div — colocada JUSTO después
@@ -1366,29 +1409,6 @@ export default function FastTab() {
             </tbody>
           </table>
         )}
-      </div>
-
-      {/* Right panel — 12 métricas clave — ahora en GRID horizontal de 3 cols
-          debajo de la tabla (antes estaba a la derecha del chart como columna). */}
-      <div style={{marginTop:14,display:'grid',gridTemplateColumns:'repeat(auto-fill, minmax(220px, 1fr))',gap:10,background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:14}}>
-        <MetricRow label="Growth Rate (CAGR)" value={metricCAGR != null ? fP(metricCAGR) : '—'} color={metricCAGR && metricCAGR > 0.05 ? '#30d158' : 'var(--text-primary)'}/>
-        <MetricRow label="P/E actual (blended)" value={blendedPE ? blendedPE.toFixed(2)+'x' : '—'} color="var(--gold)"/>
-        <MetricRow label="Normal P/E (10y)" value={history?.avg_pe_10y ? history.avg_pe_10y.toFixed(1)+'x' : '—'}/>
-        <MetricRow label="Normal P/E (5y)" value={history?.avg_pe_5y ? history.avg_pe_5y.toFixed(1)+'x' : '—'}/>
-        <MetricRow label="Fair Value Ratio" value={mosVsFair != null ? fP(mosVsFair) : '—'} color={mosVsFair && mosVsFair > 0.15 ? '#30d158' : mosVsFair && mosVsFair > 0 ? 'var(--gold)' : '#ff453a'}/>
-        <MetricRow label="Precio justo" value={fC(fairValue)} color="var(--gold)"/>
-        <MetricRow label="Precio futuro proj." value={fC(futureFair)} color="#64d2ff"/>
-        <MetricRow label="Retorno anual impl." value={futureReturn != null ? fP(futureReturn) : '—'} color={futureReturn && futureReturn > 0.10 ? '#30d158' : futureReturn && futureReturn > 0.05 ? 'var(--gold)' : '#ff453a'}/>
-        <MetricRow label="Price Target consenso" value={priceTarget ? fC(priceTarget) + (history?.price_target?.analysts ? ` (${history.price_target.analysts})` : '') : '—'} color="#bf5af2"/>
-        <MetricRow label="Consenso ΔEPS implic." value={consensusImpliedGrowth != null ? fP(consensusImpliedGrowth) : '—'} color={consensusImpliedGrowth && consensusImpliedGrowth > 0.08 ? '#30d158' : '#64d2ff'}/>
-        <MetricRow label="EPS Yield" value={epsYield != null ? fP(epsYield) : '—'}/>
-        <MetricRow label="Div Yield" value={divYield != null ? fP(divYield) : '—'} color="var(--gold)"/>
-        <MetricRow label="S&P Rating" value={history?.rating?.overall || '—'}/>
-        <MetricRow label="Market Cap" value={profile.mktCap ? `$${(profile.mktCap/1e9).toFixed(1)}B` : '—'}/>
-        <MetricRow label="LT Debt/Capital" value={debtCap != null ? fP(debtCap) : '—'}/>
-        <MetricRow label="Country" value={profile.country || '—'}/>
-        <MetricRow label="Industry" value={profile.industry || '—'} small/>
-        <MetricRow label="Beta" value={profile.beta != null ? profile.beta.toFixed(2) : '—'}/>
       </div>
 
       {/* Row: FG Scores (radar) + Analyst Scorecard */}
