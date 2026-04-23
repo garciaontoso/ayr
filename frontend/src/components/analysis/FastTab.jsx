@@ -71,6 +71,7 @@ export default function FastTab() {
   const [tablePeriod, setTablePeriod] = useState('yearly'); // yearly | quarterly
   const [showRecessions, setShowRecessions] = useState(true);  // bandas de recesiones
   const [smoothEps, setSmoothEps] = useState(true);  // rolling median 3y para EPS (suaviza write-downs, FX, impairments)
+  const [innerTab, setInnerTab] = useState('summary');  // summary | trends | forecasting | historical | scorecard
   const [hover, setHover] = useState(null);  // {x, y, date, price, eps, pe, fair, yield, payout} o null
   const hoverRafRef = useRef(null);  // rAF id para throttle del onMouseMove → evita sobrecarga
 
@@ -933,9 +934,33 @@ export default function FastTab() {
         </div>
       </div>
 
+      {/* Tab bar estilo FAST Graphs — 5 secciones enfocadas.
+          Summary = chart principal + sidebar. El resto aíslan trends/forecast/
+          histórico/scorecards para lectura sin distracciones. */}
+      <div style={{display:'flex',gap:2,marginBottom:12,borderBottom:'1px solid var(--border)',overflowX:'auto'}}>
+        {[
+          { id: 'summary',     lbl: '📊 Summary' },
+          { id: 'trends',      lbl: '📈 Trends' },
+          { id: 'forecasting', lbl: '🔮 Forecasting' },
+          { id: 'historical',  lbl: '📅 Historical' },
+          { id: 'scorecard',   lbl: '🎯 Scorecard' },
+        ].map(t => (
+          <button key={t.id} onClick={() => setInnerTab(t.id)}
+            style={{
+              padding:'8px 14px',fontSize:11,fontWeight:innerTab===t.id?700:600,
+              border:'none',borderBottom:`2px solid ${innerTab===t.id?'var(--gold)':'transparent'}`,
+              background:'transparent',color:innerTab===t.id?'var(--gold)':'var(--text-secondary)',
+              cursor:'pointer',fontFamily:'var(--fm)',whiteSpace:'nowrap',marginBottom:-1,
+            }}>
+            {t.lbl}
+          </button>
+        ))}
+      </div>
+
       {/* Main layout: chart a la izquierda + panel de métricas clave a la derecha,
           replicando la columna "Metrics" de FAST Graphs. En pantallas <1200px
-          colapsa a 1 columna (sidebar debajo del chart). */}
+          colapsa a 1 columna (sidebar debajo del chart). SOLO en tab Summary. */}
+      {innerTab === 'summary' && (
       <div className="fast-chart-layout" style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) 260px',gap:12,alignItems:'start'}}>
         {/* Chart */}
         <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:14,minWidth:0}}>
@@ -1366,9 +1391,10 @@ export default function FastTab() {
           </div>
         </aside>
       </div>
+      )}{/* /innerTab summary */}
 
-      {/* Numbers table — FY / Metric / Chg/Yr / Div — colocada JUSTO después
-          del chart (estilo FAST Graphs donde la tabla va integrada abajo). */}
+      {/* Numbers table — FY / Metric / Chg/Yr / Div. SOLO en Historical. */}
+      {innerTab === 'historical' && (
       <div style={{marginTop:14,background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:14,overflowX:'auto'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
           <div style={{fontSize:10,color:'var(--text-tertiary)',fontFamily:'var(--fm)',letterSpacing:.5,textTransform:'uppercase'}}>Histórico {tablePeriod === 'yearly' ? 'anual' : 'trimestral'}</div>
@@ -1442,13 +1468,19 @@ export default function FastTab() {
           </table>
         )}
       </div>
+      )}{/* /innerTab historical */}
+
+      {/* Historical tab: incluir también splits para tener todo lo "pasado" junto */}
+      {innerTab === 'historical' && history?.splits?.length > 0 && (
+        <div style={{marginTop:12}}>
+          <SplitsTable splits={history.splits} />
+        </div>
+      )}
 
       {/* Tendencias operativas — 4 mini-sparklines: EV/EBITDA, ROIC, FCF Yield,
           DPS Growth. Primeros 3 del backend (keyMetricsRaw). DPS growth derivado
-          client-side del ratios_by_year. Útiles para ver si el business se está
-          encareciendo (EV/EBITDA↑) o deteriorando operativamente (ROIC/FCF↓), y
-          si el dividendo crece con la inflación o se estanca. */}
-      {history && (
+          client-side del ratios_by_year. */}
+      {innerTab === 'trends' && history && (
         <div style={{marginTop:14,display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(240px, 1fr))',gap:10}}>
           <SparkCard label="EV/EBITDA" data={history.ev_ebitda_series} fmt={v => v.toFixed(1)+'x'} colorHi="#ff9500" colorLo="#30d158" hiIsBad/>
           <SparkCard label="ROIC" data={history.roic_series} fmt={v => (v*100).toFixed(1)+'%'} colorHi="#30d158" colorLo="#ff453a"/>
@@ -1469,10 +1501,8 @@ export default function FastTab() {
       )}
 
       {/* Forecasting detallado — tabla 5y con proyección consensus → precio
-          @ fair value (15x custom) y @ Normal P/E. Return anual implícito si
-          se cumple el consenso y P/E converge al múltiplo seleccionado.
-          Replica el segundo chart + tabla de FAST Graphs "Forecasting". */}
-      {history && consensusAvailable && (
+          @ fair value (15x custom) y @ Normal P/E. */}
+      {innerTab === 'forecasting' && history && consensusAvailable && (
         <ForecastingPanel
           estimatesByYear={estimatesByYear}
           estimateYears={estimateYears}
@@ -1482,19 +1512,17 @@ export default function FastTab() {
           latestDPS={latestDPS}
         />
       )}
-
-      {/* Row: FG Scores (radar) + Analyst Scorecard */}
-      {history && (
-        <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1.2fr)',gap:12,marginTop:14}}>
-          <FGScoresPanel scores={history.fg_scores} />
-          <AnalystScorecard scorecard={history.earnings_scorecard} />
+      {innerTab === 'forecasting' && (!history || !consensusAvailable) && (
+        <div style={{marginTop:14,padding:40,textAlign:'center',background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,color:'var(--text-secondary)',fontSize:12}}>
+          Sin estimates de consenso disponibles para este ticker.
         </div>
       )}
 
-      {/* Splits histórico */}
-      {history?.splits?.length > 0 && (
-        <div style={{marginTop:12}}>
-          <SplitsTable splits={history.splits} />
+      {/* Row: FG Scores (radar) + Analyst Scorecard */}
+      {innerTab === 'scorecard' && history && (
+        <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1.2fr)',gap:12,marginTop:14}}>
+          <FGScoresPanel scores={history.fg_scores} />
+          <AnalystScorecard scorecard={history.earnings_scorecard} />
         </div>
       )}
     </div>
