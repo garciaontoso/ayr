@@ -1437,15 +1437,28 @@ export default function FastTab() {
         )}
       </div>
 
-      {/* Tendencias operativas — 3 mini-sparklines: EV/EBITDA, ROIC, FCF Yield.
-          Series vienen de /api/fg-history (keyMetricsRaw por año). Se ocultan
-          si no hay datos. Útiles para ver si el business se está encareciendo
-          o deteriorando operativamente a lo largo del tiempo. */}
+      {/* Tendencias operativas — 4 mini-sparklines: EV/EBITDA, ROIC, FCF Yield,
+          DPS Growth. Primeros 3 del backend (keyMetricsRaw). DPS growth derivado
+          client-side del ratios_by_year. Útiles para ver si el business se está
+          encareciendo (EV/EBITDA↑) o deteriorando operativamente (ROIC/FCF↓), y
+          si el dividendo crece con la inflación o se estanca. */}
       {history && (
         <div style={{marginTop:14,display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(240px, 1fr))',gap:10}}>
           <SparkCard label="EV/EBITDA" data={history.ev_ebitda_series} fmt={v => v.toFixed(1)+'x'} colorHi="#ff9500" colorLo="#30d158" hiIsBad/>
           <SparkCard label="ROIC" data={history.roic_series} fmt={v => (v*100).toFixed(1)+'%'} colorHi="#30d158" colorLo="#ff453a"/>
           <SparkCard label="FCF Yield" data={history.fcf_yield_series} fmt={v => (v*100).toFixed(1)+'%'} colorHi="#30d158" colorLo="#ff453a"/>
+          <SparkCard label="DPS Growth YoY" data={(() => {
+            const years = Object.keys(history.ratios_by_year || {}).map(Number).filter(Number.isFinite).sort();
+            const out = [];
+            for (let i = 1; i < years.length; i++) {
+              const cur = history.ratios_by_year[years[i]]?.dps;
+              const prev = history.ratios_by_year[years[i-1]]?.dps;
+              if (Number.isFinite(cur) && Number.isFinite(prev) && prev > 0) {
+                out.push({ year: years[i], value: (cur - prev) / prev });
+              }
+            }
+            return out;
+          })()} fmt={v => (v*100).toFixed(1)+'%'} colorHi="#30d158" colorLo="#ff453a" variant="bars"/>
         </div>
       )}
 
@@ -1467,27 +1480,25 @@ export default function FastTab() {
   );
 }
 
-function SparkCard({ label, data, fmt, colorHi = '#30d158', colorLo = '#ff453a', hiIsBad = false }) {
-  // Mini-sparkline card — muestra tendencia de una métrica por año.
+function SparkCard({ label, data, fmt, colorHi = '#30d158', colorLo = '#ff453a', hiIsBad = false, variant = 'line' }) {
+  // Mini-sparkline card — tendencia de una métrica por año.
   // `data`: [{year, value}]. `fmt` formatea el valor último. `hiIsBad` invierte
-  // semántica (p.ej. EV/EBITDA alto = caro, no bueno).
+  // semántica (EV/EBITDA alto = caro, no bueno). `variant` line | bars.
   if (!Array.isArray(data) || data.length < 2) return null;
   const values = data.map(d => d.value);
   const last = values[values.length - 1];
   const first = values[0];
   const change = first !== 0 ? (last - first) / Math.abs(first) : 0;
-  // Semántica: si hiIsBad, subir = malo (rojo). Else, subir = bueno (verde).
   const isGood = hiIsBad ? change < 0 : change > 0;
   const trendColor = isGood ? colorHi : colorLo;
 
   const W = 220, H = 54, P = 4;
-  const minV = Math.min(...values);
-  const maxV = Math.max(...values);
-  const range = maxV - minV || 1;
-  const xs = (i) => P + (i / (values.length - 1)) * (W - 2 * P);
+  const minV = Math.min(...values, 0);
+  const maxV = Math.max(...values, 0);
+  const range = (maxV - minV) || 1;
+  const xs = (i) => P + (i / Math.max(values.length - 1, 1)) * (W - 2 * P);
   const ys = (v) => P + (1 - (v - minV) / range) * (H - 2 * P);
-  const poly = values.map((v, i) => `${xs(i)},${ys(v)}`).join(' ');
-  const area = `${xs(0)},${H - P} ${poly} ${xs(values.length - 1)},${H - P}`;
+  const yZero = ys(0);  // baseline para bars positivas/negativas
 
   return (
     <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:12,padding:12,minWidth:0}}>
@@ -1501,9 +1512,26 @@ function SparkCard({ label, data, fmt, colorHi = '#30d158', colorLo = '#ff453a',
         {fmt(last)}
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{width:'100%',height:40,display:'block'}}>
-        <polygon points={area} fill={trendColor} fillOpacity={0.14} stroke="none"/>
-        <polyline points={poly} fill="none" stroke={trendColor} strokeWidth={1.6} strokeLinejoin="round" strokeLinecap="round"/>
-        <circle cx={xs(values.length - 1)} cy={ys(last)} r={2.2} fill={trendColor} stroke="var(--card)" strokeWidth={0.8}/>
+        {variant === 'bars' ? (
+          <>
+            {/* Baseline 0% — línea horizontal sutil cuando hay valores negativos */}
+            {minV < 0 && <line x1={P} y1={yZero} x2={W-P} y2={yZero} stroke="var(--text-tertiary)" strokeWidth={0.5} strokeDasharray="2,2" opacity={0.4}/>}
+            {values.map((v, i) => {
+              const barColor = v >= 0 ? colorHi : colorLo;
+              const barW = Math.max((W - 2*P) / values.length - 1, 1);
+              const barX = xs(i) - barW / 2;
+              const barY = v >= 0 ? ys(v) : yZero;
+              const barH = Math.abs(ys(v) - yZero);
+              return <rect key={i} x={barX} y={barY} width={barW} height={barH} fill={barColor} opacity={0.85}/>;
+            })}
+          </>
+        ) : (
+          <>
+            <polygon points={`${xs(0)},${H - P} ${values.map((v, i) => `${xs(i)},${ys(v)}`).join(' ')} ${xs(values.length - 1)},${H - P}`} fill={trendColor} fillOpacity={0.14} stroke="none"/>
+            <polyline points={values.map((v, i) => `${xs(i)},${ys(v)}`).join(' ')} fill="none" stroke={trendColor} strokeWidth={1.6} strokeLinejoin="round" strokeLinecap="round"/>
+            <circle cx={xs(values.length - 1)} cy={ys(last)} r={2.2} fill={trendColor} stroke="var(--card)" strokeWidth={0.8}/>
+          </>
+        )}
       </svg>
       <div style={{display:'flex',justifyContent:'space-between',fontSize:8,color:'var(--text-tertiary)',fontFamily:'var(--fm)',marginTop:2}}>
         <span>{data[0].year}</span>
