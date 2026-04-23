@@ -454,6 +454,24 @@ export default function FastTab() {
   // (cotizando barato o a valor justo). Estilo FAST Graphs "cheap months".
   const cheapMonths = monthSamples.filter(s => s.priceVal <= s.fairValue).length;
 
+  // Current Valuation dots — un dot negro por AÑO sobre la curva de precio,
+  // al cierre del año. Replica el patrón FAST Graphs series-9 "Current
+  // Valuation" que marca P/E real de cada año fiscal. Se ve la evolución
+  // anual de la cotización en relación al fair value.
+  const yearEndDots = (() => {
+    const byYear = new Map();
+    for (const s of monthSamples) {
+      // Mantener el último sample de cada año (iteración por fecha ascendente)
+      byYear.set(s.year, s);
+    }
+    return [...byYear.values()].map(s => {
+      // P/E blended del año: priceVal / EPS del año
+      const eps = interpEps(s.year + 0.9999);
+      const peAtYear = eps && eps > 0 ? s.priceVal / eps : null;
+      return { x: s.x, y: s.yPrice, year: s.year, price: s.priceVal, pe: peAtYear };
+    });
+  })();
+
   // Normal P/E bands (3 líneas naranjas paralelas tipo FAST Graphs):
   // upper = max P/E histórico, mid = avg P/E, lower = min P/E. Cada banda × EPS.
   const peSeries = history?.pe_series || [];
@@ -1047,6 +1065,20 @@ export default function FastTab() {
                 <polyline points={pricePoly} fill="none" stroke="var(--text-primary)" strokeWidth={2.6} strokeLinejoin="round" strokeLinecap="round"/>
               )}
 
+              {/* Current Valuation dots — uno por año fiscal al cierre, sobre
+                  la línea de precio. Estilo FAST Graphs "series-9". Tamaño 2.5
+                  para destacar sin tapar la línea. Tooltip con P/E real del
+                  año (precio/EPS). */}
+              {yearEndDots.map((d, i) => (
+                <g key={'yed'+i}>
+                  <title>
+                    {d.year} · Precio ${d.price.toFixed(2)}
+                    {d.pe != null ? ` · P/E ${d.pe.toFixed(1)}x` : ''}
+                  </title>
+                  <circle cx={d.x} cy={d.y} r={2.5} fill="#141726" stroke="#ffffff" strokeWidth={0.9}/>
+                </g>
+              ))}
+
               {/* (Dots rojos deshabilitados — FAST Graphs original usa
                   fair-value-ratio triángulos blancos, no dots rojos. La
                   sobrevaloración ya se ve por la línea de precio saliendo
@@ -1220,7 +1252,7 @@ export default function FastTab() {
                   Orden: Precio, Normal P/E (azul), Fair Value 15x (naranja),
                   Dividendos (verde), Yield (rojo eje der), Payout (amarillo eje der),
                   Consenso, Price Target, trades. */}
-              <text x={PADL+8} y={PADT+14} fontSize={9} fill="var(--text-primary)" fontFamily="monospace">● Precio histórico</text>
+              <text x={PADL+8} y={PADT+14} fontSize={9} fill="var(--text-primary)" fontFamily="monospace">● Precio histórico (● cierre anual)</text>
               {bandMid && (
                 <text x={PADL+8} y={PADT+28} fontSize={9} fill="#4a90e2" fontFamily="monospace">
                   ● Normal P/E ({peMid?.toFixed(1)}x)
