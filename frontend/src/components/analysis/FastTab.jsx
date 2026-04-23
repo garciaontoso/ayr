@@ -56,7 +56,7 @@ const METRIC_LABEL = Object.fromEntries(METRIC_OPTIONS.map(m => [m.id, m.label])
 
 export default function FastTab() {
   const { DATA_YEARS, cfg, comp, fgGrowth, fgMode, fgPE, fgProjYears, fin,
-    setFgGrowth, setFgMode, setFgPE, setFgProjYears, setShowDiv, showDiv } = useAnalysis();
+    setFgGrowth, setFgMode, setFgPE, setFgProjYears } = useAnalysis();
 
   const ticker = cfg?.ticker || '';
   const [history, setHistory] = useState(null);
@@ -261,9 +261,10 @@ export default function FastTab() {
   const rawMin = sortedY.length ? Math.max(0, p05 * 0.80) : 0;
 
   // Chart dims — más ancho y alto para aproximarse al look FAST Graphs
-  // original (ocupan todo el ancho del contenido visible).
+  // original (ocupan todo el ancho del contenido visible). PADR ampliado a 60
+  // para acomodar el eje derecho (yield % y payout %).
   const W = 1400, H = 560;
-  const PADL = 70, PADR = 30, PADT = 28, PADB = 50;
+  const PADL = 70, PADR = 60, PADT = 28, PADB = 50;
   const chartW = W - PADL - PADR;
   const chartH = H - PADT - PADB;
 
@@ -449,33 +450,9 @@ export default function FastTab() {
       ].join(' ')
     : '';
 
-  // Área verde OSCURA — "dividend-backed value" (DPS × P/E activo) apilado
-  // DENTRO de la zona verde clara. Replica la visualización clásica de FAST
-  // Graphs donde el bloque verde se compone de dos capas:
-  //   - Arriba (claro): (EPS - DPS) × P/E = earnings retenidos
-  //   - Abajo (oscuro): DPS × P/E = valor respaldado por dividendos
-  // Si el precio cae DENTRO de la zona oscura, el dividendo actual ya
-  // justifica toda la cotización (margen de seguridad enorme).
-  const hasDivArea = greenSamples.some(s => s.yDivFair < baseline - 1);
-  const divGreenAreaPoly = hasDivArea && greenSamples.length > 1
-    ? [
-        `${greenSamples[0].x},${baseline}`,
-        ...greenSamples.map(s => `${s.x},${s.yDivFair}`),
-        `${greenSamples[greenSamples.length - 1].x},${baseline}`,
-      ].join(' ')
-    : '';
-
-  // Estilo FAST Graphs: dots rojos pequeños en los meses donde precio > fair.
-  // No área sólida — demasiado pesado visualmente. Los dots hacen la sobrevaloración
-  // claramente visible sin tapar ni las áreas ni la línea de precio.
-  // Muestreo cada 3 meses para no saturar el chart.
-  const redDots = monthSamples
-    .filter((s, i) => s.priceVal > s.fairValue && i % 3 === 0)
-    .map(s => ({ x: s.x, y: s.yPrice }));
-
-  // Contadores para leyenda
+  // Contador para leyenda — meses donde el precio quedó DENTRO del área verde
+  // (cotizando barato o a valor justo). Estilo FAST Graphs "cheap months".
   const cheapMonths = monthSamples.filter(s => s.priceVal <= s.fairValue).length;
-  const expMonths = monthSamples.filter(s => s.priceVal > s.fairValue).length;
 
   // Normal P/E bands (3 líneas naranjas paralelas tipo FAST Graphs):
   // upper = max P/E histórico, mid = avg P/E, lower = min P/E. Cada banda × EPS.
@@ -567,37 +544,40 @@ export default function FastTab() {
       date: d.slice(0, 10),
     };
   }).filter(Boolean);
-  const maxDPS = divHist.length ? Math.max(...divHist.map(d => d.dps)) : 0;
-  const divAxisMax = maxDPS * 1.15;
-  const divYScale = (dps) => PADT + chartH - (dps / (divAxisMax || 1)) * chartH * 0.35; // bottom 35% of chart for DPS
-  const dpsBars = divHist.map(d => ({
-    x: xScale(d.y),
-    yp: divYScale(d.dps),
-    w: Math.max(chartW / 40, 6),
-    dps: d.dps,
-  }));
-  // Payout % line (dps/eps) — shows top when payout is low (healthy)
-  const payoutPoints = divHist.filter(d => d.eps > 0 && d.dps > 0).map(d => ({
-    y: d.y,
-    pct: Math.min(d.dps / d.eps, 1.5),
-  }));
-  // Dividend yield line (dps / price_that_year) — need price for that year
+  // ── Eje derecho: Dividend Yield + Payout Ratio (estilo FAST Graphs) ──
+  // Eje lineal fijo 0–10% para yield (rojo) y 0–100% para payout (amarillo).
+  // Ambas líneas convivían antes sólo si showDiv, ahora SIEMPRE visibles
+  // porque son parte del "core" de FAST Graphs original.
   const priceByYear = {};
   for (const p of monthlyPrices) {
     const yr = parseInt(p.date.slice(0, 4), 10);
     if (!priceByYear[yr]) priceByYear[yr] = p.close;
-    // Keep first price of year seen (iterating oldest first)
   }
+  // Yield: dps / price_at_year_end (aprox) · eje derecho 0–10%
   const yieldPoints = divHist.filter(d => priceByYear[d.y] > 0 && d.dps > 0).map(d => ({
     y: d.y,
     yld: d.dps / priceByYear[d.y],
   }));
-  const maxYld = yieldPoints.length ? Math.max(...yieldPoints.map(p => p.yld)) : 0.1;
-  // Right-side axis scale for payout/yield (0-100%). Reuse chartH but invert.
-  const pctYScale = (pct) => PADT + chartH * 0.05 + (pct / 1.0) * chartH * 0.3;
-  const payoutLine = payoutPoints.map(p => `${xScale(p.y)},${pctYScale(p.pct)}`).join(' ');
-  const yldYScale = (y) => PADT + chartH * 0.45 - (y / (maxYld * 1.3 || 1)) * chartH * 0.15;
+  // Payout: dps/eps · eje derecho 0–100%
+  const payoutPoints = divHist.filter(d => d.eps > 0 && d.dps > 0).map(d => ({
+    y: d.y,
+    pct: Math.min(d.dps / d.eps, 1.5),
+  }));
+  // Escala eje derecho común para ambas series (mapea % → y pixel).
+  // Yield axis: 0–10% mapeado a top 50% del chart (invertido: 0% abajo, 10% arriba).
+  // Payout axis: 0–100% mapeado al mismo rango visual (reutiliza eje derecho con segundo tick set).
+  const YIELD_AXIS_MAX = 0.10;
+  const PAYOUT_AXIS_MAX = 1.00;
+  const yldYScale = (yld) => {
+    const clipped = Math.max(0, Math.min(yld, YIELD_AXIS_MAX));
+    return PADT + chartH - (clipped / YIELD_AXIS_MAX) * chartH;
+  };
+  const payYScale = (pct) => {
+    const clipped = Math.max(0, Math.min(pct, PAYOUT_AXIS_MAX));
+    return PADT + chartH - (clipped / PAYOUT_AXIS_MAX) * chartH;
+  };
   const yieldLine = yieldPoints.map(p => `${xScale(p.y)},${yldYScale(p.yld)}`).join(' ');
+  const payoutLine = payoutPoints.map(p => `${xScale(p.y)},${payYScale(p.pct)}`).join(' ');
 
   // Debug: compute ALL metrics for last year so user can see them side-by-side
   const lastF = fin[lastHistY];
@@ -775,8 +755,7 @@ export default function FastTab() {
               <optgroup label="Otras métricas">{METRIC_OPTIONS.filter(m=>m.group==='Otras').map(m=><option key={m.id} value={m.id}>{m.label}</option>)}</optgroup>
             </select>
           </div>
-          {/* Dividend toggle */}
-          <button onClick={()=>setShowDiv(!showDiv)} style={{padding:'6px 12px',borderRadius:8,border:`1px solid ${showDiv?'var(--gold)':'var(--border)'}`,background:showDiv?'rgba(255,214,10,0.08)':'transparent',color:showDiv?'#ffd60a':'var(--text-secondary)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'var(--fm)'}} title="DPS bars + payout % + yield % overlay">+Div</button>
+          {/* Yield + Payout ya son permanentes en el chart (estilo FAST Graphs). */}
           <button onClick={()=>setShowTrades(!showTrades)} style={{padding:'6px 12px',borderRadius:8,border:`1px solid ${showTrades?'#30d158':'var(--border)'}`,background:showTrades?'rgba(48,209,88,0.08)':'transparent',color:showTrades?'#30d158':'var(--text-secondary)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'var(--fm)'}} title={`${trades.length} transacciones de este ticker`}>+Trades ({trades.length})</button>
         </div>
       </div>
@@ -982,13 +961,31 @@ export default function FastTab() {
                   En el light theme toma el valor de --chart-bg (#faf9f5). */}
               <rect x={PADL} y={PADT} width={chartW} height={chartH} fill="var(--chart-bg, #faf9f5)" rx={4}/>
 
-              {/* Y grid */}
+              {/* Y grid izquierdo — precios $ */}
               {gridLines.map((g, i) => (
                 <g key={i}>
                   <line x1={PADL} y1={g.y} x2={PADL+chartW} y2={g.y} stroke="var(--subtle-border, rgba(20,23,38,0.08))" strokeWidth={1}/>
                   <text x={PADL-6} y={g.y+3} textAnchor="end" fontSize={9} fill="var(--text-tertiary)" fontFamily="monospace">${Math.round(g.val)}</text>
                 </g>
               ))}
+
+              {/* Eje derecho — doble escala: yield (0–10% rojo) + payout (0–100% amarillo).
+                  Ambas escalas ocupan el mismo rango vertical. Ticks yield cada 2%,
+                  payout cada 25%. Estilo FAST Graphs right axis. */}
+              {[0, 0.02, 0.04, 0.06, 0.08, 0.10].map((y, i) => (
+                <text key={'yaxR'+i} x={PADL+chartW+4} y={yldYScale(y)+3}
+                  fontSize={8} fill="#dc2626" fontFamily="monospace" fontWeight={600} textAnchor="start">
+                  {(y*100).toFixed(0)}%
+                </text>
+              ))}
+              {[0.25, 0.50, 0.75, 1.00].map((p, i) => (
+                <text key={'payaxR'+i} x={PADL+chartW+28} y={payYScale(p)+3}
+                  fontSize={8} fill="#a78500" fontFamily="monospace" fontWeight={600} textAnchor="start">
+                  {(p*100).toFixed(0)}
+                </text>
+              ))}
+              <text x={PADL+chartW+4} y={PADT-4} fontSize={7.5} fill="#dc2626" fontFamily="monospace" fontWeight={700}>YLD</text>
+              <text x={PADL+chartW+28} y={PADT-4} fontSize={7.5} fill="#a78500" fontFamily="monospace" fontWeight={700}>POR</text>
 
               {/* X year ticks */}
               {yearTicks.map(yr => (
@@ -1016,31 +1013,23 @@ export default function FastTab() {
                 </g>
               ))}
 
-              {/* Valor justo — área verde sólida (estilo FAST Graphs) desde el
-                  baseline hasta la curva fair-value. Todo el precio que caiga
-                  DENTRO de esta zona = valor justificado por fundamentales. */}
+              {/* Valor justo — área verde sólida (estilo FAST Graphs). Desde el
+                  baseline hasta la curva fair-value (EPS × P/E activo). UNA sola
+                  capa — se eliminó la capa oscura "dividend-backed" que duplicaba
+                  información ya visible en la línea amarilla de payout. */}
               {greenAreaPoly && (
-                <polygon points={greenAreaPoly} fill="rgba(46, 139, 87, 0.75)" stroke="none"/>
+                <polygon points={greenAreaPoly} fill="rgba(46, 139, 87, 0.55)" stroke="none"/>
               )}
 
-              {/* Capa OSCURA: DPS × P/E apilado dentro del verde claro.
-                  Reproduce el bloque de dos tonos de FAST Graphs. El área
-                  más oscura = valor "respaldado por dividendos". */}
-              {divGreenAreaPoly && (
-                <polygon points={divGreenAreaPoly} fill="rgba(20, 75, 45, 0.55)" stroke="none"/>
-              )}
-
-              {/* Normal P/E line — línea azul oscuro con dots (estilo FAST Graphs
-                  original). Solo el valor medio (avg P/E × EPS) — las bandas
-                  low/high se eliminan para reducir ruido visual y coincidir
-                  con el look del chart de referencia. */}
-              {bandMid && <polyline points={bandMid} fill="none" stroke="#1e3a8a" strokeWidth={1.8} opacity={0.95}/>}
+              {/* Normal P/E line — línea azul CLARA continua (estilo FAST Graphs
+                  series-4 "Normal PE"). Color #4a90e2 (azul cielo) para distinguirla
+                  del precio negro y no confundir con el fondo. Sin dots gruesos —
+                  la línea es suficiente. Es la señal más importante: precio si
+                  la acción cotizara a su P/E histórico medio 10y. */}
+              {bandMid && <polyline points={bandMid} fill="none" stroke="#4a90e2" strokeWidth={2.2} opacity={0.95} strokeLinejoin="round" strokeLinecap="round"/>}
               {bandMid && validHist.map((d, i) => peMid ? (
-                <circle key={'npe'+i} cx={xScale(d.y)} cy={yScale(clipY(d.val * peMid))} r={2.8} fill="#1e3a8a" stroke="var(--bg)" strokeWidth={0.8}/>
+                <circle key={'npe'+i} cx={xScale(d.y)} cy={yScale(clipY(d.val * peMid))} r={2.2} fill="#4a90e2" stroke="var(--bg)" strokeWidth={0.6}/>
               ) : null)}
-
-              {/* (Normal P/E antiguo eliminado — las 3 bandas naranjas arriba
-                   hacen mejor el trabajo) */}
 
               {/* Split flags — banderita vertical en cada stock split */}
               {splitFlags.map((s, i) => (
@@ -1072,9 +1061,13 @@ export default function FastTab() {
                 </g>
               ))}
 
-              {/* Fair value curve — contorno de la zona verde, dorado sutil */}
+              {/* Fair value curve (EPS × P/E custom, típicamente 15x) — línea
+                  NARANJA continua tipo FAST Graphs "Fair Value Ratio". Es la
+                  referencia de Graham's 15 — si el precio cae debajo está
+                  estadísticamente barato. Línea nítida 2.2px para destacar
+                  sobre el área verde. */}
               {fairHistPts.length > 1 && (
-                <polyline points={fairHistPoly} fill="none" stroke="var(--gold)" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" strokeOpacity={0.9}/>
+                <polyline points={fairHistPoly} fill="none" stroke="#f59e0b" strokeWidth={2.2} strokeLinejoin="round" strokeLinecap="round" strokeOpacity={0.95}/>
               )}
 
               {/* Margin-of-error cone — shaded trapezoidal band around projection */}
@@ -1087,24 +1080,25 @@ export default function FastTab() {
                 <polyline points={projFairPoly} fill="none" stroke={FORECAST_MODES.find(m=>m.id===forecastMode)?.color || '#64d2ff'} strokeWidth={2.5} strokeDasharray="5,3" strokeLinejoin="round" strokeLinecap="round"/>
               )}
 
-              {/* Dots for each historical metric point */}
+              {/* Dots pequeños sobre la curva fair value — uno por año histórico,
+                  tamaño reducido (r=2) para no competir con la línea naranja. */}
               {fairHistPts.map((pt, i) => (
-                <circle key={'f'+i} cx={pt.x} cy={pt.yp} r={2.5} fill="var(--gold)"/>
+                <circle key={'f'+i} cx={pt.x} cy={pt.yp} r={2} fill="#f59e0b" stroke="var(--bg)" strokeWidth={0.6}/>
               ))}
 
-              {/* Dividend overlay — DPS bars, payout line, yield line */}
-              {showDiv && dpsBars.length > 0 && (
-                <>
-                  {dpsBars.map((b, i) => (
-                    <rect key={'d'+i} x={b.x - b.w/2} y={b.yp} width={b.w} height={PADT+chartH - b.yp} fill="#30d158" opacity={0.22} rx={1}/>
-                  ))}
-                  {payoutPoints.length > 1 && (
-                    <polyline points={payoutLine} fill="none" stroke="#ff9500" strokeWidth={1.5} strokeDasharray="3,2" opacity={0.8}/>
-                  )}
-                  {yieldPoints.length > 1 && (
-                    <polyline points={yieldLine} fill="none" stroke="#bf5af2" strokeWidth={1.5} strokeDasharray="2,2" opacity={0.85}/>
-                  )}
-                </>
+              {/* Dividend Yield (rojo) + Payout Ratio (amarillo) — eje DERECHO.
+                  Estilo FAST Graphs series-6 "Dividends POR" (payout amarillo)
+                  y series-7 "Dividend Yld" (yield rojo). Siempre visibles porque
+                  son parte del patrón canónico de FAST Graphs — el usuario espera
+                  verlos junto al chart principal, no detrás de un toggle. */}
+              {yieldPoints.length > 1 && (
+                <polyline points={yieldLine} fill="none" stroke="#dc2626" strokeWidth={1.8} strokeLinejoin="round" strokeLinecap="round" opacity={0.9}/>
+              )}
+              {yieldPoints.map((p, i) => (
+                <circle key={'yl'+i} cx={xScale(p.y)} cy={yldYScale(p.yld)} r={2} fill="#dc2626" stroke="var(--bg)" strokeWidth={0.5}/>
+              ))}
+              {payoutPoints.length > 1 && (
+                <polyline points={payoutLine} fill="none" stroke="#eab308" strokeWidth={1.5} strokeDasharray="4,3" opacity={0.85}/>
               )}
 
               {/* Transaction markers — user buys/sells from cost_basis */}
@@ -1222,29 +1216,33 @@ export default function FastTab() {
                 </>
               )}
 
-              {/* Legend */}
-              <text x={PADL+8} y={PADT+14} fontSize={9} fill="var(--gold)" fontFamily="monospace">● Valor justo ({activePE?activePE.toFixed(1)+'x':fgPE+'x'})</text>
-              <text x={PADL+8} y={PADT+28} fontSize={9} fill="var(--text-primary)" fontFamily="monospace">● Precio histórico</text>
+              {/* Leyenda — match visual exacto con FAST Graphs original.
+                  Orden: Precio, Normal P/E (azul), Fair Value 15x (naranja),
+                  Dividendos (verde), Yield (rojo eje der), Payout (amarillo eje der),
+                  Consenso, Price Target, trades. */}
+              <text x={PADL+8} y={PADT+14} fontSize={9} fill="var(--text-primary)" fontFamily="monospace">● Precio histórico</text>
+              {bandMid && (
+                <text x={PADL+8} y={PADT+28} fontSize={9} fill="#4a90e2" fontFamily="monospace">
+                  ● Normal P/E ({peMid?.toFixed(1)}x)
+                </text>
+              )}
+              <text x={PADL+8} y={PADT+42} fontSize={9} fill="#f59e0b" fontFamily="monospace">
+                ● Valor justo ({activePE?activePE.toFixed(1)+'x':fgPE+'x'})
+              </text>
               {greenAreaPoly && (
                 <>
-                  <rect x={PADL+8} y={PADT+36} width={10} height={6} fill="rgba(46, 139, 87, 0.75)"/>
-                  <text x={PADL+22} y={PADT+42} fontSize={9} fill="#2e8b57" fontFamily="monospace">▇ Valor justificado · {cheapMonths}m</text>
+                  <rect x={PADL+8} y={PADT+50} width={10} height={6} fill="rgba(46, 139, 87, 0.55)"/>
+                  <text x={PADL+22} y={PADT+56} fontSize={9} fill="#2e8b57" fontFamily="monospace">▇ Valor justificado · {cheapMonths}m</text>
                 </>
               )}
-              {redDots.length > 0 && (
-                <>
-                  <circle cx={PADL+14} cy={PADT+51} r={2.5} fill="rgba(188, 0, 0, 0.95)"/>
-                  <text x={PADL+22} y={PADT+54} fontSize={9} fill="#bc0000" fontFamily="monospace">● Sobrevalorado · {expMonths}m</text>
-                </>
+              {yieldPoints.length > 1 && (
+                <text x={PADL+8} y={PADT+70} fontSize={9} fill="#dc2626" fontFamily="monospace">— Dividend Yield (eje →)</text>
               )}
-              {bandMid && (
-                <>
-                  <line x1={PADL+8} y1={PADT+66} x2={PADL+18} y2={PADT+66} stroke="rgb(254, 113, 0)" strokeWidth={2}/>
-                  <text x={PADL+22} y={PADT+68} fontSize={9} fill="rgb(254, 113, 0)" fontFamily="monospace">— Normal P/E band ({peLow?.toFixed(0)}-{peHigh?.toFixed(0)}x)</text>
-                </>
+              {payoutPoints.length > 1 && (
+                <text x={PADL+8} y={PADT+84} fontSize={9} fill="#a78500" fontFamily="monospace">-- Payout Ratio (eje →)</text>
               )}
               {projFairPts.length > 0 && (
-                <text x={PADL+8} y={PADT+82} fontSize={9} fill={FORECAST_MODES.find(m=>m.id===forecastMode)?.color} fontFamily="monospace">
+                <text x={PADL+8} y={PADT+98} fontSize={9} fill={FORECAST_MODES.find(m=>m.id===forecastMode)?.color} fontFamily="monospace">
                   -- {FORECAST_MODES.find(m=>m.id===forecastMode)?.lbl}: {
                     forecastMode === 'consensus' ? `${estimatesByYear[estimateYears[0]]?.analystsEps || '?'} analistas` :
                     forecastMode === 'cagr5' && cagr5 != null ? `+${(cagr5*100).toFixed(1)}%/año` :
@@ -1255,9 +1253,8 @@ export default function FastTab() {
                   {showCones && ` · cono ±${margin1yPct.toFixed(0)}/${margin2yPct.toFixed(0)}%`}
                 </text>
               )}
-              {priceTarget && <text x={PADL+8} y={PADT+96} fontSize={9} fill="#bf5af2" fontFamily="monospace">-- Price Target ${priceTarget.toFixed(0)} ({history?.price_target?.analysts || '?'} analistas)</text>}
-              {showDiv && dpsBars.length > 0 && <text x={PADL+8} y={PADT+110} fontSize={9} fill="#30d158" fontFamily="monospace">▇ DPS · ◐ Payout · ◊ Yield</text>}
-              {tradeDots.length > 0 && <text x={PADL+8} y={PADT+124} fontSize={9} fill="var(--text-secondary)" fontFamily="monospace">▲ {tradeDots.filter(t=>t.tipo==='BUY').length} compras · ▼ {tradeDots.filter(t=>t.tipo==='SELL').length} ventas</text>}
+              {priceTarget && <text x={PADL+8} y={PADT+112} fontSize={9} fill="#bf5af2" fontFamily="monospace">-- Price Target ${priceTarget.toFixed(0)} ({history?.price_target?.analysts || '?'} analistas)</text>}
+              {tradeDots.length > 0 && <text x={PADL+8} y={PADT+126} fontSize={9} fill="var(--text-secondary)" fontFamily="monospace">▲ {tradeDots.filter(t=>t.tipo==='BUY').length} compras · ▼ {tradeDots.filter(t=>t.tipo==='SELL').length} ventas</text>}
             </svg>
           )}
         </div>
