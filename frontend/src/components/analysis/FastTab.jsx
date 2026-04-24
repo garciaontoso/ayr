@@ -1105,6 +1105,22 @@ export default function FastTab() {
                   const pe = f.eps > 0 ? nearest.priceVal / f.eps : null;
                   const divY = f.dps && nearest.priceVal > 0 ? f.dps / nearest.priceVal : null;
                   const payout = (f.dps && f.eps > 0) ? f.dps / f.eps : null;
+                  // Busca trade dentro de ±30 días del punto hovered. Si hay,
+                  // agrupa por mismo mes+tipo (ej: 3 compras en enero = 1 entry).
+                  const nearTradeMs = 30 * 86400000;
+                  const hoverTs = new Date(nearest.date).getTime();
+                  const nearTrades = trades.filter(t => {
+                    const d = t.fecha;
+                    if (!d) return false;
+                    return Math.abs(new Date(d).getTime() - hoverTs) < nearTradeMs;
+                  });
+                  const tradeSummary = nearTrades.length ? (() => {
+                    const totShares = nearTrades.reduce((s, t) => s + (+t.shares || 0), 0);
+                    const totCost = nearTrades.reduce((s, t) => s + (+t.precio || 0) * (+t.shares || 0), 0);
+                    const avgPrice = totShares ? totCost / totShares : 0;
+                    const tipo = nearTrades[0].tipo?.toUpperCase() || 'BUY';
+                    return { count: nearTrades.length, totShares, avgPrice, tipo };
+                  })() : null;
                   setHover({
                     svgX: nearest.x, svgY: nearest.yPrice,
                     year: nearest.year, date: nearest.date,
@@ -1112,6 +1128,7 @@ export default function FastTab() {
                     fair: nearest.fairValue, yield: divY, payout, dps: f.dps,
                     isProjected: nearest.year > lastHistY,
                     vsToday: cfg?.price && nearest.priceVal ? (nearest.priceVal / cfg.price) - 1 : null,
+                    tradeSummary,
                   });
                 });
               }}
@@ -1136,6 +1153,22 @@ export default function FastTab() {
                   const pe = f.eps > 0 ? nearest.priceVal / f.eps : null;
                   const divY = f.dps && nearest.priceVal > 0 ? f.dps / nearest.priceVal : null;
                   const payout = (f.dps && f.eps > 0) ? f.dps / f.eps : null;
+                  // Busca trade dentro de ±30 días del punto hovered. Si hay,
+                  // agrupa por mismo mes+tipo (ej: 3 compras en enero = 1 entry).
+                  const nearTradeMs = 30 * 86400000;
+                  const hoverTs = new Date(nearest.date).getTime();
+                  const nearTrades = trades.filter(t => {
+                    const d = t.fecha;
+                    if (!d) return false;
+                    return Math.abs(new Date(d).getTime() - hoverTs) < nearTradeMs;
+                  });
+                  const tradeSummary = nearTrades.length ? (() => {
+                    const totShares = nearTrades.reduce((s, t) => s + (+t.shares || 0), 0);
+                    const totCost = nearTrades.reduce((s, t) => s + (+t.precio || 0) * (+t.shares || 0), 0);
+                    const avgPrice = totShares ? totCost / totShares : 0;
+                    const tipo = nearTrades[0].tipo?.toUpperCase() || 'BUY';
+                    return { count: nearTrades.length, totShares, avgPrice, tipo };
+                  })() : null;
                   setHover({
                     svgX: nearest.x, svgY: nearest.yPrice,
                     year: nearest.year, date: nearest.date,
@@ -1143,6 +1176,7 @@ export default function FastTab() {
                     fair: nearest.fairValue, yield: divY, payout, dps: f.dps,
                     isProjected: nearest.year > lastHistY,
                     vsToday: cfg?.price && nearest.priceVal ? (nearest.priceVal / cfg.price) - 1 : null,
+                    tradeSummary,
                   });
                 });
               }}
@@ -1396,7 +1430,8 @@ export default function FastTab() {
                   {/* Tooltip card — con tag Histórico/Proyectado + delta vs HOY.
                       Alto dinámico 118px cuando hay fila "vs HOY". */}
                   <g transform={`translate(${Math.min(hover.svgX + 12, W - PADR - 170)}, ${Math.max(PADT + 8, hover.svgY - 100)})`}>
-                    <rect x={0} y={0} width={170} height={hover.vsToday != null ? 118 : 102}
+                    <rect x={0} y={0} width={170}
+                      height={(hover.vsToday != null ? 118 : 102) + (hover.tradeSummary ? 16 : 0)}
                       fill="rgba(20, 23, 38, 0.96)" stroke={hover.isProjected ? '#64d2ff' : '#b8860b'} strokeWidth={1} rx={6}/>
                     <text x={8} y={16} fontSize={11} fontWeight={700} fill={hover.isProjected ? '#64d2ff' : '#b8860b'} fontFamily="monospace">
                       {hover.isProjected ? '🔮' : '📊'} {hover.date || hover.year}
@@ -1430,6 +1465,11 @@ export default function FastTab() {
                     {hover.payout != null && (
                       <text x={8} y={hover.vsToday != null ? 104 : 88} fontSize={10} fill="#fff" fontFamily="monospace">
                         Payout: <tspan fontWeight={700}>{(hover.payout * 100).toFixed(0)}%</tspan>
+                      </text>
+                    )}
+                    {hover.tradeSummary && (
+                      <text x={8} y={hover.vsToday != null ? 118 : 102} fontSize={10} fontWeight={700} fill={hover.tradeSummary.tipo === 'BUY' ? '#30d158' : '#ff453a'} fontFamily="monospace">
+                        {hover.tradeSummary.tipo === 'BUY' ? '▲' : '▼'} {hover.tradeSummary.totShares} @${hover.tradeSummary.avgPrice.toFixed(2)}
                       </text>
                     )}
                   </g>
