@@ -76,6 +76,15 @@ export default function FastTab() {
   const [showRecessions, setShowRecessions] = useState(true);  // bandas de recesiones
   const [smoothEps, setSmoothEps] = useState(true);  // rolling median 3y para EPS (suaviza write-downs, FX, impairments)
   const [innerTab, setInnerTab] = useState('summary');  // summary | trends | forecasting | historical | scorecard
+  // Series visibility — controlado por los checkboxes de la leyenda.
+  // Keys: price, normalPE, fairValue, fairArea, dpsArea, yield, payout, consensus,
+  //       priceTarget, currentVal, trades, recessions, compare
+  const [visibleSeries, setVisibleSeries] = useState({
+    price: true, normalPE: true, fairValue: true, fairArea: true, dpsArea: true,
+    yield: true, payout: true, consensus: true, priceTarget: true, currentVal: true,
+    trades: true, recessions: true, compare: true,
+  });
+  const toggleSeries = (k) => setVisibleSeries(v => ({ ...v, [k]: !v[k] }));
   const [personalPERev, setPersonalPERev] = useState(0);  // bump para forzar re-render tras save/clear localStorage
   const chartSvgRef = useRef(null);  // ref al SVG principal para export PNG
   const [compareTicker, setCompareTicker] = useState('');  // 2º ticker para overlay ghost
@@ -545,13 +554,27 @@ export default function FastTab() {
   // (NO para redDots ni para la línea de precio — esas se quedan en monthSamples).
   const greenSamples = [...monthSamples, ...projSamples];
 
-  // Área verde clara: desde baseline hasta la curva de fair value (EPS × P/E).
-  // Se extiende a través de la proyección (greenSamples = hist + proyección).
+  // ── Áreas verdes estilo FAST Graphs original ──
+  // Dos capas apiladas:
+  //   1. Verde CLARO = "Valor justificado por earnings" (EPS × P/E activo).
+  //      Si el precio cae aquí → stock a valor justo o barato.
+  //   2. Verde OSCURO (dentro de la clara) = "Valor justificado SOLO por
+  //      dividendos" (DPS × P/E). Si el precio cae aquí → el dividendo
+  //      actual ya justifica toda la cotización → súper ganga.
   const baseline = yScale(rawMin);
   const greenAreaPoly = greenSamples.length > 1
     ? [
         `${greenSamples[0].x},${baseline}`,
         ...greenSamples.map(s => `${s.x},${s.yFair}`),
+        `${greenSamples[greenSamples.length - 1].x},${baseline}`,
+      ].join(' ')
+    : '';
+  // Área verde OSCURA: DPS × P/E activo. Solo pintar si hay dividendo > 0.
+  const hasDpsArea = greenSamples.some(s => s.yDivFair < baseline - 1);
+  const darkGreenPoly = hasDpsArea && greenSamples.length > 1
+    ? [
+        `${greenSamples[0].x},${baseline}`,
+        ...greenSamples.map(s => `${s.x},${s.yDivFair}`),
         `${greenSamples[greenSamples.length - 1].x},${baseline}`,
       ].join(' ')
     : '';
@@ -1284,9 +1307,8 @@ export default function FastTab() {
                 <line x1={xScale(lastHistY)} y1={PADT} x2={xScale(lastHistY)} y2={PADT+chartH} stroke="var(--border-hover, rgba(20,23,38,0.2))" strokeWidth={1} strokeDasharray="3,3"/>
               )}
 
-              {/* Bandas de recesiones NBER + macro — feature 3. Grey translúcido detrás
-                  de TODO para que no interfiera con áreas verdes/rojas ni líneas. */}
-              {recessionBands.map((b, i) => (
+              {/* Bandas de recesiones NBER + macro */}
+              {visibleSeries.recessions && recessionBands.map((b, i) => (
                 <g key={'rec'+i}>
                   <rect x={b.x1} y={PADT} width={b.x2 - b.x1} height={chartH}
                     fill="rgba(50, 50, 60, 0.18)" stroke="none"/>
@@ -1297,12 +1319,14 @@ export default function FastTab() {
                 </g>
               ))}
 
-              {/* Valor justo — área verde sólida (estilo FAST Graphs). Desde el
-                  baseline hasta la curva fair-value (EPS × P/E activo). UNA sola
-                  capa — se eliminó la capa oscura "dividend-backed" que duplicaba
-                  información ya visible en la línea amarilla de payout. */}
-              {greenAreaPoly && (
-                <polygon points={greenAreaPoly} fill="rgba(46, 139, 87, 0.55)" stroke="none"/>
+              {/* Área verde CLARA = EPS × P/E (valor justificado por earnings) */}
+              {visibleSeries.fairArea && greenAreaPoly && (
+                <polygon points={greenAreaPoly} fill="rgba(46, 139, 87, 0.40)" stroke="none"/>
+              )}
+              {/* Área verde OSCURA = DPS × P/E (valor justificado solo por dividendo).
+                  Apilada dentro de la clara. Si precio cae aquí = súper ganga. */}
+              {visibleSeries.dpsArea && darkGreenPoly && (
+                <polygon points={darkGreenPoly} fill="rgba(20, 75, 45, 0.55)" stroke="none"/>
               )}
 
               {/* Normal P/E line — línea azul CLARA continua (estilo FAST Graphs
@@ -1310,8 +1334,8 @@ export default function FastTab() {
                   del precio negro y no confundir con el fondo. Sin dots gruesos —
                   la línea es suficiente. Es la señal más importante: precio si
                   la acción cotizara a su P/E histórico medio 10y. */}
-              {bandMid && <polyline points={bandMid} fill="none" stroke="#4a90e2" strokeWidth={2.2} opacity={0.95} strokeLinejoin="round" strokeLinecap="round"/>}
-              {bandMid && validHist.map((d, i) => peMid ? (
+              {visibleSeries.normalPE && bandMid && <polyline points={bandMid} fill="none" stroke="#4a90e2" strokeWidth={2.2} opacity={0.95} strokeLinejoin="round" strokeLinecap="round"/>}
+              {visibleSeries.normalPE && bandMid && validHist.map((d, i) => peMid ? (
                 <circle key={'npe'+i} cx={xScale(d.y)} cy={yScale(clipY(getSmoothEps(d.y) * peMid))} r={2.2} fill="#4a90e2" stroke="var(--bg)" strokeWidth={0.6}/>
               ) : null)}
 
@@ -1328,7 +1352,7 @@ export default function FastTab() {
               {/* Compare overlay — ghost polyline del 2º ticker, normalizado
                   para que su primer precio coincida con el primer precio del
                   ticker activo. Así se lee relativamente "quién subió más". */}
-              {compareData?.monthly_prices?.length > 1 && pricesInRange.length > 1 && (() => {
+              {visibleSeries.compare && compareData?.monthly_prices?.length > 1 && pricesInRange.length > 1 && (() => {
                 const first = pricesInRange[0].close;
                 const cmpInRange = compareData.monthly_prices.filter(p => {
                   const y = parseInt(p.date.slice(0, 4), 10);
@@ -1351,17 +1375,13 @@ export default function FastTab() {
                 );
               })()}
 
-              {/* Historical price line — grueso como FAST Graphs para legibilidad
-                  sobre las áreas de color */}
-              {pricePts.length > 1 && (
+              {/* Historical price line */}
+              {visibleSeries.price && pricePts.length > 1 && (
                 <polyline points={pricePoly} fill="none" stroke="var(--text-primary)" strokeWidth={2.6} strokeLinejoin="round" strokeLinecap="round"/>
               )}
 
-              {/* Current Valuation dots — uno por año fiscal al cierre, sobre
-                  la línea de precio. Estilo FAST Graphs "series-9". Tamaño 2.5
-                  para destacar sin tapar la línea. Tooltip con P/E real del
-                  año (precio/EPS). */}
-              {yearEndDots.map((d, i) => (
+              {/* Current Valuation dots — uno por año fiscal al cierre */}
+              {visibleSeries.currentVal && yearEndDots.map((d, i) => (
                 <g key={'yed'+i}>
                   <title>
                     {d.year} · Precio ${d.price.toFixed(2)}
@@ -1385,12 +1405,8 @@ export default function FastTab() {
                 </g>
               ))}
 
-              {/* Fair value curve (EPS × P/E custom, típicamente 15x) — línea
-                  NARANJA continua tipo FAST Graphs "Fair Value Ratio". Es la
-                  referencia de Graham's 15 — si el precio cae debajo está
-                  estadísticamente barato. Línea nítida 2.2px para destacar
-                  sobre el área verde. */}
-              {fairHistPts.length > 1 && (
+              {/* Fair value curve (EPS × P/E custom) — línea naranja */}
+              {visibleSeries.fairValue && fairHistPts.length > 1 && (
                 <polyline points={fairHistPoly} fill="none" stroke="#f59e0b" strokeWidth={2.2} strokeLinejoin="round" strokeLinecap="round" strokeOpacity={0.95}/>
               )}
 
@@ -1399,34 +1415,30 @@ export default function FastTab() {
                 <polygon points={conePoly} fill="#64d2ff" fillOpacity={0.10} stroke="#64d2ff" strokeOpacity={0.3} strokeWidth={0.5}/>
               )}
 
-              {/* Projection fair value line (dashed) — color depends on forecastMode */}
-              {projFairFull.length > 1 && (
+              {/* Projection fair value line (dashed) */}
+              {visibleSeries.consensus && projFairFull.length > 1 && (
                 <polyline points={projFairPoly} fill="none" stroke={FORECAST_MODES.find(m=>m.id===forecastMode)?.color || '#64d2ff'} strokeWidth={2.5} strokeDasharray="5,3" strokeLinejoin="round" strokeLinecap="round"/>
               )}
 
-              {/* Dots pequeños sobre la curva fair value — uno por año histórico,
-                  tamaño reducido (r=2) para no competir con la línea naranja. */}
-              {fairHistPts.map((pt, i) => (
+              {/* Dots pequeños sobre la curva fair value */}
+              {visibleSeries.fairValue && fairHistPts.map((pt, i) => (
                 <circle key={'f'+i} cx={pt.x} cy={pt.yp} r={2} fill="#f59e0b" stroke="var(--bg)" strokeWidth={0.6}/>
               ))}
 
-              {/* Dividend Yield (rojo) + Payout Ratio (amarillo) — eje DERECHO.
-                  Estilo FAST Graphs series-6 "Dividends POR" (payout amarillo)
-                  y series-7 "Dividend Yld" (yield rojo). Siempre visibles porque
-                  son parte del patrón canónico de FAST Graphs — el usuario espera
-                  verlos junto al chart principal, no detrás de un toggle. */}
-              {yieldPoints.length > 1 && (
+              {/* Dividend Yield (rojo) eje DERECHO */}
+              {visibleSeries.yield && yieldPoints.length > 1 && (
                 <polyline points={yieldLine} fill="none" stroke="#dc2626" strokeWidth={1.8} strokeLinejoin="round" strokeLinecap="round" opacity={0.9}/>
               )}
-              {yieldPoints.map((p, i) => (
+              {visibleSeries.yield && yieldPoints.map((p, i) => (
                 <circle key={'yl'+i} cx={xScale(p.y)} cy={yldYScale(p.yld)} r={2} fill="#dc2626" stroke="var(--bg)" strokeWidth={0.5}/>
               ))}
-              {payoutPoints.length > 1 && (
+              {/* Payout Ratio (amarillo) eje DERECHO */}
+              {visibleSeries.payout && payoutPoints.length > 1 && (
                 <polyline points={payoutLine} fill="none" stroke="#eab308" strokeWidth={1.5} strokeDasharray="4,3" opacity={0.85}/>
               )}
 
               {/* Transaction markers — user buys/sells from cost_basis */}
-              {tradeDots.map((t, i) => {
+              {visibleSeries.trades && tradeDots.map((t, i) => {
                 const isBuy = t.tipo === 'BUY';
                 const color = isBuy ? '#30d158' : '#ff453a';
                 return (
@@ -1444,7 +1456,7 @@ export default function FastTab() {
               {/* Price Target: solo un tick pequeño al borde derecho (no línea
                   horizontal completa). FastGraphs original no pinta la línea
                   de PT, así mantenemos el chart limpio. */}
-              {priceTargetY != null && pricePts.length > 0 && (
+              {visibleSeries.priceTarget && priceTargetY != null && pricePts.length > 0 && (
                 <g>
                   <line x1={PADL+chartW-14} y1={priceTargetY} x2={PADL+chartW} y2={priceTargetY} stroke="#bf5af2" strokeWidth={1.4} opacity={0.85}/>
                   <text x={PADL+chartW-18} y={priceTargetY+3} textAnchor="end" fontSize={8} fill="#bf5af2" fontFamily="monospace">PT ${priceTarget.toFixed(0)}</text>
@@ -1555,46 +1567,73 @@ export default function FastTab() {
                 </>
               )}
 
-              {/* Leyenda — match visual exacto con FAST Graphs original.
-                  Orden: Precio, Normal P/E (azul), Fair Value 15x (naranja),
-                  Dividendos (verde), Yield (rojo eje der), Payout (amarillo eje der),
-                  Consenso, Price Target, trades. */}
-              <text x={PADL+8} y={PADT+14} fontSize={9} fill="var(--text-primary)" fontFamily="monospace">● Precio histórico (● cierre anual)</text>
-              {bandMid && (
-                <text x={PADL+8} y={PADT+28} fontSize={9} fill="#4a90e2" fontFamily="monospace">
-                  ● Normal P/E ({peMid?.toFixed(1)}x)
-                </text>
-              )}
-              <text x={PADL+8} y={PADT+42} fontSize={9} fill="#f59e0b" fontFamily="monospace">
-                ● Valor justo ({activePE?activePE.toFixed(1)+'x':fgPE+'x'})
-              </text>
+              {/* Leyenda mini dentro del SVG — solo contador "X meses barato".
+                  La leyenda clickeable/toggle se renderiza DEBAJO del SVG como
+                  HTML para soportar checkboxes. */}
               {greenAreaPoly && (
-                <>
-                  <rect x={PADL+8} y={PADT+50} width={10} height={6} fill="rgba(46, 139, 87, 0.55)"/>
-                  <text x={PADL+22} y={PADT+56} fontSize={9} fill="#2e8b57" fontFamily="monospace">▇ Valor justificado · {cheapMonths}m</text>
-                </>
-              )}
-              {yieldPoints.length > 1 && (
-                <text x={PADL+8} y={PADT+70} fontSize={9} fill="#dc2626" fontFamily="monospace">— Dividend Yield (eje →)</text>
-              )}
-              {payoutPoints.length > 1 && (
-                <text x={PADL+8} y={PADT+84} fontSize={9} fill="#a78500" fontFamily="monospace">-- Payout Ratio (eje →)</text>
-              )}
-              {projFairPts.length > 0 && (
-                <text x={PADL+8} y={PADT+98} fontSize={9} fill={FORECAST_MODES.find(m=>m.id===forecastMode)?.color} fontFamily="monospace">
-                  -- {FORECAST_MODES.find(m=>m.id===forecastMode)?.lbl}: {
-                    forecastMode === 'consensus' ? `${estimatesByYear[estimateYears[0]]?.analystsEps || '?'} analistas` :
-                    forecastMode === 'cagr5' && cagr5 != null ? `+${(cagr5*100).toFixed(1)}%/año` :
-                    forecastMode === 'cagr10' && cagr10 != null ? `+${(cagr10*100).toFixed(1)}%/año` :
-                    forecastMode === 'normal' ? `colapsa a ${projMultiplier.toFixed(1)}x P/E normal` :
-                    `+${fgGrowth}%/año`
-                  }
-                  {showCones && ` · cono ±${margin1yPct.toFixed(0)}/${margin2yPct.toFixed(0)}%`}
+                <text x={PADL+8} y={PADT+14} fontSize={9} fill="#2e8b57" fontFamily="monospace">
+                  ▇ {cheapMonths}m dentro zona verde (barato o fair)
                 </text>
               )}
-              {priceTarget && <text x={PADL+8} y={PADT+112} fontSize={9} fill="#bf5af2" fontFamily="monospace">-- Price Target ${priceTarget.toFixed(0)} ({history?.price_target?.analysts || '?'} analistas)</text>}
-              {tradeDots.length > 0 && <text x={PADL+8} y={PADT+126} fontSize={9} fill="var(--text-secondary)" fontFamily="monospace">▲ {tradeDots.filter(t=>t.tipo==='BUY').length} compras · ▼ {tradeDots.filter(t=>t.tipo==='SELL').length} ventas</text>}
             </svg>
+          )}
+
+          {/* ─── Leyenda INTERACTIVA — checkboxes clickeables con tooltip ──
+              Click en cada chip para mostrar/ocultar esa serie del chart.
+              Hover en el chip muestra el significado exacto.  */}
+          {!loading && !error && (
+            <div style={{display:'flex',flexWrap:'wrap',gap:6,marginTop:10,padding:'8px 4px 4px',borderTop:'1px solid var(--subtle-border, rgba(20,23,38,0.08))'}}>
+              {[
+                { k:'price',       lbl:'Precio',              col:'#141726', swatch:'line',   help:'Línea negra: precio histórico mensual del stock.' },
+                { k:'currentVal',  lbl:'Current Val.',        col:'#141726', swatch:'dots',   help:'Dots negros anuales sobre el precio: P/E real al cierre de cada año fiscal.' },
+                { k:'normalPE',    lbl:`Normal P/E ${peMid?peMid.toFixed(1)+'x':''}`, col:'#4a90e2', swatch:'line', help:'Línea azul: EPS × P/E histórico medio 10y. Dónde cotizaría si estuviera a su múltiplo normal.' },
+                { k:'fairValue',   lbl:`Fair ${activePE?activePE.toFixed(1)+'x':fgPE+'x'}`, col:'#f59e0b', swatch:'line', help:'Línea naranja: EPS × P/E custom (default 15x = regla de Graham). Si precio < línea = barato vs Graham.' },
+                { k:'fairArea',    lbl:'Zona earnings',       col:'rgba(46,139,87,0.55)', swatch:'block', help:'Área verde CLARA: zona "valor justificado por earnings" (EPS × P/E activo). Si precio cae aquí = stock a fair o barato.' },
+                { k:'dpsArea',     lbl:'Zona dividendo',      col:'rgba(20,75,45,0.75)',  swatch:'block', help:'Área verde OSCURA: zona "valor justificado SOLO por dividendo" (DPS × P/E). Si precio cae aquí = súper ganga, el div actual cubre toda la cotización.' },
+                { k:'yield',       lbl:'Div Yield',           col:'#dc2626', swatch:'line',   help:'Línea roja eje derecho: dividend yield histórico anual (0–10%). Sube cuando el precio cae → señal de precio atractivo para dividend investor.' },
+                { k:'payout',      lbl:'Payout Ratio',        col:'#eab308', swatch:'dash',   help:'Línea amarilla punteada eje derecho: payout ratio histórico (0–100%). <60% = saludable, >80% = riesgo.' },
+                { k:'consensus',   lbl:'Consenso',            col:FORECAST_MODES.find(m=>m.id===forecastMode)?.color||'#64d2ff', swatch:'dash', help:`Proyección futura según modo ${forecastMode}. ${forecastMode==='consensus'?'EPS consenso analistas año a año':forecastMode==='cagr5'?'EPS crece al CAGR 5y histórico':forecastMode==='cagr10'?'EPS crece al CAGR 10y':forecastMode==='normal'?'Colapsa al P/E normal histórico':'Slider manual'}.` },
+                { k:'priceTarget', lbl:`PT $${priceTarget?priceTarget.toFixed(0):'—'}`, col:'#bf5af2', swatch:'dash', help:`Price target consenso de ${history?.price_target?.analysts||'?'} analistas.` },
+                { k:'trades',      lbl:`Trades (${tradeDots.length})`, col:'#30d158', swatch:'triangle', help:'▲ Buy verde · ▼ Sell rojo. Tus propias compras/ventas en cost_basis.' },
+                { k:'recessions',  lbl:'Recesiones',          col:'rgba(80,80,90,0.5)',   swatch:'block', help:'Bandas grises: Dot-com 2001, GFC 2008-09, COVID 2020, Bear 2022. Contexto macro para drawdowns.' },
+                { k:'compare',     lbl:compareData?`vs ${compareData.ticker}`:'Compare', col:'#9333ea', swatch:'dash', help:'Overlay 2º ticker normalizado al primer precio del main. Útil para KO vs PEP, etc.' },
+              ].filter(item => item.k === 'compare' ? !!compareData : item.k === 'trades' ? tradeDots.length > 0 : item.k === 'consensus' ? projFairPts.length > 0 : true).map(item => {
+                const on = visibleSeries[item.k];
+                return (
+                  <button key={item.k} onClick={() => toggleSeries(item.k)} title={item.help}
+                    style={{
+                      display:'inline-flex',alignItems:'center',gap:5,
+                      padding:'4px 8px',borderRadius:5,
+                      border:`1px solid ${on?'var(--border)':'var(--subtle-border)'}`,
+                      background:on?'var(--card)':'transparent',
+                      color:on?'var(--text-primary)':'var(--text-tertiary)',
+                      opacity:on?1:0.45,
+                      fontSize:10,fontWeight:600,fontFamily:'var(--fm)',
+                      cursor:'pointer',textDecoration:on?'none':'line-through',
+                      transition:'all .15s',
+                    }}>
+                    <span style={{width:14,height:8,display:'inline-block',position:'relative'}}>
+                      {item.swatch === 'block' && <span style={{position:'absolute',inset:0,background:item.col,borderRadius:2}}/>}
+                      {item.swatch === 'line' && <span style={{position:'absolute',top:3,left:0,right:0,height:2,background:item.col,borderRadius:1}}/>}
+                      {item.swatch === 'dash' && <span style={{position:'absolute',top:3,left:0,right:0,height:2,background:`repeating-linear-gradient(90deg, ${item.col} 0 3px, transparent 3px 5px)`}}/>}
+                      {item.swatch === 'dots' && <span style={{position:'absolute',top:2,left:1,width:4,height:4,background:item.col,borderRadius:'50%'}}><span style={{position:'absolute',left:6,width:4,height:4,background:item.col,borderRadius:'50%'}}/></span>}
+                      {item.swatch === 'triangle' && <span style={{position:'absolute',top:1,left:3,width:0,height:0,borderLeft:'4px solid transparent',borderRight:'4px solid transparent',borderBottom:`6px solid ${item.col}`}}/>}
+                    </span>
+                    {item.lbl}
+                  </button>
+                );
+              })}
+              <button onClick={() => {
+                  const allOn = Object.values(visibleSeries).every(v => v);
+                  const next = {};
+                  for (const k of Object.keys(visibleSeries)) next[k] = !allOn;
+                  setVisibleSeries(next);
+                }}
+                title="Activa / desactiva todas las series"
+                style={{padding:'4px 8px',borderRadius:5,border:'1px solid var(--gold)',background:'var(--gold-dim)',color:'var(--gold)',fontSize:10,fontWeight:700,fontFamily:'var(--fm)',cursor:'pointer',marginLeft:6}}>
+                {Object.values(visibleSeries).every(v=>v) ? 'Ocultar todo' : 'Mostrar todo'}
+              </button>
+            </div>
           )}
         </div>
 
