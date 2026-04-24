@@ -78,6 +78,8 @@ export default function FastTab() {
   const [innerTab, setInnerTab] = useState('summary');  // summary | trends | forecasting | historical | scorecard
   const [personalPERev, setPersonalPERev] = useState(0);  // bump para forzar re-render tras save/clear localStorage
   const chartSvgRef = useRef(null);  // ref al SVG principal para export PNG
+  const [compareTicker, setCompareTicker] = useState('');  // 2º ticker para overlay ghost
+  const [compareData, setCompareData] = useState(null);  // {monthly_prices, ticker}
   const [hover, setHover] = useState(null);  // {x, y, date, price, eps, pe, fair, yield, payout} o null
   const hoverRafRef = useRef(null);  // rAF id para throttle del onMouseMove → evita sobrecarga
 
@@ -92,6 +94,17 @@ export default function FastTab() {
       .catch(e => { if (!cancelled) { setError(e.message); setLoading(false); }});
     return () => { cancelled = true; };
   }, [ticker]);
+
+  // Fetch 2º ticker para compare mode (solo monthly_prices se usa).
+  useEffect(() => {
+    if (!compareTicker || compareTicker === ticker) { setCompareData(null); return; }
+    let cancelled = false;
+    fetch(`${API_URL}/api/fg-history?ticker=${encodeURIComponent(compareTicker)}&years=20`)
+      .then(r => r.json())
+      .then(d => { if (!cancelled && !d.error) setCompareData({ monthly_prices: d.monthly_prices || [], ticker: compareTicker }); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [compareTicker, ticker]);
 
   // Export del chart a PNG — serializa el SVG, lo pinta en canvas con fondo
   // crema (match FAST Graphs), descarga el resultado. Útil para compartir
@@ -904,6 +917,16 @@ export default function FastTab() {
             style={{padding:'6px 12px',borderRadius:8,border:`1px solid ${smoothEps?'var(--gold)':'var(--border)'}`,background:smoothEps?'rgba(200,164,78,0.10)':'transparent',color:smoothEps?'var(--gold)':'var(--text-secondary)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'var(--fm)'}}>
             Smooth EPS {smoothEps ? '✓' : '○'}
           </button>
+          {/* Compare mode — input libre para 2º ticker como ghost overlay */}
+          <input
+            type="text"
+            value={compareTicker}
+            onChange={e => setCompareTicker(e.target.value.toUpperCase().trim())}
+            placeholder="vs TICKER"
+            maxLength={6}
+            title="Compara el precio de otro ticker (normalizado al inicio). Ej: PEP, MO, ABBV."
+            style={{padding:'6px 10px',borderRadius:8,border:`1px solid ${compareData ? '#9333ea' : 'var(--border)'}`,background:compareData ? 'rgba(147,51,234,0.08)' : 'transparent',color:compareData ? '#9333ea' : 'var(--text-secondary)',fontSize:11,fontWeight:600,fontFamily:'var(--fm)',width:90,textAlign:'center',outline:'none'}}
+          />
           <button onClick={exportChartPNG}
             title={`Descarga el chart actual como PNG (fast-${ticker}-YYYY-MM-DD.png)`}
             style={{padding:'6px 12px',borderRadius:8,border:'1px solid var(--border)',background:'transparent',color:'var(--text-secondary)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'var(--fm)'}}>
@@ -1271,6 +1294,32 @@ export default function FastTab() {
                   <text x={s.x} y={s.yTop + 6} textAnchor="middle" fontSize={7} fontWeight={700} fill="#fff" fontFamily="monospace">S</text>
                 </g>
               ))}
+
+              {/* Compare overlay — ghost polyline del 2º ticker, normalizado
+                  para que su primer precio coincida con el primer precio del
+                  ticker activo. Así se lee relativamente "quién subió más". */}
+              {compareData?.monthly_prices?.length > 1 && pricesInRange.length > 1 && (() => {
+                const first = pricesInRange[0].close;
+                const cmpInRange = compareData.monthly_prices.filter(p => {
+                  const y = parseInt(p.date.slice(0, 4), 10);
+                  return y >= Math.floor(minXYear);
+                });
+                if (!cmpInRange.length) return null;
+                const cmpFirst = cmpInRange[0].close;
+                const scale = cmpFirst > 0 ? first / cmpFirst : 1;
+                const pts = cmpInRange.map(p => {
+                  const yr = parseFloat(p.date.slice(0, 4)) + parseFloat(p.date.slice(5, 7)) / 12;
+                  return `${xScale(yr)},${yScale(p.close * scale)}`;
+                }).join(' ');
+                return (
+                  <>
+                    <polyline points={pts} fill="none" stroke="#9333ea" strokeWidth={1.8} strokeDasharray="4,3" opacity={0.75} strokeLinejoin="round" strokeLinecap="round"/>
+                    <text x={PADL + chartW - 8} y={PADT + 14} textAnchor="end" fontSize={9} fontWeight={700} fill="#9333ea" fontFamily="monospace">
+                      vs {compareData.ticker} (normalizado)
+                    </text>
+                  </>
+                );
+              })()}
 
               {/* Historical price line — grueso como FAST Graphs para legibilidad
                   sobre las áreas de color */}
