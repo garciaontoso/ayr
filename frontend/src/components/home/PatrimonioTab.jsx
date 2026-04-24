@@ -14,6 +14,7 @@ function SnapshotsSection() {
     ctrlLog, ctrlShowForm, setCtrlShowForm,
     ctrlForm, setCtrlForm, addCtrlEntry, deleteCtrlEntry, ctrlEditId, setCtrlEditId,
     fxRates, ibData, loadIBData,
+    privacyMode,
   } = useHome();
 
   const [goldPrice, setGoldPrice] = useState(0);
