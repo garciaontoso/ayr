@@ -1,4 +1,18 @@
-# A&R v4.0 — Dividend Equity Analysis + 11 AI Agents
+# A&R v4.1 — Dividend Equity Analysis + 11 AI Agents
+
+## v4.1 Changes (2026-04-24) — FAST Tab overhaul
+- **⚡ FAST tab** completamente rediseñada estilo FAST Graphs + 5 sub-tabs (Summary / Trends / Forecasting / Historical / Scorecard).
+- **Chart principal**: paleta FAST Graphs (Normal P/E azul, Fair Value naranja 15x, verde "justificado", Dividend Yield rojo + Payout amarillo en eje derecho). Current Valuation dots anuales. Buy Zone pulsante cuando en zona de compra. Recession bands + trades overlay.
+- **EPS suavizado 3y median** (toggle ON/OFF) para filtrar picos GAAP (write-downs, FX).
+- **Tab Trends**: 5 sparklines con hover — EV/EBITDA, ROIC, FCF Yield, DPS Growth YoY, Shares Outstanding (detecta buybacks/dilución).
+- **Tab Forecasting**: bar chart EPS consenso 5y + tabla CAGR @ P/E custom vs @ Normal P/E.
+- **Tab Scorecard**: FG Scores radar + Analyst Scorecard + **Piotroski F-Score** (0-9) + **Altman Z-Score** + **Beneish M-Score**.
+- **Sidebar** 3 cards (Valoración / Retornos / Perfil) + card Backtest 5/10/15/20y.
+- **Compare mode**: overlay 2º ticker ghost normalizado.
+- **P/E personal** ⭐ persistido en localStorage por ticker.
+- **⬇ Export PNG** del chart en resolución retina 2x.
+- Banner warning cuando ticker es ETF (sin ratios) o REIT (Altman no aplica).
+- Tooltip enriquecido: 📊 histórico / 🔮 proyectado + "vs HOY ±X%" + tu compra ▲ si trade ±30d.
 
 ## v4.0 Changes (2026-04-06)
 - **11 AI Agents** in production with daily cron + push notifications. See `AGENTS.md` for full docs.
@@ -20,7 +34,7 @@
 - **API**: https://api.onto-so.com (custom domain, replaces workers.dev which uses blocked IPs)
 - **Pages**: https://ayr-196.pages.dev
 
-## Current Version: v3.2 (commit a775e8d)
+## Current Version: v4.1 (commit eb42b6c — FAST Tab overhaul)
 
 ## What's been built (v1.0 → v3.2)
 

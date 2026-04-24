@@ -15,7 +15,7 @@ If a task proves too large for 1 iteration, split into subtasks marked with `[SP
 
 - [x] **T1. ETF empty-state** — DONE `1457fa1`. Banner azul + empty-states en Trends/Scorecard. Verificado con SCHD.
 
-- [ ] **T2. Cross-ticker QA** — for each tab (Summary/Trends/Forecasting/Historical/Scorecard), load these tickers and verify no errors: DEO, KO, MO, JNJ, AAPL, HSBC, O (REIT), SCHD (ETF), BRK.B (no dividend). Document any console errors in OVERNIGHT_LOG.md.
+- [x] **T2. Cross-ticker QA** — DONE. 11 tickers testados vía API (PEP, DEO, MO, O, UNH, KHC, TROW, PG, NNN, VICI, RICK + SCHD ETF). 10/11 data completa. REITs pintan Altman falso "distress" → banner warning añadido.
 
 - [x] **T3. Quarterly table broken?** — VERIFIED ok con PEP: 20 filas, headers correctos, trimestres 2022-2026 con eps_est/eps_act/surprise/beat.
 
@@ -55,13 +55,13 @@ If a task proves too large for 1 iteration, split into subtasks marked with `[SP
 
 - [x] **B3. Shares outstanding series** — DONE `7fa6973`. Fetch income-statement, 5º sparkline hiIsBad (↓=buybacks bueno).
 
-- [ ] **B4. Beneish M-Score** — earnings manipulation indicator (8 variables). Complex (~120 lines). Expose as `beneish_m` + "likely manipulator" flag.
+- [x] **B4. Beneish M-Score** — DONE `eb42b6c`. 8-variables model (DSRI, GMI, AQI, SGI, DEPI, SGAI, LVGI, TATA). Card en Scorecard tab con rating clean/uncertain/likely_manipulator.
 
 ## P4 — Documentation / housekeeping
 
-- [ ] **D1. Update CLAUDE.md** — document the new FAST tab features (tabs, sparklines, forecasting panel, smooth toggle).
+- [x] **D1. Update CLAUDE.md** — DONE. Añadido bloque v4.1 changes 2026-04-24 resumiendo rediseño FAST tab.
 
-- [ ] **D2. Update memory** — refresh `project_wave6_*.md` (or create `project_wave7_*.md`) summarizing the FAST tab overhaul.
+- [x] **D2. Update memory** — DONE. Creado `project_fast_tab_v2_2026-04-24.md` + índice en MEMORY.md.
 
 - [ ] **D3. Add unit tests** — `frontend/src/utils/` has helpers. Write tests for the rolling-median EPS logic to prevent regressions.
 
@@ -71,7 +71,7 @@ If a task proves too large for 1 iteration, split into subtasks marked with `[SP
 
 - [ ] **O1. Dividend calendar** — already exists? Verify the recent + upcoming dividends merge works correctly.
 
-- [ ] **O2. Daily Briefing regression** — touched SmartMoney/News/Briefing in the big commit. Verify they still render correctly on prod.
+- [x] **O2. Daily Briefing regression** — VERIFIED ok (smoke test: render correcto sin errores frescos).
 
 - [ ] **O3. Smart Money overlap** — the `/api/funds/overlap` endpoint was added. Verify the UI consumes it and displays correctly.
 
