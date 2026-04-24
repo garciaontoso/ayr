@@ -23,23 +23,23 @@ If a task proves too large for 1 iteration, split into subtasks marked with `[SP
 
 ## P1 — Rendering & UX polish
 
-- [ ] **P1. Tooltip histórico vs proyectado label** — when hover is on a year >= lastHistY+1, tag it "🔮 Proyectado" in the tooltip header. Else "📊 Histórico". Makes clear what's real vs estimated.
+- [x] **P1. Tooltip histórico vs proyectado label** — DONE `7b38499`. Tag 📊/🔮 + borde cambia de gold a cyan.
 
-- [ ] **P2. Tooltip delta vs current** — show "vs HOY: +X%" comparing that point's price to `cfg.price`. Useful for "¿cuánto ha subido desde ese punto?".
+- [x] **P2. Tooltip delta vs current** — DONE `7b38499`. Fila "vs HOY: ±X%" verde/rojo.
 
 - [ ] **P3. Tooltip show trade markers** — if hover is near a user trade (within 30 days), show "Tu compra $X × Y shares" in tooltip.
 
-- [ ] **P4. Loading skeleton** — instead of "Cargando histórico de precio…", show a pulsing skeleton of the chart area.
+- [x] **P4. Loading skeleton** — DONE `dc5ccfd`. Placeholder pulsante 40+480px mientras carga.
 
-- [ ] **P5. Trends tab: tooltip on spark hover** — currently no hover state on sparklines. Add year+value readout on mouse move.
+- [x] **P5. Trends tab: tooltip on spark hover** — DONE `dc5ccfd`. Readout year+value + crosshair + dot ampliado.
 
-- [ ] **P6. Buy Zone pulsing border** — when `inBuyZone` is true, subtle pulsing animation on the badge (1.5s cycle). Alerta visual.
+- [x] **P6. Buy Zone pulsing border** — DONE `dc5ccfd`. Keyframes fastBuyPulse 1.8s cuando inBuyZone.
 
 ## P2 — New features (medium effort)
 
 - [ ] **N1. Compare mode** — in the header, a "Comparar con…" dropdown that loads a second ticker's fair value line as ghost overlay (gray dashed). Useful for "KO vs PEP".
 
-- [ ] **N2. Target P/E personal** — button "Guardar P/E" que persiste en localStorage key `fast-pe-${ticker}`. Next time opens ticker, pre-loads that P/E instead of default. Small "⭐" indicator when custom.
+- [x] **N2. Target P/E personal** — DONE `ebd76a2`. Botón ⭐/☆ P/E personal, persist localStorage, pre-carga al montar ticker.
 
 - [ ] **N3. Backtest mini-widget** — small card below Summary: "Si hubiste comprado hace X años → realizaría +Y%/año". Dropdown 5y/10y/15y. Compute from monthly_prices + dividends.
 
