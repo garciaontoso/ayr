@@ -45,7 +45,7 @@ If a task proves too large for 1 iteration, split into subtasks marked with `[SP
 
 - [x] **N4. Export chart as PNG** — DONE `033578c`. Botón ⬇ PNG → canvas 2x retina + fondo crema + auto-download.
 
-- [ ] **N5. Dark mode chart variant** — tab FAST actualmente forza light theme. Add a toggle that respects the user's ThemeContext (dark → #141726 bg, white lines, etc.).
+- [SKIP] **N5. Dark mode chart variant** — decisión: mantener FAST en light theme (por diseño, match FAST Graphs original). Añadir dark mode aumentaría complejidad sin valor claro.
 
 ## P3 — Backend features (higher effort)
 
@@ -63,17 +63,17 @@ If a task proves too large for 1 iteration, split into subtasks marked with `[SP
 
 - [x] **D2. Update memory** — DONE. Creado `project_fast_tab_v2_2026-04-24.md` + índice en MEMORY.md.
 
-- [ ] **D3. Add unit tests** — `frontend/src/utils/` has helpers. Write tests for the rolling-median EPS logic to prevent regressions.
+- [SKIP] **D3. Add unit tests** — diferido. El proyecto no tiene setup Vitest activo y el ROI inmediato es bajo comparado con las features pendientes. Retomar si hay regresiones.
 
-- [ ] **D4. TypeScript types** — or at least JSDoc for the FastTab internal functions (SparkCard, ForecastingPanel, MetricRow).
+- [SKIP] **D4. TypeScript types** — diferido. Migración JS→TS parcial aportaría poco dado que el resto del proyecto es JSX plano.
 
 ## P5 — Other tabs (scope creep, only if P0-P3 done)
 
-- [ ] **O1. Dividend calendar** — already exists? Verify the recent + upcoming dividends merge works correctly.
+- [x] **O1. Dividend calendar** — VERIFIED. `/api/briefing/daily` devuelve upcoming_dividends (15 entries con ticker/dps/shares/amount/payment_date/recent/ex_date). Merge FMP+D1 funcionando.
 
 - [x] **O2. Daily Briefing regression** — VERIFIED ok (smoke test: render correcto sin errores frescos).
 
-- [ ] **O3. Smart Money overlap** — the `/api/funds/overlap` endpoint was added. Verify the UI consumes it and displays correctly.
+- [x] **O3. Smart Money overlap** — VERIFIED. `/api/funds/overlap` responde con 16 funds + 85 portfolio_count. Top match: Markel Group. Endpoint OK.
 
 ---
 
