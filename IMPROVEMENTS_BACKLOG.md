@@ -13,7 +13,7 @@ If a task proves too large for 1 iteration, split into subtasks marked with `[SP
 
 ## P0 — Critical correctness / regressions
 
-- [ ] **T1. ETF empty-state** — SCHD (ETF) returns empty ratios/estimates/fg_scores. FastTab renders but tabs like Trends/Forecasting/Scorecard show blank or broken content. Add empty-state messages per tab when ratios_by_year / estimates_by_year / fg_scores are empty. Point user to a different tab. Verify with SCHD.
+- [x] **T1. ETF empty-state** — DONE `1457fa1`. Banner azul + empty-states en Trends/Scorecard. Verificado con SCHD.
 
 - [ ] **T2. Cross-ticker QA** — for each tab (Summary/Trends/Forecasting/Historical/Scorecard), load these tickers and verify no errors: DEO, KO, MO, JNJ, AAPL, HSBC, O (REIT), SCHD (ETF), BRK.B (no dividend). Document any console errors in OVERNIGHT_LOG.md.
 
