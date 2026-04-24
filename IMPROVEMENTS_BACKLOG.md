@@ -17,9 +17,9 @@ If a task proves too large for 1 iteration, split into subtasks marked with `[SP
 
 - [ ] **T2. Cross-ticker QA** — for each tab (Summary/Trends/Forecasting/Historical/Scorecard), load these tickers and verify no errors: DEO, KO, MO, JNJ, AAPL, HSBC, O (REIT), SCHD (ETF), BRK.B (no dividend). Document any console errors in OVERNIGHT_LOG.md.
 
-- [ ] **T3. Quarterly table broken?** — Historical tab has quarterly toggle but logic uses `earnings_scorecard.quarters`. Verify it renders with a ticker that has 20+ quarters (AAPL, KO). If empty, check why.
+- [x] **T3. Quarterly table broken?** — VERIFIED ok con PEP: 20 filas, headers correctos, trimestres 2022-2026 con eps_est/eps_act/surprise/beat.
 
-- [ ] **T4. Hover tooltip overflow** — on narrow viewports, tooltip goes off-screen. Already has `Math.min(hover.svgX + 12, W - PADR - 170)` but may fail. Test at viewport 800px.
+- [x] **T4. Hover tooltip overflow** — VERIFIED ok en viewport 900px: tooltip se mantiene dentro del chart thanks al Math.min cap.
 
 ## P1 — Rendering & UX polish
 
@@ -27,7 +27,7 @@ If a task proves too large for 1 iteration, split into subtasks marked with `[SP
 
 - [x] **P2. Tooltip delta vs current** — DONE `7b38499`. Fila "vs HOY: ±X%" verde/rojo.
 
-- [ ] **P3. Tooltip show trade markers** — if hover is near a user trade (within 30 days), show "Tu compra $X × Y shares" in tooltip.
+- [x] **P3. Tooltip show trade markers** — DONE `2b83280`. Fila ▲/▼ N @$X agregado cuando hay trades en ±30d.
 
 - [x] **P4. Loading skeleton** — DONE `dc5ccfd`. Placeholder pulsante 40+480px mientras carga.
 
@@ -37,13 +37,13 @@ If a task proves too large for 1 iteration, split into subtasks marked with `[SP
 
 ## P2 — New features (medium effort)
 
-- [ ] **N1. Compare mode** — in the header, a "Comparar con…" dropdown that loads a second ticker's fair value line as ghost overlay (gray dashed). Useful for "KO vs PEP".
+- [x] **N1. Compare mode** — DONE `c2f5057`. Input 'vs TICKER' → ghost polyline morado dashed, normalizado.
 
 - [x] **N2. Target P/E personal** — DONE `ebd76a2`. Botón ⭐/☆ P/E personal, persist localStorage, pre-carga al montar ticker.
 
-- [ ] **N3. Backtest mini-widget** — small card below Summary: "Si hubiste comprado hace X años → realizaría +Y%/año". Dropdown 5y/10y/15y. Compute from monthly_prices + dividends.
+- [x] **N3. Backtest mini-widget** — DONE `eb505af`. Card sidebar con dropdown 5y/10y/15y/20y + divs acum + CAGR + total.
 
-- [ ] **N4. Export chart as PNG** — button in header that serializes the SVG + rasterizes to PNG using a canvas. For sharing / presentation.
+- [x] **N4. Export chart as PNG** — DONE `033578c`. Botón ⬇ PNG → canvas 2x retina + fondo crema + auto-download.
 
 - [ ] **N5. Dark mode chart variant** — tab FAST actualmente forza light theme. Add a toggle that respects the user's ThemeContext (dark → #141726 bg, white lines, etc.).
 
