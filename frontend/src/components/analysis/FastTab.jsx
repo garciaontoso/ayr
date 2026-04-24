@@ -1785,6 +1785,11 @@ export default function FastTab() {
             }
             return out;
           })()} fmt={v => (v*100).toFixed(1)+'%'} colorHi="#30d158" colorLo="#ff453a" variant="bars"/>
+          <SparkCard label="Shares Outstanding"
+            data={history.shares_out_series}
+            fmt={v => v >= 1e9 ? (v/1e9).toFixed(2)+'B' : (v/1e6).toFixed(0)+'M'}
+            colorHi="#30d158" colorLo="#ff453a" hiIsBad
+            title="↓ = buybacks (buena gestión); ↑ = dilución"/>
         </div>
       )}
 

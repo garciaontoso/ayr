@@ -13378,9 +13378,9 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         // Parallel fetches: historical EOD + full ratios (annual) + rating + profile + analyst estimates
         // + price target + earnings scorecard (past 20 quarters) + splits + key-metrics
         let eodRaw = [], ratiosRaw = [], ratingRaw = [], profileRaw = [], estimatesRaw = [],
-            priceTargetRaw = null, earningsRaw = [], splitsRaw = [], keyMetricsRaw = [];
+            priceTargetRaw = null, earningsRaw = [], splitsRaw = [], keyMetricsRaw = [], incomeRaw = [];
         try {
-          const [eodR, ratR, ratingR, profR, estR, ptR, earR, spR, kmR] = await Promise.all([
+          const [eodR, ratR, ratingR, profR, estR, ptR, earR, spR, kmR, incR] = await Promise.all([
             fetch(`https://financialmodelingprep.com/stable/historical-price-eod/light?symbol=${encodeURIComponent(ratSym)}&from=${fromDate}&apikey=${FMP_KEY}`),
             fetch(`https://financialmodelingprep.com/stable/ratios?symbol=${encodeURIComponent(ratSym)}&limit=${years}&apikey=${FMP_KEY}`),
             fetch(`https://financialmodelingprep.com/stable/ratings-snapshot?symbol=${encodeURIComponent(ratSym)}&apikey=${FMP_KEY}`),
@@ -13390,6 +13390,7 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
             fetch(`https://financialmodelingprep.com/stable/earnings?symbol=${encodeURIComponent(ratSym)}&limit=40&apikey=${FMP_KEY}`),
             fetch(`https://financialmodelingprep.com/stable/splits?symbol=${encodeURIComponent(ratSym)}&limit=30&apikey=${FMP_KEY}`),
             fetch(`https://financialmodelingprep.com/stable/key-metrics?symbol=${encodeURIComponent(ratSym)}&limit=${years}&apikey=${FMP_KEY}`),
+            fetch(`https://financialmodelingprep.com/stable/income-statement?symbol=${encodeURIComponent(ratSym)}&limit=${years}&apikey=${FMP_KEY}`),
           ]);
           eodRaw = eodR.ok ? await eodR.json() : [];
           ratiosRaw = ratR.ok ? await ratR.json() : [];
@@ -13401,6 +13402,7 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
           earningsRaw = earR.ok ? await earR.json() : [];
           splitsRaw = spR.ok ? await spR.json() : [];
           keyMetricsRaw = kmR.ok ? await kmR.json() : [];
+          incomeRaw = incR.ok ? await incR.json() : [];
         } catch (e) {
           return json({ error: `FMP fetch failed: ${e.message}` }, corsHeaders, 502);
         }
@@ -13471,6 +13473,18 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         const evEbitdaSeries = kmSeries('enterpriseValueOverEBITDA', 'evToEBITDA', 'evToOperatingCashFlow');
         const roicSeries = kmSeries('returnOnInvestedCapital');
         const fcfYieldSeries = kmSeries('freeCashFlowYield');
+
+        // Shares outstanding series desde income-statement — key para detectar
+        // buybacks (↓ shares = buena gestión capital) o dilución (↑ shares =
+        // señal warning). FMP usa 'weightedAverageShsOut' por año fiscal.
+        const sharesOutSeries = (Array.isArray(incomeRaw) ? incomeRaw : [])
+          .map(r => {
+            const y = r.fiscalYear || (r.date ? r.date.slice(0, 4) : null);
+            const v = +r.weightedAverageShsOut || +r.weightedAverageShsOutDil || 0;
+            return y && v > 0 ? { year: +y, value: v } : null;
+          })
+          .filter(Boolean)
+          .sort((a, b) => a.year - b.year);
 
         // Rating + profile
         const rating = Array.isArray(ratingRaw) ? ratingRaw[0] : ratingRaw;
@@ -13610,6 +13624,7 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
           ev_ebitda_series: evEbitdaSeries,  // [{year, value}] — múltiplo EV/EBITDA
           roic_series: roicSeries,           // [{year, value}] — return on invested capital
           fcf_yield_series: fcfYieldSeries,  // [{year, value}] — free cash flow yield
+          shares_out_series: sharesOutSeries, // [{year, value}] — shares outstanding (buybacks/dilución)
           estimates_by_year: estimatesByYear,  // {2026:{epsAvg,epsHigh,epsLow,revenueAvg,analystsEps}, ...}
           price_target: priceTargetRaw ? {
             consensus: priceTargetRaw.targetConsensus ?? priceTargetRaw.priceTarget ?? null,
