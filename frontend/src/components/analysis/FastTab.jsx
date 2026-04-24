@@ -72,7 +72,28 @@ export default function FastTab() {
   const [trades, setTrades] = useState([]);
   const [showTrades, setShowTrades] = useState(true);
   const [showCones, setShowCones] = useState(true);  // margin-of-error cones ±margin_1y/2y
-  const [tablePeriod, setTablePeriod] = useState('yearly'); // yearly | quarterly
+  // Filas visibles en la tabla anual (toggleable via chips). Persistido por
+  // ticker en localStorage para que el perfil que arma el usuario se mantenga.
+  const DEFAULT_TABLE_ROWS = {
+    val: true, chg: true, div: true, chgDiv: false,
+    sales: false, ebitda: false, fcfps: false, shares: false,
+    pe: false, evEbitda: false, fvRatio: false, nprRatio: false, fcfYield: false,
+    divYield: true, payout: true,
+  };
+  const [visibleRows, setVisibleRows] = useState(DEFAULT_TABLE_ROWS);
+  const toggleRow = (k) => setVisibleRows(v => ({ ...v, [k]: !v[k] }));
+  useEffect(() => {
+    if (!ticker) return;
+    try {
+      const stored = localStorage.getItem(`fast-table-rows-${ticker}`);
+      if (stored) setVisibleRows({ ...DEFAULT_TABLE_ROWS, ...JSON.parse(stored) });
+      else setVisibleRows(DEFAULT_TABLE_ROWS);
+    } catch { setVisibleRows(DEFAULT_TABLE_ROWS); }
+  }, [ticker]);  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!ticker) return;
+    try { localStorage.setItem(`fast-table-rows-${ticker}`, JSON.stringify(visibleRows)); } catch {}
+  }, [visibleRows, ticker]);
   const [showRecessions, setShowRecessions] = useState(true);  // bandas de recesiones
   const [smoothEps, setSmoothEps] = useState(true);  // rolling median 3y para EPS (suaviza write-downs, FX, impairments)
   const [innerTab, setInnerTab] = useState('summary');  // summary | trends | forecasting | historical | scorecard
@@ -880,15 +901,63 @@ export default function FastTab() {
     return cap > 0 ? ltDebt / cap : null;
   })();
 
-  // Change/year table — EPS + Div + YoY % de ambos (estilo FAST Graphs
-  // "FY Date / EPS / Chg/Yr / Div" con fila adicional de ∆ Div).
+  // Change/year table — filas FY × múltiples métricas (estilo FAST Graphs
+  // con filas toggleables). Enriquecido con ventas/EBITDA/FCF/shares/P/E/
+  // EV-EBITDA/yields — el usuario elige qué filas ver vía chips arriba.
+  const eveByYear = Object.fromEntries((history?.ev_ebitda_series || []).map(d => [d.year, d.value]));
+  const fcfYieldByYear = Object.fromEntries((history?.fcf_yield_series || []).map(d => [d.year, d.value]));
+  const sharesByYear = Object.fromEntries((history?.shares_out_series || []).map(d => [d.year, d.value]));
   const tableRows = validHist.map((d, i) => {
     const prev = i > 0 ? validHist[i - 1].val : null;
     const prevDiv = i > 0 ? validHist[i - 1].div : null;
     const chg = prev && prev !== 0 ? (d.val - prev) / prev : null;
     const chgDiv = prevDiv && prevDiv !== 0 && d.div ? (d.div - prevDiv) / prevDiv : null;
-    return { y: d.y, val: d.val, chg, div: d.div, chgDiv };
+    const f = fin[d.y];
+    const so = f?.sharesOut;
+    const pxEoy = priceByYear[d.y];
+    const sales = f?.revenue && so ? f.revenue / so : null;
+    const ebitda = f && so ? ((f.operatingIncome || 0) + (f.depreciation || 0)) / so : null;
+    const fcfps = comp[d.y]?.fcfps;
+    const pe = pxEoy && d.val > 0 ? pxEoy / d.val : (ratiosBy[d.y]?.pe ?? null);
+    const divYield = pxEoy && d.div > 0 ? d.div / pxEoy : null;
+    const payout = d.val > 0 && d.div > 0 ? Math.min(d.div / d.val, 2) : null;
+    // Ratios "% vs fair": >100 = caro, <100 = barato. null si no hay datos.
+    const fvRatio = pxEoy && d.val > 0 && activePE ? pxEoy / (d.val * activePE) : null;
+    const nprRatio = pxEoy && d.val > 0 && zonePE ? pxEoy / (d.val * zonePE) : null;
+    return {
+      y: d.y, val: d.val, chg, div: d.div, chgDiv,
+      sales, ebitda, fcfps,
+      shares: sharesByYear[d.y] ?? so ?? null,
+      pe, evEbitda: eveByYear[d.y] ?? null,
+      fvRatio, nprRatio,
+      fcfYield: fcfYieldByYear[d.y] ?? null,
+      divYield, payout,
+    };
   });
+
+  // Registro de filas disponibles — cada fila se puede mostrar/ocultar vía chips.
+  // Agrupadas semánticamente: crecimiento / valoración / dividendo.
+  const TABLE_ROW_REGISTRY = [
+    // Crecimiento
+    { key:'val',       group:'growth', label:METRIC_LABEL[fgMode]?.slice(0,12)||'Valor', color:'var(--gold)', bold:true,  fmt:(r)=>fC(r.val) },
+    { key:'chg',       group:'growth', label:'∆/año',        color:'var(--text-secondary)', colorize:'diff', fmt:(r)=>r.chg!=null?(r.chg>0?'+':'')+(r.chg*100).toFixed(0)+'%':'—' },
+    { key:'sales',     group:'growth', label:'Ventas/acc',   color:'var(--text-secondary)', fmt:(r)=>r.sales!=null?'$'+r.sales.toFixed(2):'—' },
+    { key:'ebitda',    group:'growth', label:'EBITDA/acc',   color:'var(--text-secondary)', fmt:(r)=>r.ebitda!=null?'$'+r.ebitda.toFixed(2):'—' },
+    { key:'fcfps',     group:'growth', label:'FCF/acc',      color:'var(--text-secondary)', fmt:(r)=>r.fcfps!=null?'$'+r.fcfps.toFixed(2):'—' },
+    { key:'shares',    group:'growth', label:'Shares (M)',   color:'var(--text-secondary)', fmt:(r)=>r.shares!=null?(r.shares/1e6).toFixed(0):'—' },
+    // Valoración
+    { key:'pe',        group:'valuation', label:'P/E cierre', color:'#4a90e2', fmt:(r)=>r.pe!=null?r.pe.toFixed(1)+'x':'—' },
+    { key:'evEbitda',  group:'valuation', label:'EV/EBITDA',  color:'#d946ef', fmt:(r)=>r.evEbitda!=null?r.evEbitda.toFixed(1)+'x':'—' },
+    { key:'fvRatio',   group:'valuation', label:`vs Fair ${activePE?activePE.toFixed(0):15}x`, color:'#f59e0b', colorize:'fair', fmt:(r)=>r.fvRatio!=null?(r.fvRatio*100).toFixed(0)+'%':'—' },
+    { key:'nprRatio',  group:'valuation', label:`vs Normal ${zonePE?zonePE.toFixed(0):''}x`,   color:'#2e8b57', colorize:'fair', fmt:(r)=>r.nprRatio!=null?(r.nprRatio*100).toFixed(0)+'%':'—' },
+    { key:'fcfYield',  group:'valuation', label:'FCF Yield',  color:'#30d158', fmt:(r)=>r.fcfYield!=null?(r.fcfYield*100).toFixed(1)+'%':'—' },
+    // Dividendo
+    { key:'div',       group:'dividend', label:'Dividendo',   color:'var(--gold)', fmt:(r)=>r.div?'$'+r.div.toFixed(2):'—' },
+    { key:'chgDiv',    group:'dividend', label:'∆ Div/año',   color:'var(--text-secondary)', colorize:'diff', fmt:(r)=>r.chgDiv!=null?(r.chgDiv>0?'+':'')+(r.chgDiv*100).toFixed(0)+'%':'—' },
+    { key:'divYield',  group:'dividend', label:'Div Yield',   color:'#dc2626', fmt:(r)=>r.divYield!=null?(r.divYield*100).toFixed(2)+'%':'—' },
+    { key:'payout',    group:'dividend', label:'Payout',      color:'#eab308', colorize:'payout', fmt:(r)=>r.payout!=null?(r.payout*100).toFixed(0)+'%':'—' },
+  ];
+  const TABLE_GROUP_LABELS = { growth: '📈 Crecimiento', valuation: '⚖️ Valoración', dividend: '💰 Dividendo' };
 
   return (
     <div className="fast-light-theme">
@@ -1785,55 +1854,93 @@ export default function FastTab() {
       </div>
       )}{/* /innerTab summary */}
 
-      {/* Numbers table — FY / Metric / Chg/Yr / Div. SOLO en Historical. */}
-      {innerTab === 'historical' && (
-      <div style={{marginTop:14,background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:14,overflowX:'auto'}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-          <div style={{fontSize:10,color:'var(--text-tertiary)',fontFamily:'var(--fm)',letterSpacing:.5,textTransform:'uppercase'}}>Histórico {tablePeriod === 'yearly' ? 'anual' : 'trimestral'}</div>
-          <div style={{display:'flex',gap:3}}>
-            <button onClick={()=>setTablePeriod('yearly')} style={{padding:'3px 8px',fontSize:9,fontWeight:700,borderRadius:4,border:`1px solid ${tablePeriod==='yearly'?'var(--gold)':'var(--border)'}`,background:tablePeriod==='yearly'?'var(--gold-dim)':'transparent',color:tablePeriod==='yearly'?'var(--gold)':'var(--text-secondary)',cursor:'pointer',fontFamily:'var(--fm)'}}>ANUAL</button>
-            <button onClick={()=>setTablePeriod('quarterly')} title={history?.earnings_scorecard?.quarters?.length ? '' : 'Sin datos trimestrales'}
-              disabled={!history?.earnings_scorecard?.quarters?.length}
-              style={{padding:'3px 8px',fontSize:9,fontWeight:700,borderRadius:4,border:`1px solid ${tablePeriod==='quarterly'?'var(--gold)':'var(--border)'}`,background:tablePeriod==='quarterly'?'var(--gold-dim)':'transparent',color:tablePeriod==='quarterly'?'var(--gold)':history?.earnings_scorecard?.quarters?.length?'var(--text-secondary)':'var(--text-tertiary)',cursor:history?.earnings_scorecard?.quarters?.length?'pointer':'not-allowed',fontFamily:'var(--fm)'}}>TRIMESTRAL</button>
+      {/* ─── TABLA ANUAL — en Summary (estilo FAST Graphs, debajo del chart) ──
+          Filas dinámicas según `visibleRows`. Chips de toggle agrupados en
+          3 categorías (Crecimiento / Valoración / Dividendo). Cada usuario
+          arma su propia vista; persiste en localStorage por ticker. */}
+      {innerTab === 'summary' && !loading && !error && tableRows.length > 0 && (
+        <div style={{marginTop:14,background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:14,overflowX:'auto'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,flexWrap:'wrap',gap:8}}>
+            <div style={{fontSize:10,color:'var(--text-tertiary)',fontFamily:'var(--fm)',letterSpacing:.5,textTransform:'uppercase'}}>Histórico anual · {tableRows.length} años · selecciona filas ↓</div>
+            <button onClick={() => setVisibleRows(DEFAULT_TABLE_ROWS)}
+              style={{padding:'3px 10px',fontSize:9,fontWeight:700,borderRadius:4,border:'1px solid var(--border)',background:'transparent',color:'var(--text-secondary)',cursor:'pointer',fontFamily:'var(--fm)'}}
+              title="Restaurar filas por defecto">
+              ↺ Reset
+            </button>
           </div>
+
+          {/* Chips toggle — filas disponibles agrupadas */}
+          <div style={{display:'flex',flexWrap:'wrap',gap:10,marginBottom:12,paddingBottom:10,borderBottom:'1px solid var(--subtle-border, rgba(20,23,38,0.06))'}}>
+            {['growth','valuation','dividend'].map(group => {
+              const items = TABLE_ROW_REGISTRY.filter(r => r.group === group);
+              if (items.length === 0) return null;
+              return (
+                <div key={group} style={{display:'flex',flexWrap:'wrap',gap:4,alignItems:'center'}}>
+                  <span style={{fontSize:9,fontWeight:700,color:'var(--text-tertiary)',fontFamily:'var(--fm)',textTransform:'uppercase',letterSpacing:.5,marginRight:4}}>{TABLE_GROUP_LABELS[group]}</span>
+                  {items.map(row => {
+                    const on = visibleRows[row.key];
+                    return (
+                      <button key={row.key} onClick={() => toggleRow(row.key)}
+                        title={row.label}
+                        style={{padding:'3px 8px',fontSize:9.5,fontWeight:600,borderRadius:3,border:`1px solid ${on?row.color:'var(--border)'}`,background:on?row.color+'22':'transparent',color:on?row.color:'var(--text-tertiary)',cursor:'pointer',fontFamily:'var(--fm)',display:'inline-flex',alignItems:'center',gap:4}}>
+                        <span style={{display:'inline-block',width:10,height:10,borderRadius:2,border:`1.5px solid ${on?row.color:'var(--border-hover)'}`,background:on?row.color:'transparent',position:'relative'}}>
+                          {on && <span style={{position:'absolute',top:-2,left:1,fontSize:9,color:'#fff',fontWeight:900,lineHeight:1}}>✓</span>}
+                        </span>
+                        {row.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:10,fontFamily:'var(--fm)',minWidth:520}}>
+            <thead>
+              <tr style={{borderBottom:'1px solid var(--border)',color:'var(--text-tertiary)'}}>
+                <th style={{textAlign:'left',padding:'4px 6px',position:'sticky',left:0,background:'var(--card)',zIndex:1}}>FY Date</th>
+                {tableRows.map(r => <th key={r.y} style={{textAlign:'right',padding:'4px 6px'}}>{r.y}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {TABLE_ROW_REGISTRY.filter(row => visibleRows[row.key]).map(row => (
+                <tr key={row.key} style={{borderBottom:'1px solid var(--subtle-border, rgba(20,23,38,0.04))'}}>
+                  <td style={{padding:'4px 6px',fontWeight:row.bold?700:500,color:row.color,position:'sticky',left:0,background:'var(--card)',zIndex:1}}>{row.label}</td>
+                  {tableRows.map(r => {
+                    let cellColor = 'var(--text-primary)';
+                    if (row.colorize === 'diff') {
+                      const v = r[row.key];
+                      cellColor = v == null ? 'var(--text-tertiary)' : v > 0 ? '#30d158' : v < 0 ? '#ff453a' : 'var(--text-primary)';
+                    } else if (row.colorize === 'fair') {
+                      // ratio % vs fair: <100% = barato (verde), >115% = caro (rojo)
+                      const v = r[row.key];
+                      cellColor = v == null ? 'var(--text-tertiary)' : v < 1 ? '#30d158' : v > 1.15 ? '#ff453a' : 'var(--text-primary)';
+                    } else if (row.colorize === 'payout') {
+                      const v = r[row.key];
+                      cellColor = v == null ? 'var(--text-tertiary)' : v > 0.8 ? '#ff453a' : v > 0.6 ? '#eab308' : '#30d158';
+                    } else {
+                      cellColor = r[row.key] == null ? 'var(--text-tertiary)' : row.color || 'var(--text-primary)';
+                    }
+                    return (
+                      <td key={r.y} style={{textAlign:'right',padding:'4px 6px',color:cellColor,fontWeight:row.bold?700:400}}>{row.fmt(r)}</td>
+                    );
+                  })}
+                </tr>
+              ))}
+              {TABLE_ROW_REGISTRY.filter(row => visibleRows[row.key]).length === 0 && (
+                <tr><td colSpan={tableRows.length + 1} style={{padding:14,textAlign:'center',color:'var(--text-tertiary)',fontSize:10}}>
+                  Selecciona al menos una fila arriba para ver datos ↑
+                </td></tr>
+              )}
+            </tbody>
+          </table>
         </div>
-        {tablePeriod === 'yearly' && (<>
-        <table style={{width:'100%',borderCollapse:'collapse',fontSize:10,fontFamily:'var(--fm)',minWidth:520}}>
-          <thead>
-            <tr style={{borderBottom:'1px solid var(--border)',color:'var(--text-tertiary)'}}>
-              <th style={{textAlign:'left',padding:'4px 6px'}}>FY Date</th>
-              {tableRows.map(r => <th key={r.y} style={{textAlign:'right',padding:'4px 6px'}}>{r.y}</th>)}
-            </tr>
-          </thead>
-          <tbody>
-            <tr style={{borderBottom:'1px solid var(--subtle-border, rgba(255,255,255,0.04))'}}>
-              <td style={{padding:'4px 6px',fontWeight:700,color:'var(--gold)'}}>{METRIC_LABEL[fgMode]?.slice(0, 12) || 'Valor'}</td>
-              {tableRows.map(r => <td key={r.y} style={{textAlign:'right',padding:'4px 6px',color:'var(--text-primary)'}}>{fC(r.val)}</td>)}
-            </tr>
-            <tr style={{borderBottom:'1px solid var(--subtle-border, rgba(255,255,255,0.04))'}}>
-              <td style={{padding:'4px 6px',color:'var(--text-secondary)'}}>∆/año</td>
-              {tableRows.map(r => (
-                <td key={r.y} style={{textAlign:'right',padding:'4px 6px',color:r.chg == null ? 'var(--text-tertiary)' : r.chg > 0 ? '#30d158' : '#ff453a'}}>
-                  {r.chg != null ? (r.chg > 0 ? '+' : '') + (r.chg * 100).toFixed(0) + '%' : '—'}
-                </td>
-              ))}
-            </tr>
-            <tr style={{borderBottom:'1px solid var(--subtle-border, rgba(255,255,255,0.04))'}}>
-              <td style={{padding:'4px 6px',color:'var(--text-secondary)'}}>Dividendo</td>
-              {tableRows.map(r => <td key={r.y} style={{textAlign:'right',padding:'4px 6px',color:r.div ? 'var(--gold)' : 'var(--text-tertiary)'}}>{r.div ? '$'+r.div.toFixed(2) : '—'}</td>)}
-            </tr>
-            <tr>
-              <td style={{padding:'4px 6px',color:'var(--text-secondary)'}}>∆ Div/año</td>
-              {tableRows.map(r => (
-                <td key={r.y} style={{textAlign:'right',padding:'4px 6px',color:r.chgDiv == null ? 'var(--text-tertiary)' : r.chgDiv > 0 ? '#30d158' : '#ff453a'}}>
-                  {r.chgDiv != null ? (r.chgDiv > 0 ? '+' : '') + (r.chgDiv * 100).toFixed(0) + '%' : '—'}
-                </td>
-              ))}
-            </tr>
-          </tbody>
-        </table>
-        </>)}
-        {tablePeriod === 'quarterly' && (
+      )}
+
+      {/* Histórico trimestral — beats/misses vs analistas. Queda en Historical. */}
+      {innerTab === 'historical' && history?.earnings_scorecard?.quarters?.length > 0 && (
+        <div style={{marginTop:14,background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:14,overflowX:'auto'}}>
+          <div style={{fontSize:10,color:'var(--text-tertiary)',fontFamily:'var(--fm)',letterSpacing:.5,textTransform:'uppercase',marginBottom:8}}>Earnings trimestrales · beats vs consenso analistas</div>
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:10,fontFamily:'var(--fm)',minWidth:520}}>
             <thead>
               <tr style={{borderBottom:'1px solid var(--border)',color:'var(--text-tertiary)'}}>
@@ -1845,8 +1952,8 @@ export default function FastTab() {
               </tr>
             </thead>
             <tbody>
-              {(history?.earnings_scorecard?.quarters || []).map(q => (
-                <tr key={q.date} style={{borderBottom:'1px solid var(--subtle-border, rgba(255,255,255,0.04))'}}>
+              {(history.earnings_scorecard.quarters || []).map(q => (
+                <tr key={q.date} style={{borderBottom:'1px solid var(--subtle-border, rgba(20,23,38,0.04))'}}>
                   <td style={{padding:'4px 6px',color:'var(--text-secondary)'}}>{q.date}</td>
                   <td style={{textAlign:'right',padding:'4px 6px'}}>{q.eps_est != null ? '$'+q.eps_est.toFixed(2) : '—'}</td>
                   <td style={{textAlign:'right',padding:'4px 6px'}}>{q.eps_act != null ? '$'+q.eps_act.toFixed(2) : '—'}</td>
@@ -1858,9 +1965,8 @@ export default function FastTab() {
               ))}
             </tbody>
           </table>
-        )}
-      </div>
-      )}{/* /innerTab historical */}
+        </div>
+      )}
 
       {/* Historical tab: incluir también splits para tener todo lo "pasado" junto */}
       {innerTab === 'historical' && history?.splits?.length > 0 && (
