@@ -786,6 +786,25 @@ export default function FastTab() {
         @media (max-width: 1200px) {
           .fast-chart-layout { grid-template-columns: 1fr !important; }
         }
+        /* Pulse animation para el Buy Zone cuando el ticker está en zona de
+           compra — llama la atención visualmente sin ser intrusivo. */
+        @keyframes fastBuyPulse {
+          0%, 100% { stroke-opacity: 0.6; stroke-width: 1.5; }
+          50% { stroke-opacity: 1; stroke-width: 3; }
+        }
+        .fast-buy-pulse {
+          animation: fastBuyPulse 1.8s ease-in-out infinite;
+        }
+        /* Skeleton loading — pulsante mientras carga /api/fg-history */
+        @keyframes fastSkeletonPulse {
+          0%, 100% { opacity: 0.4; }
+          50% { opacity: 0.8; }
+        }
+        .fast-skeleton {
+          background: linear-gradient(90deg, rgba(20,23,38,0.06), rgba(20,23,38,0.12), rgba(20,23,38,0.06));
+          animation: fastSkeletonPulse 1.4s ease-in-out infinite;
+          border-radius: 4px;
+        }
       `}</style>
       {/* Header */}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14,flexWrap:'wrap',gap:12}}>
@@ -977,7 +996,13 @@ export default function FastTab() {
       <div className="fast-chart-layout" style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) 260px',gap:12,alignItems:'start'}}>
         {/* Chart */}
         <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:14,minWidth:0}}>
-          {loading && <div style={{padding:60,textAlign:'center',color:'var(--text-secondary)',fontSize:12}}>Cargando histórico de precio…</div>}
+          {loading && (
+            <div style={{padding:16}}>
+              <div className="fast-skeleton" style={{height:40,marginBottom:12}}/>
+              <div className="fast-skeleton" style={{height:480}}/>
+              <div style={{textAlign:'center',color:'var(--text-tertiary)',fontSize:10,fontFamily:'var(--fm)',marginTop:10}}>Cargando histórico de precio…</div>
+            </div>
+          )}
           {error && <div style={{padding:20,color:'#ff453a',fontSize:12}}>⚠ Error: {error}</div>}
           {!loading && !error && (
             <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" style={{display:'block',width:'100%',height:'auto',touchAction:'pan-y'}}
@@ -1260,6 +1285,7 @@ export default function FastTab() {
               {buyZonePrice && (
                 <g transform={`translate(${W - PADR - 170}, ${PADT + 8})`}>
                   <rect x={0} y={0} width={162} height={40}
+                    className={inBuyZone ? 'fast-buy-pulse' : undefined}
                     fill={inBuyZone ? 'rgba(46, 139, 87, 0.95)' : 'rgba(20, 23, 38, 0.88)'}
                     stroke={inBuyZone ? '#2e8b57' : '#b8860b'} strokeWidth={1.5} rx={6}/>
                   {inBuyZone ? (
@@ -1688,6 +1714,9 @@ function SparkCard({ label, data, fmt, colorHi = '#30d158', colorLo = '#ff453a',
   // Mini-sparkline card — tendencia de una métrica por año.
   // `data`: [{year, value}]. `fmt` formatea el valor último. `hiIsBad` invierte
   // semántica (EV/EBITDA alto = caro, no bueno). `variant` line | bars.
+  // Hover state: al pasar mouse sobre la gráfica, reemplaza el "último valor"
+  // por el año+valor del punto más cercano al cursor.
+  const [hoverIdx, setHoverIdx] = useState(null);
   if (!Array.isArray(data) || data.length < 2) return null;
   const values = data.map(d => d.value);
   const last = values[values.length - 1];
@@ -1704,18 +1733,35 @@ function SparkCard({ label, data, fmt, colorHi = '#30d158', colorLo = '#ff453a',
   const ys = (v) => P + (1 - (v - minV) / range) * (H - 2 * P);
   const yZero = ys(0);  // baseline para bars positivas/negativas
 
+  // Hover handler — encuentra el índice más cercano al X del cursor.
+  const handleMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relX = ((e.clientX ?? e.touches?.[0]?.clientX) - rect.left) / rect.width * W;
+    const idx = Math.round(((relX - P) / (W - 2 * P)) * (values.length - 1));
+    setHoverIdx(Math.max(0, Math.min(idx, values.length - 1)));
+  };
+
+  const displayIdx = hoverIdx != null ? hoverIdx : values.length - 1;
+  const displayValue = values[displayIdx];
+  const displayYear = data[displayIdx].year;
+
   return (
     <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:12,padding:12,minWidth:0}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:4,gap:8}}>
-        <span style={{fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)',textTransform:'uppercase',letterSpacing:.3}}>{label}</span>
+        <span style={{fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)',textTransform:'uppercase',letterSpacing:.3}}>
+          {label} {hoverIdx != null && <span style={{color:trendColor,fontWeight:700}}>· {displayYear}</span>}
+        </span>
         <span style={{fontSize:10,fontWeight:700,color:trendColor,fontFamily:'var(--fm)'}}>
           {change > 0 ? '+' : ''}{(change * 100).toFixed(0)}%
         </span>
       </div>
       <div style={{fontSize:16,fontWeight:700,color:'var(--text-primary)',fontFamily:'var(--fm)',marginBottom:4}}>
-        {fmt(last)}
+        {fmt(displayValue)}
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{width:'100%',height:40,display:'block'}}>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
+        style={{width:'100%',height:40,display:'block',cursor:'crosshair'}}
+        onMouseMove={handleMove} onTouchMove={handleMove}
+        onMouseLeave={() => setHoverIdx(null)} onTouchEnd={() => setHoverIdx(null)}>
         {variant === 'bars' ? (
           <>
             {/* Baseline 0% — línea horizontal sutil cuando hay valores negativos */}
@@ -1726,14 +1772,15 @@ function SparkCard({ label, data, fmt, colorHi = '#30d158', colorLo = '#ff453a',
               const barX = xs(i) - barW / 2;
               const barY = v >= 0 ? ys(v) : yZero;
               const barH = Math.abs(ys(v) - yZero);
-              return <rect key={i} x={barX} y={barY} width={barW} height={barH} fill={barColor} opacity={0.85}/>;
+              return <rect key={i} x={barX} y={barY} width={barW} height={barH} fill={barColor} opacity={hoverIdx === i ? 1 : 0.85}/>;
             })}
           </>
         ) : (
           <>
             <polygon points={`${xs(0)},${H - P} ${values.map((v, i) => `${xs(i)},${ys(v)}`).join(' ')} ${xs(values.length - 1)},${H - P}`} fill={trendColor} fillOpacity={0.14} stroke="none"/>
             <polyline points={values.map((v, i) => `${xs(i)},${ys(v)}`).join(' ')} fill="none" stroke={trendColor} strokeWidth={1.6} strokeLinejoin="round" strokeLinecap="round"/>
-            <circle cx={xs(values.length - 1)} cy={ys(last)} r={2.2} fill={trendColor} stroke="var(--card)" strokeWidth={0.8}/>
+            <circle cx={xs(displayIdx)} cy={ys(displayValue)} r={hoverIdx != null ? 3.2 : 2.2} fill={trendColor} stroke="var(--card)" strokeWidth={0.8}/>
+            {hoverIdx != null && <line x1={xs(hoverIdx)} y1={P} x2={xs(hoverIdx)} y2={H-P} stroke={trendColor} strokeWidth={0.8} strokeDasharray="2,2" opacity={0.6}/>}
           </>
         )}
       </svg>
