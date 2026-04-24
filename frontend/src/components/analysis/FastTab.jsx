@@ -76,6 +76,7 @@ export default function FastTab() {
   const [showRecessions, setShowRecessions] = useState(true);  // bandas de recesiones
   const [smoothEps, setSmoothEps] = useState(true);  // rolling median 3y para EPS (suaviza write-downs, FX, impairments)
   const [innerTab, setInnerTab] = useState('summary');  // summary | trends | forecasting | historical | scorecard
+  const [personalPERev, setPersonalPERev] = useState(0);  // bump para forzar re-render tras save/clear localStorage
   const [hover, setHover] = useState(null);  // {x, y, date, price, eps, pe, fair, yield, payout} o null
   const hoverRafRef = useRef(null);  // rAF id para throttle del onMouseMove → evita sobrecarga
 
@@ -90,6 +91,32 @@ export default function FastTab() {
       .catch(e => { if (!cancelled) { setError(e.message); setLoading(false); }});
     return () => { cancelled = true; };
   }, [ticker]);
+
+  // Target P/E personal persistido — si hay un valor guardado en localStorage
+  // para este ticker, se pre-carga al montar / cambiar ticker. Permite que el
+  // usuario fije un P/E custom por empresa (ej: KO 22x porque es quality,
+  // PEP 20x, etc.) sin tener que recordarlo.
+  const storageKey = ticker ? `fast-pe-${ticker}` : null;
+  useEffect(() => {
+    if (!storageKey) return;
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        const pe = parseFloat(saved);
+        if (Number.isFinite(pe) && pe > 0 && pe < 200) setFgPE(pe);
+      }
+    } catch {}
+    // setFgPE is from context, stable across renders — safe to omit from deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageKey]);
+  const savedPE = (() => {
+    if (!storageKey) return null;
+    // personalPERev en deps: cada bump re-evalúa localStorage
+    void personalPERev;
+    try { const v = localStorage.getItem(storageKey); return v ? parseFloat(v) : null; }
+    catch { return null; }
+  })();
+  const hasPersonalPE = savedPE != null && Number.isFinite(savedPE);
 
   // Fetch user trades for this ticker (buys/sells from cost_basis table)
   useEffect(() => {
@@ -825,6 +852,19 @@ export default function FastTab() {
               <optgroup label="Otras métricas">{METRIC_OPTIONS.filter(m=>m.group==='Otras').map(m=><option key={m.id} value={m.id}>{m.label}</option>)}</optgroup>
             </select>
           </div>
+          {/* Guardar P/E personal para este ticker (localStorage) */}
+          <button onClick={() => {
+              if (!storageKey) return;
+              try {
+                if (hasPersonalPE) { localStorage.removeItem(storageKey); }
+                else { localStorage.setItem(storageKey, String(fgPE)); }
+                setPersonalPERev(r => r + 1);
+              } catch {}
+            }}
+            title={hasPersonalPE ? `Borrar P/E personal guardado (${savedPE?.toFixed(1)}x)` : `Guardar ${fgPE}x como P/E preferido para ${ticker}`}
+            style={{padding:'6px 12px',borderRadius:8,border:`1px solid ${hasPersonalPE?'#f59e0b':'var(--border)'}`,background:hasPersonalPE?'rgba(245,158,11,0.12)':'transparent',color:hasPersonalPE?'#f59e0b':'var(--text-secondary)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'var(--fm)'}}>
+            {hasPersonalPE ? '⭐' : '☆'} P/E personal
+          </button>
           {/* Yield + Payout ya son permanentes en el chart (estilo FAST Graphs). */}
           <button onClick={()=>setSmoothEps(!smoothEps)}
             title="Rolling median 3y del EPS: suaviza picos GAAP (write-downs, FX, impairments) en la línea de valor justo. OFF = EPS raw."
