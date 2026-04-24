@@ -80,6 +80,7 @@ export default function FastTab() {
   const chartSvgRef = useRef(null);  // ref al SVG principal para export PNG
   const [compareTicker, setCompareTicker] = useState('');  // 2º ticker para overlay ghost
   const [compareData, setCompareData] = useState(null);  // {monthly_prices, ticker}
+  const [backtestYears, setBacktestYears] = useState(10);  // 5 | 10 | 15 | 20
   const [hover, setHover] = useState(null);  // {x, y, date, price, eps, pe, fair, yield, payout} o null
   const hoverRafRef = useRef(null);  // rAF id para throttle del onMouseMove → evita sobrecarga
 
@@ -741,6 +742,35 @@ export default function FastTab() {
     }))
     .filter(r => r.x2 > r.x1)
     : [];
+
+  // ── Backtest mini — feature N3 ──
+  // "Si hubieras comprado hace N años, realizarías +X%/año (incl. dividendos
+  // acumulados aproximados)". Calcula precio hace N años del monthly_prices,
+  // compara con precio actual, anualiza. DPS acumulado × shares = 1 (simple).
+  const backtest = (() => {
+    if (!monthlyPrices.length || !cfg?.price) return null;
+    const today = new Date();
+    const targetTs = new Date(today.getFullYear() - backtestYears, today.getMonth()).getTime();
+    // Encuentra el sample más cercano a hace N años
+    let nearest = null, bestD = Infinity;
+    for (const p of monthlyPrices) {
+      const d = Math.abs(new Date(p.date).getTime() - targetTs);
+      if (d < bestD) { bestD = d; nearest = p; }
+    }
+    if (!nearest || !(nearest.close > 0)) return null;
+    const startPrice = nearest.close;
+    // Dividendos acumulados aprox: suma todos los DPS anuales desde el año de start
+    const startYear = parseInt(nearest.date.slice(0, 4), 10);
+    let divsAccum = 0;
+    for (let y = startYear; y <= lastHistY; y++) {
+      const d = getDpsExt(y);
+      if (Number.isFinite(d)) divsAccum += d;
+    }
+    const endValueWithDivs = cfg.price + divsAccum;
+    const totalReturn = endValueWithDivs / startPrice - 1;
+    const cagr = Math.pow(endValueWithDivs / startPrice, 1 / backtestYears) - 1;
+    return { startDate: nearest.date, startPrice, divsAccum, cagr, totalReturn };
+  })();
 
   // ── Buy Zone — feature 2 ──
   // El precio umbral de compra es 85% del fair value (15% margin of safety).
@@ -1595,6 +1625,41 @@ export default function FastTab() {
               <MetricRow label="Div Yield" value={divYield != null ? fP(divYield) : '—'} color="var(--gold)"/>
             </div>
           </div>
+
+          {backtest && (
+            <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:12}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:8}}>
+                <div style={{fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)',letterSpacing:.5,textTransform:'uppercase'}}>Backtest</div>
+                <div style={{display:'flex',gap:2}}>
+                  {[5, 10, 15, 20].map(y => (
+                    <button key={y} onClick={()=>setBacktestYears(y)}
+                      style={{padding:'2px 6px',fontSize:8,fontWeight:700,borderRadius:3,border:`1px solid ${backtestYears===y?'var(--gold)':'var(--border)'}`,background:backtestYears===y?'var(--gold-dim)':'transparent',color:backtestYears===y?'var(--gold)':'var(--text-secondary)',cursor:'pointer',fontFamily:'var(--fm)'}}>
+                      {y}y
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div style={{fontSize:11,color:'var(--text-secondary)',fontFamily:'var(--fm)',lineHeight:1.4,marginBottom:4}}>
+                Si compraste en <strong style={{color:'var(--text-primary)'}}>{backtest.startDate.slice(0,7)}</strong> @${backtest.startPrice.toFixed(2)}:
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:10,fontFamily:'var(--fm)',marginBottom:3}}>
+                <span style={{color:'var(--text-tertiary)'}}>CAGR</span>
+                <span style={{fontWeight:700,color:backtest.cagr > 0.1 ? '#30d158' : backtest.cagr > 0.03 ? 'var(--gold)' : '#ff453a'}}>
+                  {(backtest.cagr * 100).toFixed(1)}%/año
+                </span>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:10,fontFamily:'var(--fm)',marginBottom:3}}>
+                <span style={{color:'var(--text-tertiary)'}}>Total</span>
+                <span style={{fontWeight:700,color:backtest.totalReturn > 0 ? '#30d158' : '#ff453a'}}>
+                  {(backtest.totalReturn * 100).toFixed(0)}%
+                </span>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:10,fontFamily:'var(--fm)'}}>
+                <span style={{color:'var(--text-tertiary)'}}>Div acum.</span>
+                <span style={{fontWeight:700,color:'var(--gold)'}}>${backtest.divsAccum.toFixed(2)}</span>
+              </div>
+            </div>
+          )}
 
           <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:12}}>
             <div style={{fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)',letterSpacing:.5,textTransform:'uppercase',marginBottom:8}}>Perfil</div>
