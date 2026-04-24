@@ -77,6 +77,7 @@ export default function FastTab() {
   const [smoothEps, setSmoothEps] = useState(true);  // rolling median 3y para EPS (suaviza write-downs, FX, impairments)
   const [innerTab, setInnerTab] = useState('summary');  // summary | trends | forecasting | historical | scorecard
   const [personalPERev, setPersonalPERev] = useState(0);  // bump para forzar re-render tras save/clear localStorage
+  const chartSvgRef = useRef(null);  // ref al SVG principal para export PNG
   const [hover, setHover] = useState(null);  // {x, y, date, price, eps, pe, fair, yield, payout} o null
   const hoverRafRef = useRef(null);  // rAF id para throttle del onMouseMove → evita sobrecarga
 
@@ -91,6 +92,38 @@ export default function FastTab() {
       .catch(e => { if (!cancelled) { setError(e.message); setLoading(false); }});
     return () => { cancelled = true; };
   }, [ticker]);
+
+  // Export del chart a PNG — serializa el SVG, lo pinta en canvas con fondo
+  // crema (match FAST Graphs), descarga el resultado. Útil para compartir
+  // capturas en presentaciones o notas.
+  const exportChartPNG = () => {
+    const svg = chartSvgRef.current;
+    if (!svg) return;
+    const w = svg.viewBox.baseVal.width || 1200;
+    const h = svg.viewBox.baseVal.height || 500;
+    const xml = new XMLSerializer().serializeToString(svg);
+    const svgBlob = new Blob([xml], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+    const img = new Image();
+    img.onload = () => {
+      const scale = 2;  // retina-quality
+      const canvas = document.createElement('canvas');
+      canvas.width = w * scale; canvas.height = h * scale;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#faf9f5';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `fast-${ticker || 'chart'}-${new Date().toISOString().slice(0, 10)}.png`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      }, 'image/png');
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
+  };
 
   // Target P/E personal persistido — si hay un valor guardado en localStorage
   // para este ticker, se pre-carga al montar / cambiar ticker. Permite que el
@@ -871,6 +904,11 @@ export default function FastTab() {
             style={{padding:'6px 12px',borderRadius:8,border:`1px solid ${smoothEps?'var(--gold)':'var(--border)'}`,background:smoothEps?'rgba(200,164,78,0.10)':'transparent',color:smoothEps?'var(--gold)':'var(--text-secondary)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'var(--fm)'}}>
             Smooth EPS {smoothEps ? '✓' : '○'}
           </button>
+          <button onClick={exportChartPNG}
+            title={`Descarga el chart actual como PNG (fast-${ticker}-YYYY-MM-DD.png)`}
+            style={{padding:'6px 12px',borderRadius:8,border:'1px solid var(--border)',background:'transparent',color:'var(--text-secondary)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'var(--fm)'}}>
+            ⬇ PNG
+          </button>
           <button onClick={()=>setShowTrades(!showTrades)} style={{padding:'6px 12px',borderRadius:8,border:`1px solid ${showTrades?'#30d158':'var(--border)'}`,background:showTrades?'rgba(48,209,88,0.08)':'transparent',color:showTrades?'#30d158':'var(--text-secondary)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'var(--fm)'}} title={`${trades.length} transacciones de este ticker`}>+Trades ({trades.length})</button>
         </div>
       </div>
@@ -1045,7 +1083,7 @@ export default function FastTab() {
           )}
           {error && <div style={{padding:20,color:'#ff453a',fontSize:12}}>⚠ Error: {error}</div>}
           {!loading && !error && (
-            <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" style={{display:'block',width:'100%',height:'auto',touchAction:'pan-y'}}
+            <svg ref={chartSvgRef} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" style={{display:'block',width:'100%',height:'auto',touchAction:'pan-y'}}
               onMouseMove={(e) => {
                 // Throttle con rAF: sólo 1 update por frame aunque el mouse se mueva rápido.
                 if (hoverRafRef.current) return;
