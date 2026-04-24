@@ -49,11 +49,11 @@ If a task proves too large for 1 iteration, split into subtasks marked with `[SP
 
 ## P3 — Backend features (higher effort)
 
-- [ ] **B1. Piotroski F-Score** — add computation in worker.js fg-history endpoint. Requires balance + income + cash-flow statement (can fetch `/stable/balance-sheet-statement` + `/stable/cash-flow-statement` in parallel with existing). ~80 lines. Expose as `piotroski_score` (0-9) + component breakdown. Frontend: card in Scorecard tab.
+- [x] **B1. Piotroski F-Score** — DONE `cb6cb72`. 9 tests binarios + card Scorecard tab con componentes breakdown.
 
-- [ ] **B2. Altman Z-Score** — requires WC, retained earnings, EBIT, MV equity, sales, total assets. Derive from balance + income. Expose as `altman_z` (number) + rating (safe/grey/distress). ~40 lines. Frontend: card in Scorecard tab.
+- [x] **B2. Altman Z-Score** — DONE `cb6cb72`. Z-Score + rating safe/grey/distress + 5 componentes desglosados.
 
-- [ ] **B3. Shares outstanding series** — currently not in fg-history. Fetch /stable/income-statement, extract `weightedAverageShsOut` per year. Expose as `shares_out_series`. Frontend: 5th sparkline in Trends.
+- [x] **B3. Shares outstanding series** — DONE `7fa6973`. Fetch income-statement, 5º sparkline hiIsBad (↓=buybacks bueno).
 
 - [ ] **B4. Beneish M-Score** — earnings manipulation indicator (8 variables). Complex (~120 lines). Expose as `beneish_m` + "likely manipulator" flag.
 
