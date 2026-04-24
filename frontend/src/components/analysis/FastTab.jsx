@@ -1823,7 +1823,29 @@ export default function FastTab() {
             <FGScoresPanel scores={history.fg_scores} />
             <AnalystScorecard scorecard={history.earnings_scorecard} />
           </div>
-          {/* Fiscal fitness — Piotroski F-Score + Altman Z-Score */}
+          {/* Fiscal fitness — Piotroski + Altman + Beneish */}
+          {history.beneish_m && (
+            <div style={{marginTop:12,background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:14}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:10}}>
+                <div style={{fontSize:11,fontWeight:700,color:'var(--text-primary)',fontFamily:'var(--fm)',textTransform:'uppercase',letterSpacing:.5}}>
+                  Beneish M-Score
+                </div>
+                <div style={{fontSize:22,fontWeight:800,color:history.beneish_m.rating === 'clean' ? '#30d158' : history.beneish_m.rating === 'uncertain' ? 'var(--gold)' : '#ff453a',fontFamily:'var(--fm)'}}>
+                  {history.beneish_m.score}
+                </div>
+              </div>
+              <div style={{fontSize:10,color:'var(--text-secondary)',fontFamily:'var(--fm)',marginBottom:8,lineHeight:1.4}}>
+                {history.beneish_m.rating === 'clean' ? '✓ CLEAN — earnings probablemente no manipulados (M < -2.22)' :
+                 history.beneish_m.rating === 'uncertain' ? '⚠ UNCERTAIN — zona gris (-2.22 ≤ M ≤ -1.78)' :
+                 '🚨 LIKELY MANIPULATOR — 8 ratios sugieren que earnings están inflados (M > -1.78)'}
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(4, 1fr)',gap:4,fontSize:9,fontFamily:'var(--fm)'}}>
+                {Object.entries(history.beneish_m.components).map(([k, v]) => (
+                  <MetricRow key={k} label={k.toUpperCase()} value={v != null ? v.toFixed(2) : '—'}/>
+                ))}
+              </div>
+            </div>
+          )}
           {(history.piotroski || history.altman_z) && (
             <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr)',gap:12,marginTop:12}}>
               {history.piotroski && (
@@ -1855,13 +1877,19 @@ export default function FastTab() {
                     <div style={{fontSize:11,fontWeight:700,color:'var(--text-primary)',fontFamily:'var(--fm)',textTransform:'uppercase',letterSpacing:.5}}>
                       Altman Z-Score
                     </div>
-                    <div style={{fontSize:22,fontWeight:800,color:history.altman_z.rating === 'safe' ? '#30d158' : history.altman_z.rating === 'grey' ? 'var(--gold)' : '#ff453a',fontFamily:'var(--fm)'}}>
+                    <div style={{fontSize:22,fontWeight:800,color:history.profile?.isReit ? 'var(--text-tertiary)' : history.altman_z.rating === 'safe' ? '#30d158' : history.altman_z.rating === 'grey' ? 'var(--gold)' : '#ff453a',fontFamily:'var(--fm)'}}>
                       {history.altman_z.score}
                     </div>
                   </div>
-                  <div style={{fontSize:10,color:'var(--text-secondary)',fontFamily:'var(--fm)',marginBottom:8,lineHeight:1.4}}>
-                    Riesgo quiebra 2 años · {history.altman_z.rating === 'safe' ? '✓ SAFE (>2.99)' : history.altman_z.rating === 'grey' ? '⚠ GREY (1.81-2.99)' : '🚨 DISTRESS (<1.81)'}
-                  </div>
+                  {history.profile?.isReit ? (
+                    <div style={{fontSize:10,color:'#f59e0b',fontFamily:'var(--fm)',marginBottom:8,lineHeight:1.4,padding:'6px 8px',background:'rgba(245,158,11,0.08)',borderRadius:6,border:'1px solid rgba(245,158,11,0.25)'}}>
+                      ⚠️ Altman Z no aplica bien a REITs (estructura de capital y leverage diferentes). Ignorar el rating para este tipo de instrumento. Usa Piotroski + FG Scores como guía.
+                    </div>
+                  ) : (
+                    <div style={{fontSize:10,color:'var(--text-secondary)',fontFamily:'var(--fm)',marginBottom:8,lineHeight:1.4}}>
+                      Riesgo quiebra 2 años · {history.altman_z.rating === 'safe' ? '✓ SAFE (>2.99)' : history.altman_z.rating === 'grey' ? '⚠ GREY (1.81-2.99)' : '🚨 DISTRESS (<1.81)'}
+                    </div>
+                  )}
                   <div style={{display:'grid',gridTemplateColumns:'repeat(2, 1fr)',gap:6,fontSize:10,fontFamily:'var(--fm)'}}>
                     <MetricRow label="WC/TA × 1.2" value={(history.altman_z.components.wc_ta * 1.2).toFixed(2)}/>
                     <MetricRow label="RE/TA × 1.4" value={(history.altman_z.components.re_ta * 1.4).toFixed(2)}/>

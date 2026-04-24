@@ -13547,6 +13547,58 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
           };
         }
 
+        // ── Beneish M-Score (manipulación de earnings) ────────────────────
+        // 8 ratios vs año anterior. M > -1.78 = likely manipulator (red flag).
+        // Fórmula original Beneish 1999.
+        let beneishM = null;
+        if (inc0 && inc1 && bal0 && bal1 && cf0) {
+          const cf1 = Array.isArray(cashflowRaw) ? cashflowRaw[1] : null;
+          const safe = (n, d) => (d && d !== 0) ? n / d : null;
+          // DSRI: Days Sales in Receivables Index
+          const recv0 = +bal0.netReceivables || +bal0.accountsReceivables || 0;
+          const recv1 = +bal1.netReceivables || +bal1.accountsReceivables || 0;
+          const dsri = safe(safe(recv0, +inc0.revenue), safe(recv1, +inc1.revenue));
+          // GMI: Gross Margin Index (prev/curr)
+          const gm0 = safe(+inc0.grossProfit, +inc0.revenue);
+          const gm1 = safe(+inc1.grossProfit, +inc1.revenue);
+          const gmi = safe(gm1, gm0);
+          // AQI: Asset Quality Index
+          const aq0 = 1 - safe((+bal0.totalCurrentAssets || 0) + (+bal0.propertyPlantEquipmentNet || +bal0.propertyPlantEquipmentGross || 0), +bal0.totalAssets);
+          const aq1 = 1 - safe((+bal1.totalCurrentAssets || 0) + (+bal1.propertyPlantEquipmentNet || +bal1.propertyPlantEquipmentGross || 0), +bal1.totalAssets);
+          const aqi = safe(aq0, aq1);
+          // SGI: Sales Growth Index (curr/prev)
+          const sgi = safe(+inc0.revenue, +inc1.revenue);
+          // DEPI: Depreciation Index (prev/curr where higher prev = less dep now)
+          const dep0 = +inc0.depreciationAndAmortization || +cf0.depreciationAndAmortization || 0;
+          const dep1 = +inc1.depreciationAndAmortization || (cf1 ? (+cf1.depreciationAndAmortization || 0) : 0);
+          const ppe0 = +bal0.propertyPlantEquipmentNet || 1;
+          const ppe1 = +bal1.propertyPlantEquipmentNet || 1;
+          const depRatio0 = safe(dep0, dep0 + ppe0);
+          const depRatio1 = safe(dep1, dep1 + ppe1);
+          const depi = safe(depRatio1, depRatio0);
+          // SGAI: SG&A Index (curr/prev)
+          const sga0 = +inc0.sellingGeneralAndAdministrativeExpenses || 0;
+          const sga1 = +inc1.sellingGeneralAndAdministrativeExpenses || 0;
+          const sgai = safe(safe(sga0, +inc0.revenue), safe(sga1, +inc1.revenue));
+          // LVGI: Leverage Index
+          const lev_cur = safe((+bal0.totalCurrentLiabilities || 0) + (+bal0.longTermDebt || 0), +bal0.totalAssets);
+          const lev_prev = safe((+bal1.totalCurrentLiabilities || 0) + (+bal1.longTermDebt || 0), +bal1.totalAssets);
+          const lvgi = safe(lev_cur, lev_prev);
+          // TATA: Total Accruals to Total Assets
+          const ta0 = +bal0.totalAssets || 0;
+          const tata = ta0 > 0 ? ((+inc0.netIncome || 0) - (+cf0.operatingCashFlow || 0)) / ta0 : null;
+          const vars = { dsri, gmi, aqi, sgi, depi, sgai, lvgi, tata };
+          const allFinite = Object.values(vars).every(v => Number.isFinite(v));
+          if (allFinite) {
+            const m = -4.84 + 0.92*dsri + 0.528*gmi + 0.404*aqi + 0.892*sgi + 0.115*depi - 0.172*sgai + 4.679*tata - 0.327*lvgi;
+            beneishM = {
+              score: Math.round(m * 100) / 100,
+              rating: m > -1.78 ? 'likely_manipulator' : m < -2.22 ? 'clean' : 'uncertain',
+              components: Object.fromEntries(Object.entries(vars).map(([k, v]) => [k, Math.round(v * 1000) / 1000])),
+            };
+          }
+        }
+
         let altmanZ = null;
         if (bal0 && inc0 && _prof) {
           const ta = +bal0.totalAssets || 0;
@@ -13729,6 +13781,7 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
           shares_out_series: sharesOutSeries, // [{year, value}] — shares outstanding (buybacks/dilución)
           piotroski,       // {score, max, rating, components} o null
           altman_z: altmanZ,  // {score, rating, components} o null
+          beneish_m: beneishM,  // {score, rating, components} — manipulación de earnings
           estimates_by_year: estimatesByYear,  // {2026:{epsAvg,epsHigh,epsLow,revenueAvg,analystsEps}, ...}
           price_target: priceTargetRaw ? {
             consensus: priceTargetRaw.targetConsensus ?? priceTargetRaw.priceTarget ?? null,
