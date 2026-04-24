@@ -78,11 +78,11 @@ export default function FastTab() {
   const [innerTab, setInnerTab] = useState('summary');  // summary | trends | forecasting | historical | scorecard
   // Series visibility — controlado por los checkboxes de la leyenda.
   // Keys: price, normalPE, fairValue, fairArea, dpsArea, yield, payout, consensus,
-  //       priceTarget, currentVal, trades, recessions, compare
+  //       priceTarget, currentVal, trades, recessions, compare, evEbitda
   const [visibleSeries, setVisibleSeries] = useState({
     price: true, normalPE: true, fairValue: true, fairArea: true, dpsArea: true,
     yield: true, payout: true, consensus: true, priceTarget: true, currentVal: true,
-    trades: true, recessions: true, compare: true,
+    trades: true, recessions: true, compare: true, evEbitda: false,
   });
   const toggleSeries = (k) => setVisibleSeries(v => ({ ...v, [k]: !v[k] }));
   const [personalPERev, setPersonalPERev] = useState(0);  // bump para forzar re-render tras save/clear localStorage
@@ -202,6 +202,16 @@ export default function FastTab() {
     if (peMode === 'normal_all' && history?.avg_pe_all) return history.avg_pe_all;
     return fgPE;
   }, [peMode, history, fgPE]);
+
+  // P/E usado como TECHO del área verde (estilo FAST Graphs):
+  // Normal P/E histórico del propio ticker → el precio cae dentro del área
+  // cuando cotiza en su múltiplo normal (más realista que Graham 15x para
+  // compounders de calidad: DEO, KO, V… nunca tocan 15x pero SÍ tocan su
+  // Normal P/E en pullbacks). Fallback a activePE si no hay historia suficiente.
+  // La línea naranja "Fair Nx" sigue usando activePE (ref. Graham / custom).
+  const zonePE = useMemo(() => (
+    history?.avg_pe_10y || history?.avg_pe_5y || history?.avg_pe_all || activePE
+  ), [history, activePE]);
 
   // Helper: per-share metric for given year (using fin[y] for the 10y local window)
   const getMetric = (y) => {
@@ -362,7 +372,10 @@ export default function FastTab() {
   // escala. Los outliers quedan clipados visualmente al top, el resto del
   // chart queda legible. Precios proyectados (target) incluidos para que
   // el eje acomode el PT sin recortar.
-  const fairValues = [...validHist.map(d => d.val * activePE), ...projData.map(d => d.val && d.val > 0 ? d.val * activePE : null)].filter(v => v != null && v > 0);
+  // Eje Y: incluir el mayor de (activePE, zonePE) para que ninguna línea
+  // quede fuera del scale cuando zonePE > activePE (caso típico).
+  const scalePE = Math.max(activePE || 0, zonePE || 0);
+  const fairValues = [...validHist.map(d => d.val * scalePE), ...projData.map(d => d.val && d.val > 0 ? d.val * scalePE : null)].filter(v => v != null && v > 0);
   const prices = pricesInRange.map(p => p.close);
   const allY = [...fairValues, ...prices, cfg?.price, history?.price_target?.consensus].filter(v => Number.isFinite(v) && v > 0);
   const sortedY = allY.slice().sort((a, b) => a - b);
@@ -491,9 +504,12 @@ export default function FastTab() {
     const yrFrac = yr + parseFloat(p.date.slice(5, 7)) / 12;
     const m = interpEps(yrFrac);
     if (!Number.isFinite(m) || m <= 0) continue;
-    const fairVal = m * activePE;
+    // Área verde usa zonePE (Normal P/E histórico) estilo FAST Graphs,
+    // NO activePE. Así el precio cae dentro del área cuando cotiza en su
+    // múltiplo normal, en vez de requerir que baje a Graham 15x.
+    const fairVal = m * zonePE;
     const dps = interpDps(yrFrac);
-    const divFairVal = dps * activePE;
+    const divFairVal = dps * zonePE;
     monthSamples.push({
       x: xScale(yrFrac),
       yPrice: yScale(p.close),
@@ -540,9 +556,11 @@ export default function FastTab() {
       if (yrFrac > maxXYear) break;
       const epsInterp = projInterpEps(yrFrac);
       if (!Number.isFinite(epsInterp) || epsInterp <= 0) continue;
-      const fairVal = epsInterp * projMultiplier;
+      // Proyección de área verde usa zonePE (Normal P/E) — consistencia con
+      // histórico. projMultiplier se usa para la LÍNEA naranja proyectada abajo.
+      const fairVal = epsInterp * zonePE;
       const dps = epsInterp * latestPayoutRatio;
-      const divFairVal = dps * projMultiplier;
+      const divFairVal = dps * zonePE;
       projSamples.push({
         x: xScale(yrFrac),
         yFair: yScale(clipY(fairVal)),
@@ -726,6 +744,26 @@ export default function FastTab() {
   const yieldLine = yieldPoints.map(p => `${xScale(p.y)},${yldYScale(p.yld)}`).join(' ');
   const payoutLine = payoutPoints.map(p => `${xScale(p.y)},${payYScale(p.pct)}`).join(' ');
 
+  // EV/EBITDA line (magenta) — multiplicador EV/EBITDA histórico del ticker.
+  // Complemento de P/E: refleja valoración incluyendo deuda (útil para
+  // empresas con balance apalancado o D&A alto que distorsiona earnings).
+  // Escala eje derecho 0x–30x, mapeada al mismo rango vertical que yield/payout.
+  const EVE_AXIS_MAX = 30;
+  const eveYScale = (mult) => {
+    const clipped = Math.max(0, Math.min(mult, EVE_AXIS_MAX));
+    return PADT + chartH - (clipped / EVE_AXIS_MAX) * chartH;
+  };
+  const eveSeries = (history?.ev_ebitda_series || []).filter(d => Number.isFinite(d.value) && d.value > 0);
+  const eveLine = eveSeries.map(d => `${xScale(d.year)},${eveYScale(d.value)}`).join(' ');
+  // Shaded area bajo la línea EV/EBITDA — magenta translúcido.
+  const eveAreaPoly = eveSeries.length > 1
+    ? [
+        `${xScale(eveSeries[0].year)},${yScale(rawMin)}`,
+        ...eveSeries.map(d => `${xScale(d.year)},${eveYScale(d.value)}`),
+        `${xScale(eveSeries[eveSeries.length - 1].year)},${yScale(rawMin)}`,
+      ].join(' ')
+    : '';
+
   // Debug: compute ALL metrics for last year so user can see them side-by-side
   const lastF = fin[lastHistY];
   const soLast = lastF?.sharesOut;
@@ -743,7 +781,12 @@ export default function FastTab() {
   // Computed metrics for right panel
   const latestMetric = validHist.length ? validHist[validHist.length - 1].val : null;
   const impliedPE = latestMetric && cfg?.price ? cfg.price / latestMetric : null;
-  const fairValue = latestMetric ? latestMetric * activePE : null;
+  // "Precio justo" y buy-zone usan zonePE (Normal P/E) para que la señal
+  // "COMPRAR SI < $X" coincida con el TECHO del área verde del chart.
+  // El valor Graham 15x (activePE en modo custom) se mantiene como línea
+  // naranja de referencia, no como disparador de compra.
+  const fairValue = latestMetric ? latestMetric * zonePE : null;
+  const fairValueGraham = latestMetric ? latestMetric * activePE : null;  // referencia Graham
   const mosVsFair = fairValue && cfg?.price ? 1 - cfg.price / fairValue : null;
 
   // ── Recesiones NBER + eventos macro — feature 3 ──
@@ -808,7 +851,10 @@ export default function FastTab() {
     ? consensusImpliedGrowth * 100
     : fgGrowth;
   const futureMetric = latestMetric ? latestMetric * Math.pow(1 + effectiveGrowth / 100, fgProjYears) : null;
-  const futureFair = futureMetric ? futureMetric * activePE : null;
+  // Precio futuro proyectado: usa zonePE (Normal P/E) para consistencia con
+  // área verde y buy-zone. Si el usuario cambia modo P/E explícitamente,
+  // activePE === zonePE y coincide.
+  const futureFair = futureMetric ? futureMetric * zonePE : null;
   const futureReturn = futureFair && cfg?.price ? Math.pow(futureFair / cfg.price, 1 / fgProjYears) - 1 : null;
   const latestDPS = validHist.length ? validHist[validHist.length - 1].div : null;
   const divYield = latestDPS && cfg?.price ? latestDPS / cfg.price : null;
@@ -1293,6 +1339,17 @@ export default function FastTab() {
               ))}
               <text x={PADL+chartW+4} y={PADT-4} fontSize={7.5} fill="#dc2626" fontFamily="monospace" fontWeight={700}>YLD</text>
               <text x={PADL+chartW+28} y={PADT-4} fontSize={7.5} fill="#a78500" fontFamily="monospace" fontWeight={700}>POR</text>
+              {/* EV/EBITDA axis (magenta) — visible sólo cuando la serie está activa,
+                  para no saturar el eje cuando el usuario no la ha pedido. */}
+              {visibleSeries.evEbitda && [0, 10, 20, 30].map((m, i) => (
+                <text key={'eveax'+i} x={PADL+chartW+52} y={eveYScale(m)+3}
+                  fontSize={8} fill="#d946ef" fontFamily="monospace" fontWeight={600} textAnchor="start">
+                  {m}x
+                </text>
+              ))}
+              {visibleSeries.evEbitda && (
+                <text x={PADL+chartW+52} y={PADT-4} fontSize={7.5} fill="#d946ef" fontFamily="monospace" fontWeight={700}>EV/EB</text>
+              )}
 
               {/* X year ticks */}
               {yearTicks.map(yr => (
@@ -1436,6 +1493,18 @@ export default function FastTab() {
               {visibleSeries.payout && payoutPoints.length > 1 && (
                 <polyline points={payoutLine} fill="none" stroke="#eab308" strokeWidth={1.5} strokeDasharray="4,3" opacity={0.85}/>
               )}
+
+              {/* EV/EBITDA (magenta) eje DERECHO — complemento a P/E.
+                  Shaded area + línea + dots anuales. Escala 0x–30x. */}
+              {visibleSeries.evEbitda && eveAreaPoly && (
+                <polygon points={eveAreaPoly} fill="rgba(217,70,239,0.10)" stroke="none"/>
+              )}
+              {visibleSeries.evEbitda && eveSeries.length > 1 && (
+                <polyline points={eveLine} fill="none" stroke="#d946ef" strokeWidth={1.8} strokeLinejoin="round" strokeLinecap="round" opacity={0.9}/>
+              )}
+              {visibleSeries.evEbitda && eveSeries.map((d, i) => (
+                <circle key={'eve'+i} cx={xScale(d.year)} cy={eveYScale(d.value)} r={2.2} fill="#d946ef" stroke="var(--bg)" strokeWidth={0.5}/>
+              ))}
 
               {/* Transaction markers — user buys/sells from cost_basis */}
               {visibleSeries.trades && tradeDots.map((t, i) => {
@@ -1587,11 +1656,12 @@ export default function FastTab() {
                 { k:'price',       lbl:'Precio',              col:'#141726', swatch:'line',   help:'Línea negra: precio histórico mensual del stock.' },
                 { k:'currentVal',  lbl:'Current Val.',        col:'#141726', swatch:'dots',   help:'Dots negros anuales sobre el precio: P/E real al cierre de cada año fiscal.' },
                 { k:'normalPE',    lbl:`Normal P/E ${peMid?peMid.toFixed(1)+'x':''}`, col:'#4a90e2', swatch:'line', help:'Línea azul: EPS × P/E histórico medio 10y. Dónde cotizaría si estuviera a su múltiplo normal.' },
-                { k:'fairValue',   lbl:`Fair ${activePE?activePE.toFixed(1)+'x':fgPE+'x'}`, col:'#f59e0b', swatch:'line', help:'Línea naranja: EPS × P/E custom (default 15x = regla de Graham). Si precio < línea = barato vs Graham.' },
-                { k:'fairArea',    lbl:'Zona earnings',       col:'rgba(46,139,87,0.55)', swatch:'block', help:'Área verde CLARA: zona "valor justificado por earnings" (EPS × P/E activo). Si precio cae aquí = stock a fair o barato.' },
-                { k:'dpsArea',     lbl:'Zona dividendo',      col:'rgba(20,75,45,0.75)',  swatch:'block', help:'Área verde OSCURA: zona "valor justificado SOLO por dividendo" (DPS × P/E). Si precio cae aquí = súper ganga, el div actual cubre toda la cotización.' },
+                { k:'fairValue',   lbl:`Fair ${activePE?activePE.toFixed(1)+'x':fgPE+'x'}`, col:'#f59e0b', swatch:'line', help:'Línea naranja: EPS × P/E custom (default 15x = Graham). Referencia conservadora — suelo absoluto para value investors estrictos. NO dispara buy-zone.' },
+                { k:'fairArea',    lbl:`Zona earnings ${zonePE?zonePE.toFixed(1)+'x':''}`,  col:'rgba(46,139,87,0.55)', swatch:'block', help:'Área verde CLARA (estilo FAST Graphs): zona "valor justificado vs historial propio" (EPS × Normal P/E 10y del ticker). Si precio cae aquí = cotiza en su múltiplo normal → compra razonable para dividend growth / compounders.' },
+                { k:'dpsArea',     lbl:'Zona dividendo',      col:'rgba(20,75,45,0.75)',  swatch:'block', help:'Área verde OSCURA: zona "valor justificado SOLO por dividendo" (DPS × Normal P/E). Si precio cae aquí = súper ganga, el div actual cubre toda la cotización.' },
                 { k:'yield',       lbl:'Div Yield',           col:'#dc2626', swatch:'line',   help:'Línea roja eje derecho: dividend yield histórico anual (0–10%). Sube cuando el precio cae → señal de precio atractivo para dividend investor.' },
                 { k:'payout',      lbl:'Payout Ratio',        col:'#eab308', swatch:'dash',   help:'Línea amarilla punteada eje derecho: payout ratio histórico (0–100%). <60% = saludable, >80% = riesgo.' },
+                { k:'evEbitda',    lbl:`EV/EBITDA${eveSeries.length?' '+eveSeries[eveSeries.length-1].value.toFixed(1)+'x':''}`, col:'#d946ef', swatch:'line', help:'Línea magenta eje derecho (0x–30x): múltiplo EV/EBITDA histórico. Complemento a P/E que incorpora deuda neta y neutraliza D&A. Útil para empresas apalancadas o capital-intensivas. Cotización por debajo del promedio histórico = potencialmente barata.' },
                 { k:'consensus',   lbl:'Consenso',            col:FORECAST_MODES.find(m=>m.id===forecastMode)?.color||'#64d2ff', swatch:'dash', help:`Proyección futura según modo ${forecastMode}. ${forecastMode==='consensus'?'EPS consenso analistas año a año':forecastMode==='cagr5'?'EPS crece al CAGR 5y histórico':forecastMode==='cagr10'?'EPS crece al CAGR 10y':forecastMode==='normal'?'Colapsa al P/E normal histórico':'Slider manual'}.` },
                 { k:'priceTarget', lbl:`PT $${priceTarget?priceTarget.toFixed(0):'—'}`, col:'#bf5af2', swatch:'dash', help:`Price target consenso de ${history?.price_target?.analysts||'?'} analistas.` },
                 { k:'trades',      lbl:`Trades (${tradeDots.length})`, col:'#30d158', swatch:'triangle', help:'▲ Buy verde · ▼ Sell rojo. Tus propias compras/ventas en cost_basis.' },
