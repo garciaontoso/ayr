@@ -1818,10 +1818,62 @@ export default function FastTab() {
         </div>
       )}
       {innerTab === 'scorecard' && history && !isNonFundamental(history) && (
-        <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1.2fr)',gap:12,marginTop:14}}>
-          <FGScoresPanel scores={history.fg_scores} />
-          <AnalystScorecard scorecard={history.earnings_scorecard} />
-        </div>
+        <>
+          <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1.2fr)',gap:12,marginTop:14}}>
+            <FGScoresPanel scores={history.fg_scores} />
+            <AnalystScorecard scorecard={history.earnings_scorecard} />
+          </div>
+          {/* Fiscal fitness — Piotroski F-Score + Altman Z-Score */}
+          {(history.piotroski || history.altman_z) && (
+            <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr)',gap:12,marginTop:12}}>
+              {history.piotroski && (
+                <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:14}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:10}}>
+                    <div style={{fontSize:11,fontWeight:700,color:'var(--text-primary)',fontFamily:'var(--fm)',textTransform:'uppercase',letterSpacing:.5}}>
+                      Piotroski F-Score
+                    </div>
+                    <div style={{fontSize:22,fontWeight:800,color:history.piotroski.rating === 'strong' ? '#30d158' : history.piotroski.rating === 'medium' ? 'var(--gold)' : '#ff453a',fontFamily:'var(--fm)'}}>
+                      {history.piotroski.score}<span style={{fontSize:12,color:'var(--text-tertiary)'}}>/9</span>
+                    </div>
+                  </div>
+                  <div style={{fontSize:10,color:'var(--text-secondary)',fontFamily:'var(--fm)',marginBottom:8,lineHeight:1.4}}>
+                    Fortaleza financiera fundamental (9 tests binarios) · {history.piotroski.rating.toUpperCase()}
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(3, 1fr)',gap:4,fontSize:9,fontFamily:'var(--fm)'}}>
+                    {Object.entries(history.piotroski.components).map(([k, v]) => (
+                      <div key={k} style={{display:'flex',alignItems:'center',gap:4,color:v ? '#30d158' : 'var(--text-tertiary)'}}>
+                        <span>{v ? '✓' : '○'}</span>
+                        <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{k.replace(/_/g, ' ')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {history.altman_z && (
+                <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:14}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:10}}>
+                    <div style={{fontSize:11,fontWeight:700,color:'var(--text-primary)',fontFamily:'var(--fm)',textTransform:'uppercase',letterSpacing:.5}}>
+                      Altman Z-Score
+                    </div>
+                    <div style={{fontSize:22,fontWeight:800,color:history.altman_z.rating === 'safe' ? '#30d158' : history.altman_z.rating === 'grey' ? 'var(--gold)' : '#ff453a',fontFamily:'var(--fm)'}}>
+                      {history.altman_z.score}
+                    </div>
+                  </div>
+                  <div style={{fontSize:10,color:'var(--text-secondary)',fontFamily:'var(--fm)',marginBottom:8,lineHeight:1.4}}>
+                    Riesgo quiebra 2 años · {history.altman_z.rating === 'safe' ? '✓ SAFE (>2.99)' : history.altman_z.rating === 'grey' ? '⚠ GREY (1.81-2.99)' : '🚨 DISTRESS (<1.81)'}
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(2, 1fr)',gap:6,fontSize:10,fontFamily:'var(--fm)'}}>
+                    <MetricRow label="WC/TA × 1.2" value={(history.altman_z.components.wc_ta * 1.2).toFixed(2)}/>
+                    <MetricRow label="RE/TA × 1.4" value={(history.altman_z.components.re_ta * 1.4).toFixed(2)}/>
+                    <MetricRow label="EBIT/TA × 3.3" value={(history.altman_z.components.ebit_ta * 3.3).toFixed(2)}/>
+                    <MetricRow label="MVE/TL × 0.6" value={(history.altman_z.components.mve_tl * 0.6).toFixed(2)}/>
+                    <MetricRow label="Sales/TA × 1.0" value={(history.altman_z.components.sales_ta * 1.0).toFixed(2)}/>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

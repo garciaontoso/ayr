@@ -13378,9 +13378,10 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         // Parallel fetches: historical EOD + full ratios (annual) + rating + profile + analyst estimates
         // + price target + earnings scorecard (past 20 quarters) + splits + key-metrics
         let eodRaw = [], ratiosRaw = [], ratingRaw = [], profileRaw = [], estimatesRaw = [],
-            priceTargetRaw = null, earningsRaw = [], splitsRaw = [], keyMetricsRaw = [], incomeRaw = [];
+            priceTargetRaw = null, earningsRaw = [], splitsRaw = [], keyMetricsRaw = [],
+            incomeRaw = [], balanceRaw = [], cashflowRaw = [];
         try {
-          const [eodR, ratR, ratingR, profR, estR, ptR, earR, spR, kmR, incR] = await Promise.all([
+          const [eodR, ratR, ratingR, profR, estR, ptR, earR, spR, kmR, incR, balR, cfR] = await Promise.all([
             fetch(`https://financialmodelingprep.com/stable/historical-price-eod/light?symbol=${encodeURIComponent(ratSym)}&from=${fromDate}&apikey=${FMP_KEY}`),
             fetch(`https://financialmodelingprep.com/stable/ratios?symbol=${encodeURIComponent(ratSym)}&limit=${years}&apikey=${FMP_KEY}`),
             fetch(`https://financialmodelingprep.com/stable/ratings-snapshot?symbol=${encodeURIComponent(ratSym)}&apikey=${FMP_KEY}`),
@@ -13391,6 +13392,8 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
             fetch(`https://financialmodelingprep.com/stable/splits?symbol=${encodeURIComponent(ratSym)}&limit=30&apikey=${FMP_KEY}`),
             fetch(`https://financialmodelingprep.com/stable/key-metrics?symbol=${encodeURIComponent(ratSym)}&limit=${years}&apikey=${FMP_KEY}`),
             fetch(`https://financialmodelingprep.com/stable/income-statement?symbol=${encodeURIComponent(ratSym)}&limit=${years}&apikey=${FMP_KEY}`),
+            fetch(`https://financialmodelingprep.com/stable/balance-sheet-statement?symbol=${encodeURIComponent(ratSym)}&limit=3&apikey=${FMP_KEY}`),
+            fetch(`https://financialmodelingprep.com/stable/cash-flow-statement?symbol=${encodeURIComponent(ratSym)}&limit=3&apikey=${FMP_KEY}`),
           ]);
           eodRaw = eodR.ok ? await eodR.json() : [];
           ratiosRaw = ratR.ok ? await ratR.json() : [];
@@ -13403,6 +13406,8 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
           splitsRaw = spR.ok ? await spR.json() : [];
           keyMetricsRaw = kmR.ok ? await kmR.json() : [];
           incomeRaw = incR.ok ? await incR.json() : [];
+          balanceRaw = balR.ok ? await balR.json() : [];
+          cashflowRaw = cfR.ok ? await cfR.json() : [];
         } catch (e) {
           return json({ error: `FMP fetch failed: ${e.message}` }, corsHeaders, 502);
         }
@@ -13473,6 +13478,103 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         const evEbitdaSeries = kmSeries('enterpriseValueOverEBITDA', 'evToEBITDA', 'evToOperatingCashFlow');
         const roicSeries = kmSeries('returnOnInvestedCapital');
         const fcfYieldSeries = kmSeries('freeCashFlowYield');
+
+        // ── Piotroski F-Score (0-9) y Altman Z-Score ───────────────────────
+        // Ambos usan el año fiscal más reciente + anterior. FMP devuelve
+        // balance-sheet-statement + cash-flow-statement + income-statement
+        // en orden descendente por año, así que [0] = más reciente, [1] = previo.
+        const inc0 = Array.isArray(incomeRaw) ? incomeRaw[0] : null;
+        const inc1 = Array.isArray(incomeRaw) ? incomeRaw[1] : null;
+        const bal0 = Array.isArray(balanceRaw) ? balanceRaw[0] : null;
+        const bal1 = Array.isArray(balanceRaw) ? balanceRaw[1] : null;
+        const cf0 = Array.isArray(cashflowRaw) ? cashflowRaw[0] : null;
+        const _prof = Array.isArray(profileRaw) ? profileRaw[0] : profileRaw;
+
+        let piotroski = null;
+        if (inc0 && inc1 && bal0 && bal1 && cf0) {
+          const components = {};
+          const ni0 = +inc0.netIncome || 0;
+          const ni1 = +inc1.netIncome || 0;
+          const ta0 = +bal0.totalAssets || 0;
+          const ta1 = +bal1.totalAssets || 0;
+          const ocf0 = +cf0.operatingCashFlow || 0;
+          const rev0 = +inc0.revenue || 0;
+          const rev1 = +inc1.revenue || 0;
+          const gp0 = +inc0.grossProfit || 0;
+          const gp1 = +inc1.grossProfit || 0;
+          const ltd0 = +bal0.longTermDebt || 0;
+          const ltd1 = +bal1.longTermDebt || 0;
+          const ca0 = +bal0.totalCurrentAssets || 0;
+          const ca1 = +bal1.totalCurrentAssets || 0;
+          const cl0 = +bal0.totalCurrentLiabilities || 0;
+          const cl1 = +bal1.totalCurrentLiabilities || 0;
+          const sh0 = +inc0.weightedAverageShsOut || 0;
+          const sh1 = +inc1.weightedAverageShsOut || 0;
+          // 1) Profitability — ROA positivo
+          components.roa_positive = ni0 > 0 ? 1 : 0;
+          // 2) Profitability — OCF positivo
+          components.ocf_positive = ocf0 > 0 ? 1 : 0;
+          // 3) Profitability — ΔROA > 0
+          const roa0 = ta0 > 0 ? ni0 / ta0 : 0;
+          const roa1 = ta1 > 0 ? ni1 / ta1 : 0;
+          components.delta_roa_positive = roa0 > roa1 ? 1 : 0;
+          // 4) Quality — OCF > Net Income (earnings quality)
+          components.accrual = ocf0 > ni0 ? 1 : 0;
+          // 5) Leverage — LT debt/assets decreased
+          const lev0 = ta0 > 0 ? ltd0 / ta0 : 0;
+          const lev1 = ta1 > 0 ? ltd1 / ta1 : 0;
+          components.leverage_decreased = lev0 < lev1 ? 1 : 0;
+          // 6) Liquidity — current ratio increased
+          const cr0 = cl0 > 0 ? ca0 / cl0 : 0;
+          const cr1 = cl1 > 0 ? ca1 / cl1 : 0;
+          components.current_ratio_increased = cr0 > cr1 ? 1 : 0;
+          // 7) Dilution — shares no issued
+          components.no_dilution = sh0 <= sh1 ? 1 : 0;
+          // 8) Operating efficiency — gross margin increased
+          const gm0 = rev0 > 0 ? gp0 / rev0 : 0;
+          const gm1 = rev1 > 0 ? gp1 / rev1 : 0;
+          components.gross_margin_increased = gm0 > gm1 ? 1 : 0;
+          // 9) Operating efficiency — asset turnover increased
+          const at0 = ta0 > 0 ? rev0 / ta0 : 0;
+          const at1 = ta1 > 0 ? rev1 / ta1 : 0;
+          components.asset_turnover_increased = at0 > at1 ? 1 : 0;
+          const total = Object.values(components).reduce((s, v) => s + v, 0);
+          piotroski = {
+            score: total,
+            max: 9,
+            rating: total >= 7 ? 'strong' : total >= 4 ? 'medium' : 'weak',
+            components,
+          };
+        }
+
+        let altmanZ = null;
+        if (bal0 && inc0 && _prof) {
+          const ta = +bal0.totalAssets || 0;
+          const wc = (+bal0.totalCurrentAssets || 0) - (+bal0.totalCurrentLiabilities || 0);
+          const re = +bal0.retainedEarnings || 0;
+          const ebit = +inc0.operatingIncome || 0;
+          // Market cap: prueba múltiples campos del profile + fallback a
+          // keyMetricsRaw[0].marketCap si el profile no lo expone.
+          const km0 = Array.isArray(keyMetricsRaw) && keyMetricsRaw[0] ? keyMetricsRaw[0] : {};
+          const mve = +_prof.mktCap || +_prof.marketCap || +_prof.marketCapitalization
+                    || +km0.marketCap || +km0.marketCapitalization || 0;
+          const tl = +bal0.totalLiabilities || 0;
+          const sales = +inc0.revenue || 0;
+          if (ta > 0 && tl > 0) {
+            const z = 1.2 * (wc / ta) + 1.4 * (re / ta) + 3.3 * (ebit / ta) + 0.6 * (mve / tl) + 1.0 * (sales / ta);
+            altmanZ = {
+              score: Math.round(z * 100) / 100,
+              rating: z > 2.99 ? 'safe' : z > 1.81 ? 'grey' : 'distress',
+              components: {
+                wc_ta: Math.round((wc / ta) * 1000) / 1000,
+                re_ta: Math.round((re / ta) * 1000) / 1000,
+                ebit_ta: Math.round((ebit / ta) * 1000) / 1000,
+                mve_tl: Math.round((mve / tl) * 1000) / 1000,
+                sales_ta: Math.round((sales / ta) * 1000) / 1000,
+              },
+            };
+          }
+        }
 
         // Shares outstanding series desde income-statement — key para detectar
         // buybacks (↓ shares = buena gestión capital) o dilución (↑ shares =
@@ -13625,6 +13727,8 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
           roic_series: roicSeries,           // [{year, value}] — return on invested capital
           fcf_yield_series: fcfYieldSeries,  // [{year, value}] — free cash flow yield
           shares_out_series: sharesOutSeries, // [{year, value}] — shares outstanding (buybacks/dilución)
+          piotroski,       // {score, max, rating, components} o null
+          altman_z: altmanZ,  // {score, rating, components} o null
           estimates_by_year: estimatesByYear,  // {2026:{epsAvg,epsHigh,epsLow,revenueAvg,analystsEps}, ...}
           price_target: priceTargetRaw ? {
             consensus: priceTargetRaw.targetConsensus ?? priceTargetRaw.priceTarget ?? null,
