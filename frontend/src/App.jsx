@@ -1042,14 +1042,32 @@ function buildPositionsFromCB() {
       const res = await fetch(`${API_URL}/api/patrimonio`);
       if (!res.ok) return;
       const patrimonio = await res.json();
-      const fresh = patrimonio.map(p => ({
-        id: p.id, d: p.fecha, fx: p.fx_eur_usd, bk: p.bank, br: p.broker, fd: p.fondos,
-        cr: p.crypto, hp: p.hipoteca, pu: p.total_usd, pe: p.total_eur, sl: p.salary,
-        constructionBankCny: p.construction_bank_cny||0, fxCny: p.fx_eur_cny||0,
-        salaryUsd: p.salary_usd||0, salaryCny: p.salary_cny||0,
-        goldGrams: p.gold_grams||0, goldEur: p.gold_eur||0,
-        btcAmount: p.btc_amount||0, btcEur: p.btc_eur||0,
-      }));
+      const fresh = patrimonio.map(p => {
+        // Parse breakdown_json si existe — desglose por banco/broker individual.
+        // Snapshots legacy no lo tienen; el totals agregado (bk, br) sigue siendo autoritativo.
+        let breakdown = {};
+        if (p.breakdown_json) {
+          try { breakdown = JSON.parse(p.breakdown_json) || {}; } catch { breakdown = {}; }
+        }
+        return {
+          id: p.id, d: p.fecha, fx: p.fx_eur_usd, bk: p.bank, br: p.broker, fd: p.fondos,
+          cr: p.crypto, hp: p.hipoteca, pu: p.total_usd, pe: p.total_eur, sl: p.salary,
+          constructionBankCny: p.construction_bank_cny||0, fxCny: p.fx_eur_cny||0,
+          salaryUsd: p.salary_usd||0, salaryCny: p.salary_cny||0,
+          goldGrams: p.gold_grams||0, goldEur: p.gold_eur||0,
+          btcAmount: p.btc_amount||0, btcEur: p.btc_eur||0,
+          // Desglose persistido — solo si el snapshot lo tiene. Undefined en legacy.
+          bankinter: breakdown.bankinter,
+          bcCaminos: breakdown.bcCaminos,
+          revolut: breakdown.revolut,
+          otrosBancos: breakdown.otrosBancos,
+          ibUsd: breakdown.ibUsd,
+          tsUsd: breakdown.tsUsd,
+          tastyUsd: breakdown.tastyUsd,
+          fondos: breakdown.fondos,
+          hasBreakdown: !!p.breakdown_json,
+        };
+      });
       setCtrlLog(fresh);
     } catch(e) { console.error('Reload patrimonio error:', e); }
   }, []);
@@ -1073,6 +1091,19 @@ function buildPositionsFromCB() {
     const totalEur = totalBancos + (entry.fondos||0) + goldEur + btcEur + totalBrokersUsd / fx;
     const totalUsd = totalEur * fx;
 
+    // breakdown_json preserva el desglose individual (bankinter, bcCaminos, etc.)
+    // para que al editar un snapshot, el formulario reconstruya exactamente
+    // lo que el usuario introdujo — no solo los totales agregados.
+    const breakdown = {
+      bankinter: entry.bankinter || 0,
+      bcCaminos: entry.bcCaminos || 0,
+      revolut: entry.revolut || 0,
+      otrosBancos: entry.otrosBancos || 0,
+      ibUsd: entry.ibUsd || 0,
+      tsUsd: entry.tsUsd || 0,
+      tastyUsd: entry.tastyUsd || 0,
+      fondos: entry.fondos || 0,
+    };
     const apiBody = {
       fecha: entry.date, fx_eur_usd: fx, bank: totalBancos, broker: totalBrokersUsd,
       fondos: entry.fondos||0, crypto: 0, hipoteca: 0,
@@ -1082,6 +1113,7 @@ function buildPositionsFromCB() {
       salary_usd: entry.salaryUsd||0, salary_cny: entry.salaryCny||0,
       gold_grams: entry.goldGrams||0, gold_eur: goldEur,
       btc_amount: entry.btcAmount||0, btc_eur: btcEur,
+      breakdown_json: breakdown,
     };
 
     try {

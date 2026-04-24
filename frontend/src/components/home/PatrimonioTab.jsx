@@ -65,20 +65,28 @@ function SnapshotsSection() {
     setCtrlEditId(null);
   }, [ctrlLog, fxRates, setCtrlForm, setCtrlEditId, goldPrice, btcPrice]);
 
+  // State: flag cuando el snapshot en edición es "legacy" (sin breakdown individual).
+  // Banner avisa al user que sólo tiene totales agregados y pide que re-desglose.
+  const [editingLegacy, setEditingLegacy] = useState(null); // null | {totalBk, totalBr}
+
   const startEdit = useCallback((c) => {
+    const hasBreakdown = c.hasBreakdown || c.bankinter != null || c.ibUsd != null;
     setCtrlForm({
       date: c.d,
       fx: c.fx || 1.1,
       fxCny: c.fxCny || (fxRates?.CNY ? (fxRates.CNY / (fxRates.EUR || 0.92)) : 7.8),
-      bankinter: c.bankinter || c.bk || 0,
-      bcCaminos: c.bcCaminos || 0,
+      // Si hay breakdown, cargar valores reales. Si no (legacy), inputs vacíos +
+      // banner pide al user re-desglosar. No metemos c.bk en bankinter porque
+      // falsea el histórico (usuario cree que toooodo estaba en Bankinter).
+      bankinter: hasBreakdown ? (c.bankinter || 0) : 0,
+      bcCaminos: hasBreakdown ? (c.bcCaminos || 0) : 0,
+      revolut: hasBreakdown ? (c.revolut || 0) : 0,
+      otrosBancos: hasBreakdown ? (c.otrosBancos || 0) : 0,
       constructionBankCny: c.constructionBankCny || 0,
-      revolut: c.revolut || 0,
-      otrosBancos: c.otrosBancos || 0,
-      ibUsd: c.ibUsd || c.br || 0,
-      tsUsd: c.tsUsd || 0,
-      tastyUsd: c.tastyUsd || 0,
-      fondos: c.fondos || c.fd || 0,
+      ibUsd: hasBreakdown ? (c.ibUsd || 0) : 0,
+      tsUsd: hasBreakdown ? (c.tsUsd || 0) : 0,
+      tastyUsd: hasBreakdown ? (c.tastyUsd || 0) : 0,
+      fondos: hasBreakdown ? (c.fondos || 0) : (c.fd || 0),
       salaryUsd: c.salaryUsd || 0,
       salaryCny: c.salaryCny || 0,
       goldGrams: c.goldGrams || 0,
@@ -86,6 +94,7 @@ function SnapshotsSection() {
       btcAmount: c.btcAmount || 0,
       btcPrice: btcPrice || 0,
     });
+    setEditingLegacy(hasBreakdown ? null : { totalBk: c.bk || 0, totalBr: c.br || 0 });
     setCtrlEditId(c.id);
     setCtrlShowForm(true);
   }, [fxRates, setCtrlForm, setCtrlEditId, setCtrlShowForm, goldPrice, btcPrice]);
@@ -140,6 +149,19 @@ function SnapshotsSection() {
           </button>
         </div>
       </div>
+
+      {/* Banner legacy — snapshots antiguos sin desglose por banco/broker.
+          Avisa al user que sólo teníamos totales agregados y pide re-desglosar. */}
+      {editingLegacy && (
+        <div style={{padding:"10px 14px",marginBottom:12,background:"rgba(245,158,11,0.08)",border:"1px solid rgba(245,158,11,0.35)",borderRadius:10,fontSize:11,color:"var(--text-primary)",fontFamily:"var(--fm)",lineHeight:1.55}}>
+          ⚠️ <strong>Snapshot legacy</strong> — este guardado solo tiene totales agregados:
+          Bancos <strong>€{Math.round(editingLegacy.totalBk).toLocaleString()}</strong>,
+          Brokers <strong>${Math.round(editingLegacy.totalBr).toLocaleString()}</strong>.
+          No hay desglose histórico por Bankinter/Revolut/IB/TS/etc. Si recuerdas el reparto exacto,
+          mételo abajo y se guardará para que futuras ediciones lo preserven. Si lo dejas vacío, se
+          respeta el total agregado existente.
+        </div>
+      )}
 
       {/* Form sections */}
       <div style={{display:"flex",flexDirection:"column",gap:12}}>

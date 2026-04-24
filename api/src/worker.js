@@ -354,8 +354,8 @@ async function ensureMigrations(env) {
       try { await env.DB.prepare(`ALTER TABLE dividendos ADD COLUMN ${col}`).run(); } catch(e) { /* already exists */ }
     }
 
-    // Patrimonio: new fields for CNY bank, split salary, gold, BTC
-    for (const col of ['construction_bank_cny REAL DEFAULT 0','fx_eur_cny REAL DEFAULT 0','salary_usd REAL DEFAULT 0','salary_cny REAL DEFAULT 0','gold_grams REAL DEFAULT 0','gold_eur REAL DEFAULT 0','btc_amount REAL DEFAULT 0','btc_eur REAL DEFAULT 0']) {
+    // Patrimonio: new fields for CNY bank, split salary, gold, BTC, breakdown JSON
+    for (const col of ['construction_bank_cny REAL DEFAULT 0','fx_eur_cny REAL DEFAULT 0','salary_usd REAL DEFAULT 0','salary_cny REAL DEFAULT 0','gold_grams REAL DEFAULT 0','gold_eur REAL DEFAULT 0','btc_amount REAL DEFAULT 0','btc_eur REAL DEFAULT 0','breakdown_json TEXT DEFAULT NULL']) {
       try { await env.DB.prepare(`ALTER TABLE patrimonio ADD COLUMN ${col}`).run(); } catch(e) { /* already exists */ }
     }
 
@@ -6539,21 +6539,26 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return json(results, corsHeaders);
       }
 
-      // POST /api/patrimonio — añadir snapshot
+      // POST /api/patrimonio — añadir snapshot (ahora con breakdown_json)
       if (path === "/api/patrimonio" && request.method === "POST") {
         const body = await parseBody(request);
         const fechaErr = validateFecha(body.fecha);
         if (fechaErr) return validationError(fechaErr, corsHeaders);
         const numErr = validateNumber(body.total_usd, 'total_usd') || validateNumber(body.total_eur, 'total_eur');
         if (numErr) return validationError(numErr, corsHeaders);
+        // breakdown_json: serialización del desglose por banco/broker tal cual el usuario lo metió.
+        // Preserva info que antes se perdía (bankinter, bcCaminos, revolut, ibUsd, tsUsd, tastyUsd...).
+        const breakdownJson = body.breakdown_json
+          ? (typeof body.breakdown_json === 'string' ? body.breakdown_json : JSON.stringify(body.breakdown_json))
+          : null;
         await env.DB.prepare(
           `INSERT INTO patrimonio (fecha, fx_eur_usd, bank, broker, fondos, crypto, hipoteca, total_usd, total_eur, salary, notas,
-           construction_bank_cny, fx_eur_cny, salary_usd, salary_cny, gold_grams, gold_eur, btc_amount, btc_eur)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           construction_bank_cny, fx_eur_cny, salary_usd, salary_cny, gold_grams, gold_eur, btc_amount, btc_eur, breakdown_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(body.fecha, body.fx_eur_usd, body.bank, body.broker, body.fondos, body.crypto||0, body.hipoteca||0,
           body.total_usd, body.total_eur, body.salary||0, body.notas||'',
           body.construction_bank_cny||0, body.fx_eur_cny||0, body.salary_usd||0, body.salary_cny||0,
-          body.gold_grams||0, body.gold_eur||0, body.btc_amount||0, body.btc_eur||0).run();
+          body.gold_grams||0, body.gold_eur||0, body.btc_amount||0, body.btc_eur||0, breakdownJson).run();
         return json({ success: true }, corsHeaders);
       }
 
@@ -6561,16 +6566,19 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       if (path.match(/\/api\/patrimonio\/\d+$/) && request.method === "PUT") {
         const id = parseInt(path.split("/").pop(), 10);
         const body = await parseBody(request);
+        const breakdownJson = body.breakdown_json
+          ? (typeof body.breakdown_json === 'string' ? body.breakdown_json : JSON.stringify(body.breakdown_json))
+          : null;
         await env.DB.prepare(
           `UPDATE patrimonio SET fecha=?, fx_eur_usd=?, bank=?, broker=?, fondos=?, crypto=?, hipoteca=?,
            total_usd=?, total_eur=?, salary=?, notas=?,
            construction_bank_cny=?, fx_eur_cny=?, salary_usd=?, salary_cny=?,
-           gold_grams=?, gold_eur=?, btc_amount=?, btc_eur=?, updated_at=datetime('now')
+           gold_grams=?, gold_eur=?, btc_amount=?, btc_eur=?, breakdown_json=?, updated_at=datetime('now')
            WHERE id=?`
         ).bind(body.fecha, body.fx_eur_usd, body.bank, body.broker, body.fondos, body.crypto||0, body.hipoteca||0,
           body.total_usd, body.total_eur, body.salary||0, body.notas||'',
           body.construction_bank_cny||0, body.fx_eur_cny||0, body.salary_usd||0, body.salary_cny||0,
-          body.gold_grams||0, body.gold_eur||0, body.btc_amount||0, body.btc_eur||0, id).run();
+          body.gold_grams||0, body.gold_eur||0, body.btc_amount||0, body.btc_eur||0, breakdownJson, id).run();
         return json({ success: true }, corsHeaders);
       }
 
