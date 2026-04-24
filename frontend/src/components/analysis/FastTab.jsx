@@ -1007,6 +1007,8 @@ export default function FastTab() {
                     year: nearest.year, date: nearest.date,
                     price: nearest.priceVal, eps: f.eps, pe,
                     fair: nearest.fairValue, yield: divY, payout, dps: f.dps,
+                    isProjected: nearest.year > lastHistY,
+                    vsToday: cfg?.price && nearest.priceVal ? (nearest.priceVal / cfg.price) - 1 : null,
                   });
                 });
               }}
@@ -1036,6 +1038,8 @@ export default function FastTab() {
                     year: nearest.year, date: nearest.date,
                     price: nearest.priceVal, eps: f.eps, pe,
                     fair: nearest.fairValue, yield: divY, payout, dps: f.dps,
+                    isProjected: nearest.year > lastHistY,
+                    vsToday: cfg?.price && nearest.priceVal ? (nearest.priceVal / cfg.price) - 1 : null,
                   });
                 });
               }}
@@ -1285,34 +1289,42 @@ export default function FastTab() {
                     stroke="#141726" strokeWidth={0.8} strokeDasharray="2,2" opacity={0.4}/>
                   <circle cx={hover.svgX} cy={hover.svgY} r={5}
                     fill="#141726" stroke="#fff" strokeWidth={2}/>
-                  {/* Tooltip card — cap en W-PADR-170 para no salirse del chart frame (bug fix #2) */}
-                  <g transform={`translate(${Math.min(hover.svgX + 12, W - PADR - 170)}, ${Math.max(PADT + 8, hover.svgY - 90)})`}>
-                    <rect x={0} y={0} width={170} height={102}
-                      fill="rgba(20, 23, 38, 0.96)" stroke="#b8860b" strokeWidth={1} rx={6}/>
-                    <text x={8} y={16} fontSize={11} fontWeight={700} fill="#b8860b" fontFamily="monospace">
-                      {hover.date || hover.year}
+                  {/* Tooltip card — con tag Histórico/Proyectado + delta vs HOY.
+                      Alto dinámico 118px cuando hay fila "vs HOY". */}
+                  <g transform={`translate(${Math.min(hover.svgX + 12, W - PADR - 170)}, ${Math.max(PADT + 8, hover.svgY - 100)})`}>
+                    <rect x={0} y={0} width={170} height={hover.vsToday != null ? 118 : 102}
+                      fill="rgba(20, 23, 38, 0.96)" stroke={hover.isProjected ? '#64d2ff' : '#b8860b'} strokeWidth={1} rx={6}/>
+                    <text x={8} y={16} fontSize={11} fontWeight={700} fill={hover.isProjected ? '#64d2ff' : '#b8860b'} fontFamily="monospace">
+                      {hover.isProjected ? '🔮' : '📊'} {hover.date || hover.year}
                     </text>
                     <text x={8} y={32} fontSize={10} fill="#fff" fontFamily="monospace">
                       Precio: <tspan fontWeight={700}>${hover.price?.toFixed(2)}</tspan>
                     </text>
-                    <text x={8} y={46} fontSize={10} fill="#fff" fontFamily="monospace">
+                    {hover.vsToday != null && (
+                      <text x={8} y={46} fontSize={10} fill="#aaa" fontFamily="monospace">
+                        vs HOY: <tspan fill={hover.vsToday >= 0 ? '#30d158' : '#ff453a'} fontWeight={700}>
+                          {hover.vsToday >= 0 ? '+' : ''}{(hover.vsToday * 100).toFixed(1)}%
+                        </tspan>
+                      </text>
+                    )}
+                    <text x={8} y={hover.vsToday != null ? 62 : 46} fontSize={10} fill="#fff" fontFamily="monospace">
                       Fair: <tspan fontWeight={700}>${hover.fair?.toFixed(2)}</tspan>
                       <tspan fill={hover.price < hover.fair ? '#30d158' : '#ff453a'} dx={4}>
                         ({hover.price < hover.fair ? '+' : ''}{((hover.fair/hover.price - 1) * 100).toFixed(0)}%)
                       </tspan>
                     </text>
-                    <text x={8} y={60} fontSize={10} fill="#fff" fontFamily="monospace">
+                    <text x={8} y={hover.vsToday != null ? 76 : 60} fontSize={10} fill="#fff" fontFamily="monospace">
                       EPS: <tspan fontWeight={700}>${hover.eps?.toFixed(2) || '—'}</tspan>
                       {hover.pe != null && <tspan> · P/E {hover.pe.toFixed(1)}x</tspan>}
                     </text>
                     {hover.dps > 0 && (
-                      <text x={8} y={74} fontSize={10} fill="#fff" fontFamily="monospace">
+                      <text x={8} y={hover.vsToday != null ? 90 : 74} fontSize={10} fill="#fff" fontFamily="monospace">
                         DPS: <tspan fontWeight={700}>${hover.dps.toFixed(2)}</tspan>
                         {hover.yield != null && <tspan fill="#b8860b"> · {(hover.yield * 100).toFixed(1)}%</tspan>}
                       </text>
                     )}
                     {hover.payout != null && (
-                      <text x={8} y={88} fontSize={10} fill="#fff" fontFamily="monospace">
+                      <text x={8} y={hover.vsToday != null ? 104 : 88} fontSize={10} fill="#fff" fontFamily="monospace">
                         Payout: <tspan fontWeight={700}>{(hover.payout * 100).toFixed(0)}%</tspan>
                       </text>
                     )}
