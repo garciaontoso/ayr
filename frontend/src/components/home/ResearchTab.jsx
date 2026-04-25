@@ -3,6 +3,7 @@ import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters.js';
 import { useDraggableOrder } from '../../hooks/useDraggableOrder.js';
 import BuyWizard from '../ui/BuyWizard.jsx';
+import TickerSearchModal from '../ui/TickerSearchModal.jsx';
 import { API_URL } from '../../constants/index.js';
 
 const CUSTOM_LISTS_KEY = 'ayr_research_custom_lists';
@@ -150,6 +151,10 @@ export default function ResearchTab() {
   // User clicks the 🎯 cell to open BuyWizard and generate a verdict.
   const [oracleVerdicts, setOracleVerdicts] = useState({});
   const [oracleWizardTicker, setOracleWizardTicker] = useState(null);
+  // Estado del modal de añadir ticker — { listId, listName } | null. Abre el
+  // dropdown de búsqueda autocompletada (FMP /api/search) en vez del antiguo
+  // window.prompt() que requería conocer el sufijo exacto (NESN.SW vs NESN…).
+  const [addTickerModal, setAddTickerModal] = useState(null);
   // ─── Rank modal — para rankear listas custom (ej: Universo 20k) por quality ───
   const [rankModalListId, setRankModalListId] = useState(null);
   const loadOracleVerdicts = useCallback(async (tickers) => {
@@ -267,18 +272,26 @@ export default function ResearchTab() {
       saveCustomLists(customLists.filter(l => l.id !== id));
       if (activeId === id) setActiveId('portfolio');
     };
-    // Add a single ticker to an existing custom list (appended, duplicates skipped).
-    // Each call prompts for ONE ticker — never replaces the list.
+    // Abre el modal de búsqueda autocompletada para añadir un ticker a la lista.
+    // Solo listas custom (las default no son editables).
     const handleAddTickerToList = (id) => {
       if (!id.startsWith('custom_')) return;
       const list = customLists.find(l => l.id === id);
       if (!list) return;
-      const raw = window.prompt(`Añadir UN ticker a "${list.name}" (ej: KO, BRK.B, 1066 → 1066.HK):`);
-      if (raw == null) return;
-      const t = normalizeTicker(raw);
-      if (!t) { alert('Ticker vacío'); return; }
+      setAddTickerModal({ listId: id, listName: list.name });
+    };
+    // Callback invocado cuando el usuario elige un ticker en el dropdown.
+    // Recibe {symbol, name, exchange} desde FMP — usamos el symbol exacto que
+    // FMP entrega (ej "NESN.SW") para garantizar que el bulk fetch funcione.
+    const handlePickTicker = (item) => {
+      const ctx = addTickerModal;
+      if (!ctx) return;
+      const list = customLists.find(l => l.id === ctx.listId);
+      if (!list) return;
+      const t = (item.symbol || '').trim().toUpperCase();
+      if (!t) return;
       if (list.tickers.includes(t)) { alert(`${t} ya está en la lista`); return; }
-      saveCustomLists(customLists.map(l => l.id === id ? { ...l, tickers: [...l.tickers, t] } : l));
+      saveCustomLists(customLists.map(l => l.id === ctx.listId ? { ...l, tickers: [...l.tickers, t] } : l));
     };
     // Remove a single ticker from the active custom list.
     const handleRemoveTicker = (listId, ticker) => {
@@ -454,6 +467,17 @@ export default function ResearchTab() {
       setOracleWizardTicker(null);
       if (screenerTickers.length) loadOracleVerdicts(screenerTickers);
     }}
+  />
+
+  {/* Modal de búsqueda autocompletada para añadir tickers a listas custom.
+      Sustituye al window.prompt() — el usuario escribe el nombre de la
+      empresa y elige el símbolo exacto del exchange que quiera. */}
+  <TickerSearchModal
+    open={!!addTickerModal}
+    onClose={() => setAddTickerModal(null)}
+    onSelect={(item) => handlePickTicker(item)}
+    title={addTickerModal ? `Añadir ticker a "${addTickerModal.listName}"` : 'Añadir ticker'}
+    subtitle="Busca por nombre de empresa o ticker. FMP devuelve el símbolo exacto por exchange — útil para tickers internacionales (NESN.SW, 9618.HK, AZJ.AX…)."
   />
 
   {/* Rank modal — rankea lista custom por composite quality usando cache FMP */}

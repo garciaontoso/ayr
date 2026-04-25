@@ -20,6 +20,8 @@ const FMP_MAP = {
   "ENG": "ENG.MC",       // Enagas (Spain), NOT ENGlobal Corp
   "AZJ": "AZJ.AX", "GQG": "GQG.AX",
   "WKL": "WKL.AS",
+  "NESN": "NESN.SW",     // Nestlé (SIX Swiss Exchange) — bare "NESN" no existe en FMP
+  "NESN:SWX": "NESN.SW", // notación BME-style para Swiss Exchange — mismo destino
   "SHUR": "SHUR.BR",     // Shurgard (Euronext Brussels) — was wrongly SHUR.AS
   "RAND": "RAND.AS",     // Randstad (Netherlands), NOT Rand Capital
   "NET.UN": "NET-UN.V",  // Canadian Net REIT (TSX Venture) — was wrongly NET-UN.TO
@@ -10291,6 +10293,47 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           return json(results, corsHeaders);
         } catch (e) {
           return json({ error: "Earnings batch failed: " + e.message }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/search?q=Nestle&limit=10 — typeahead ticker/company search.
+      // Proxy a FMP search-symbol + search-name combinados, deduplicado.
+      // Devuelve [{symbol, name, exchange, currency, type}] ordenado por
+      // mktCap (cuando disponible) / popularidad. Usado por el dropdown del
+      // input "+ Añadir ticker" en Listas y Cartera para evitar adivinar
+      // sufijos (NESN.SW vs NESN vs NSRGY).
+      if (path === "/api/search" && request.method === "GET") {
+        const q = (url.searchParams.get("q") || "").trim();
+        const limit = Math.min(parseInt(url.searchParams.get("limit") || "10", 10), 25);
+        if (q.length < 1) return json({ results: [] }, corsHeaders);
+        try {
+          // FMP tiene 2 endpoints de search:
+          //  · /search-symbol — match por ticker exacto (ej "NESN" → NESN.SW + NESN.MX + ...)
+          //  · /search-name   — match por nombre empresa (ej "nestle" → NESN.SW, NSRGY ADR, ...)
+          // Lanzamos los dos en paralelo y deduplicamos por symbol.
+          const [bySymbol, byName] = await Promise.all([
+            fetch(`${FMP_BASE}/search-symbol?query=${encodeURIComponent(q)}&limit=${limit}&apikey=${FMP_KEY}`).then(r=>r.json()).catch(()=>[]),
+            fetch(`${FMP_BASE}/search-name?query=${encodeURIComponent(q)}&limit=${limit}&apikey=${FMP_KEY}`).then(r=>r.json()).catch(()=>[]),
+          ]);
+          const seen = new Set();
+          const merged = [];
+          for (const r of [...(Array.isArray(bySymbol)?bySymbol:[]), ...(Array.isArray(byName)?byName:[])]) {
+            const sym = r.symbol;
+            if (!sym || seen.has(sym)) continue;
+            seen.add(sym);
+            merged.push({
+              symbol: sym,
+              name: r.name || r.companyName || sym,
+              exchange: r.exchangeFullName || r.exchange || r.stockExchange || '',
+              exchangeShort: r.exchangeShortName || r.exchange || '',
+              currency: r.currency || '',
+              type: r.type || '',
+            });
+            if (merged.length >= limit) break;
+          }
+          return json({ results: merged, query: q }, corsHeaders);
+        } catch(e) {
+          return json({ error: "Search failed: " + e.message, results: [] }, corsHeaders, 500);
         }
       }
 
