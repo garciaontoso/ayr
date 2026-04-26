@@ -276,6 +276,70 @@ async function fmpSpark(ticker, env, days = 5) {
 }
 
 let _migrated = false;
+let _scannerMigrated = false;
+
+// Migración aislada para tablas del scanner — independiente del gran ensureMigrations
+// que tiene timeout 5s y puede dejar tablas a medias en cold start. Las endpoints
+// del scanner llaman a este en lugar de ensureMigrations para garantizar idempotencia.
+async function ensureScannerMigrations(env) {
+  if (_scannerMigrated) return;
+  try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS scanner_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_at TEXT NOT NULL,
+      universe TEXT NOT NULL,
+      lens_filter TEXT,
+      candidates_count INTEGER DEFAULT 0,
+      rejected_count INTEGER DEFAULT 0,
+      duration_ms INTEGER,
+      status TEXT NOT NULL DEFAULT 'success',
+      error_msg TEXT,
+      ib_connected INTEGER DEFAULT 1,
+      meta_json TEXT DEFAULT '{}'
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_scanner_runs_at ON scanner_runs(run_at DESC)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_scanner_runs_universe ON scanner_runs(universe, run_at DESC)`).run();
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS scanner_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id INTEGER NOT NULL,
+      ticker TEXT NOT NULL,
+      status TEXT NOT NULL,
+      lens_passed TEXT,
+      conviction TEXT,
+      score_a INTEGER DEFAULT 0,
+      score_b INTEGER DEFAULT 0,
+      score_c INTEGER DEFAULT 0,
+      score_total INTEGER DEFAULT 0,
+      flags_json TEXT DEFAULT '[]',
+      payload_json TEXT DEFAULT '{}',
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (run_id) REFERENCES scanner_runs(id)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_snap_run ON scanner_snapshots(run_id)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_snap_ticker ON scanner_snapshots(ticker, created_at DESC)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_snap_status ON scanner_snapshots(status, score_total DESC)`).run();
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS scanner_filters (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      filters_json TEXT NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS scanner_alerts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      lens TEXT NOT NULL,
+      conviction TEXT NOT NULL,
+      alerted_at TEXT NOT NULL DEFAULT (datetime('now')),
+      payload_json TEXT DEFAULT '{}',
+      user_action TEXT,
+      user_action_at TEXT
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_scanner_alerts_ticker ON scanner_alerts(ticker, alerted_at DESC)`).run();
+    _scannerMigrated = true;
+  } catch (e) {
+    console.error("ensureScannerMigrations failed:", e.message);
+    // No marcar como migrated → reintenta en próximo request
+  }
+}
 
 async function ensureMigrations(env) {
   if (_migrated) return;
@@ -8200,7 +8264,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // Útil para pausar el scanner mientras el usuario opera manualmente
       // en TWS sin competir por la conexión IB Gateway.
       if (path === "/api/scanner/state" && request.method === "GET") {
-        await ensureMigrations(env);
+        await ensureScannerMigrations(env);
         const row = await env.DB.prepare(`SELECT filters_json, updated_at FROM scanner_filters WHERE id = 1`).first();
         const filters = row ? JSON.parse(row.filters_json) : SCANNER_DEFAULT_FILTERS;
         const enabled = filters.enabled !== false;  // default true si no existe
@@ -8220,7 +8284,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // Body opcional: { enabled?: bool, reason?: string }
       // Si enabled no se pasa, se invierte el estado actual.
       if (path === "/api/scanner/toggle" && request.method === "POST") {
-        await ensureMigrations(env);
+        await ensureScannerMigrations(env);
         const body = await parseBody(request).catch(() => ({}));
         const row = await env.DB.prepare(`SELECT filters_json FROM scanner_filters WHERE id = 1`).first();
         const filters = row ? JSON.parse(row.filters_json) : { ...SCANNER_DEFAULT_FILTERS };
@@ -8244,7 +8308,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // GET /api/scanner/runs?limit=20 — listado de runs recientes para
       // snapshot browser. Cada run = un escaneo completo a una hora dada.
       if (path === "/api/scanner/runs" && request.method === "GET") {
-        await ensureMigrations(env);
+        await ensureScannerMigrations(env);
         const limit = Math.min(parseInt(url.searchParams.get("limit") || "20", 10), 200);
         const universe = url.searchParams.get("universe");
         const where = universe ? "WHERE universe = ?" : "";
@@ -8258,7 +8322,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // GET /api/scanner/snapshots?run_id=N — snapshots de un run específico.
       // Si no se pasa run_id, devuelve los del último run (live view).
       if (path === "/api/scanner/snapshots" && request.method === "GET") {
-        await ensureMigrations(env);
+        await ensureScannerMigrations(env);
         const runIdParam = url.searchParams.get("run_id");
         const status = url.searchParams.get("status");  // 'candidate' | 'rejected' | null = both
         let runId = runIdParam ? parseInt(runIdParam, 10) : null;
@@ -8287,7 +8351,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // GET /api/scanner/filters — filtros configurables del usuario.
       if (path === "/api/scanner/filters" && request.method === "GET") {
-        await ensureMigrations(env);
+        await ensureScannerMigrations(env);
         const row = await env.DB.prepare(`SELECT filters_json, updated_at FROM scanner_filters WHERE id = 1`).first();
         if (!row) return json({ filters: SCANNER_DEFAULT_FILTERS, updated_at: null, default: true }, corsHeaders);
         return json({ filters: JSON.parse(row.filters_json), updated_at: row.updated_at, default: false }, corsHeaders);
@@ -8295,7 +8359,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // POST /api/scanner/filters — actualizar filtros.
       if (path === "/api/scanner/filters" && request.method === "POST") {
-        await ensureMigrations(env);
+        await ensureScannerMigrations(env);
         const body = await parseBody(request);
         if (!body || typeof body !== "object") return json({ error: "Body must be JSON object" }, corsHeaders, 400);
         await env.DB.prepare(
@@ -8311,7 +8375,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // Respeta el master switch (scanner_filters.enabled) — devuelve 423
       // si está pausado, salvo que se pase force=true (override puntual).
       if (path === "/api/scanner/run" && request.method === "POST") {
-        await ensureMigrations(env);
+        await ensureScannerMigrations(env);
         const body = await parseBody(request).catch(() => ({}));
         // Master switch check
         const stateRow = await env.DB.prepare(`SELECT filters_json FROM scanner_filters WHERE id = 1`).first();
@@ -8359,7 +8423,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // POST /api/scanner/copy-to-opus — toma los candidatos de un run y los
       // pasa a Claude Opus con un prompt curado para juicio cualitativo.
       if (path === "/api/scanner/copy-to-opus" && request.method === "POST") {
-        await ensureMigrations(env);
+        await ensureScannerMigrations(env);
         const body = await parseBody(request).catch(() => ({}));
         const runId = body.run_id;
         if (!runId) return json({ error: "Missing run_id" }, corsHeaders, 400);
