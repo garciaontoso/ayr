@@ -138,6 +138,7 @@ export const HOME_TAB_GROUPS = [
       {id:"opciones-resumen",lbl:"Resumen",ico:"📊"},
       {id:"opciones-orphans",lbl:"Sin loguear",ico:"⚠️"},
       {id:"income",lbl:"Income",ico:"🥦"},
+      {id:"scanner",lbl:"Scanner",ico:"🎯"},
     ],
   },
   {

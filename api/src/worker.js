@@ -1414,6 +1414,65 @@ async function ensureMigrations(env) {
     )`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_weekly_digests_week ON weekly_digests(week_start DESC)`).run();
 
+    // ─── Options Income Scanner (2026-04-26) ───
+    // Backbone: NAS Synology DS423+ corre IB Gateway + ib-bridge tras CF Tunnel.
+    // Worker proxea endpoints /api/ib-bridge/* y guarda snapshots cada hora vía cron.
+    // 4 tablas: runs (cada ejecución), snapshots (candidatos por run),
+    // filters (configuración usuario), alerts (HOT notifications).
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS scanner_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_at TEXT NOT NULL,
+      universe TEXT NOT NULL,
+      lens_filter TEXT,
+      candidates_count INTEGER DEFAULT 0,
+      rejected_count INTEGER DEFAULT 0,
+      duration_ms INTEGER,
+      status TEXT NOT NULL DEFAULT 'success',
+      error_msg TEXT,
+      ib_connected INTEGER DEFAULT 1,
+      meta_json TEXT DEFAULT '{}'
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_scanner_runs_at ON scanner_runs(run_at DESC)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_scanner_runs_universe ON scanner_runs(universe, run_at DESC)`).run();
+
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS scanner_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id INTEGER NOT NULL,
+      ticker TEXT NOT NULL,
+      status TEXT NOT NULL,
+      lens_passed TEXT,
+      conviction TEXT,
+      score_a INTEGER DEFAULT 0,
+      score_b INTEGER DEFAULT 0,
+      score_c INTEGER DEFAULT 0,
+      score_total INTEGER DEFAULT 0,
+      flags_json TEXT DEFAULT '[]',
+      payload_json TEXT DEFAULT '{}',
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (run_id) REFERENCES scanner_runs(id)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_snap_run ON scanner_snapshots(run_id)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_snap_ticker ON scanner_snapshots(ticker, created_at DESC)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_snap_status ON scanner_snapshots(status, score_total DESC)`).run();
+
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS scanner_filters (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      filters_json TEXT NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS scanner_alerts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      lens TEXT NOT NULL,
+      conviction TEXT NOT NULL,
+      alerted_at TEXT NOT NULL DEFAULT (datetime('now')),
+      payload_json TEXT DEFAULT '{}',
+      user_action TEXT,
+      user_action_at TEXT
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_scanner_alerts_ticker ON scanner_alerts(ticker, alerted_at DESC)`).run();
+
     _migrated = true;
   } catch(e) {
     console.error("Migration error:", e.message);
@@ -1550,6 +1609,174 @@ async function fetchYahoo(url, { maxRetries = 2 } = {}) {
     }
   }
   return resp;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// IB Bridge (NAS Synology) — Real-time data backbone
+// ═══════════════════════════════════════════════════════════════
+// Self-hosted IB Gateway en NAS Synology DS423+ expone REST API via
+// Cloudflare Tunnel a `ib.onto-so.com`. El bridge es READ-ONLY (3 capas
+// de seguridad: IBKR Read-Only API mode + bridge sin endpoints de orders +
+// Bearer auth via CF Tunnel).
+//
+// Variables de entorno:
+//   env.IB_BRIDGE_URL      = "https://ib.onto-so.com" (default)
+//   env.IB_BRIDGE_TOKEN    = secret bearer token (debe matchear el del bridge)
+//
+// Si el bridge no está configurado o no responde, los endpoints devuelven 503
+// y los resolvers multi-fuente (resolvePrice/Chain/NAV) caen a Yahoo/FMP/OAuth.
+
+const IB_BRIDGE_DEFAULT_URL = "https://ib.onto-so.com";
+
+async function ibBridgeFetch(env, endpoint, opts = {}) {
+  const baseUrl = env.IB_BRIDGE_URL || IB_BRIDGE_DEFAULT_URL;
+  const token = env.IB_BRIDGE_TOKEN;
+  if (!token) throw new Error("ib_bridge_not_configured");
+  const url = `${baseUrl}${endpoint}`;
+  const ctrl = new AbortController();
+  const timeoutMs = opts.timeoutMs ?? 10000;
+  const timeout = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const resp = await fetch(url, {
+      method: opts.method || "GET",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+        ...(opts.headers || {}),
+      },
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+      signal: ctrl.signal,
+    });
+    clearTimeout(timeout);
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      throw new Error(`ib_bridge_${resp.status}: ${text.slice(0, 200)}`);
+    }
+    return await resp.json();
+  } catch (e) {
+    clearTimeout(timeout);
+    if (e.name === "AbortError") throw new Error("ib_bridge_timeout");
+    throw e;
+  }
+}
+
+// Filtros por defecto del scanner — sobrescritos por scanner_filters table.
+// Cada lente (A/B/C) tiene sus criterios propios. Los `globals` aplican
+// pre-scoring a todos los tickers (filtros hard).
+const SCANNER_DEFAULT_FILTERS = {
+  globals: {
+    min_volume: 5000,                  // OptionVol mínimo
+    earnings_min_days: 21,             // No dentro de 21 días de earnings
+    require_no_dislocation: true,      // No comprar puts en caídas masivas (>10%)
+    excluded_sectors: ["Mining"],
+    excluded_tickers: [],
+    include_etf: false,
+  },
+  lens_a: {  // 🟢 Quality CSP
+    enabled: true,
+    quality_min: 75,
+    iv_hv_min: 1.10,
+    fwd_pe_max: 25,
+    drop_4w_min: 0.05,                 // -5% min en 4 sem
+    drop_4w_max: 0.15,                 // -15% max (más es dislocation)
+    disp_min: -0.10, disp_max: 0,      // ligero descuento vs target
+  },
+  lens_b: {  // 🟡 Income CC (sobre cartera existente)
+    enabled: true,
+    iv_min: 0.30,
+    otm_pct_min: 0.05,
+    otm_pct_max: 0.10,
+    dte_min: 30,
+    dte_max: 45,
+    require_in_portfolio: true,
+  },
+  lens_c: {  // 🔴 Crisis IV
+    enabled: true,
+    iv_hv_min: 2.00,
+    earnings_min_days: 30,
+    disp_max: -0.20,                   // gran descuento vs target
+    dte_min: 7,
+    dte_max: 14,
+    max_concurrent: 1,                 // uno solo por run
+    score_min_a_other_lens: 4,         // requiere también ≥4 en otra lens
+  },
+};
+
+// Resolvers multi-fuente: intentan IB Bridge primero, fallback Yahoo/FMP.
+// Siempre devuelven {source, ...data} para que el frontend sepa de dónde vino.
+async function resolvePrice(env, symbol, opts = {}) {
+  if (!opts.skipIB && env.IB_BRIDGE_TOKEN) {
+    try {
+      const data = await ibBridgeFetch(env, `/quotes?symbols=${encodeURIComponent(symbol)}`, { timeoutMs: 4000 });
+      const tick = data?.[symbol];
+      if (tick && Number.isFinite(tick.last) && tick.last > 0) {
+        return { source: "ib", symbol, last: tick.last, bid: tick.bid, ask: tick.ask, change_pct: tick.change_pct, ts: tick.ts };
+      }
+    } catch { /* fall through to Yahoo */ }
+  }
+  // Fallback Yahoo (existing pattern in worker.js for /api/prices)
+  try {
+    const yResp = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`);
+    const yData = await yResp.json();
+    const meta = yData?.chart?.result?.[0]?.meta;
+    if (meta?.regularMarketPrice) {
+      return { source: "yahoo", symbol, last: meta.regularMarketPrice, ts: meta.regularMarketTime ? new Date(meta.regularMarketTime * 1000).toISOString() : null };
+    }
+  } catch {}
+  return { source: "none", symbol, last: null, error: "no_data" };
+}
+
+async function resolveOptionChain(env, symbol, opts = {}) {
+  if (!opts.skipIB && env.IB_BRIDGE_TOKEN) {
+    try {
+      const params = new URLSearchParams({
+        symbol,
+        dte_min: String(opts.dteMin ?? 20),
+        dte_max: String(opts.dteMax ?? 45),
+        otm_pct: String(opts.otmPct ?? 0.10),
+      });
+      const data = await ibBridgeFetch(env, `/option-chain?${params}`, { timeoutMs: 8000 });
+      if (data?.calls?.length || data?.puts?.length) {
+        return { source: "ib", ...data };
+      }
+    } catch { /* fall through */ }
+  }
+  // Fallback: pasar al endpoint Yahoo existing (placeholder — en Fase 2 cableamos).
+  return { source: "none", calls: [], puts: [], error: "no_chain_available" };
+}
+
+async function resolveNAV(env) {
+  if (env.IB_BRIDGE_TOKEN) {
+    try {
+      const data = await ibBridgeFetch(env, "/nav", { timeoutMs: 5000 });
+      if (data && Number.isFinite(data.net_liquidation)) {
+        return { source: "ib", ...data };
+      }
+    } catch { /* fall through */ }
+  }
+  // Fallback: NAV cached en D1 (last snapshot from cron Mac sync)
+  try {
+    const row = await env.DB.prepare(`SELECT * FROM nlv_history ORDER BY date DESC LIMIT 1`).first();
+    if (row) {
+      return { source: "nlv_history", net_liquidation: row.nlv, updated_at: row.date, stale: true };
+    }
+  } catch {}
+  return { source: "none", error: "no_nav_data" };
+}
+
+// Quick health probe — used by router to short-circuit when bridge is down.
+// Cached in module-level state for 5s to avoid hammering on every request.
+let _ibBridgeHealth = { ok: false, ib_connected: false, checked_at: 0 };
+async function ibBridgeProbe(env, force = false) {
+  const now = Date.now();
+  if (!force && now - _ibBridgeHealth.checked_at < 5000) return _ibBridgeHealth;
+  try {
+    const data = await ibBridgeFetch(env, "/health", { timeoutMs: 3000 });
+    _ibBridgeHealth = { ok: !!data?.ok, ib_connected: !!data?.ib_connected, checked_at: now };
+  } catch {
+    _ibBridgeHealth = { ok: false, ib_connected: false, checked_at: now };
+  }
+  return _ibBridgeHealth;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -7862,6 +8089,236 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           return json({ error: "IB OAuth error: " + e.message }, corsHeaders, 500);
         }
       }
+
+      // ═══════════════════════════════════════════════════════════════
+      // IB Bridge proxy (NAS Synology) — Real-time data backbone
+      // ═══════════════════════════════════════════════════════════════
+      // Proxean a https://ib.onto-so.com (NAS via Cloudflare Tunnel) que corre
+      // ib-gateway + ib-bridge Node service. Toda la auth Bearer se añade
+      // server-side via env.IB_BRIDGE_TOKEN — el frontend nunca ve el token.
+      // Si el bridge no responde, devolvemos 503 con shape consistente para
+      // que el frontend pueda manejar fallback.
+
+      if (path === "/api/ib-bridge/health" && request.method === "GET") {
+        try {
+          const health = await ibBridgeProbe(env, true);
+          return json({ ...health, bridge_url: env.IB_BRIDGE_URL || IB_BRIDGE_DEFAULT_URL, configured: !!env.IB_BRIDGE_TOKEN }, corsHeaders);
+        } catch(e) {
+          return json({ ok: false, error: e.message, configured: !!env.IB_BRIDGE_TOKEN }, corsHeaders, 503);
+        }
+      }
+
+      if (path === "/api/ib-bridge/nav" && request.method === "GET") {
+        try {
+          const data = await ibBridgeFetch(env, "/nav");
+          return json({ source: "ib-bridge", ...data }, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message, source: "ib-bridge" }, corsHeaders, 503);
+        }
+      }
+
+      if (path === "/api/ib-bridge/margin" && request.method === "GET") {
+        try {
+          const data = await ibBridgeFetch(env, "/margin");
+          return json({ source: "ib-bridge", ...data }, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message, source: "ib-bridge" }, corsHeaders, 503);
+        }
+      }
+
+      if (path === "/api/ib-bridge/positions" && request.method === "GET") {
+        try {
+          const data = await ibBridgeFetch(env, "/positions");
+          return json({ source: "ib-bridge", positions: data }, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message, source: "ib-bridge" }, corsHeaders, 503);
+        }
+      }
+
+      if (path === "/api/ib-bridge/quotes" && request.method === "GET") {
+        const symbols = (url.searchParams.get("symbols") || "").trim();
+        if (!symbols) return json({ error: "Missing ?symbols=AAPL,MSFT" }, corsHeaders, 400);
+        try {
+          const data = await ibBridgeFetch(env, `/quotes?symbols=${encodeURIComponent(symbols)}`);
+          return json({ source: "ib-bridge", quotes: data }, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message, source: "ib-bridge" }, corsHeaders, 503);
+        }
+      }
+
+      if (path === "/api/ib-bridge/option-chain" && request.method === "GET") {
+        const symbol = (url.searchParams.get("symbol") || "").trim().toUpperCase();
+        if (!symbol) return json({ error: "Missing ?symbol=" }, corsHeaders, 400);
+        const dteMin = url.searchParams.get("dte_min") || "20";
+        const dteMax = url.searchParams.get("dte_max") || "45";
+        const otmPct = url.searchParams.get("otm_pct") || "0.10";
+        try {
+          const data = await ibBridgeFetch(env, `/option-chain?symbol=${symbol}&dte_min=${dteMin}&dte_max=${dteMax}&otm_pct=${otmPct}`);
+          return json({ source: "ib-bridge", ...data }, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message, source: "ib-bridge" }, corsHeaders, 503);
+        }
+      }
+
+      if (path === "/api/ib-bridge/iv" && request.method === "GET") {
+        const symbol = (url.searchParams.get("symbol") || "").trim().toUpperCase();
+        if (!symbol) return json({ error: "Missing ?symbol=" }, corsHeaders, 400);
+        const period = url.searchParams.get("period") || "30";
+        try {
+          const data = await ibBridgeFetch(env, `/iv?symbol=${symbol}&period=${period}`);
+          return json({ source: "ib-bridge", ...data }, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message, source: "ib-bridge" }, corsHeaders, 503);
+        }
+      }
+
+      if (path === "/api/ib-bridge/historical" && request.method === "GET") {
+        const symbol = (url.searchParams.get("symbol") || "").trim().toUpperCase();
+        if (!symbol) return json({ error: "Missing ?symbol=" }, corsHeaders, 400);
+        const duration = url.searchParams.get("duration") || "30D";
+        const barSize = url.searchParams.get("bar_size") || "1d";
+        try {
+          const data = await ibBridgeFetch(env, `/historical?symbol=${symbol}&duration=${encodeURIComponent(duration)}&bar_size=${encodeURIComponent(barSize)}`);
+          return json({ source: "ib-bridge", ...data }, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message, source: "ib-bridge" }, corsHeaders, 503);
+        }
+      }
+      // ─── End IB Bridge proxy ─────────────────────────────────────────
+
+      // ═══════════════════════════════════════════════════════════════
+      // Options Income Scanner (CSP / CC / Crisis IV)
+      // ═══════════════════════════════════════════════════════════════
+      // Pipeline: cron-trigger horario → ejecuta scan sobre universe
+      // (cartera | aristocrats | custom_xxx) → para cada ticker fetcha
+      // datos vía ib-bridge (precio, IV, HV, options chain) + FMP cached
+      // (FwdPE, sector, target, beta, earnings) → aplica las 3 lentes
+      // (A/B/C) → guarda snapshot en D1 → trigger HOT alerts si aplica.
+
+      // GET /api/scanner/runs?limit=20 — listado de runs recientes para
+      // snapshot browser. Cada run = un escaneo completo a una hora dada.
+      if (path === "/api/scanner/runs" && request.method === "GET") {
+        await ensureMigrations(env);
+        const limit = Math.min(parseInt(url.searchParams.get("limit") || "20", 10), 200);
+        const universe = url.searchParams.get("universe");
+        const where = universe ? "WHERE universe = ?" : "";
+        const stmt = universe
+          ? env.DB.prepare(`SELECT id, run_at, universe, lens_filter, candidates_count, rejected_count, duration_ms, status, ib_connected FROM scanner_runs ${where} ORDER BY run_at DESC LIMIT ?`).bind(universe, limit)
+          : env.DB.prepare(`SELECT id, run_at, universe, lens_filter, candidates_count, rejected_count, duration_ms, status, ib_connected FROM scanner_runs ORDER BY run_at DESC LIMIT ?`).bind(limit);
+        const { results } = await stmt.all();
+        return json({ runs: results || [], count: (results || []).length }, corsHeaders);
+      }
+
+      // GET /api/scanner/snapshots?run_id=N — snapshots de un run específico.
+      // Si no se pasa run_id, devuelve los del último run (live view).
+      if (path === "/api/scanner/snapshots" && request.method === "GET") {
+        await ensureMigrations(env);
+        const runIdParam = url.searchParams.get("run_id");
+        const status = url.searchParams.get("status");  // 'candidate' | 'rejected' | null = both
+        let runId = runIdParam ? parseInt(runIdParam, 10) : null;
+        if (!runId) {
+          const latestRun = await env.DB.prepare(`SELECT id FROM scanner_runs ORDER BY run_at DESC LIMIT 1`).first();
+          runId = latestRun?.id;
+        }
+        if (!runId) return json({ run_id: null, snapshots: [], candidates: [], rejected: [] }, corsHeaders);
+        const where = status ? "WHERE run_id = ? AND status = ?" : "WHERE run_id = ?";
+        const stmt = status
+          ? env.DB.prepare(`SELECT * FROM scanner_snapshots ${where} ORDER BY score_total DESC, ticker ASC`).bind(runId, status)
+          : env.DB.prepare(`SELECT * FROM scanner_snapshots ${where} ORDER BY status ASC, score_total DESC, ticker ASC`).bind(runId);
+        const { results } = await stmt.all();
+        const snapshots = (results || []).map(s => ({
+          ...s,
+          flags: JSON.parse(s.flags_json || "[]"),
+          payload: JSON.parse(s.payload_json || "{}"),
+        }));
+        const runMeta = await env.DB.prepare(`SELECT id, run_at, universe, lens_filter, candidates_count, rejected_count, status, ib_connected FROM scanner_runs WHERE id = ?`).bind(runId).first();
+        return json({
+          run: runMeta,
+          candidates: snapshots.filter(s => s.status === "candidate"),
+          rejected: snapshots.filter(s => s.status === "rejected"),
+        }, corsHeaders);
+      }
+
+      // GET /api/scanner/filters — filtros configurables del usuario.
+      if (path === "/api/scanner/filters" && request.method === "GET") {
+        await ensureMigrations(env);
+        const row = await env.DB.prepare(`SELECT filters_json, updated_at FROM scanner_filters WHERE id = 1`).first();
+        if (!row) return json({ filters: SCANNER_DEFAULT_FILTERS, updated_at: null, default: true }, corsHeaders);
+        return json({ filters: JSON.parse(row.filters_json), updated_at: row.updated_at, default: false }, corsHeaders);
+      }
+
+      // POST /api/scanner/filters — actualizar filtros.
+      if (path === "/api/scanner/filters" && request.method === "POST") {
+        await ensureMigrations(env);
+        const body = await parseBody(request);
+        if (!body || typeof body !== "object") return json({ error: "Body must be JSON object" }, corsHeaders, 400);
+        await env.DB.prepare(
+          `INSERT INTO scanner_filters (id, filters_json, updated_at) VALUES (1, ?, datetime('now'))
+           ON CONFLICT(id) DO UPDATE SET filters_json = excluded.filters_json, updated_at = excluded.updated_at`
+        ).bind(JSON.stringify(body)).run();
+        return json({ ok: true, filters: body }, corsHeaders);
+      }
+
+      // POST /api/scanner/run — ejecuta un scan manual (también via cron).
+      // Body: { universe: "cartera"|"aristocrats"|"custom_xxx"|"all", tickers?: string[] }
+      // Si se pasa `tickers`, ignora universe.
+      if (path === "/api/scanner/run" && request.method === "POST") {
+        await ensureMigrations(env);
+        const body = await parseBody(request).catch(() => ({}));
+        const universe = (body.universe || "cartera").trim();
+        const tickers = Array.isArray(body.tickers) ? body.tickers.filter(t => typeof t === "string" && t.length).map(t => t.toUpperCase()) : null;
+        const lensFilter = body.lens_filter || "all";
+        const startTs = Date.now();
+        const bridgeHealth = await ibBridgeProbe(env);
+
+        // Crear run record (status pending mientras se ejecuta)
+        const insertRun = await env.DB.prepare(
+          `INSERT INTO scanner_runs (run_at, universe, lens_filter, status, ib_connected, meta_json)
+           VALUES (datetime('now'), ?, ?, 'pending', ?, ?)`
+        ).bind(universe, lensFilter, bridgeHealth.ib_connected ? 1 : 0, JSON.stringify({ tickers_explicit: !!tickers, count_in: tickers?.length || null })).run();
+        const runId = insertRun.meta?.last_row_id || insertRun.lastRowId;
+
+        // TODO (Fase 2): aquí enchufaremos el pipeline real:
+        //   1. Resolver universe → lista de tickers
+        //   2. Para cada ticker: fetch IB quote + IV + chain + earnings
+        //   3. Aplicar lentes A/B/C → calcular score
+        //   4. Insertar snapshots
+        //   5. Trigger alerts HOT
+        // Por ahora, marcar el run como "skeleton" para que la UI tenga un id.
+        await env.DB.prepare(
+          `UPDATE scanner_runs SET status = 'skeleton', duration_ms = ?, error_msg = ? WHERE id = ?`
+        ).bind(Date.now() - startTs, "scanner pipeline not yet implemented (Fase 2)", runId).run();
+
+        return json({
+          run_id: runId,
+          status: "skeleton",
+          ib_connected: bridgeHealth.ib_connected,
+          message: "Run record created. Scanner pipeline pending (Fase 2 — needs ib-bridge live).",
+        }, corsHeaders);
+      }
+
+      // POST /api/scanner/copy-to-opus — toma los candidatos de un run y los
+      // pasa a Claude Opus con un prompt curado para juicio cualitativo.
+      if (path === "/api/scanner/copy-to-opus" && request.method === "POST") {
+        await ensureMigrations(env);
+        const body = await parseBody(request).catch(() => ({}));
+        const runId = body.run_id;
+        if (!runId) return json({ error: "Missing run_id" }, corsHeaders, 400);
+        const { results } = await env.DB.prepare(
+          `SELECT ticker, lens_passed, conviction, score_total, payload_json FROM scanner_snapshots WHERE run_id = ? AND status = 'candidate' ORDER BY score_total DESC LIMIT 20`
+        ).bind(runId).all();
+        if (!results?.length) return json({ error: "No candidates in this run" }, corsHeaders, 404);
+        // Devolvemos el formateado para que el frontend decida si lanza al endpoint /api/claude.
+        const formatted = results.map(r => ({
+          ticker: r.ticker,
+          lens: r.lens_passed,
+          conviction: r.conviction,
+          score: r.score_total,
+          ...JSON.parse(r.payload_json || "{}"),
+        }));
+        return json({ run_id: runId, candidates: formatted, count: formatted.length }, corsHeaders);
+      }
+      // ─── End Scanner ─────────────────────────────────────────────────
 
       // GET /api/ib-options?symbols=AAPL,MSFT&dte=30&otm=5 — IB options via OAuth (greeks, IV, bid/ask)
       if (path === "/api/ib-options" && request.method === "GET") {

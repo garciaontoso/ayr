@@ -1,0 +1,127 @@
+# A&R IB Stack — DS423+ (Synology Container Manager)
+#
+# 3 services on an internal bridge network:
+#   - ib-gateway:  IBKR Gateway (live mode, Read-Only API)
+#   - ib-bridge:   Node.js REST proxy in front of IB API
+#   - cloudflared: Cloudflare Tunnel exposing ib-bridge as ib.onto-so.com
+#
+# Only cloudflared talks to the outside world. ib-bridge and ib-gateway
+# communicate over the internal network "ib-stack-net" — they never bind
+# to host ports, so they're not reachable from your LAN.
+#
+# Bind mounts use /volume1/docker/ib-stack/ (owned by your Synology user).
+# Make sure those subdirectories exist before `docker compose up -d`
+# (setup.sh creates them automatically).
+#
+# Reference: https://github.com/gnzsnz/ib-gateway-docker
+
+name: ib-stack
+
+networks:
+  ib-stack-net:
+    driver: bridge
+
+services:
+  # ---------------------------------------------------------------------------
+  # 1) IBKR Gateway — gnzsnz image with IBC for auto-login + auto-restart
+  # ---------------------------------------------------------------------------
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:stable
+    container_name: ib-gateway
+    restart: unless-stopped
+    environment:
+      # --- Account credentials (loaded from .env) -----------------------------
+      TWS_USERID: ${TWS_USERID}
+      TWS_PASSWORD: ${TWS_PASSWORD}
+      TRADING_MODE: ${TRADING_MODE:-live}        # live | paper
+      READ_ONLY_API: ${READ_ONLY_API:-yes}       # CRITICAL — no orders ever
+
+      # --- IBC behaviour ------------------------------------------------------
+      # Auto-restart at 23:55 ET so daily IBKR maintenance reset is handled
+      # cleanly. IBC will re-login automatically on the next start.
+      TWOFA_TIMEOUT_ACTION: restart
+      AUTO_RESTART_TIME: 23:55
+      RELOGIN_AFTER_2FA_TIMEOUT: yes
+      TIME_ZONE: ${TZ:-Europe/Madrid}
+
+      # --- Bind API to all interfaces inside the container so ib-bridge can
+      # reach it via the docker network. The container is NOT exposed to LAN.
+      BIND_ADDRESS: 0.0.0.0
+    volumes:
+      - /volume1/docker/ib-stack/ib-gateway/config:/home/ibgateway/Jts
+      - /volume1/docker/ib-stack/ib-gateway/logs:/home/ibgateway/ibc/logs
+    networks:
+      - ib-stack-net
+    healthcheck:
+      # Live API port. If the gateway lost session, the port refuses TCP and
+      # the container is marked unhealthy → bridge will keep retrying.
+      test: ["CMD-SHELL", "nc -z localhost 4001 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+
+  # ---------------------------------------------------------------------------
+  # 2) ib-bridge — built from ../ib-bridge (parallel agent owns this code)
+  # ---------------------------------------------------------------------------
+  ib-bridge:
+    build:
+      context: ../ib-bridge
+      dockerfile: Dockerfile
+    container_name: ib-bridge
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      # ib-gateway is reachable by service name on the internal network
+      IB_HOST: ib-gateway
+      IB_PORT: 4001
+      # Bearer token required on every request
+      BRIDGE_AUTH_TOKEN: ${BRIDGE_AUTH_TOKEN}
+      TZ: ${TZ:-Europe/Madrid}
+    networks:
+      - ib-stack-net
+    depends_on:
+      ib-gateway:
+        condition: service_healthy
+    healthcheck:
+      # /health returns 200 even without auth (just to verify the process is up).
+      # The auth-protected endpoint is /healthz which we hit from health-check.sh.
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+
+  # ---------------------------------------------------------------------------
+  # 3) Cloudflare Tunnel — exposes ib-bridge to ib.onto-so.com
+  # ---------------------------------------------------------------------------
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
+    environment:
+      TZ: ${TZ:-Europe/Madrid}
+    networks:
+      - ib-stack-net
+    depends_on:
+      - ib-bridge
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+        reservations:
+          memory: 32M
