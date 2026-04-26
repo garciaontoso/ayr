@@ -1,4 +1,20 @@
-# A&R v4.1 — Dividend Equity Analysis + 11 AI Agents
+# A&R v4.2 — Dividend Equity Analysis + 11 AI Agents + IB Bridge LIVE
+
+## v4.2 Changes (2026-04-27) — IB Gateway bridge en producción
+- **NAS Synology DS423+** corre `ib-gateway` (gnzsnz/ib-gateway) + `ib-bridge` (Node 20 Express). Stack en `/volume1/docker/ib-stack/`
+- **CF Tunnel "Synology-ES"** ruta `ib.onto-so.com → http://localhost:8090`
+- **Worker proxy** `/api/ib-bridge/*` con Bearer token. Endpoints control extra requieren `X-Control-Token` (segundo token, allowlist hardcoded a `ib-gateway`)
+- **NAV multi-account live**: las 4 cuentas IBKR agregadas, total ~$1.38M en tiempo real
+- **`IBControlButton`** en header (entre 🩺 y ✈️): 🟢 Live / 🔴 Off / 🟡 Starting / ⚫ Unreachable. Click → para/arranca container ib-gateway sin SSH
+- **Quotes/IV reales** de IB Gateway para scanner (vs Yahoo delayed antes)
+- Sin `AUTO_RESTART_TIME` (evita 2FA forzoso durante vuelos del usuario)
+- **Bugs aprendidos**: `@stoqey/ib` es CJS (no named imports), `Contract` no exportado (usar plain objects), `IB_PORT 4003` (socat layer no 4001 Java directo), snapshot resolve por silencio (IB no manda tickSnapshotEnd para delayed-frozen), docker.sock requiere `group_add: ["0"]` en compose
+
+## Deploy commands NAS
+- Push compose/código: `cat archivo | ssh nas "cat > /volume1/docker/ib-stack/<path>"`
+- Rebuild bridge: `ssh nas "cd /volume1/docker/ib-stack/nas-deploy && sudo /usr/local/bin/docker compose --env-file /volume1/docker/ib-stack/.env build ib-bridge"`
+- Restart: `sudo /usr/local/bin/docker compose --env-file /volume1/docker/ib-stack/.env up -d --no-deps --force-recreate ib-bridge`
+- Logs: `sudo /usr/local/bin/docker logs ib-bridge --tail 30`
 
 ## v4.1 Changes (2026-04-24) — FAST Tab overhaul
 - **⚡ FAST tab** completamente rediseñada estilo FAST Graphs + 5 sub-tabs (Summary / Trends / Forecasting / Historical / Scorecard).
