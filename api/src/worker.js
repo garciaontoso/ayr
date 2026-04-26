@@ -8195,6 +8195,52 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // (FwdPE, sector, target, beta, earnings) → aplica las 3 lentes
       // (A/B/C) → guarda snapshot en D1 → trigger HOT alerts si aplica.
 
+      // GET /api/scanner/state — estado del master switch del scanner.
+      // Cuando enabled=false, /api/scanner/run devuelve 423 y el cron skip.
+      // Útil para pausar el scanner mientras el usuario opera manualmente
+      // en TWS sin competir por la conexión IB Gateway.
+      if (path === "/api/scanner/state" && request.method === "GET") {
+        await ensureMigrations(env);
+        const row = await env.DB.prepare(`SELECT filters_json, updated_at FROM scanner_filters WHERE id = 1`).first();
+        const filters = row ? JSON.parse(row.filters_json) : SCANNER_DEFAULT_FILTERS;
+        const enabled = filters.enabled !== false;  // default true si no existe
+        const lastRun = await env.DB.prepare(`SELECT id, run_at, candidates_count FROM scanner_runs ORDER BY run_at DESC LIMIT 1`).first();
+        const bridgeHealth = await ibBridgeProbe(env);
+        return json({
+          enabled,
+          paused_at: filters.paused_at || null,
+          paused_reason: filters.paused_reason || null,
+          last_run: lastRun || null,
+          ib_bridge_connected: bridgeHealth.ib_connected,
+          updated_at: row?.updated_at || null,
+        }, corsHeaders);
+      }
+
+      // POST /api/scanner/toggle — pausa/activa el scanner globalmente.
+      // Body opcional: { enabled?: bool, reason?: string }
+      // Si enabled no se pasa, se invierte el estado actual.
+      if (path === "/api/scanner/toggle" && request.method === "POST") {
+        await ensureMigrations(env);
+        const body = await parseBody(request).catch(() => ({}));
+        const row = await env.DB.prepare(`SELECT filters_json FROM scanner_filters WHERE id = 1`).first();
+        const filters = row ? JSON.parse(row.filters_json) : { ...SCANNER_DEFAULT_FILTERS };
+        const currentEnabled = filters.enabled !== false;
+        const newEnabled = typeof body.enabled === "boolean" ? body.enabled : !currentEnabled;
+        filters.enabled = newEnabled;
+        if (!newEnabled) {
+          filters.paused_at = new Date().toISOString();
+          filters.paused_reason = body.reason || "user_pause";
+        } else {
+          filters.paused_at = null;
+          filters.paused_reason = null;
+        }
+        await env.DB.prepare(
+          `INSERT INTO scanner_filters (id, filters_json, updated_at) VALUES (1, ?, datetime('now'))
+           ON CONFLICT(id) DO UPDATE SET filters_json = excluded.filters_json, updated_at = excluded.updated_at`
+        ).bind(JSON.stringify(filters)).run();
+        return json({ ok: true, enabled: newEnabled, paused_at: filters.paused_at, paused_reason: filters.paused_reason }, corsHeaders);
+      }
+
       // GET /api/scanner/runs?limit=20 — listado de runs recientes para
       // snapshot browser. Cada run = un escaneo completo a una hora dada.
       if (path === "/api/scanner/runs" && request.method === "GET") {
@@ -8260,11 +8306,24 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       }
 
       // POST /api/scanner/run — ejecuta un scan manual (también via cron).
-      // Body: { universe: "cartera"|"aristocrats"|"custom_xxx"|"all", tickers?: string[] }
+      // Body: { universe: "cartera"|"aristocrats"|"custom_xxx"|"all", tickers?: string[], force?: bool }
       // Si se pasa `tickers`, ignora universe.
+      // Respeta el master switch (scanner_filters.enabled) — devuelve 423
+      // si está pausado, salvo que se pase force=true (override puntual).
       if (path === "/api/scanner/run" && request.method === "POST") {
         await ensureMigrations(env);
         const body = await parseBody(request).catch(() => ({}));
+        // Master switch check
+        const stateRow = await env.DB.prepare(`SELECT filters_json FROM scanner_filters WHERE id = 1`).first();
+        const stateFilters = stateRow ? JSON.parse(stateRow.filters_json) : SCANNER_DEFAULT_FILTERS;
+        if (stateFilters.enabled === false && !body.force) {
+          return json({
+            error: "scanner_paused",
+            message: "El scanner está pausado. Activa con POST /api/scanner/toggle o pasa force=true para ejecutar puntualmente.",
+            paused_at: stateFilters.paused_at,
+            paused_reason: stateFilters.paused_reason,
+          }, corsHeaders, 423);
+        }
         const universe = (body.universe || "cartera").trim();
         const tickers = Array.isArray(body.tickers) ? body.tickers.filter(t => typeof t === "string" && t.length).map(t => t.toUpperCase()) : null;
         const lensFilter = body.lens_filter || "all";

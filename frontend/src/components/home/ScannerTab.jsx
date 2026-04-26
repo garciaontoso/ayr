@@ -1,5 +1,6 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { _sf } from '../../utils/formatters.js';
+import { API_URL } from '../../constants/index.js';
 
 // ─── Mock data ─────────────────────────────────────────────────────────────────
 // All mock. Replace with real IB-bridge / FMP calls in the wiring phase.
@@ -435,6 +436,46 @@ export default function ScannerTab() {
   const [rejectedOpen, setRejectedOpen] = useState(false);
   const [selectedSnapshot, setSelectedSnapshot] = useState(null);
   const [detailRow, setDetailRow] = useState(null);
+  // Scanner master switch — cuando está OFF, no se hacen llamadas a IB Gateway
+  // (ni manuales ni cron). Persiste en backend via /api/scanner/state.
+  // Inicia ACTIVO por defecto; el usuario puede pausar para no competir con
+  // operaciones manuales en TWS.
+  const [scannerActive, setScannerActive] = useState(true);
+  const [toggleBusy, setToggleBusy] = useState(false);
+
+  const toggleScanner = useCallback(async () => {
+    if (toggleBusy) return;
+    setToggleBusy(true);
+    const newState = !scannerActive;
+    setScannerActive(newState);  // optimistic update
+    try {
+      const resp = await fetch(`${API_URL}/api/scanner/toggle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: newState }),
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      if (typeof data.enabled === "boolean") setScannerActive(data.enabled);
+    } catch (e) {
+      // Si el endpoint no responde (Fase 2 no desplegada todavía), mantenemos
+      // el estado local — no rollback. Cuando el backend esté live esto
+      // sincronizará automáticamente.
+      console.warn("scanner toggle: backend not reachable, keeping local state");
+    } finally {
+      setToggleBusy(false);
+    }
+  }, [scannerActive, toggleBusy]);
+
+  // Hidratar estado desde backend al montar (silently fails si endpoint no existe).
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_URL}/api/scanner/state`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && d && typeof d.enabled === "boolean") setScannerActive(d.enabled); })
+      .catch(() => {/* endpoint no desplegado todavía — usamos default ACTIVO */});
+    return () => { cancelled = true; };
+  }, []);
 
   const toggleLens = useCallback((id) => {
     setActiveLenses(prev => ({ ...prev, [id]: !prev[id] }));
@@ -505,28 +546,53 @@ export default function ScannerTab() {
             color: MOCK_VIX < 15 ? "#30d158" : MOCK_VIX < 25 ? "#ffd60a" : "#ff453a",
           }}>{_sf(MOCK_VIX, 1)}</div>
         </div>
-        {/* Status + Run */}
-        <div style={{ ...S_CARD, flex: "2 1 200px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-          <div>
-            <div style={S_LABEL}>Estado</div>
-            <div style={{ fontSize: 11, fontFamily: "var(--fm)", color: "var(--text-secondary)", marginTop: 2 }}>
+        {/* Status + Toggle Active/Paused + Run Scan */}
+        <div style={{ ...S_CARD, flex: "2 1 280px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1 }}>
+            {/* Master toggle pill — clic para pausar/activar el scanner */}
+            <button
+              onClick={toggleScanner}
+              disabled={toggleBusy}
+              title={scannerActive
+                ? "Pausar scanner — deja de hacer llamadas a IB Gateway"
+                : "Activar scanner — reanuda llamadas a IB Gateway"}
+              style={{
+                padding: "6px 12px", borderRadius: 999,
+                border: `1px solid ${scannerActive ? "#30d158" : "#ff453a"}`,
+                background: scannerActive ? "rgba(48,209,88,.12)" : "rgba(255,69,58,.12)",
+                color: scannerActive ? "#30d158" : "#ff453a",
+                fontSize: 10, fontWeight: 800, cursor: toggleBusy ? "wait" : "pointer",
+                fontFamily: "var(--fm)", whiteSpace: "nowrap",
+                display: "inline-flex", alignItems: "center", gap: 6,
+              }}
+            >
               <span style={{
-                display: "inline-block", width: 6, height: 6, borderRadius: "50%",
-                background: "#30d158", marginRight: 5,
-                boxShadow: "0 0 6px #30d158",
-                animation: "pulse 1.8s ease-in-out infinite",
+                display: "inline-block", width: 8, height: 8, borderRadius: "50%",
+                background: scannerActive ? "#30d158" : "#ff453a",
+                boxShadow: scannerActive ? "0 0 8px #30d158" : "none",
+                animation: scannerActive ? "pulse 1.8s ease-in-out infinite" : "none",
               }} />
-              scanning · {MOCK_LAST_SCAN}
+              {scannerActive ? "ACTIVO" : "PAUSADO"}
+            </button>
+            <div style={{ minWidth: 0 }}>
+              <div style={S_LABEL}>{scannerActive ? "Última ejec." : "Pausado por usuario"}</div>
+              <div style={{ fontSize: 11, fontFamily: "var(--fm)", color: "var(--text-secondary)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {scannerActive ? `${MOCK_LAST_SCAN} · próx. ${MOCK_NEXT_SCAN}` : "sin llamadas IBKR"}
+              </div>
             </div>
           </div>
           <button
+            disabled={!scannerActive}
+            title={!scannerActive ? "Scanner pausado — actívalo para ejecutar" : "Ejecutar escaneo manual ahora"}
             style={{
               padding: "7px 16px", borderRadius: 8,
-              border: "1px solid #30d158",
-              background: "rgba(48,209,88,.12)",
-              color: "#30d158", fontSize: 11, fontWeight: 700,
-              cursor: "pointer", fontFamily: "var(--fm)",
-              whiteSpace: "nowrap",
+              border: `1px solid ${scannerActive ? "#30d158" : "var(--border)"}`,
+              background: scannerActive ? "rgba(48,209,88,.12)" : "transparent",
+              color: scannerActive ? "#30d158" : "var(--text-tertiary)",
+              fontSize: 11, fontWeight: 700,
+              cursor: scannerActive ? "pointer" : "not-allowed",
+              fontFamily: "var(--fm)", whiteSpace: "nowrap",
+              opacity: scannerActive ? 1 : 0.5,
             }}
             onClick={() => {}}
           >
@@ -534,6 +600,34 @@ export default function ScannerTab() {
           </button>
         </div>
       </div>
+
+      {/* Banner amarillo cuando el scanner está pausado — ocupa todo el ancho */}
+      {!scannerActive && (
+        <div style={{
+          padding: "10px 14px", borderRadius: 8,
+          border: "1px solid rgba(255,159,10,.4)",
+          background: "rgba(255,159,10,.08)",
+          color: "#ff9f0a", fontSize: 12, fontFamily: "var(--fm)",
+          display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+        }}>
+          <span style={{ fontSize: 16 }}>⏸️</span>
+          <strong>Scanner pausado</strong>
+          <span style={{ color: "var(--text-secondary)" }}>
+            · No se están haciendo llamadas a IB Gateway. Útil cuando estés operando manualmente en TWS.
+          </span>
+          <button
+            onClick={toggleScanner}
+            style={{
+              marginLeft: "auto", padding: "4px 12px", borderRadius: 6,
+              border: "1px solid #30d158", background: "rgba(48,209,88,.15)",
+              color: "#30d158", fontSize: 10, fontWeight: 700,
+              cursor: "pointer", fontFamily: "var(--fm)",
+            }}
+          >
+            ▶ Activar
+          </button>
+        </div>
+      )}
 
       {/* ── 2. Universe selector + Lens toggles ── */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
