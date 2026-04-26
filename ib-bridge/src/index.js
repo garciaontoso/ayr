@@ -31,6 +31,7 @@ import healthRouter from './routes/health.js';
 import accountRouter from './routes/account.js';
 import marketRouter from './routes/market.js';
 import optionsRouter from './routes/options.js';
+import controlRouter from './routes/control.js';
 import { version } from './version.js';
 
 // ---------- safety self-check ----------
@@ -75,6 +76,7 @@ export function createApp() {
   app.use('/', accountRouter); // /nav, /margin, /positions
   app.use('/', marketRouter); // /quotes, /historical
   app.use('/', optionsRouter); // /option-chain, /iv
+  app.use('/control', controlRouter); // /control/{status,stop,start,restart}
 
   // 404 — always JSON, never HTML.
   app.use((req, res) => {

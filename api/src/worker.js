@@ -8248,6 +8248,67 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           return json({ error: e.message, source: "ib-bridge" }, corsHeaders, 503);
         }
       }
+
+      // ─── Control endpoints ────────────────────────────────────────────
+      // Permiten al usuario pausar/arrancar el container ib-gateway desde
+      // la UI sin SSH. Requieren un segundo token (IB_CONTROL_TOKEN) que
+      // se envía como X-Control-Token al bridge — el bridge solo opera
+      // sobre el container hardcoded "ib-gateway", nunca sobre otros.
+
+      if (path === "/api/ib-bridge/control/status" && request.method === "GET") {
+        if (!env.IB_CONTROL_TOKEN) return json({ error: "control_not_configured" }, corsHeaders, 503);
+        try {
+          const data = await ibBridgeFetch(env, "/control/status", {
+            headers: { "X-Control-Token": env.IB_CONTROL_TOKEN },
+            timeoutMs: 5000,
+          });
+          return json({ source: "ib-bridge", ...data }, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message, source: "ib-bridge", running: false }, corsHeaders, 503);
+        }
+      }
+
+      if (path === "/api/ib-bridge/control/stop" && request.method === "POST") {
+        if (!env.IB_CONTROL_TOKEN) return json({ error: "control_not_configured" }, corsHeaders, 503);
+        try {
+          const data = await ibBridgeFetch(env, "/control/stop", {
+            method: "POST",
+            headers: { "X-Control-Token": env.IB_CONTROL_TOKEN },
+            timeoutMs: 30000,
+          });
+          return json({ source: "ib-bridge", ...data }, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message, source: "ib-bridge" }, corsHeaders, 503);
+        }
+      }
+
+      if (path === "/api/ib-bridge/control/start" && request.method === "POST") {
+        if (!env.IB_CONTROL_TOKEN) return json({ error: "control_not_configured" }, corsHeaders, 503);
+        try {
+          const data = await ibBridgeFetch(env, "/control/start", {
+            method: "POST",
+            headers: { "X-Control-Token": env.IB_CONTROL_TOKEN },
+            timeoutMs: 30000,
+          });
+          return json({ source: "ib-bridge", ...data }, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message, source: "ib-bridge" }, corsHeaders, 503);
+        }
+      }
+
+      if (path === "/api/ib-bridge/control/restart" && request.method === "POST") {
+        if (!env.IB_CONTROL_TOKEN) return json({ error: "control_not_configured" }, corsHeaders, 503);
+        try {
+          const data = await ibBridgeFetch(env, "/control/restart", {
+            method: "POST",
+            headers: { "X-Control-Token": env.IB_CONTROL_TOKEN },
+            timeoutMs: 30000,
+          });
+          return json({ source: "ib-bridge", ...data }, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message, source: "ib-bridge" }, corsHeaders, 503);
+        }
+      }
       // ─── End IB Bridge proxy ─────────────────────────────────────────
 
       // ═══════════════════════════════════════════════════════════════

@@ -18,14 +18,14 @@
 // helper has its own timeout so a stuck IB call cannot wedge the bridge.
 //
 
-import {
+import ibPkg from '@stoqey/ib';
+const {
   IBApi,
   EventName,
   ErrorCode,
-  Contract,
   SecType,
   BarSizeSetting,
-} from '@stoqey/ib';
+} = ibPkg;
 import logger from './utils/logger.js';
 
 // --------- module state ----------
@@ -36,6 +36,7 @@ let connecting = false;
 let serverVersion = null;
 let lastError = null;
 let primaryAccount = null;
+let allAccounts = [];
 let reconnectTimer = null;
 let backoffMs = 1000;
 
@@ -50,9 +51,9 @@ function newReqId() {
 
 // --------- connection management ----------
 
-const HOST = process.env.IBKR_HOST || 'ib-gateway';
-const PORT = Number.parseInt(process.env.IBKR_PORT || '4001', 10);
-const CLIENT_ID = Number.parseInt(process.env.IBKR_CLIENT_ID || '1', 10);
+const HOST = process.env.IB_HOST || process.env.IBKR_HOST || 'ib-gateway';
+const PORT = Number.parseInt(process.env.IB_PORT || process.env.IBKR_PORT || '4003', 10);
+const CLIENT_ID = Number.parseInt(process.env.IB_CLIENT_ID || process.env.IBKR_CLIENT_ID || '1', 10);
 const CONNECT_TIMEOUT_MS = 15_000;
 
 export function getStatus() {
@@ -97,6 +98,11 @@ function attachListeners(api) {
     connecting = false;
     backoffMs = 1000;
     logger.info('ib.connected', { host: HOST, port: PORT, clientId: CLIENT_ID });
+    try {
+      api.reqMarketDataType(4);
+    } catch (err) {
+      logger.warn('ib.reqMarketDataType.failed', { err: err?.message || String(err) });
+    }
   });
 
   api.on(EventName.disconnected, () => {
@@ -113,11 +119,14 @@ function attachListeners(api) {
   });
 
   api.on(EventName.managedAccounts, (accountsList) => {
-    // Comma-separated list. We only care about the first for /nav.
-    const first = String(accountsList || '').split(',')[0]?.trim();
-    if (first) {
-      primaryAccount = first;
-      logger.info('ib.account_attached');
+    const ids = String(accountsList || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (ids.length) {
+      allAccounts = ids;
+      primaryAccount = ids[0];
+      logger.info('ib.account_attached', { count: ids.length });
     }
   });
 
@@ -267,12 +276,12 @@ function reqWithTimeout({ start, bind, cancel, timeoutMs = 10_000, label = 'ib_c
 // --------- contract helpers ----------
 
 export function stockContract(symbol, currency = 'USD', exchange = 'SMART') {
-  const c = new Contract();
-  c.symbol = symbol;
-  c.secType = SecType.STK;
-  c.exchange = exchange;
-  c.currency = currency;
-  return c;
+  return {
+    symbol,
+    secType: SecType.STK,
+    exchange,
+    currency,
+  };
 }
 
 // --------- account / NAV / positions ----------
@@ -281,25 +290,23 @@ const NAV_TAGS =
   'NetLiquidation,EquityWithLoanValue,BuyingPower,AvailableFunds,ExcessLiquidity,InitMarginReq,MaintMarginReq,Cushion,FullInitMarginReq,FullMaintMarginReq';
 
 /**
- * GET /nav data — uses reqAccountSummary which streams one event per tag,
- * terminating with `accountSummaryEnd`.
+ * GET /nav data — aggregates across all 4 IBKR accounts (group=All).
  */
 export async function fetchAccountSummary() {
-  const data = {};
+  const perAccount = {};
   let currency = 'USD';
-  let accountId = primaryAccount || null;
 
   await reqWithTimeout({
     label: 'reqAccountSummary',
     timeoutMs: 8_000,
     start: (reqId) => ib.reqAccountSummary(reqId, 'All', NAV_TAGS),
     cancel: (reqId) => ib.cancelAccountSummary(reqId),
-    bind: ({ reqId, addListener, resolve, reject }) => {
+    bind: ({ reqId, addListener, resolve }) => {
       addListener(EventName.accountSummary, (rid, account, tag, value, valCurrency) => {
         if (rid !== reqId) return;
-        accountId = account || accountId;
         if (valCurrency && valCurrency !== 'BASE') currency = valCurrency;
-        data[tag] = Number.parseFloat(value);
+        if (!perAccount[account]) perAccount[account] = {};
+        perAccount[account][tag] = Number.parseFloat(value);
       });
       addListener(EventName.accountSummaryEnd, (rid) => {
         if (rid === reqId) resolve();
@@ -307,19 +314,39 @@ export async function fetchAccountSummary() {
     },
   });
 
-  const cushion = data.Cushion ?? 0;
+  const accountIds = Object.keys(perAccount);
+  const sum = (tag) => accountIds.reduce((acc, id) => acc + (perAccount[id][tag] ?? 0), 0);
+
+  const accounts = accountIds.map((id) => {
+    const d = perAccount[id];
+    return {
+      account_id: id,
+      net_liquidation: d.NetLiquidation ?? null,
+      equity_with_loan_value: d.EquityWithLoanValue ?? null,
+      buying_power: d.BuyingPower ?? null,
+      available_funds: d.AvailableFunds ?? null,
+      excess_liquidity: d.ExcessLiquidity ?? null,
+      init_margin_req: d.InitMarginReq ?? null,
+      maint_margin_req: d.MaintMarginReq ?? null,
+      cushion_pct: d.Cushion ?? 0,
+    };
+  });
 
   return {
-    account_id: accountId,
+    account_id: primaryAccount,
+    accounts_count: accountIds.length,
+    accounts,
     currency,
-    net_liquidation: data.NetLiquidation ?? null,
-    equity_with_loan_value: data.EquityWithLoanValue ?? null,
-    buying_power: data.BuyingPower ?? null,
-    available_funds: data.AvailableFunds ?? null,
-    excess_liquidity: data.ExcessLiquidity ?? null,
-    init_margin_req: data.InitMarginReq ?? null,
-    maint_margin_req: data.MaintMarginReq ?? null,
-    cushion_pct: cushion,
+    net_liquidation: sum('NetLiquidation'),
+    equity_with_loan_value: sum('EquityWithLoanValue'),
+    buying_power: sum('BuyingPower'),
+    available_funds: sum('AvailableFunds'),
+    excess_liquidity: sum('ExcessLiquidity'),
+    init_margin_req: sum('InitMarginReq'),
+    maint_margin_req: sum('MaintMarginReq'),
+    cushion_pct: accountIds.length
+      ? accountIds.reduce((a, id) => a + (perAccount[id].Cushion ?? 0), 0) / accountIds.length
+      : 0,
     updated_at: new Date().toISOString(),
   };
 }
@@ -417,31 +444,37 @@ export async function fetchQuote(symbolOrContract) {
     timeoutMs: 6_000,
     start: (reqId) => ib.reqMktData(reqId, contract, '', true, false),
     cancel: () => {
-      // Snapshot subscriptions auto-cancel; cancelMktData is a no-op but safe.
+      try { ib.cancelMktData(arguments[0]); } catch (_) {}
     },
     bind: ({ reqId, addListener, resolve }) => {
-      addListener(EventName.tickPrice, (rid, field, price /* , attribs */) => {
+      let silenceTimer = null;
+      const armSilence = () => {
+        if (silenceTimer) clearTimeout(silenceTimer);
+        silenceTimer = setTimeout(() => resolve(), 800);
+      };
+      const map = { 1: 'bid', 2: 'ask', 4: 'last', 6: 'high', 7: 'low', 9: 'close', 14: 'open',
+                    66: 'bid', 67: 'ask', 68: 'last', 72: 'high', 73: 'low', 75: 'close', 76: 'open' };
+      addListener(EventName.tickPrice, (rid, field, price) => {
         if (rid !== reqId) return;
-        // Common fields per IB docs:
-        //  1=bid, 2=ask, 4=last, 6=high, 7=low, 9=close, 14=open
-        const map = { 1: 'bid', 2: 'ask', 4: 'last', 6: 'high', 7: 'low', 9: 'close', 14: 'open' };
         const key = map[field];
         if (key && price > 0) ticks[key] = price;
+        armSilence();
       });
       addListener(EventName.tickSize, (rid, field, size) => {
         if (rid !== reqId) return;
-        // 8 = volume
-        if (field === 8) ticks.volume = Number(size);
+        if (field === 8 || field === 74) ticks.volume = Number(size);
+        armSilence();
       });
       addListener(EventName.tickGeneric, (rid, field, value) => {
         if (rid !== reqId) return;
-        // 23 = historical vol, 24 = implied vol
         if (field === 24) ticks.iv = Number(value);
         if (field === 23) ticks.hv = Number(value);
+        armSilence();
       });
       addListener(EventName.tickSnapshotEnd, (rid) => {
         if (rid === reqId) {
           receivedSnapshot = true;
+          if (silenceTimer) clearTimeout(silenceTimer);
           resolve();
         }
       });
@@ -635,16 +668,16 @@ export async function fetchOptionChain(symbol, { dteMin = 20, dteMax = 45, otmPc
 }
 
 function optionContract(symbol, expiry /* YYYYMMDD */, strike, right /* 'C'|'P' */) {
-  const c = new Contract();
-  c.symbol = symbol;
-  c.secType = SecType.OPT;
-  c.exchange = 'SMART';
-  c.currency = 'USD';
-  c.lastTradeDateOrContractMonth = expiry;
-  c.strike = strike;
-  c.right = right === 'C' ? 'C' : 'P';
-  c.multiplier = '100';
-  return c;
+  return {
+    symbol,
+    secType: SecType.OPT,
+    exchange: 'SMART',
+    currency: 'USD',
+    lastTradeDateOrContractMonth: expiry,
+    strike,
+    right: right === 'C' ? 'C' : 'P',
+    multiplier: '100',
+  };
 }
 
 async function fetchContractDetails(contract) {

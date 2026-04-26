@@ -183,6 +183,127 @@ function RunReminderBadge({ onClick }) {
   );
 }
 
+// ─── IB Gateway control button ──────────────────────────────────────────
+// Shows current state of the ib-gateway container (running/stopped) and
+// lets user pause/start it without SSH. Pause = releases IBKR session so
+// user can log in via TWS manually. Start = triggers fresh 2FA push to
+// IBKR Mobile (must approve within ~3 min). Polls /api/ib-bridge/control/status
+// every 30s.
+function IBControlButton() {
+  const [state, setState] = useState({ loading: true, running: null, ibConnected: null });
+  const [acting, setActing] = useState(false);
+
+  const refresh = useCallback(async () => {
+    try {
+      const [ctl, hp] = await Promise.all([
+        fetch(API_URL + "/api/ib-bridge/control/status").then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(API_URL + "/api/ib-bridge/health").then(r => r.json()).catch(() => null),
+      ]);
+      setState({
+        loading: false,
+        running: ctl?.running ?? null,
+        ibConnected: hp?.ib_connected ?? null,
+        containerHealth: ctl?.health ?? null,
+      });
+    } catch {
+      setState(s => ({ ...s, loading: false }));
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    const t = setInterval(refresh, 30_000);
+    return () => clearInterval(t);
+  }, [refresh]);
+
+  const handleClick = async () => {
+    if (acting) return;
+    if (state.running) {
+      const ok = window.confirm(
+        '¿Parar IB Gateway?\n\n' +
+        'Liberará tu sesión IBKR — podrás entrar a TWS manualmente.\n' +
+        'Para volver a conectar habrá que aprobar 2FA en IBKR Mobile.'
+      );
+      if (!ok) return;
+      setActing(true);
+      try {
+        const r = await fetch(API_URL + "/api/ib-bridge/control/stop", { method: "POST" });
+        if (!r.ok) throw new Error('Error al parar');
+        setTimeout(refresh, 1500);
+      } catch (e) {
+        alert('No se pudo parar: ' + e.message);
+      } finally {
+        setActing(false);
+      }
+    } else {
+      const ok = window.confirm(
+        '¿Arrancar IB Gateway?\n\n' +
+        'Te llegará un push 2FA a IBKR Mobile. APRUEBA en menos de 3 minutos.\n' +
+        'Tarda ~1 minuto en estar listo después de aprobar.'
+      );
+      if (!ok) return;
+      setActing(true);
+      try {
+        const r = await fetch(API_URL + "/api/ib-bridge/control/start", { method: "POST" });
+        if (!r.ok) throw new Error('Error al arrancar');
+        setTimeout(refresh, 3000);
+        setTimeout(refresh, 30000);
+        setTimeout(refresh, 90000);
+      } catch (e) {
+        alert('No se pudo arrancar: ' + e.message);
+      } finally {
+        setActing(false);
+      }
+    }
+  };
+
+  let icon = '⚪';
+  let label = 'IB';
+  let color = 'var(--text-tertiary)';
+  let bg = 'transparent';
+  let border = 'var(--border)';
+  let title = 'IB Gateway — estado desconocido. Click para refrescar.';
+  if (state.loading) {
+    icon = '⏳';
+    title = 'Cargando estado IB...';
+  } else if (state.running === null) {
+    icon = '⚫';
+    title = 'IB Bridge no responde — ¿está el NAS encendido?';
+  } else if (state.running && state.ibConnected) {
+    icon = '🟢';
+    label = 'Live';
+    color = '#30d158';
+    bg = 'rgba(48,209,88,.12)';
+    border = 'rgba(48,209,88,.4)';
+    title = 'IB Gateway conectado a IBKR — datos live activos. Click para PARAR.';
+  } else if (state.running && !state.ibConnected) {
+    icon = '🟡';
+    label = '...';
+    color = '#fbbf24';
+    bg = 'rgba(251,191,36,.14)';
+    border = 'rgba(251,191,36,.4)';
+    title = 'IB Gateway arrancando — esperando aprobación 2FA o conexión data farms. Click para parar.';
+  } else {
+    icon = '🔴';
+    label = 'Off';
+    color = '#f87171';
+    bg = 'rgba(248,113,113,.14)';
+    border = 'rgba(248,113,113,.4)';
+    title = 'IB Gateway parado. Click para ARRANCAR (te llegará push 2FA).';
+  }
+  if (acting) {
+    icon = '⏳';
+    label = '';
+    title = 'Procesando...';
+  }
+  return (
+    <button onClick={handleClick} disabled={acting} title={title}
+      style={{padding:"4px 9px",borderRadius:6,border:`1px solid ${border}`,background:bg,color,fontSize:10,fontWeight:700,cursor:acting?"wait":"pointer",fontFamily:"var(--fm)",whiteSpace:"nowrap",opacity:acting?0.6:1}}>
+      {icon} {label}
+    </button>
+  );
+}
+
 // Compact sparkline — SVG polyline, no libs, color-coded direction.
 function MiniSpark({ points, width = 90, height = 28, colorUp = '#ff453a', colorDown = '#30d158' }) {
   if (!Array.isArray(points) || points.length < 2) {
@@ -1245,6 +1366,9 @@ export default function HomeView() {
         }}
           title="Health Check — Verifica conexión con IB, D1, precios Yahoo, FX y todos los endpoints del sistema"
           style={{padding:"4px 7px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer"}}>🩺</button>
+
+        {/* IB Gateway control — pause/start container without SSH */}
+        <IBControlButton />
 
         {/* Offline mode — download all data for airplane */}
         <AirplaneMode portfolioList={portfolioList} />

@@ -1,19 +1,7 @@
-# A&R IB Stack — DS423+ (Synology Container Manager)
-#
-# 3 services on an internal bridge network:
-#   - ib-gateway:  IBKR Gateway (live mode, Read-Only API)
-#   - ib-bridge:   Node.js REST proxy in front of IB API
-#   - cloudflared: Cloudflare Tunnel exposing ib-bridge as ib.onto-so.com
-#
-# Only cloudflared talks to the outside world. ib-bridge and ib-gateway
-# communicate over the internal network "ib-stack-net" — they never bind
-# to host ports, so they're not reachable from your LAN.
-#
-# Bind mounts use /volume1/docker/ib-stack/ (owned by your Synology user).
-# Make sure those subdirectories exist before `docker compose up -d`
-# (setup.sh creates them automatically).
-#
-# Reference: https://github.com/gnzsnz/ib-gateway-docker
+# A&R IB Stack — DS423+ adaptado a setup existente del NAS
+# El cloudflare-tunnel YA existe en /volume1/docker/cloudflare-tunnel/ con
+# network_mode:host, así que solo necesitamos exponer ib-bridge en localhost
+# y añadir hostname ib.onto-so.com → http://localhost:8080 en el dashboard CF.
 
 name: ib-stack
 
@@ -22,30 +10,23 @@ networks:
     driver: bridge
 
 services:
-  # ---------------------------------------------------------------------------
-  # 1) IBKR Gateway — gnzsnz image with IBC for auto-login + auto-restart
-  # ---------------------------------------------------------------------------
+  # IBKR Gateway — interno, no expuesto al host
   ib-gateway:
     image: ghcr.io/gnzsnz/ib-gateway:stable
     container_name: ib-gateway
     restart: unless-stopped
     environment:
-      # --- Account credentials (loaded from .env) -----------------------------
       TWS_USERID: ${TWS_USERID}
       TWS_PASSWORD: ${TWS_PASSWORD}
-      TRADING_MODE: ${TRADING_MODE:-live}        # live | paper
-      READ_ONLY_API: ${READ_ONLY_API:-yes}       # CRITICAL — no orders ever
-
-      # --- IBC behaviour ------------------------------------------------------
-      # Auto-restart at 23:55 ET so daily IBKR maintenance reset is handled
-      # cleanly. IBC will re-login automatically on the next start.
-      TWOFA_TIMEOUT_ACTION: restart
-      AUTO_RESTART_TIME: 23:55
+      TRADING_MODE: ${TRADING_MODE:-live}
+      READ_ONLY_API: ${READ_ONLY_API:-yes}
+      # Sin AUTO_RESTART_TIME: permitimos al gateway aguantar la sesión
+      # tantos días como IBKR aguante (típicamente 2-3) sin forzar 2FA cada
+      # día. El usuario rearranca manualmente vía botón en el header (que
+      # llama a /control/start del bridge → docker.sock → restart).
       RELOGIN_AFTER_2FA_TIMEOUT: yes
+      EXISTING_SESSION_DETECTED_ACTION: primary
       TIME_ZONE: ${TZ:-Europe/Madrid}
-
-      # --- Bind API to all interfaces inside the container so ib-bridge can
-      # reach it via the docker network. The container is NOT exposed to LAN.
       BIND_ADDRESS: 0.0.0.0
     volumes:
       - /volume1/docker/ib-stack/ib-gateway/config:/home/ibgateway/Jts
@@ -53,23 +34,19 @@ services:
     networks:
       - ib-stack-net
     healthcheck:
-      # Live API port. If the gateway lost session, the port refuses TCP and
-      # the container is marked unhealthy → bridge will keep retrying.
-      test: ["CMD-SHELL", "nc -z localhost 4001 || exit 1"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/4003"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 90s
+      start_period: 120s
     deploy:
       resources:
         limits:
-          memory: 1G
+          memory: 900M
         reservations:
           memory: 512M
 
-  # ---------------------------------------------------------------------------
-  # 2) ib-bridge — built from ../ib-bridge (parallel agent owns this code)
-  # ---------------------------------------------------------------------------
+  # ib-bridge — expuesto en 127.0.0.1:8080 (CF tunnel host-mode lo alcanza)
   ib-bridge:
     build:
       context: ../ib-bridge
@@ -79,20 +56,32 @@ services:
     environment:
       NODE_ENV: production
       PORT: 8080
-      # ib-gateway is reachable by service name on the internal network
+      HOST: 0.0.0.0
       IB_HOST: ib-gateway
-      IB_PORT: 4001
-      # Bearer token required on every request
+      IB_PORT: 4003
       BRIDGE_AUTH_TOKEN: ${BRIDGE_AUTH_TOKEN}
+      IB_CONTROL_TOKEN: ${IB_CONTROL_TOKEN}
+      READ_ONLY_API: ${READ_ONLY_API:-yes}
       TZ: ${TZ:-Europe/Madrid}
+    ports:
+      - '127.0.0.1:8090:8080'
+    volumes:
+      # docker.sock mounted RO would block POST /containers/.../stop,
+      # so we use rw. Endpoints in src/routes/control.js hardcode an
+      # allowlist of one container (ib-gateway), so even token compromise
+      # cannot touch any other container on the NAS.
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      # docker.sock on Synology is owned by root:root mode 660. Adding
+      # gid 0 (root group) to the `node` user lets the bridge read/write
+      # the socket without running the whole process as root.
+      - "0"
     networks:
       - ib-stack-net
     depends_on:
       ib-gateway:
         condition: service_healthy
     healthcheck:
-      # /health returns 200 even without auth (just to verify the process is up).
-      # The auth-protected endpoint is /healthz which we hit from health-check.sh.
       test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/health || exit 1"]
       interval: 30s
       timeout: 5s
@@ -104,24 +93,3 @@ services:
           memory: 256M
         reservations:
           memory: 128M
-
-  # ---------------------------------------------------------------------------
-  # 3) Cloudflare Tunnel — exposes ib-bridge to ib.onto-so.com
-  # ---------------------------------------------------------------------------
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: cloudflared
-    restart: unless-stopped
-    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
-    environment:
-      TZ: ${TZ:-Europe/Madrid}
-    networks:
-      - ib-stack-net
-    depends_on:
-      - ib-bridge
-    deploy:
-      resources:
-        limits:
-          memory: 64M
-        reservations:
-          memory: 32M
