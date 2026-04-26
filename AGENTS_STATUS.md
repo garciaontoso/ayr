@@ -1,8 +1,13 @@
 ---
-name: AI Agents System v2 (2026-04-06)
-description: 11 agents + Executive Summary, Opus-powered dividend analysis with quarterly trends, Portfolio view, Options Income with IB Greeks, Tastytrade pending
+name: AI Agents System (frozen snapshot 2026-04-06)
+description: HISTORICAL — congelado en 2026-04-06. Para estado actual ver AGENTS.md (cron desactivado 2026-04-19, IB Bridge desplegado 2026-04-27 — ver project memory `project_ib_bridge_LIVE_2026-04-27.md`)
 type: project
 ---
+
+> **⚠️ Documento congelado el 2026-04-06.** No se actualiza desde entonces.
+> - Cron de agentes desactivado el 2026-04-19 (kill-switch en worker.js scheduled handler)
+> - IB Bridge LIVE en NAS desplegado 2026-04-27 — ver CLAUDE.md v4.2
+> - Para estado vigente de los 14 agentes (6 LLM + 8 No-LLM): ver AGENTS.md
 
 ## Final System State (end of session 2026-04-06)
 

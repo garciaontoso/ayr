@@ -54,6 +54,18 @@ export function createApp() {
   app.disable('x-powered-by');
   app.use(express.json({ limit: '32kb' }));
 
+  // Defense-in-depth security headers (audit 2026-04-27 M2).
+  // Cheap headers that close common reflective attacks even though our only
+  // ingress is via CF Tunnel + Bearer auth + worker proxy with X-AYR-Auth.
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
+    next();
+  });
+
   // Lightweight per-request log. Skip /health to avoid spamming.
   app.use((req, _res, next) => {
     if (req.path !== '/health') {

@@ -1,4 +1,5 @@
-# A&R v10.2 — Dividend Equity Analysis
+# A&R v4.2 — Dividend Equity Analysis (frontend)
+# (Versión alineada con CLAUDE.md raíz — 2026-04-27)
 
 ## Deploy commands
 - Frontend: `cd frontend && npm run build && npx wrangler pages deploy dist --project-name=ayr`

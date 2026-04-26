@@ -93,12 +93,11 @@ describe('HOME_TAB_GROUPS invariants', () => {
     expect(ids).toContain('fire');
   });
 
-  it('research group contains cantera, discovery, div-scanner', () => {
+  it('research group contains cantera and watchlist', () => {
     const research = HOME_TAB_GROUPS.find(g => g.id === 'research');
     const ids = research.tabs.map(t => t.id);
     expect(ids).toContain('cantera');
-    expect(ids).toContain('discovery');
-    expect(ids).toContain('div-scanner');
+    expect(ids).toContain('research'); // id 'research' = Watchlist label
   });
 
   it('ingresos group contains dividendos', () => {

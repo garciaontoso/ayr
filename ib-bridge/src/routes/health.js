@@ -17,7 +17,9 @@ router.get('/', (_req, res) => {
     version: pkgVersion,
   };
   if (status.serverVersion) body.ib_server_version = status.serverVersion;
-  if (status.lastError) body.last_error = status.lastError;
+  // status.lastError omitted intentionally — IB error messages can include
+  // account IDs and other sensitive context. Use /healthz behind auth for
+  // detailed diagnostics (audit 2026-04-27 L4).
   res.json(body);
 });
 

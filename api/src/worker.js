@@ -8160,8 +8160,22 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // Proxean a https://ib.onto-so.com (NAS via Cloudflare Tunnel) que corre
       // ib-gateway + ib-bridge Node service. Toda la auth Bearer se añade
       // server-side via env.IB_BRIDGE_TOKEN — el frontend nunca ve el token.
-      // Si el bridge no responde, devolvemos 503 con shape consistente para
-      // que el frontend pueda manejar fallback.
+      //
+      // SECURITY: TODOS los endpoints (excepto /health público) requieren
+      // header X-AYR-Auth con el secret AYR_BRIDGE_AUTH. Sin esto cualquier
+      // curl podría leer NLV, posiciones, o parar el gateway durante un viaje
+      // del usuario (audit 2026-04-27 C1+C2).
+
+      // Auth check para TODO /api/ib-bridge/* salvo /health (que CF Tunnel
+      // probe necesita sin token). Cualquier request sin X-AYR-Auth válido
+      // devuelve 401 con shape consistente.
+      if (path.startsWith("/api/ib-bridge/") && path !== "/api/ib-bridge/health") {
+        const expected = env.AYR_BRIDGE_AUTH || "";
+        const provided = request.headers.get("X-AYR-Auth") || "";
+        if (!expected || !provided || provided !== expected) {
+          return json({ error: "auth_required", source: "ib-bridge" }, corsHeaders, 401);
+        }
+      }
 
       if (path === "/api/ib-bridge/health" && request.method === "GET") {
         try {
@@ -23996,7 +24010,7 @@ async function handleCanteraRefresh(request, env, corsHeaders) {
 // Use this for narrative/markdown generation (digests, summaries).
 // ═══════════════════════════════════════════════════════════════
 async function callClaudeRawText(env, systemPrompt, userContent, opts = {}) {
-  const model = opts.model || "claude-opus-4-5";
+  const model = opts.model || "claude-opus-4-5-20251101";
   const maxTokens = opts.maxTokens || 1500;
   const body = JSON.stringify({
     model,
@@ -24262,7 +24276,7 @@ Las 5 acciones prioritarias:
 ${actionsCtx}
 
 Escribe el párrafo introductorio. Menciona los puntos más relevantes. No uses bullet points, solo prosa.`,
-      { model: "claude-opus-4-5", maxTokens: 400 }
+      { model: "claude-opus-4-5-20251101", maxTokens: 400 }
     );
     // Rough cost estimate: Opus input ~$15/Mtok, output ~$75/Mtok
     opusCostUsd = 0.015; // conservative flat estimate for ~500 tok input + ~200 tok output

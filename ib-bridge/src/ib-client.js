@@ -443,8 +443,8 @@ export async function fetchQuote(symbolOrContract) {
     label: 'reqMktData(snapshot)',
     timeoutMs: 6_000,
     start: (reqId) => ib.reqMktData(reqId, contract, '', true, false),
-    cancel: () => {
-      try { ib.cancelMktData(arguments[0]); } catch (_) {}
+    cancel: (reqId) => {
+      try { ib.cancelMktData(reqId); } catch (_) {}
     },
     bind: ({ reqId, addListener, resolve }) => {
       let silenceTimer = null;

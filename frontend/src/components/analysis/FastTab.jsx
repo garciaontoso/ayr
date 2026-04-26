@@ -80,8 +80,32 @@ export default function FastTab() {
     pe: false, evEbitda: false, fvRatio: false, nprRatio: false, fcfYield: false,
     divYield: true, payout: true,
   };
+  // ALL useState/useRef declarations BEFORE useEffects (TDZ safety pattern —
+  // see CLAUDE.md "TDZ Bug Pattern (CRITICAL)". Vite minifier hoists const
+  // declarations but not their initialization, so refs from earlier effects
+  // to later states crash in production builds).
   const [visibleRows, setVisibleRows] = useState(DEFAULT_TABLE_ROWS);
+  const [showRecessions, setShowRecessions] = useState(true);  // bandas de recesiones
+  const [smoothEps, setSmoothEps] = useState(true);  // rolling median 3y para EPS (suaviza write-downs, FX, impairments)
+  const [innerTab, setInnerTab] = useState('summary');  // summary | trends | forecasting | historical | scorecard
+  // Series visibility — controlado por los checkboxes de la leyenda.
+  // Keys: price, normalPE, fairValue, fairArea, dpsArea, yield, payout, consensus,
+  //       priceTarget, currentVal, trades, recessions, compare, evEbitda
+  const [visibleSeries, setVisibleSeries] = useState({
+    price: true, normalPE: true, fairValue: true, fairArea: true, dpsArea: true,
+    yield: true, payout: true, consensus: true, priceTarget: true, currentVal: true,
+    trades: true, recessions: true, compare: true, evEbitda: false,
+  });
+  const [personalPERev, setPersonalPERev] = useState(0);  // bump para forzar re-render tras save/clear localStorage
+  const chartSvgRef = useRef(null);  // ref al SVG principal para export PNG
+  const [compareTicker, setCompareTicker] = useState('');  // 2º ticker para overlay ghost
+  const [compareData, setCompareData] = useState(null);  // {monthly_prices, ticker}
+  const [backtestYears, setBacktestYears] = useState(10);  // 5 | 10 | 15 | 20
+  const [hover, setHover] = useState(null);  // {x, y, date, price, eps, pe, fair, yield, payout} o null
+  const hoverRafRef = useRef(null);  // rAF id para throttle del onMouseMove → evita sobrecarga
   const toggleRow = (k) => setVisibleRows(v => ({ ...v, [k]: !v[k] }));
+  const toggleSeries = (k) => setVisibleSeries(v => ({ ...v, [k]: !v[k] }));
+
   useEffect(() => {
     if (!ticker) return;
     try {
@@ -94,25 +118,6 @@ export default function FastTab() {
     if (!ticker) return;
     try { localStorage.setItem(`fast-table-rows-${ticker}`, JSON.stringify(visibleRows)); } catch {}
   }, [visibleRows, ticker]);
-  const [showRecessions, setShowRecessions] = useState(true);  // bandas de recesiones
-  const [smoothEps, setSmoothEps] = useState(true);  // rolling median 3y para EPS (suaviza write-downs, FX, impairments)
-  const [innerTab, setInnerTab] = useState('summary');  // summary | trends | forecasting | historical | scorecard
-  // Series visibility — controlado por los checkboxes de la leyenda.
-  // Keys: price, normalPE, fairValue, fairArea, dpsArea, yield, payout, consensus,
-  //       priceTarget, currentVal, trades, recessions, compare, evEbitda
-  const [visibleSeries, setVisibleSeries] = useState({
-    price: true, normalPE: true, fairValue: true, fairArea: true, dpsArea: true,
-    yield: true, payout: true, consensus: true, priceTarget: true, currentVal: true,
-    trades: true, recessions: true, compare: true, evEbitda: false,
-  });
-  const toggleSeries = (k) => setVisibleSeries(v => ({ ...v, [k]: !v[k] }));
-  const [personalPERev, setPersonalPERev] = useState(0);  // bump para forzar re-render tras save/clear localStorage
-  const chartSvgRef = useRef(null);  // ref al SVG principal para export PNG
-  const [compareTicker, setCompareTicker] = useState('');  // 2º ticker para overlay ghost
-  const [compareData, setCompareData] = useState(null);  // {monthly_prices, ticker}
-  const [backtestYears, setBacktestYears] = useState(10);  // 5 | 10 | 15 | 20
-  const [hover, setHover] = useState(null);  // {x, y, date, price, eps, pe, fair, yield, payout} o null
-  const hoverRafRef = useRef(null);  // rAF id para throttle del onMouseMove → evita sobrecarga
 
   // Fetch historical price + ratios on ticker change
   useEffect(() => {

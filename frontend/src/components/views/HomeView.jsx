@@ -21,7 +21,7 @@ const DashboardTab       = lazy(() => import('../home/DashboardTab'));
 const DividendosTab      = lazy(() => import('../home/DividendosTab'));
 const FireTab            = lazy(() => import('../home/FireTab'));
 const GastosTab          = lazy(() => import('../home/GastosTab'));
-const WatchlistTab       = lazy(() => import('../home/WatchlistTab'));
+// WatchlistTab removed 2026-04-27 — never reachable (no entry in HOME_TAB_GROUPS)
 const HistorialTab       = lazy(() => import('../home/HistorialTab'));
 const AdvisorTab         = lazy(() => import('../home/AdvisorTab'));
 const ResearchTab        = lazy(() => import('../home/ResearchTab'));
@@ -41,8 +41,8 @@ const EarningsTab        = lazy(() => import('../home/EarningsTab'));
 const NewsTab            = lazy(() => import('../home/NewsTab'));
 const DailyBriefingTab   = lazy(() => import('../home/DailyBriefingTab'));
 const CanteraTab         = lazy(() => import('../home/CanteraTab'));
-const DiscoveryTab       = lazy(() => import('../home/DiscoveryTab'));
-const DividendScannerTab = lazy(() => import('../home/DividendScannerTab'));
+// DiscoveryTab + DividendScannerTab still imported by CanteraTab as sub-tabs;
+// removed top-level mounts 2026-04-27 (no entry in HOME_TAB_GROUPS).
 const AlertTrackRecordTab= lazy(() => import('../home/AlertTrackRecordTab'));
 const CartasSabiosTab    = lazy(() => import('../home/CartasSabiosTab'));
 const TaxOptimizationTab = lazy(() => import('../home/TaxOptimizationTab'));
@@ -195,9 +195,10 @@ function IBControlButton() {
 
   const refresh = useCallback(async () => {
     try {
+      const headers = { "X-AYR-Auth": import.meta.env.VITE_AYR_BRIDGE_AUTH || "" };
       const [ctl, hp] = await Promise.all([
-        fetch(API_URL + "/api/ib-bridge/control/status").then(r => r.ok ? r.json() : null).catch(() => null),
-        fetch(API_URL + "/api/ib-bridge/health").then(r => r.json()).catch(() => null),
+        fetch(API_URL + "/api/ib-bridge/control/status", { headers }).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(API_URL + "/api/ib-bridge/health").then(r => r.json()).catch(() => null), // /health pública
       ]);
       setState({
         loading: false,
@@ -227,7 +228,10 @@ function IBControlButton() {
       if (!ok) return;
       setActing(true);
       try {
-        const r = await fetch(API_URL + "/api/ib-bridge/control/stop", { method: "POST" });
+        const r = await fetch(API_URL + "/api/ib-bridge/control/stop", {
+          method: "POST",
+          headers: { "X-AYR-Auth": import.meta.env.VITE_AYR_BRIDGE_AUTH || "" },
+        });
         if (!r.ok) throw new Error('Error al parar');
         setTimeout(refresh, 1500);
       } catch (e) {
@@ -244,7 +248,10 @@ function IBControlButton() {
       if (!ok) return;
       setActing(true);
       try {
-        const r = await fetch(API_URL + "/api/ib-bridge/control/start", { method: "POST" });
+        const r = await fetch(API_URL + "/api/ib-bridge/control/start", {
+          method: "POST",
+          headers: { "X-AYR-Auth": import.meta.env.VITE_AYR_BRIDGE_AUTH || "" },
+        });
         if (!r.ok) throw new Error('Error al arrancar');
         setTimeout(refresh, 3000);
         setTimeout(refresh, 30000);
@@ -1586,12 +1593,12 @@ export default function HomeView() {
         {homeTab==="drip" && <DripTab />}
         {homeTab==="tax-opt" && <TaxOptimizationTab />}
         {homeTab==="gastos" && <GastosTab />}
-        {homeTab==="watchlist" && <WatchlistTab />}
+        {/* watchlist, discovery, div-scanner removed 2026-04-27:
+            no entries in HOME_TAB_GROUPS so unreachable from UI.
+            DiscoveryTab + DividendScannerTab still mounted as sub-tabs of CanteraTab. */}
         {homeTab==="historial" && <HistorialTab />}
         {homeTab==="advisor" && <AdvisorTab />}
         {homeTab==="cantera" && <CanteraTab />}
-        {homeTab==="discovery" && <DiscoveryTab />}
-        {homeTab==="div-scanner" && <DividendScannerTab />}
         {homeTab==="cartas-sabios" && <CartasSabiosTab />}
         {homeTab==="research" && <ResearchTab />}
         {homeTab==="agentes" && <AgentesTab />}
