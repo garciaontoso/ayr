@@ -2387,7 +2387,7 @@ export default {
     const corsHeaders = {
       "Access-Control-Allow-Origin": corsOrigin,
       "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-AYR-Auth, X-Control-Token",
       "Access-Control-Allow-Credentials": "true",
       "Vary": "Origin",
     };
