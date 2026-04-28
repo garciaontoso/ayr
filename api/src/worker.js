@@ -8975,17 +8975,23 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const ib = (m, e, b) => ibAuthFetch(lst, consumerKey, accessToken, m, e, b);
           const accounts = ["U5372268", "U6735130", "U7257686", "U7953378"];
           const summary = {};
-          // Asegurar accounts seleccionada
+          // Asegurar init de ambos namespaces (iserver y portfolio son distintos)
           await ib("GET", "/portfolio/accounts");
-          await ib("GET", "/iserver/accounts");
+          const iserverAccts = await ib("GET", "/iserver/accounts");
+          summary._iserver_accounts = iserverAccts;
 
           for (const acct of accounts) {
             summary[acct] = {};
 
-            // 1) Trades estándar
+            // 0) Switch active account (clave — iserver solo tiene 1 cuenta activa)
             try {
-              const r = await ib("GET", `/iserver/account/trades?days=1&accountId=${acct}`);
-              summary[acct].trades = Array.isArray(r) ? { count: r.length, sample: r.slice(0, 2) } : { error: "non-array", raw: r };
+              await ib("POST", `/iserver/account`, { acctId: acct });
+            } catch {}
+
+            // 1) Trades estándar (post-switch)
+            try {
+              const r = await ib("GET", `/iserver/account/trades?days=7&accountId=${acct}`);
+              summary[acct].trades = Array.isArray(r) ? { count: r.length, sample: r.slice(0, 3) } : { error: "non-array", raw: r };
             } catch(e) { summary[acct].trades = { error: e.message }; }
 
             // 2) Transacciones del portfolio (ledger)
@@ -8999,6 +9005,18 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
               const r = await ib("GET", `/iserver/account/orders?accountId=${acct}&filters=Filled`);
               summary[acct].orders_filled = r?.orders ? { count: r.orders.length, sample: r.orders.slice(0, 3) } : { raw: r };
             } catch(e) { summary[acct].orders_filled = { error: e.message }; }
+
+            // 3b) Orders sin filter (todos)
+            try {
+              const r = await ib("GET", `/iserver/account/orders?accountId=${acct}`);
+              summary[acct].orders_all = r?.orders ? { count: r.orders.length, sample: r.orders.slice(0, 3) } : { raw: r };
+            } catch(e) { summary[acct].orders_all = { error: e.message }; }
+
+            // 3c) Live orders (otra ruta)
+            try {
+              const r = await ib("GET", `/iserver/account/${acct}/orders`);
+              summary[acct].orders_path = r?.orders ? { count: r.orders.length, sample: r.orders.slice(0, 3) } : { raw: r };
+            } catch(e) { summary[acct].orders_path = { error: e.message }; }
 
             // 4) Trades por portfolio (ruta alternativa)
             try {
