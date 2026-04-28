@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { fetchAccountSummary, fetchPositions } from '../ib-client.js';
+import { fetchAccountSummary, fetchPositions, fetchExecutions } from '../ib-client.js';
 import { withCache, cacheKey, isFresh } from '../cache.js';
 import { sendIbError } from './_helpers.js';
 
@@ -42,6 +42,27 @@ router.get('/positions', async (req, res) => {
   try {
     const data = await withCache(cacheKey('positions'), 30, isFresh(req), () => fetchPositions());
     res.json(data);
+  } catch (err) {
+    sendIbError(res, err);
+  }
+});
+
+// GET /executions — live trade history from current IB Gateway session.
+// Query params:
+//   ?startDate=YYYYMMDD  (default: today)
+//   ?account=U5372268    (optional, default: all accounts)
+// Returns: { executions: [{exec_id, time, ticker, side, shares, price, ...}] }
+// Cache: 30s (avoids hammering IB on rapid page reloads).
+router.get('/executions', async (req, res) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const startDate = (req.query.startDate || today).replace(/[^0-9]/g, '');
+    const account = req.query.account || null;
+    const key = cacheKey(`executions:${startDate}:${account || 'all'}`);
+    const data = await withCache(key, 30, isFresh(req), () =>
+      fetchExecutions({ startDate, accountCode: account })
+    );
+    res.json({ executions: data, count: data.length, since: startDate });
   } catch (err) {
     sendIbError(res, err);
   }

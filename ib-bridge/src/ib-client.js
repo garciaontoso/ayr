@@ -889,6 +889,86 @@ async function mapWithConcurrency(items, limit, fn) {
   return out;
 }
 
+// --------- executions (live trade history this session) ----------
+
+/**
+ * Fetch executions (trades) since startDate. Uses reqExecutions which returns
+ * ExecDetails events for each fill done in the current IB Gateway session
+ * (gateway typically holds last 24-48h of executions in memory). Each
+ * execution has a unique execId — we use it for dedup against future Flex
+ * imports so the same trade never appears twice.
+ *
+ * `startDate` is YYYYMMDD format. If null, returns all in current session.
+ */
+export async function fetchExecutions({ startDate = null, accountCode = null } = {}) {
+  const out = [];
+  const filter = {};
+  if (startDate) filter.time = `${startDate}-00:00:00`;
+  if (accountCode) filter.acctCode = accountCode;
+
+  await reqWithTimeout({
+    label: 'reqExecutions',
+    timeoutMs: 10_000,
+    start: (reqId) => ib.reqExecutions(reqId, filter),
+    cancel: () => {
+      // No cancel API for reqExecutions — events come and end with execDetailsEnd.
+    },
+    bind: ({ reqId, addListener, resolve }) => {
+      addListener(EventName.execDetails, (rid, contract, execution) => {
+        if (rid !== reqId) return;
+        if (!execution) return;
+        // execution.side is 'BOT' or 'SLD'. Convert to signed shares.
+        const sideSign = (execution.side || '').toUpperCase().startsWith('B') ? 1 : -1;
+        const qty = sideSign * Math.abs(Number(execution.shares) || 0);
+        out.push({
+          exec_id: execution.execId || null,
+          time: execution.time || null,           // 'YYYYMMDD HH:MM:SS [tz]'
+          ticker: contract?.symbol || null,
+          sec_type: contract?.secType || null,    // STK / OPT / CASH (FX) / etc
+          currency: contract?.currency || null,
+          exchange: execution.exchange || contract?.exchange || null,
+          side: execution.side || null,
+          shares: qty,
+          price: Number(execution.price) || 0,
+          account: execution.acctNumber || null,
+          order_id: execution.orderId || null,
+          perm_id: execution.permId || null,
+          // Option-specific (null for stock)
+          opt_strike: contract?.strike || null,
+          opt_expiry: contract?.lastTradeDateOrContractMonth || null,
+          opt_right: contract?.right || null,
+          multiplier: contract?.multiplier || null,
+        });
+      });
+      addListener(EventName.execDetailsEnd, (rid) => {
+        if (rid === reqId) resolve();
+      });
+    },
+  });
+
+  // Enrich with commission via reqExecutions doesn't include commission directly.
+  // commissionReport event fires separately keyed by execId. We listen for those
+  // with a short window after the executions arrive.
+  if (out.length) {
+    const byExec = new Map(out.map(e => [e.exec_id, e]));
+    await new Promise((resolve) => {
+      const handler = (report) => {
+        if (!report || !report.execId) return;
+        const e = byExec.get(report.execId);
+        if (e) e.commission = Number(report.commission) || 0;
+      };
+      ib.on(EventName.commissionReport, handler);
+      // Wait briefly for commission reports to arrive
+      setTimeout(() => {
+        try { ib.removeListener(EventName.commissionReport, handler); } catch {}
+        resolve();
+      }, 1500);
+    });
+  }
+
+  return out;
+}
+
 // --------- exports ----------
 
 export default {
@@ -902,5 +982,6 @@ export default {
   fetchQuotes,
   fetchHistorical,
   fetchOptionChain,
+  fetchExecutions,
   fetchIV,
 };

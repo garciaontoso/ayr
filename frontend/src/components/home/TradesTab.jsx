@@ -20,23 +20,41 @@ export default function TradesTab() {
   const syncIB = async () => {
     setSyncing(true); setSyncMsg("Sincronizando con IB...");
     try {
-      // IB OAuth sync: trades (7 dias), posiciones, NLV
+      // 1. LIVE: bridge /executions/sync (trades de HOY desde IB Gateway, sin lag).
+      //    Dedup por exec_id → idempotente, no duplica con Flex T+1.
+      let liveTrades = 0;
+      try {
+        const rLive = await fetch(`${API_URL}/api/ib-bridge/executions/sync`, {
+          method: "POST",
+          headers: { "X-AYR-Auth": import.meta.env.VITE_AYR_BRIDGE_AUTH || "" },
+        });
+        if (rLive.ok) {
+          const dLive = await rLive.json();
+          liveTrades = dLive.inserted || 0;
+        }
+      } catch { /* bridge offline → seguimos con OAuth+Flex */ }
+
+      // 2. IB OAuth sync: trades (7 dias), posiciones, NLV
       const r1 = await fetch(`${API_URL}/api/ib-auto-sync`, { method: "POST" });
       const d1 = await r1.json();
       const oauthTrades = d1.trades_imported || 0;
 
-      // Sync dividendos → cost_basis para que aparezcan aqui
+      // 3. Sync dividendos → cost_basis para que aparezcan aqui
       const r2 = await fetch(`${API_URL}/api/costbasis/sync-dividends`, { method: "POST" });
       const d2 = await r2.json();
       const newDivs = d2.inserted || 0;
 
       let parts = [];
+      if (liveTrades > 0) parts.push(`${liveTrades} trades de hoy (live)`);
       if (oauthTrades > 0) parts.push(`${oauthTrades} trades nuevos`);
       if (newDivs > 0) parts.push(`${newDivs} dividendos sincronizados`);
       if (d1.nlv_updated) parts.push("NLV actualizado");
-      if (oauthTrades === 0 && newDivs === 0) parts.push("Todo al dia");
+      if (liveTrades === 0 && oauthTrades === 0 && newDivs === 0) parts.push("Todo al dia");
       if (d1.errors?.length) parts.push(`${d1.errors.length} avisos`);
       setSyncMsg("✅ " + parts.join(" · "));
+
+      // Marca timestamp para auto-sync inteligente
+      try { localStorage.setItem("trades_last_sync", new Date().toISOString()); } catch {}
 
       // Reload trades
       loadTrades(tradesFilter, 0);
@@ -46,6 +64,23 @@ export default function TradesTab() {
     setSyncing(false);
     setTimeout(() => setSyncMsg(null), 8000);
   };
+
+  // Auto-sync silencioso al montar la tab si la última fue hace +30 min.
+  // Cubre: "abro A&R y quiero ver mis trades de hoy sin pulsar nada".
+  // Si bridge offline / gateway parado, falla silently — Flex traerá mañana.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const last = localStorage.getItem("trades_last_sync");
+    const stale = !last || (Date.now() - new Date(last).getTime()) > 30 * 60 * 1000;
+    if (!stale) return;
+    fetch(`${API_URL}/api/ib-bridge/executions/sync`, {
+      method: "POST",
+      headers: { "X-AYR-Auth": import.meta.env.VITE_AYR_BRIDGE_AUTH || "" },
+    }).then(r => r.ok ? r.json() : null).then(d => {
+      try { localStorage.setItem("trades_last_sync", new Date().toISOString()); } catch {}
+      if (d?.inserted > 0) loadTrades(tradesFilter, 0);
+    }).catch(() => { /* silent */ });
+  }, []);
 
   // Load trades data from API
   const loadTrades = async (filters = tradesFilter, page = tradesPage, sCol = sortCol, sDir = sortDir) => {

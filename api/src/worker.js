@@ -8351,6 +8351,94 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         }
       }
 
+      // GET /api/ib-bridge/executions — live executions del bridge (read-only proxy)
+      if (path === "/api/ib-bridge/executions" && request.method === "GET") {
+        const since = url.searchParams.get("since") || "";
+        const account = url.searchParams.get("account") || "";
+        const params = new URLSearchParams();
+        if (since) params.set("startDate", since.replace(/-/g, ""));
+        if (account) params.set("account", account);
+        try {
+          const data = await ibBridgeFetch(env, `/executions?${params}`);
+          return json({ source: "ib-bridge", ...data }, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message, source: "ib-bridge" }, corsHeaders, 503);
+        }
+      }
+
+      // POST /api/ib-bridge/executions/sync — pulls live executions from bridge
+      // and UPSERTs into cost_basis using exec_id as dedup key. Idempotent: same
+      // exec_id never inserted twice. Future Flex sync (with same exec_id or
+      // matching content) will skip these via INSERT OR IGNORE.
+      if (path === "/api/ib-bridge/executions/sync" && request.method === "POST") {
+        try {
+          // Ensure exec_id column exists (idempotent ALTER)
+          try { await env.DB.prepare(`ALTER TABLE cost_basis ADD COLUMN exec_id TEXT`).run(); } catch {}
+          try { await env.DB.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_cb_exec_id ON cost_basis(exec_id) WHERE exec_id IS NOT NULL`).run(); } catch {}
+
+          const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+          const data = await ibBridgeFetch(env, `/executions?startDate=${today}`);
+          const execs = data.executions || [];
+
+          // IB ticker → App ticker (mismo mapping que Flex import)
+          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA"};
+          const mapTicker = (sym) => IB_MAP[sym] || sym;
+
+          let inserted = 0, skipped = 0;
+          const stmts = [];
+          for (const e of execs) {
+            if (!e.exec_id || !e.time) { skipped++; continue; }
+            // time format: 'YYYYMMDD HH:MM:SS [tz]' → fecha YYYY-MM-DD
+            const datePart = e.time.split(/\s+/)[0];
+            if (!datePart || datePart.length !== 8) { skipped++; continue; }
+            const fecha = `${datePart.slice(0,4)}-${datePart.slice(4,6)}-${datePart.slice(6,8)}`;
+            const ticker = mapTicker(e.ticker || "");
+            if (!ticker) { skipped++; continue; }
+            const isOpt = e.sec_type === "OPT";
+            const tipo = isOpt ? "OPTION" : "EQUITY";
+            const qty = Number(e.shares) || 0;
+            const price = Number(e.price) || 0;
+            const commission = Number(e.commission) || 0;
+            const coste = qty * price + commission;
+            const expiry = e.opt_expiry
+              ? `${e.opt_expiry.slice(0,4)}-${e.opt_expiry.slice(4,6)}-${e.opt_expiry.slice(6,8)}`
+              : null;
+            const optContracts = isOpt ? Math.abs(qty) : 0;
+            const optCreditTotal = isOpt ? -coste : 0;
+            const optCreditPerShare = isOpt && qty !== 0 ? optCreditTotal / (Math.abs(qty) * 100) : 0;
+
+            stmts.push(env.DB.prepare(
+              `INSERT OR IGNORE INTO cost_basis
+                 (ticker, fecha, tipo, shares, precio, comision, coste,
+                  opt_strike, opt_expiry, opt_tipo, opt_contracts, opt_credit, opt_credit_total, exec_id)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+            ).bind(ticker, fecha, tipo, qty, price, commission, coste,
+                   e.opt_strike || null, expiry, e.opt_right || null,
+                   optContracts, optCreditPerShare, optCreditTotal, e.exec_id));
+          }
+          for (let i = 0; i < stmts.length; i += 80) {
+            const batch = stmts.slice(i, i + 80);
+            try {
+              const results = await env.DB.batch(batch);
+              for (const r of results) {
+                if (r.meta?.changes > 0) inserted++;
+                else skipped++;
+              }
+            } catch { skipped += batch.length; }
+          }
+
+          return json({
+            ok: true,
+            fetched: execs.length,
+            inserted,
+            skipped,
+            since: today,
+          }, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message, source: "ib-bridge" }, corsHeaders, 503);
+        }
+      }
+
       if (path === "/api/ib-bridge/historical" && request.method === "GET") {
         const symbol = (url.searchParams.get("symbol") || "").trim().toUpperCase();
         if (!symbol) return json({ error: "Missing ?symbol=" }, corsHeaders, 400);
