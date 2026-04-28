@@ -8966,6 +8966,65 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       }
 
       // GET /api/ib-trades — recent trades (up to 7 days)
+      // GET /api/ib-debug/trades-search — DEBUG: prueba 6 endpoints alternativos
+      // de IBKR para encontrar dónde están los trades cuando /iserver/account/trades
+      // devuelve vacío. Devuelve un resumen por endpoint × cuenta.
+      if (path === "/api/ib-debug/trades-search" && request.method === "GET") {
+        try {
+          const { lst, consumerKey, accessToken } = await getIBSession(env);
+          const ib = (m, e, b) => ibAuthFetch(lst, consumerKey, accessToken, m, e, b);
+          const accounts = ["U5372268", "U6735130", "U7257686", "U7953378"];
+          const summary = {};
+          // Asegurar accounts seleccionada
+          await ib("GET", "/portfolio/accounts");
+          await ib("GET", "/iserver/accounts");
+
+          for (const acct of accounts) {
+            summary[acct] = {};
+
+            // 1) Trades estándar
+            try {
+              const r = await ib("GET", `/iserver/account/trades?days=1&accountId=${acct}`);
+              summary[acct].trades = Array.isArray(r) ? { count: r.length, sample: r.slice(0, 2) } : { error: "non-array", raw: r };
+            } catch(e) { summary[acct].trades = { error: e.message }; }
+
+            // 2) Transacciones del portfolio (ledger)
+            try {
+              const r = await ib("POST", `/pa/transactions`, { acctIds: [acct], days: 2 });
+              summary[acct].pa_transactions = r?.transactions ? { count: r.transactions.length, sample: r.transactions.slice(0, 2) } : { raw: r };
+            } catch(e) { summary[acct].pa_transactions = { error: e.message }; }
+
+            // 3) Orders (incluye fills recientes)
+            try {
+              const r = await ib("GET", `/iserver/account/orders?accountId=${acct}&filters=Filled`);
+              summary[acct].orders_filled = r?.orders ? { count: r.orders.length, sample: r.orders.slice(0, 3) } : { raw: r };
+            } catch(e) { summary[acct].orders_filled = { error: e.message }; }
+
+            // 4) Trades por portfolio (ruta alternativa)
+            try {
+              const r = await ib("GET", `/portfolio/${acct}/transactions?currency=BASE`);
+              summary[acct].portfolio_transactions = Array.isArray(r) ? { count: r.length, sample: r.slice(0, 2) } : { raw: r };
+            } catch(e) { summary[acct].portfolio_transactions = { error: e.message }; }
+          }
+
+          // 5) Endpoint global sin acct
+          try {
+            const r = await ib("GET", `/iserver/account/trades?days=1`);
+            summary._global_trades = Array.isArray(r) ? { count: r.length, sample: r.slice(0, 2) } : { raw: r };
+          } catch(e) { summary._global_trades = { error: e.message }; }
+
+          // 6) Auth status
+          try {
+            const r = await ib("GET", `/iserver/auth/status`);
+            summary._auth_status = r;
+          } catch(e) { summary._auth_status = { error: e.message }; }
+
+          return json(summary, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
       if (path === "/api/ib-trades" && request.method === "GET") {
         try {
           const { lst, consumerKey, accessToken } = await getIBSession(env);
