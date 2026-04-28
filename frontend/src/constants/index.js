@@ -149,6 +149,7 @@ export const HOME_TAB_GROUPS = [
       {id:"gastos",lbl:"Gastos",ico:"💸"},
       {id:"presupuesto",lbl:"Presupuesto",ico:"📋"},
       {id:"nomina",lbl:"Mi Nomina",ico:"🧾"},
+      {id:"transferencias",lbl:"Transferencias",ico:"🏦"},
       {id:"patrimonio",lbl:"Patrimonio",ico:"🏛"},
       {id:"fire",lbl:"FIRE",ico:"🔥"},
       {id:"drip",lbl:"DRIP",ico:"♻️"},

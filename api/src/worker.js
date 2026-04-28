@@ -7545,6 +7545,107 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return json({ success: true }, corsHeaders);
       }
 
+      // ─── TRANSFERENCIAS (deposits / withdrawals between bank ↔ IB) ────────────
+
+      // GET /api/transferencias — historial completo con filtros opcionales.
+      // Query params: ?account=U5372268 &tipo=DEPOSIT &from=2024-01-01 &to=2024-12-31
+      if (path === "/api/transferencias" && request.method === "GET") {
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS transferencias (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          fecha TEXT NOT NULL,
+          account_id TEXT,
+          tipo TEXT NOT NULL,
+          importe REAL NOT NULL,
+          divisa TEXT NOT NULL DEFAULT 'USD',
+          descripcion TEXT,
+          source TEXT DEFAULT 'manual',
+          flex_id TEXT UNIQUE,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now'))
+        )`).run();
+        const account = url.searchParams.get("account");
+        const tipo = url.searchParams.get("tipo");
+        const from = url.searchParams.get("from");
+        const to = url.searchParams.get("to");
+        let sql = "SELECT * FROM transferencias WHERE 1=1";
+        const binds = [];
+        if (account) { sql += " AND account_id = ?"; binds.push(account); }
+        if (tipo) { sql += " AND tipo = ?"; binds.push(tipo.toUpperCase()); }
+        if (from) { sql += " AND fecha >= ?"; binds.push(from); }
+        if (to) { sql += " AND fecha <= ?"; binds.push(to); }
+        sql += " ORDER BY fecha DESC, id DESC LIMIT 1000";
+        const { results } = await env.DB.prepare(sql).bind(...binds).all();
+
+        // Totales agregados (todas las cuentas, todas las divisas → USD aprox 1:1
+        // para EUR usamos rate del row si está; si no, dejamos divisa cruda).
+        const totals = { deposits: 0, withdraws: 0, internal: 0, net: 0, count: results.length };
+        for (const r of results) {
+          if (r.tipo === "DEPOSIT") totals.deposits += r.importe;
+          else if (r.tipo === "WITHDRAW") totals.withdraws += r.importe; // negative
+          else if (r.tipo === "INTERNAL") totals.internal += r.importe;
+        }
+        totals.net = totals.deposits + totals.withdraws; // withdraws are negative
+
+        return json({ items: results, totals }, corsHeaders);
+      }
+
+      // POST /api/transferencias — entrada manual (source='manual')
+      if (path === "/api/transferencias" && request.method === "POST") {
+        const b = await parseBody(request);
+        const fechaErr = validateFecha(b.fecha);
+        if (fechaErr) return validationError(fechaErr, corsHeaders);
+        const importeErr = validateNumber(b.importe, 'importe');
+        if (importeErr) return validationError(importeErr, corsHeaders);
+        const tipo = (b.tipo || "").toUpperCase();
+        if (!["DEPOSIT", "WITHDRAW", "INTERNAL"].includes(tipo)) {
+          return validationError("tipo debe ser DEPOSIT, WITHDRAW o INTERNAL", corsHeaders);
+        }
+        // Auto-sign: WITHDRAW siempre negativo, DEPOSIT siempre positivo
+        let importe = parseFloat(b.importe);
+        if (tipo === "WITHDRAW" && importe > 0) importe = -importe;
+        if (tipo === "DEPOSIT" && importe < 0) importe = -importe;
+        const r = await env.DB.prepare(
+          `INSERT INTO transferencias (fecha, account_id, tipo, importe, divisa, descripcion, source)
+           VALUES (?, ?, ?, ?, ?, ?, 'manual')`
+        ).bind(
+          b.fecha,
+          b.account_id || null,
+          tipo,
+          importe,
+          (b.divisa || "USD").toUpperCase(),
+          b.descripcion || null
+        ).run();
+        return json({ success: true, id: r.meta.last_row_id }, corsHeaders);
+      }
+
+      // PATCH /api/transferencias/:id — editar (típicamente para añadir descripción)
+      if (path.startsWith("/api/transferencias/") && request.method === "PATCH") {
+        const id = parseInt(path.split("/").pop(), 10);
+        if (!id) return validationError("id inválido", corsHeaders);
+        const b = await parseBody(request);
+        const fields = [];
+        const binds = [];
+        for (const k of ["fecha", "account_id", "tipo", "importe", "divisa", "descripcion"]) {
+          if (b[k] !== undefined) {
+            fields.push(`${k} = ?`);
+            binds.push(k === "tipo" ? String(b[k]).toUpperCase() : b[k]);
+          }
+        }
+        if (!fields.length) return validationError("nada que actualizar", corsHeaders);
+        fields.push("updated_at = datetime('now')");
+        binds.push(id);
+        await env.DB.prepare(`UPDATE transferencias SET ${fields.join(", ")} WHERE id = ?`).bind(...binds).run();
+        return json({ success: true }, corsHeaders);
+      }
+
+      // DELETE /api/transferencias/:id
+      if (path.startsWith("/api/transferencias/") && request.method === "DELETE") {
+        const id = parseInt(path.split("/").pop(), 10);
+        if (!id) return validationError("id inválido", corsHeaders);
+        await env.DB.prepare("DELETE FROM transferencias WHERE id = ?").bind(id).run();
+        return json({ success: true }, corsHeaders);
+      }
+
       // ─── MARGIN INTEREST HISTORY ────────────────────
 
       // GET /api/margin-interest — historial completo
@@ -9192,9 +9293,69 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             try { await env.DB.batch(batch); divsInserted += batch.length; } catch { divsSkipped += batch.length; }
           }
 
+          // ─── Import transferencias (deposits / withdrawals / internal transfers) ───
+          // Filtra cashTxns por tipo: solo movimientos REALES de dinero entre el banco
+          // del usuario y IBKR. Ignora dividendos, WHT, comisiones, intereses, etc.
+          // Dedup por flex_id (transactionID) — si el mismo XML viene 2 veces, no
+          // duplicamos.
+          await env.DB.prepare(`CREATE TABLE IF NOT EXISTS transferencias (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fecha TEXT NOT NULL,
+            account_id TEXT,
+            tipo TEXT NOT NULL,
+            importe REAL NOT NULL,
+            divisa TEXT NOT NULL DEFAULT 'USD',
+            descripcion TEXT,
+            source TEXT DEFAULT 'manual',
+            flex_id TEXT UNIQUE,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now'))
+          )`).run();
+
+          let transfsInserted = 0, transfsSkipped = 0;
+          const transfStmts = [];
+          for (const c of cashTxns) {
+            const rawType = (c.type || "").toLowerCase();
+            // Solo incluimos depósitos / retiradas / transferencias internas
+            const isDeposit = rawType.includes("deposit");
+            const isWithdraw = rawType.includes("withdraw");
+            const isInternal = rawType.includes("internal transfer");
+            if (!isDeposit && !isWithdraw && !isInternal) continue;
+            const txnId = c.transactionID || c.tradeID || `${c.tradeDate || ""}-${c.accountId || ""}-${c.amount || ""}`;
+            const fecha = c.settleDate
+              ? `${c.settleDate.slice(0,4)}-${c.settleDate.slice(4,6)}-${c.settleDate.slice(6,8)}`
+              : c.tradeDate
+                ? `${c.tradeDate.slice(0,4)}-${c.tradeDate.slice(4,6)}-${c.tradeDate.slice(6,8)}`
+                : null;
+            if (!fecha) continue;
+            const importe = parseFloat(c.amount) || 0;
+            if (importe === 0) continue;
+            // Tipo normalizado: DEPOSIT (entra a IB), WITHDRAW (sale de IB), INTERNAL (entre cuentas IB)
+            let tipo;
+            if (isInternal) tipo = "INTERNAL";
+            else if (importe > 0) tipo = "DEPOSIT";
+            else tipo = "WITHDRAW";
+            transfStmts.push(env.DB.prepare(
+              `INSERT OR IGNORE INTO transferencias
+                 (fecha, account_id, tipo, importe, divisa, descripcion, source, flex_id)
+               VALUES (?, ?, ?, ?, ?, ?, 'flex', ?)`
+            ).bind(fecha, c.accountId || null, tipo, importe, c.currency || "USD", c.description || rawType, txnId));
+          }
+          for (let i = 0; i < transfStmts.length; i += 80) {
+            const batch = transfStmts.slice(i, i + 80);
+            try {
+              const results = await env.DB.batch(batch);
+              for (const r of results) {
+                if (r.meta?.changes > 0) transfsInserted++;
+                else transfsSkipped++;
+              }
+            } catch { transfsSkipped += batch.length; }
+          }
+
           return json({
             trades: { total: trades.length, inserted: tradesInserted, skipped: tradesSkipped },
             dividends: { total: cashTxns.filter(c => (c.type||"").toLowerCase().includes("dividend")).length, inserted: divsInserted, skipped: divsSkipped },
+            transferencias: { total: transfStmts.length, inserted: transfsInserted, skipped: transfsSkipped },
             cashTransactions: { total: cashTxns.length },
           }, corsHeaders);
         } catch (e) {
