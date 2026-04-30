@@ -1131,8 +1131,10 @@ return (
         </div>}
       </div>
     </div>
-    {latest.br > 0 && (() => {
-      const total = (latest.pu || 1);
+    {latest.br > 0 && latest.pu > 0 && (() => {
+      // Audit 2026-05-01: antes era `latest.pu || 1` → si pu=0 daba porcentajes de millones de %.
+      // Ahora exige pu > 0 antes de calcular (skip render si no).
+      const total = latest.pu;
       const brokerPct = ((latest.br || 0) / total * 100);
       const bankPct = ((latest.bk || 0) * (latest.fx || 1.08) / total * 100);
       const otherPct = Math.max(0, 100 - brokerPct - bankPct);

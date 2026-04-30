@@ -2422,6 +2422,51 @@ const TELEGRAM_EMOJI = {
   brain: '🧠', defense: '🛡️',
 };
 
+// ─── Logging estructurado + error budget (audit 2026-05-01) ─────────────
+// Antes: 127 catches silenciosos + 67 console.error sin alerta = bugs ocultos durante días.
+// Ahora: logEvent persiste en D1 + Telegram en CRITICAL, errorBudget cuenta y avisa al pasar threshold.
+
+async function logEvent(env, level, event, fields = {}) {
+  const line = JSON.stringify({ ts: Date.now(), level, event, ...fields });
+  if (level === 'critical' || level === 'error') console.error(line);
+  else console.log(line);
+  if (level === 'critical') {
+    // Fire-and-forget Telegram, no await en hot path
+    sendTelegram(env, {
+      text: `🔴 *${event}*\n\`\`\`\n${line.slice(0, 500)}\n\`\`\``,
+      severity: 'critical',
+      source: event,
+    }).catch(() => {});
+  }
+}
+
+async function errorBudget(env, eventKey, threshold = 10) {
+  const day = new Date().toISOString().slice(0, 10);
+  try {
+    await env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS errors_budget(
+        event TEXT, day TEXT, count INTEGER DEFAULT 0,
+        last_at TEXT, last_message TEXT,
+        PRIMARY KEY(event, day))`
+    ).run();
+    const r = await env.DB.prepare(
+      `INSERT INTO errors_budget(event, day, count, last_at)
+       VALUES (?, ?, 1, datetime('now'))
+       ON CONFLICT(event, day) DO UPDATE SET count = count + 1, last_at = datetime('now')
+       RETURNING count`
+    ).bind(eventKey, day).first();
+    if (r?.count === threshold) {
+      sendTelegram(env, {
+        text: `⚠️ Error budget hit: *${eventKey}* alcanzó ${threshold} errores hoy. Investigar.`,
+        severity: 'warn',
+        source: 'error_budget',
+      }).catch(() => {});
+    }
+  } catch (e) {
+    console.error("errorBudget meta-error:", e.message);
+  }
+}
+
 async function sendTelegram(env, { text, severity = 'info', source = 'system' }) {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) {
     // Log silently — Telegram not configured yet
@@ -2601,8 +2646,19 @@ const ALERT_SEVERITY_EMOJI = {
 async function evalOpenTradeRules(env, trade) {
   // Devuelve array de [trigger_type, severity, payload] para los triggers que dispara este trade.
   const triggers = [];
+  // Audit 2026-05-01: DTE basado en ET (mercado US), no UTC ni Madrid.
+  // Antes: a las 22:00 UTC del día previo expiry, DTE=0 → dispara "expira HOY"
+  // cuando en ET son las 17:00 (mercado aún abierto) y expira mañana.
+  // Ahora: comparamos fechas string ET (YYYY-MM-DD) sin aritmética ms.
+  const todayET = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date());
+  const expiryStr = trade.expiry; // ya 'YYYY-MM-DD'
+  // Diferencia en días = (expiry - todayET) días naturales en ET
+  const dte = (() => {
+    const a = new Date(expiryStr + 'T00:00:00Z').getTime();
+    const b = new Date(todayET + 'T00:00:00Z').getTime();
+    return Math.max(0, Math.round((a - b) / 86400000));
+  })();
   const expiry = new Date(trade.expiry).getTime();
-  const dte = Math.max(0, Math.round((expiry - Date.now()) / 86400000));
   const legs = (() => { try { return JSON.parse(trade.legs_json); } catch { return []; } })();
 
   // Quote live: usar bridge T3 si configurado, fallback a FMP+BS
@@ -11871,7 +11927,20 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           // Execute in batches of 80
           for (let i = 0; i < tradeStmts.length; i += 80) {
             const batch = tradeStmts.slice(i, i + 80);
-            try { await env.DB.batch(batch); tradesInserted += batch.length; } catch { tradesSkipped += batch.length; }
+            try {
+              await env.DB.batch(batch);
+              tradesInserted += batch.length;
+            } catch (e) {
+              // Audit 2026-05-01: antes era catch silencioso → batch loss invisible (BX pattern).
+              // Ahora loggea + error budget para que se sepa si pasa repetidamente.
+              tradesSkipped += batch.length;
+              await logEvent(env, 'critical', 'flex.batch_failed', {
+                batch_size: batch.length,
+                error: e.message?.slice(0, 200),
+                first_ticker: trades[i]?.symbol,
+              });
+              await errorBudget(env, 'flex.batch_failed', 5);
+            }
           }
 
           // Import dividends — aggregate by (settleDate, symbol) across accounts

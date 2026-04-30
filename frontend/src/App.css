@@ -194,9 +194,26 @@ input[type=number] { -moz-appearance: textfield; }
 }
 .ar-tab-btn[data-active="true"]::after { transform: scaleX(1); }
 
+/* ═══ Safe area iPhone (audit 2026-05-01) ═══ */
+/* Notch + Dynamic Island + home indicator no deben tapar contenido */
+header { padding-top: env(safe-area-inset-top, 0); }
+body, html {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+/* Botones flotantes (FAB, scroll-top) deben respetar el home indicator */
+[style*="position: fixed"][style*="bottom"] {
+  bottom: max(20px, calc(20px + env(safe-area-inset-bottom, 0))) !important;
+}
+
 /* ═══ Mobile Responsive ═══ */
 @media (max-width: 768px) {
   main { padding: 12px 8px !important; }
+  /* Override inline padding del <main> en App.jsx que aplastaba todo */
+  main[style*="padding"] { padding: 12px 8px !important; }
+  /* iOS Safari: inputs con font<16px provocan auto-zoom; forzar 16px en mobile */
+  input, select, textarea { font-size: 16px !important; }
+  /* Touch targets mínimo 44pt según Apple HIG (audit reportó botones 24px) */
+  button { min-height: 36px; }
 
   /* Home tabs: horizontal scroll */
   .ar-home-tabs {
