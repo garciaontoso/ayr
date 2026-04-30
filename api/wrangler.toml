@@ -21,15 +21,23 @@ database_id = "d9dc97c1-1ea5-4e05-b637-89e52229d099"
 binding = "EARNINGS_R2"
 bucket_name = "ayr-earnings-archive"
 
-# Crons DESACTIVADOS (2026-04-19) — a petición del usuario para eliminar
-# todo gasto automático en API. Las consultas Oracle / agentes ahora son
-# ON-DEMAND: click de botón en la UI o petición manual (POST /api/agent-run).
-# Ahorro estimado: ~$33-45/mes.
+# Crons LLM (Oracle / agentes) DESACTIVADOS desde 2026-04-19 para evitar coste IA.
+# Esos siguen ON-DEMAND.
 #
-# Schedules preservados como referencia:
-# [triggers]
-# crons = [
-#   "0 6 * * 1",     # Weekly digest (Monday 06:00 UTC)
-#   "0 13 * * 1-5",  # Daily AI agents pipeline
-#   "30 14 * * 1-5", # Research auto-scan
-# ]
+# Cron Flex sync ACTIVADO 2026-05-01: solo es 1 HTTP request al NAS bridge
+# que pulla IB Flex y mete dividendos+trades en D1. NO usa Claude API.
+# Coste: 30 invocaciones/mes × $0 (free tier 100K/día) = $0.
+#
+# Cron schedule: "30 7 * * 1-5"  →  07:30 UTC = 09:30 Madrid (CEST verano)
+#                                   o  08:30 Madrid (CET invierno).
+# Si quieres exacto 08:30 Madrid año redondo, hay que partir en 2 crons o
+# aceptar el desfase de 1h en cambio de hora.
+[triggers]
+crons = [
+  "30 7 * * 1-5",   # IB Flex sync diario lun-vie ~08:30 Madrid invierno / 09:30 verano
+]
+#
+# Crons antiguos preservados como referencia (DESACTIVADOS):
+# - "0 6 * * 1"     Weekly digest LLM (Monday 06:00 UTC)
+# - "0 13 * * 1-5"  Daily AI agents pipeline
+# - "30 14 * * 1-5" Research auto-scan

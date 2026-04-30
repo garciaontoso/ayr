@@ -9,9 +9,8 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install --no-audit --no-fund
 
-# Copy source
+# Copy source (test dir is optional — skipped if not present)
 COPY src ./src
-COPY test ./test
 
 # ---------- Stage 2: production ----------
 FROM node:20-alpine AS prod

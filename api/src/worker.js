@@ -21208,145 +21208,62 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
     }
   },
 
-  // Cloudflare Cron Trigger — runs daily at 9:00 UTC (11:00 Madrid) Mon-Fri
+  // Cloudflare Cron Trigger
   async scheduled(event, env, ctx) {
-    // KILL-SWITCH (2026-04-19): usuario ha pedido CERO consumo automático
-    // Anthropic API. Aunque los triggers en wrangler.toml están comentados,
-    // si Cloudflare tuviera un cron residual activo, este early-return
-    // garantiza que scheduled() nunca llama a agentes/Opus/Research.
-    console.log("[scheduled] KILL-SWITCH activo — no se ejecuta nada");
-    return;
-    // ─── CÓDIGO ORIGINAL SILENCIADO (mantener para referencia futura) ───
-    // eslint-disable-next-line no-unreachable
     const cronExpr = event?.cron || "";
-    const isWeeklyDigestCron  = cronExpr === "0 6 * * 1";
-    const isDailyAgentsCron   = cronExpr === "0 13 * * 1-5";
-    const isResearchScanCron  = cronExpr === "30 14 * * 1-5";
-    // Fallback: if cron expr unknown (on-demand), run everything like the
-    // legacy behaviour so manual calls from dev never skip work.
-    const runEverything = !isWeeklyDigestCron && !isDailyAgentsCron && !isResearchScanCron;
 
-    try {
-      await ensureMigrations(env);
-      const result = await performAutoSync(env);
-      console.log("IB auto-sync completed:", JSON.stringify(result));
-    } catch(e) {
-      console.error("IB auto-sync cron failed:", e.message);
-    }
-    // Cache P&L separately (auto-sync may succeed but P&L cache is independent)
-    try {
-      const pnlResult = await cachePnlFromIB(env);
-      console.log("P&L cache completed:", JSON.stringify(pnlResult));
-    } catch(e) {
-      console.error("P&L cache cron failed:", e.message);
-    }
-    // Auto patrimonio snapshot on 1st-3rd of each month
-    try {
-      const patrimonioResult = await autoPatrimonioSnapshot(env);
-      console.log("Patrimonio auto-snapshot:", JSON.stringify(patrimonioResult));
-    } catch(e) {
-      console.error("Patrimonio auto-snapshot failed:", e.message);
-    }
-    // Refresh div_ttm & div_yield for all positions (daily)
-    try {
-      const divResult = await refreshDivTTM(env);
-      console.log("div_ttm refresh completed:", JSON.stringify(divResult));
-    } catch(e) {
-      console.error("div_ttm refresh failed:", e.message);
-    }
-    // Refresh FX rates in positions.fx so foreign tickers stay current.
-    // Added 2026-04-18 after audit found rates were 1-3% stale.
-    try {
-      const fxResp = await fetch("https://api.frankfurter.dev/v1/latest?base=USD&symbols=EUR,GBP,CAD,AUD,HKD,JPY,CHF,DKK,SEK,NOK,SGD,CNY");
-      if (fxResp.ok) {
-        const raw = await fxResp.json();
-        const fxMap = raw.rates ? { USD: 1, ...raw.rates, GBX: raw.rates.GBP } : null;
-        if (fxMap) {
-          const toUsd = {};
-          for (const [c, r] of Object.entries(fxMap)) if (r > 0) toUsd[c] = 1 / r;
-          toUsd.USD = 1;
-          const { results: pos } = await env.DB.prepare("SELECT ticker, currency, market_value FROM positions WHERE shares > 0").all();
-          const stmts = [];
-          for (const p of (pos || [])) {
-            const fx = toUsd[p.currency || 'USD'];
-            if (!fx) continue;
-            stmts.push(env.DB.prepare("UPDATE positions SET fx = ?, usd_value = ?, updated_at = datetime('now') WHERE ticker = ?")
-              .bind(fx, Number(p.market_value || 0) * fx, p.ticker));
-          }
-          for (let i = 0; i < stmts.length; i += 50) await env.DB.batch(stmts.slice(i, i + 50));
-          console.log(`FX refresh: ${stmts.length} positions updated`);
+    // ─── Flex Sync diario (07:30 UTC ≈ 08:30 Madrid invierno / 09:30 verano) ───
+    // Invoca el bridge NAS pasándole el token (que está en wrangler secret).
+    // El bridge llama a IB Flex Web Service, recibe XML, lo manda al worker
+    // /api/ib-flex-import → mete trades + dividendos en D1 → notifica Telegram.
+    // Coste: 1 HTTP request, $0 (no LLM).
+    if (cronExpr === "30 7 * * 1-5") {
+      console.log("[scheduled] Flex sync cron tick");
+      try {
+        if (!env.TASTYTRADE_BRIDGE_URL && !env.IB_BRIDGE_URL) {
+          console.warn("[scheduled] no bridge URL configured");
+          return;
         }
-      }
-    } catch(e) {
-      console.error("FX refresh failed:", e.message);
-    }
-    // Check dividend cuts/raises
-    try {
-      const divChangeResult = await checkDividendChanges(env);
-      console.log("Dividend change check completed:", JSON.stringify(divChangeResult));
-    } catch(e) {
-      console.error("Dividend change check failed:", e.message);
-    }
-    // Run AI agents pipeline only on daily cron (or on-demand).
-    // Skip on the Monday 06:00 digest cron to avoid double-runs.
-    if (isDailyAgentsCron || runEverything) {
-      ctx.waitUntil((async () => {
+        const bridgeUrl = env.IB_BRIDGE_URL || "https://ib.onto-so.com";
+        const bridgeToken = env.IB_BRIDGE_TOKEN || env.BRIDGE_AUTH_TOKEN;
+        const flexToken = env.IB_FLEX_TOKEN || "187746530027081663959936";
+        if (!bridgeToken) {
+          console.warn("[scheduled] no IB_BRIDGE_TOKEN, skipping flex sync");
+          return;
+        }
+        const resp = await fetch(`${bridgeUrl.replace(/\/$/, "")}/flex/sync`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${bridgeToken}`,
+            "X-AYR-Flex-Token": flexToken,
+            "Content-Type": "application/json",
+          },
+          signal: AbortSignal.timeout(120000),
+        });
+        const json = await resp.json().catch(() => ({}));
+        console.log("[scheduled] flex sync response:", resp.status, JSON.stringify(json).slice(0, 300));
+        if (!resp.ok) {
+          await sendTelegram(env, {
+            text: `⚠️ *Flex sync cron falló*\nHTTP ${resp.status}: ${JSON.stringify(json).slice(0, 200)}`,
+            severity: 'warn', source: 'flex_cron',
+          });
+        }
+      } catch (e) {
+        console.error("[scheduled] flex sync failed:", e.message);
         try {
-          const agentResults = await runAllAgents(env);
-          console.log("AI agents completed:", JSON.stringify(agentResults));
-        } catch(e) {
-          console.error("AI agents cron failed:", e.message);
-        }
-      })());
-    }
-    // Evaluate custom alert rules
-    try {
-      const rulesResult = await evaluateAlertRules(env);
-      console.log("Alert rules evaluation completed:", JSON.stringify(rulesResult));
-    } catch(e) {
-      console.error("Alert rules evaluation failed:", e.message);
-    }
-    // Smart Alerts IA — narrative scan (runs daily at 7 AM ET via cron or on-demand)
-    // Scans transcripts, 8-K filings, analyst ratings, dividend events.
-    // Cron is currently disabled (see wrangler.toml). Re-enable [triggers] to run daily.
-    try {
-      const iaScanResult = await runIANarrativeScan(env, { daysBack: 2 });
-      console.log("IA narrative scan completed:", JSON.stringify(iaScanResult));
-    } catch(e) {
-      console.error("IA narrative scan failed:", e.message);
-    }
-    // Weekly Digest — only on Monday 06:00 UTC cron (or on-demand).
-    // Skip on the daily 09:00 weekday cron so we don't rebuild on Tue-Fri.
-    if (isWeeklyDigestCron || runEverything) {
-      const todayUTC = new Date();
-      if (todayUTC.getUTCDay() === 1 || isWeeklyDigestCron) {
-        ctx.waitUntil((async () => {
-          try {
-            const digestResult = await buildWeeklyDigest(env);
-            console.log("Weekly digest generated:", digestResult.week_start, "actions:", digestResult.actions?.length);
-          } catch(e) {
-            console.error("Weekly digest generation failed:", e.message);
-          }
-        })());
+          await sendTelegram(env, {
+            text: `⚠️ *Flex sync cron error*\n${e.message?.slice(0, 200)}`,
+            severity: 'warn', source: 'flex_cron',
+          });
+        } catch {}
       }
+      return; // Solo ejecutamos flex sync; no más nada en este tick
     }
-    // Research auto-scan — only on 14:30 UTC weekday cron (or on-demand).
-    // Runs ~90 min after runAllAgents so agent_insights are fully populated
-    // before contradiction detection starts. Budget: ~$3-5/day worst case.
-    if (isResearchScanCron || runEverything) {
-      ctx.waitUntil((async () => {
-        try {
-          console.log("Research auto-scan starting...");
-          const scanResult = await runAutoInvestigations(env, { maxPerDay: 3 });
-          console.log("Research auto-scan completed: scanned=%d investigated=%d cost=$%s",
-            scanResult.scanned ?? 0,
-            scanResult.investigated ?? 0,
-            (scanResult.totalCost ?? 0).toFixed(2));
-        } catch(e) {
-          console.error("Research auto-scan cron failed:", e.message);
-        }
-      })());
-    }
+
+    // ─── KILL-SWITCH para crons LLM (2026-04-19) ───
+    // Si por error se reactiva otro cron (Oracle/agentes), no se ejecuta.
+    console.log("[scheduled] KILL-SWITCH activo para crons LLM — no se ejecuta nada");
+    return;
   },
 };
 

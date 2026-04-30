@@ -130,9 +130,10 @@ if (isEntry) {
     // ib-client schedules its own reconnect, so we don't crash.
   });
 
-  // Schedule daily Flex sync (8:30 Madrid time). Independiente de Mac.
-  // Si IB_FLEX_TOKEN no está configurado, el job se skip silenciosamente.
-  startScheduledFlexSync();
+  // NOTA: el cron diario del Flex sync NO corre en el bridge.
+  // Lo dispara el WORKER (Cloudflare cron) usando el token que ya tiene en
+  // sus secrets, e invoca este endpoint /flex/sync con X-AYR-Flex-Token header.
+  // Así no hay que duplicar el token en el .env del NAS.
 
   // Graceful shutdown
   const shutdown = (signal) => {
