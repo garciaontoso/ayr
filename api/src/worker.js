@@ -2552,19 +2552,22 @@ async function runBacktestBPS({ env, params, periodFrom, periodTo, initialCapita
       const pnl = openTrade.creditCash - currentValue;
       const pnlPct = pnl / openTrade.maxRiskCash;
 
-      // Reglas de cierre estándar para credit spreads:
-      // - profit target: cerrar al 50% del max profit (estándar institucional)
-      // - stop loss: cerrar si pérdida > 200% del credit (limita gamma)
+      // Reglas de cierre estándar + DEFENSAS PROFESIONALES (Phase 1B):
+      // - profit target: cerrar al X% del max profit
+      // - stop loss: cerrar si pérdida > X% del credit
       // - expira ese día
-      // - "DTE management": cerrar cuando faltan <= maxDteClose días (solo aplica
-      //   si dteTarget > maxDteClose, e.g. 45 DTE entry con close@21 DTE).
-      //   Para 10 DTE entry con maxDteClose=21, no aplica.
+      // - "21 DTE roll" (params.dte_management_at): cuando faltan <=N días,
+      //   cerramos para evitar gamma acceleration. Si dteTarget > maxDteClose.
+      // - "touch close" (params.touch_close): cierre inmediato si subyacente
+      //   toca el short strike (cut losses agresivo).
       const dteManagementApplies = dteTarget > maxDteClose;
+      const touchedShort = params.touch_close && px.close <= openTrade.shortStrike;
       const shouldClose =
         pnlPct >= profitTarget ||
         pnlPct <= -stopLoss ||
         dte <= 0 ||
-        (dteManagementApplies && dte <= maxDteClose);
+        (dteManagementApplies && dte <= maxDteClose) ||
+        touchedShort;
 
       if (shouldClose) {
         const fees = feePerLeg * 2 * openTrade.contracts;
@@ -2580,16 +2583,22 @@ async function runBacktestBPS({ env, params, periodFrom, periodTo, initialCapita
           exit_debit: mtmDebit,
           pnl: realizedPnl,
           pnl_pct: pnlPct * 100,
-          reason: pnlPct >= profitTarget ? "profit_target" : pnlPct <= -stopLoss ? "stop_loss" : dte <= 0 ? "expired" : "max_dte",
+          reason:
+            pnlPct >= profitTarget ? "profit_target" :
+            pnlPct <= -stopLoss ? "stop_loss" :
+            dte <= 0 ? "expired" :
+            touchedShort ? "touch_close" : "max_dte",
         });
         openTrade = null;
       }
     }
 
-    // 2) Si no hay trade abierto y es lunes (o primer día), abrir nuevo
+    // 2) Si no hay trade abierto y es día de entrada, abrir nuevo
+    // Por defecto entries solo en lunes — pero param entry_days permite [1,3,5] etc
     if (!openTrade) {
       const dow = new Date(date).getDay();  // 0=Sun, 1=Mon, ...
-      if (dow === 1) {
+      const entryDays = params.entry_days || [1];  // default lunes
+      if (entryDays.includes(dow)) {
         const T = dteTarget / 365;
         const shortStrike = strikeForDelta(px.close, r, sigma, T, false, shortDelta);
         const longStrike = strikeForDelta(px.close, r, sigma, T, false, longDelta);
