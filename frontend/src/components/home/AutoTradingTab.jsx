@@ -12,11 +12,12 @@ import { API_URL } from '../../constants/index.js';
 // tiene Read-Only API enabled. Cualquier ejecución la hace el usuario en TWS.
 
 const SUB_TABS = [
-  { id: 'catalog',   lbl: '📚 Catálogo' },
-  { id: 'backtest',  lbl: '🧪 Backtest' },
+  { id: 'today',     lbl: '📅 Hoy' },
+  { id: 'autoclose', lbl: '🛡️ Auto-Close' },
   { id: 'fishing',   lbl: '🎣 Pescando' },
   { id: 'brain',     lbl: '🧠 Brain' },
-  { id: 'today',     lbl: '📅 Hoy' },
+  { id: 'catalog',   lbl: '📚 Catálogo' },
+  { id: 'backtest',  lbl: '🧪 Backtest' },
   { id: 'paper',     lbl: '📊 Paper' },
 ];
 
@@ -55,10 +56,9 @@ export default function AutoTradingTab() {
         color: 'var(--text-secondary)',
         lineHeight: 1.55,
       }}>
-        ⚠️ <b>Sistema en desarrollo (Fase 1).</b> Backtest histórico con Black-Scholes + VIX como IV proxy.
-        Estrategias se validan primero en backtest, luego paper trading, luego con dinero real <i>solo</i>
-        si los números justifican el riesgo. <b>Read-Only API enabled</b> en tu cuenta IBKR — el sistema
-        nunca ejecuta órdenes, solo identifica y propone.
+        ⚠️ <b>Sistema NO ejecuta trades.</b> Solo SUGIERE y AVISA. Tú abres en TWS/Tastyworks manual.
+        Read-Only API en IBKR. Cuando uses fishing orders, el sistema te avisa cuando se cumpla el target.
+        Cuando un trade abierto necesite atención (BREACH, STOP_2X, etc), te llega Telegram.
       </div>
 
       {/* Sub-tabs nav */}
@@ -81,11 +81,12 @@ export default function AutoTradingTab() {
         ))}
       </div>
 
-      {subTab === 'catalog' && <CatalogPanel strategies={strategies} loading={loading} />}
-      {subTab === 'backtest' && <BacktestPanel strategies={strategies} />}
+      {subTab === 'today' && <TodayPanel />}
+      {subTab === 'autoclose' && <AutoClosePanel />}
       {subTab === 'fishing' && <FishingPanel strategies={strategies} />}
       {subTab === 'brain' && <BrainPanel />}
-      {subTab === 'today' && <TodayPanel />}
+      {subTab === 'catalog' && <CatalogPanel strategies={strategies} loading={loading} />}
+      {subTab === 'backtest' && <BacktestPanel strategies={strategies} />}
       {subTab === 'paper' && <PaperPanel />}
     </div>
   );
@@ -315,6 +316,240 @@ function EquityChart({ curve }) {
         <text x={padX} y={height - 4} fontSize="9" fill="var(--text-tertiary)">${(min/1000).toFixed(0)}K</text>
         <text x={width - padX - 60} y={padY - 4} fontSize="9" fill="var(--text-tertiary)">{curve[curve.length - 1].date}</text>
       </svg>
+    </div>
+  );
+}
+
+// ── Sub-panel: Auto-Close (open trades + alerts) ──────────────────────────
+
+function AutoClosePanel() {
+  const [trades, setTrades] = useState([]);
+  const [alerts, setAlerts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [scanning, setScanning] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [scanResult, setScanResult] = useState(null);
+  const [error, setError] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [t, a] = await Promise.all([
+        fetch(`${API_URL}/api/auto-close/open-trades?status=open`).then(r => r.json()),
+        fetch(`${API_URL}/api/auto-close/alerts?limit=50`).then(r => r.json()),
+      ]);
+      setTrades(t.trades || []);
+      setAlerts(a.alerts || []);
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const scan = async () => {
+    setScanning(true); setError(null);
+    try {
+      const r = await fetch(`${API_URL}/api/auto-close/scan`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dry_run: false }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setScanResult(d);
+      load();
+    } catch (e) { setError(e.message); }
+    finally { setScanning(false); }
+  };
+
+  const closeTrade = async (hash) => {
+    if (!confirm('Marcar este trade como cerrado?')) return;
+    await fetch(`${API_URL}/api/auto-close/open-trades/${hash}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ close_reason: 'manual' }),
+    });
+    load();
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button onClick={() => setShowForm(!showForm)} style={primaryBtnStyle}>
+          {showForm ? '✕ Cancelar' : '+ Registrar trade abierto'}
+        </button>
+        <button onClick={scan} disabled={scanning} style={{
+          ...secondaryBtnStyle,
+          background: scanning ? 'var(--text-tertiary)' : 'rgba(96,165,250,.15)',
+          color: scanning ? '#000' : '#60a5fa',
+          border: '1px solid rgba(96,165,250,.4)',
+        }}>{scanning ? 'Escaneando…' : '🛡️ Escanear ahora'}</button>
+        <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+          {trades.length} open trades · {alerts.filter(a => a.severity === 'CRITICAL' && !a.ack).length} alertas críticas pendientes
+        </div>
+      </div>
+
+      {error && <ErrorBox text={error} />}
+
+      {scanResult && (
+        <div style={{ padding: 10, marginBottom: 12, background: 'rgba(96,165,250,.08)', border: '1px solid rgba(96,165,250,.3)', borderRadius: 6, fontSize: 11 }}>
+          <b>Escaneo:</b> {scanResult.evaluated} trades, {scanResult.fired} alertas disparadas, {scanResult.deduped} deduped.
+        </div>
+      )}
+
+      {showForm && <OpenTradeForm onSaved={() => { setShowForm(false); load(); }} />}
+
+      {/* Open trades */}
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 8 }}>Open trades vigilados</div>
+      {loading ? <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-tertiary)' }}>Cargando…</div>
+        : !trades.length ? <EmptyState icon="🛡️" title="Sin trades abiertos vigilados" subtitle="Cuando abras un BPS/IC/CSP/etc en TWS, regístralo aquí. El sistema lo monitorea cada 15 min y avisa Telegram cuando hay que cerrar (BREACH, STOP_2X, DTE_21, profit 50%, etc)." />
+        : (
+          <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse', marginBottom: 14 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                <th style={th}>Ticker</th>
+                <th style={th}>Strategy</th>
+                <th style={th}>Spread</th>
+                <th style={th}>Expira</th>
+                <th style={{...th, textAlign:'right'}}>Credit</th>
+                <th style={{...th, textAlign:'right'}}>Δ open</th>
+                <th style={{...th, textAlign:'right'}}>VIX open</th>
+                <th style={th}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {trades.map(t => (
+                <tr key={t.trade_hash} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{...td, fontWeight: 700}}>{t.symbol}</td>
+                  <td style={td}>{t.strategy}</td>
+                  <td style={td}>{t.short_strike}{t.long_strike ? `/${t.long_strike}` : ''} ×{t.contracts}</td>
+                  <td style={td}>{t.expiry}</td>
+                  <td style={{...td, textAlign:'right'}}>${Number(t.credit_open||0).toFixed(2)}</td>
+                  <td style={{...td, textAlign:'right'}}>{t.delta_short_open ? Number(t.delta_short_open).toFixed(3) : '—'}</td>
+                  <td style={{...td, textAlign:'right'}}>{t.vix_open ? Number(t.vix_open).toFixed(1) : '—'}</td>
+                  <td style={td}>
+                    <button onClick={() => closeTrade(t.trade_hash)} style={{
+                      padding: '3px 8px', fontSize: 10, color: 'var(--text-secondary)',
+                      background: 'transparent', border: '1px solid var(--border)', borderRadius: 3, cursor: 'pointer',
+                    }}>Cerrar</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+      {/* Alerts log */}
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 8, marginTop: 18 }}>Historial de alertas</div>
+      {!alerts.length ? <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 11 }}>Sin alertas todavía.</div>
+        : (
+          <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                <th style={th}>Hora</th>
+                <th style={th}>Sev</th>
+                <th style={th}>Trigger</th>
+                <th style={th}>Trade</th>
+                <th style={{...th, textAlign:'right'}}>Underlying</th>
+                <th style={{...th, textAlign:'right'}}>Mark</th>
+                <th style={{...th, textAlign:'right'}}>P&L%</th>
+                <th style={{...th, textAlign:'right'}}>Δ now</th>
+                <th style={th}>📱</th>
+              </tr>
+            </thead>
+            <tbody>
+              {alerts.map(a => {
+                const sevColor = a.severity === 'CRITICAL' ? '#f87171' : a.severity === 'WARN' ? '#fbbf24' : 'var(--text-tertiary)';
+                return (
+                  <tr key={a.id} style={{ borderBottom: '1px solid var(--border)', background: a.ack ? 'transparent' : (a.severity === 'CRITICAL' ? 'rgba(248,113,113,.05)' : 'transparent') }}>
+                    <td style={{...td, color: 'var(--text-tertiary)', fontSize: 10}}>{(a.fired_at || '').slice(5, 16)}</td>
+                    <td style={{...td, color: sevColor, fontWeight: 700, fontSize: 10}}>{a.severity}</td>
+                    <td style={{...td, fontWeight: 600}}>{a.trigger_type}</td>
+                    <td style={td}>{a.symbol} {a.short_strike}{a.long_strike ? `/${a.long_strike}` : ''}</td>
+                    <td style={{...td, textAlign:'right'}}>{a.underlying_now != null ? '$'+Number(a.underlying_now).toFixed(2) : '—'}</td>
+                    <td style={{...td, textAlign:'right'}}>{a.mark_now != null ? '$'+Number(a.mark_now).toFixed(2) : '—'}</td>
+                    <td style={{...td, textAlign:'right', color: a.pnl_pct >= 0 ? '#30d158' : '#f87171'}}>{a.pnl_pct != null ? Number(a.pnl_pct).toFixed(0)+'%' : '—'}</td>
+                    <td style={{...td, textAlign:'right'}}>{a.delta_now != null ? Number(a.delta_now).toFixed(3) : '—'}</td>
+                    <td style={td}>{a.notified_telegram ? '✓' : ''}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+
+      {/* Reglas info colapsable */}
+      <details style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginTop: 14 }}>
+        <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>🛡️ Reglas activas (qué dispara cada alerta)</summary>
+        <table style={{ width: '100%', marginTop: 10, fontSize: 11 }}>
+          <thead>
+            <tr><th style={{...th, textAlign:'left'}}>Trigger</th><th style={th}>Severidad</th><th style={{...th, textAlign:'left'}}>Condición</th></tr>
+          </thead>
+          <tbody>
+            <tr><td style={td}><b>BREACH</b></td><td style={{...td, color:'#f87171'}}>CRITICAL</td><td style={td}>Subyacente ≤ short strike (BPS) o ≥ short call (IC)</td></tr>
+            <tr><td style={td}><b>STOP_2X</b></td><td style={{...td, color:'#f87171'}}>CRITICAL</td><td style={td}>Mark ≥ 2.5× credit_open (loss = 1.5× credit)</td></tr>
+            <tr><td style={td}><b>DELTA_EXPLOSION</b></td><td style={{...td, color:'#f87171'}}>CRITICAL</td><td style={td}>|Δ short| {'>'} 0.20 cuando entry {'<'} 0.10</td></tr>
+            <tr><td style={td}><b>VIX_SPIKE</b></td><td style={{...td, color:'#fbbf24'}}>WARN</td><td style={td}>VIX intradía Δ ≥ +15%</td></tr>
+            <tr><td style={td}><b>DTE_21</b></td><td style={{...td, color:'#fbbf24'}}>WARN</td><td style={td}>DTE ≤ 21 sin haber alcanzado 50% profit</td></tr>
+            <tr><td style={td}><b>PROFIT_50</b></td><td style={{...td, color:'var(--text-tertiary)'}}>INFO</td><td style={td}>Mark ≤ 50% credit_open (50% max profit alcanzado)</td></tr>
+            <tr><td style={td}><b>ASSIGN_RISK</b></td><td style={{...td, color:'#fbbf24'}}>WARN</td><td style={td}>(CSP) DTE ≤ 14 AND ITM</td></tr>
+          </tbody>
+        </table>
+        <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-tertiary)' }}>
+          Telegram envía solo WARN+CRITICAL. INFO solo en historial UI. Dedupe 60min entre mismo trigger+trade.
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function OpenTradeForm({ onSaved }) {
+  const [f, setF] = useState({
+    symbol: 'IWM', strategy: 'BPS', expiry: '',
+    short_strike: '', long_strike: '', contracts: 1,
+    credit_open: '', delta_short_open: '', vix_open: '', underlying_open: '',
+    notes: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const upd = (k, v) => setF(p => ({ ...p, [k]: v }));
+
+  const save = async () => {
+    setSaving(true); setError(null);
+    try {
+      const r = await fetch(`${API_URL}/api/auto-close/open-trades`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      onSaved && onSaved();
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, padding: 14, marginBottom: 14 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Registrar trade abierto</div>
+      {error && <ErrorBox text={error} />}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px,1fr))', gap: 8 }}>
+        <Field lbl="Ticker"><input value={f.symbol} onChange={e => upd('symbol', e.target.value.toUpperCase())} style={inputStyle}/></Field>
+        <Field lbl="Strategy">
+          <select value={f.strategy} onChange={e => upd('strategy', e.target.value)} style={selectStyle}>
+            <option value="BPS">BPS (Bull Put Spread)</option>
+            <option value="IC">IC (Iron Condor)</option>
+            <option value="CSP">CSP (Cash-Secured Put)</option>
+            <option value="CAL">CAL (Calendar)</option>
+            <option value="JADE">JADE (Jade Lizard)</option>
+          </select>
+        </Field>
+        <Field lbl="Expiry"><input type="date" value={f.expiry} onChange={e => upd('expiry', e.target.value)} style={inputStyle}/></Field>
+        <Field lbl="Short strike"><input type="number" step="0.5" value={f.short_strike} onChange={e => upd('short_strike', Number(e.target.value)||null)} style={inputStyle}/></Field>
+        <Field lbl="Long strike"><input type="number" step="0.5" value={f.long_strike} onChange={e => upd('long_strike', Number(e.target.value)||null)} style={inputStyle}/></Field>
+        <Field lbl="Contratos"><input type="number" min="1" value={f.contracts} onChange={e => upd('contracts', Number(e.target.value))} style={inputStyle}/></Field>
+        <Field lbl="Credit open ($)"><input type="number" step="0.01" value={f.credit_open} onChange={e => upd('credit_open', Number(e.target.value)||null)} style={inputStyle}/></Field>
+        <Field lbl="Δ short open"><input type="number" step="0.01" value={f.delta_short_open} onChange={e => upd('delta_short_open', Number(e.target.value)||null)} style={inputStyle} placeholder="0.05"/></Field>
+        <Field lbl="VIX open"><input type="number" step="0.1" value={f.vix_open} onChange={e => upd('vix_open', Number(e.target.value)||null)} style={inputStyle}/></Field>
+        <Field lbl="Underlying open"><input type="number" step="0.5" value={f.underlying_open} onChange={e => upd('underlying_open', Number(e.target.value)||null)} style={inputStyle}/></Field>
+      </div>
+      <Field lbl="Notas (opcional)"><input value={f.notes} onChange={e => upd('notes', e.target.value)} style={{...inputStyle, width: '100%', marginTop: 6}}/></Field>
+      <button onClick={save} disabled={saving} style={{...primaryBtnStyle, marginTop: 10}}>{saving ? 'Guardando…' : 'Registrar trade'}</button>
     </div>
   );
 }

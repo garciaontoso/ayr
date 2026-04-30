@@ -2539,6 +2539,215 @@ function ttOAuthInitUrl(env, state) {
 
 
 // ═══════════════════════════════════════════════════════════════════════════
+// AUTO-CLOSE ENGINE — Avisa CUÁNDO cerrar trades abiertos
+// ═══════════════════════════════════════════════════════════════════════════
+// Resuelve el problema histórico del usuario: 88% trades expiran sin cerrar
+// antes (dejaba correr todo). Mar-2025 perdió -$19,834 porque no cerró.
+//
+// Engine evalúa cada open_trade contra reglas y dispara alertas Telegram
+// con dedupe (mismo trigger no se repite en ventana 60min).
+//
+// Reglas por strategy type (de mayor a menor severidad):
+//   BPS/IC:
+//     BREACH        — underlying ≤ short_strike (BPS) → CRITICAL
+//     STOP_2X       — mark ≥ 2.5× credit (loss = 1.5× credit) → CRITICAL
+//     DELTA_EXPLOSION — |delta_short| > 0.20 (entry <0.10) → CRITICAL
+//     VIX_SPIKE     — VIX Δ intradía > +15% → WARN
+//     DTE_21        — DTE≤21 AND profit_pct<50% → WARN
+//     PROFIT_50     — mark ≤ 50% credit_open → INFO
+//   CSP (wheel):
+//     ASSIGN_RISK   — DTE≤14 AND ITM → WARN
+//     PROFIT_50, DTE_21
+//   Calendar:
+//     PROFIT_25, STOP_50_DEBIT, VOL_CRUSH
+//   Earnings IF:
+//     NEXT_OPEN     — al market open siguiente al earnings → CRITICAL
+
+const ALERT_SEVERITY_EMOJI = {
+  CRITICAL: '🚨', WARN: '⚠️', INFO: 'ℹ️',
+};
+
+async function evalOpenTradeRules(env, trade) {
+  // Devuelve array de [trigger_type, severity, payload] para los triggers que dispara este trade.
+  const triggers = [];
+  const expiry = new Date(trade.expiry).getTime();
+  const dte = Math.max(0, Math.round((expiry - Date.now()) / 86400000));
+  const legs = (() => { try { return JSON.parse(trade.legs_json); } catch { return []; } })();
+
+  // Quote live: usar bridge T3 si configurado, fallback a FMP+BS
+  const ttConfigured = !!(env.TASTYTRADE_BRIDGE_URL && env.TASTYTRADE_BRIDGE_TOKEN);
+  let underlying = null, vix = null, mark = null, delta = null;
+
+  // Underlying live
+  try {
+    const fmp = await fmpQuote([trade.symbol, "^VIX"], env);
+    underlying = fmp[trade.symbol]?.price;
+    vix = fmp["^VIX"]?.price;
+  } catch (e) { console.error("autoclose fmp:", e.message); }
+
+  // VIX intradía change
+  let vixChange = 0;
+  try {
+    const fmp = await fmpQuote(["^VIX"], env);
+    const vixPrev = fmp["^VIX"]?.previousClose;
+    if (vix && vixPrev) vixChange = (vix - vixPrev) / vixPrev * 100;
+  } catch {}
+
+  // Mark del spread: si T3 conectado, usar spread-quote real. Si no, BS+VIX.
+  if (ttConfigured && trade.strategy === 'BPS') {
+    try {
+      const sq = await ttSpreadQuote(env, {
+        underlying: trade.symbol,
+        expiration: trade.expiry,
+        legs: [
+          { type: "put", strike: trade.short_strike, action: "buy" },  // cerrar = comprar back
+          { type: "put", strike: trade.long_strike, action: "sell" },  // cerrar = vender back
+        ],
+      });
+      // sq.credit es credit/debit del closing trade. Mark del spread original = -closing
+      mark = sq?.credit?.worst != null ? -Number(sq.credit.worst) : null;
+    } catch (e) { console.error("autoclose spread-quote:", e.message); }
+  }
+  if (mark == null && underlying && vix && trade.strategy === 'BPS') {
+    // Fallback BS+VIX
+    const sigma = Math.max(0.10, Math.min(0.80, vix / 100));
+    const T = Math.max(1/365, dte / 365);
+    const r = 0.04;
+    const sp = bsPrice(underlying, trade.short_strike, r, sigma, T, false);
+    const lp = bsPrice(underlying, trade.long_strike, r, sigma, T, false);
+    mark = Math.max(0, sp - lp);
+    // Delta short también
+    delta = Math.abs(bsDelta(underlying, trade.short_strike, r, sigma, T, false));
+  }
+
+  const creditOpen = Number(trade.credit_open) || 0;
+  const pnlPct = creditOpen > 0 && mark != null ? ((creditOpen - mark) / creditOpen) * 100 : null;
+
+  if (trade.strategy === 'BPS' || trade.strategy === 'IC') {
+    // BREACH — underlying tocó short_strike
+    if (underlying != null && underlying <= trade.short_strike) {
+      triggers.push(['BREACH', 'CRITICAL', { underlying, short_strike: trade.short_strike, mark, pnl_pct: pnlPct }]);
+    }
+    // STOP_2X — pérdida = 1.5× credit (mark = 2.5× credit_open)
+    if (creditOpen > 0 && mark != null && mark >= creditOpen * 2.5) {
+      triggers.push(['STOP_2X', 'CRITICAL', { mark, credit_open: creditOpen, loss_x: ((mark - creditOpen) / creditOpen).toFixed(2) }]);
+    }
+    // DELTA_EXPLOSION — delta short > 0.20 cuando entry < 0.10
+    if (delta != null && delta > 0.20 && (Number(trade.delta_short_open) || 0) < 0.10) {
+      triggers.push(['DELTA_EXPLOSION', 'CRITICAL', { delta_now: delta, delta_open: trade.delta_short_open }]);
+    }
+    // VIX_SPIKE
+    if (vixChange > 15) {
+      triggers.push(['VIX_SPIKE', 'WARN', { vix_now: vix, vix_change_pct: vixChange.toFixed(1) }]);
+    }
+    // DTE_21 — sin profit 50%
+    if (dte <= 21 && (pnlPct == null || pnlPct < 50)) {
+      triggers.push(['DTE_21', 'WARN', { dte, pnl_pct: pnlPct }]);
+    }
+    // PROFIT_50
+    if (pnlPct != null && pnlPct >= 50) {
+      triggers.push(['PROFIT_50', 'INFO', { pnl_pct: pnlPct.toFixed(1), mark, credit_open: creditOpen }]);
+    }
+  }
+
+  if (trade.strategy === 'CSP') {
+    // Asignación inminente
+    if (dte <= 14 && underlying != null && underlying < trade.short_strike) {
+      triggers.push(['ASSIGN_RISK', 'WARN', { underlying, strike: trade.short_strike, dte }]);
+    }
+    if (dte <= 21 && (pnlPct == null || pnlPct < 50)) {
+      triggers.push(['DTE_21', 'INFO', { dte, pnl_pct: pnlPct }]);
+    }
+    if (pnlPct != null && pnlPct >= 50) {
+      triggers.push(['PROFIT_50', 'INFO', { pnl_pct: pnlPct.toFixed(1) }]);
+    }
+  }
+
+  if (trade.strategy === 'CAL') {
+    const debitOpen = Number(trade.debit_open) || 0;
+    if (debitOpen > 0 && mark != null) {
+      const profitPct = ((mark - debitOpen) / debitOpen) * 100;
+      if (profitPct >= 25) triggers.push(['PROFIT_25', 'INFO', { profit_pct: profitPct.toFixed(1) }]);
+      if (profitPct <= -50) triggers.push(['STOP_50_DEBIT', 'CRITICAL', { profit_pct: profitPct.toFixed(1) }]);
+    }
+  }
+
+  return { triggers, snapshot: { underlying, vix, vix_change_pct: vixChange, mark, delta, dte, pnl_pct: pnlPct } };
+}
+
+function buildTelegramAlertMessage(trade, triggerType, severity, payload, snapshot) {
+  const emoji = ALERT_SEVERITY_EMOJI[severity];
+  const head = `${emoji} *[${severity}] ${triggerType}* — ${trade.symbol} ${trade.strategy}`;
+  const legs = trade.short_strike && trade.long_strike
+    ? `${trade.short_strike}/${trade.long_strike}`
+    : '';
+  const body = [];
+  body.push(`${trade.symbol} ${legs} exp ${trade.expiry} (DTE ${snapshot.dte})`);
+  if (snapshot.underlying != null) body.push(`Underlying: $${snapshot.underlying.toFixed(2)}`);
+  if (snapshot.mark != null) body.push(`Mark: $${snapshot.mark.toFixed(2)}, credit open: $${(trade.credit_open||0).toFixed(2)}`);
+  if (snapshot.pnl_pct != null) body.push(`P&L: ${snapshot.pnl_pct.toFixed(1)}%`);
+  if (snapshot.delta != null) body.push(`Δ short: ${snapshot.delta.toFixed(3)}`);
+
+  let action = '';
+  if (triggerType === 'BREACH') action = '👉 *Cerrar YA*. Subyacente tocó short strike.';
+  else if (triggerType === 'STOP_2X') action = '👉 *Cerrar YA*. Pérdida = 1.5× credit recibido.';
+  else if (triggerType === 'DELTA_EXPLOSION') action = '👉 *Cerrar*. Delta short fuera de zona segura. Riesgo gamma alto.';
+  else if (triggerType === 'VIX_SPIKE') action = '👉 *Considera defensa*. VIX spike intradía elevado.';
+  else if (triggerType === 'DTE_21') action = '👉 *Cerrar o rolar*. <21 DTE sin profit 50%, gamma management.';
+  else if (triggerType === 'PROFIT_50') action = '👉 *Considera cerrar*. 50% del max profit alcanzado.';
+  else if (triggerType === 'ASSIGN_RISK') action = '👉 *Roll/cerrar/aceptar*. Asignación probable en <14 DTE.';
+
+  return `${head}\n\n${body.join('\n')}${action ? '\n\n' + action : ''}`;
+}
+
+async function runAutoCloseEval(env, { dryRun = false, sinceMin = 60 } = {}) {
+  const { results: trades } = await env.DB.prepare(
+    `SELECT * FROM open_trades WHERE closed_at IS NULL`
+  ).all();
+  if (!trades.length) return { evaluated: 0, fired: 0, deduped: 0, alerts: [] };
+
+  const alerts = [];
+  let firedCount = 0, dedupedCount = 0;
+  const dedupeWindow = sinceMin * 60 * 1000;
+
+  for (const t of trades) {
+    const { triggers, snapshot } = await evalOpenTradeRules(env, t);
+    for (const [type, severity, payload] of triggers) {
+      // Dedupe: si ya hubo alert mismo trade + tipo en últimos 60min
+      const since = new Date(Date.now() - dedupeWindow).toISOString();
+      const recent = await env.DB.prepare(
+        `SELECT id FROM auto_close_alerts WHERE trade_hash = ? AND trigger_type = ? AND fired_at >= ? LIMIT 1`
+      ).bind(t.trade_hash, type, since).first();
+      if (recent) { dedupedCount++; continue; }
+
+      const message = buildTelegramAlertMessage(t, type, severity, payload, snapshot);
+      let notified = 0;
+      if (!dryRun) {
+        // Persistir alerta
+        const r = await env.DB.prepare(
+          `INSERT INTO auto_close_alerts (trade_hash, trigger_type, severity, fired_at, underlying_now, mark_now, delta_now, pnl_pct, message, payload_json)
+           VALUES (?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          t.trade_hash, type, severity,
+          snapshot.underlying, snapshot.mark, snapshot.delta, snapshot.pnl_pct,
+          message, JSON.stringify(payload)
+        ).run();
+        // Telegram (solo WARN+CRITICAL para no spam con INFO)
+        if (severity === 'WARN' || severity === 'CRITICAL') {
+          const tgRes = await sendTelegram(env, { text: message, severity: severity.toLowerCase(), source: `autoclose_${type}` });
+          if (tgRes.delivered) notified = 1;
+          await env.DB.prepare(`UPDATE auto_close_alerts SET notified_telegram = ? WHERE id = ?`).bind(notified, r.meta.last_row_id).run();
+        }
+      }
+      alerts.push({ trade_hash: t.trade_hash, symbol: t.symbol, strategy: t.strategy, trigger_type: type, severity, snapshot, payload, notified });
+      firedCount++;
+    }
+  }
+
+  return { evaluated: trades.length, fired: firedCount, deduped: dedupedCount, alerts };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // BRAIN LITE — análisis rules-based de mercado + posiciones (Phase 1A)
 // ═══════════════════════════════════════════════════════════════════════════
 // MVP sin LLM: lee VIX/SPY/IWM, fishing orders activas, paper trades, y emite
@@ -9237,6 +9446,111 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         }
 
         return json({ scanned, hits, proximity: prox, events, source: ttConnected ? 'tastytrade' : 'fmp_bs_estimate' }, corsHeaders);
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // AUTO-CLOSE ENGINE — open trades + alerts
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // GET /api/auto-close/open-trades?status=open|closed|all
+      if (path === "/api/auto-close/open-trades" && request.method === "GET") {
+        const status = url.searchParams.get("status") || "open";
+        let sql = "SELECT * FROM open_trades";
+        const binds = [];
+        if (status === "open") sql += " WHERE closed_at IS NULL";
+        else if (status === "closed") sql += " WHERE closed_at IS NOT NULL";
+        sql += " ORDER BY opened_at DESC LIMIT 200";
+        const { results } = await env.DB.prepare(sql).bind(...binds).all();
+        return json({ trades: results }, corsHeaders);
+      }
+
+      // POST /api/auto-close/open-trades — registrar nuevo open trade manual
+      // Body: { symbol, strategy, expiry, short_strike, long_strike, contracts, credit_open, ... }
+      if (path === "/api/auto-close/open-trades" && request.method === "POST") {
+        const b = await parseBody(request);
+        const reqErr = validateRequired(b.symbol, 'symbol')
+          || validateRequired(b.strategy, 'strategy')
+          || validateRequired(b.expiry, 'expiry');
+        if (reqErr) return validationError(reqErr, corsHeaders);
+        const legs = b.legs || [];
+        // hash determinístico para dedupe
+        const hashSrc = `${b.account || 'default'}|${b.symbol}|${b.strategy}|${b.short_strike}|${b.long_strike}|${b.expiry}`;
+        const trade_hash = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(hashSrc))
+          .then(buf => Array.from(new Uint8Array(buf)).map(x => x.toString(16).padStart(2,'0')).join(''));
+        try {
+          await env.DB.prepare(
+            `INSERT INTO open_trades
+              (trade_hash, account, symbol, strategy, legs_json, opened_at, expiry,
+               short_strike, long_strike, short_strike_call, long_strike_call,
+               contracts, credit_open, debit_open, delta_short_open, ivr_open, vix_open, underlying_open,
+               source, notes)
+             VALUES (?,?,?,?,?,datetime('now'),?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          ).bind(
+            trade_hash, b.account || 'default', b.symbol.toUpperCase(), b.strategy.toUpperCase(),
+            JSON.stringify(legs), b.expiry,
+            b.short_strike || null, b.long_strike || null,
+            b.short_strike_call || null, b.long_strike_call || null,
+            b.contracts || 1, b.credit_open || null, b.debit_open || null,
+            b.delta_short_open || null, b.ivr_open || null, b.vix_open || null, b.underlying_open || null,
+            b.source || 'manual', b.notes || null
+          ).run();
+          return json({ success: true, trade_hash }, corsHeaders);
+        } catch (e) {
+          // Si trade_hash ya existe (UNIQUE), conflicto
+          if (e.message?.includes('UNIQUE') || e.message?.includes('PRIMARY KEY')) {
+            return json({ error: 'trade already registered', trade_hash }, corsHeaders, 409);
+          }
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // PATCH /api/auto-close/open-trades/:hash — marcar cerrado
+      if (path.startsWith("/api/auto-close/open-trades/") && request.method === "PATCH") {
+        const hash = path.split("/").pop();
+        if (!hash) return validationError("hash required", corsHeaders);
+        const b = await parseBody(request);
+        const fields = ["closed_at = datetime('now')"];
+        const binds = [];
+        if (b.close_reason) { fields.push("close_reason = ?"); binds.push(b.close_reason); }
+        if (b.realized_pnl != null) { fields.push("realized_pnl = ?"); binds.push(Number(b.realized_pnl)); }
+        if (b.notes) { fields.push("notes = ?"); binds.push(b.notes); }
+        fields.push("updated_at = datetime('now')");
+        binds.push(hash);
+        await env.DB.prepare(`UPDATE open_trades SET ${fields.join(", ")} WHERE trade_hash = ?`).bind(...binds).run();
+        return json({ success: true }, corsHeaders);
+      }
+
+      // POST /api/auto-close/scan — eval manual de todas las open trades
+      if (path === "/api/auto-close/scan" && request.method === "POST") {
+        const b = await parseBody(request).catch(() => ({}));
+        const dryRun = !!b.dry_run;
+        try {
+          const result = await runAutoCloseEval(env, { dryRun });
+          return json(result, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/auto-close/alerts?limit=50&severity=CRITICAL|WARN|INFO
+      if (path === "/api/auto-close/alerts" && request.method === "GET") {
+        const limit = Math.min(500, parseInt(url.searchParams.get("limit") || "50", 10));
+        const severity = url.searchParams.get("severity");
+        let sql = "SELECT a.*, t.symbol, t.strategy, t.short_strike, t.long_strike, t.expiry FROM auto_close_alerts a LEFT JOIN open_trades t ON a.trade_hash = t.trade_hash";
+        const binds = [];
+        if (severity) { sql += " WHERE a.severity = ?"; binds.push(severity); }
+        sql += " ORDER BY a.fired_at DESC LIMIT ?";
+        binds.push(limit);
+        const { results } = await env.DB.prepare(sql).bind(...binds).all();
+        return json({ alerts: results }, corsHeaders);
+      }
+
+      // PATCH /api/auto-close/alerts/:id — ack alerta
+      if (path.startsWith("/api/auto-close/alerts/") && request.method === "PATCH") {
+        const id = parseInt(path.split("/").pop(), 10);
+        if (!id) return validationError("id required", corsHeaders);
+        await env.DB.prepare("UPDATE auto_close_alerts SET ack=1, ack_at=datetime('now') WHERE id = ?").bind(id).run();
+        return json({ success: true }, corsHeaders);
       }
 
       // ═══════════════════════════════════════════════════════════════════════
