@@ -2481,15 +2481,299 @@ async function getHistoricalPrices(env, symbol, fromDate, toDate) {
 
 // --- Backtest engine ---
 async function runBacktest({ env, strategy, params, periodFrom, periodTo, initialCapital }) {
-  // Por ahora solo BPS implementado. Resto retorna placeholder.
   if (strategy === "bps_spx") return runBacktestBPS({ env, params, periodFrom, periodTo, initialCapital });
+  if (strategy === "ic_spx") return runBacktestIC({ env, params, periodFrom, periodTo, initialCapital });
+  if (strategy === "zdte_pcs_spx") return runBacktest0DTE({ env, params, periodFrom, periodTo, initialCapital });
   return {
     trades_count: 0, wins: 0, losses: 0, win_rate: 0,
     total_pnl: 0, total_return_pct: 0, max_drawdown_pct: 0,
     sharpe: 0, calmar: 0, avg_dte_at_entry: 0, avg_credit: 0, total_fees: 0,
     equity_curve: [], trades: [],
-    notes: `Strategy '${strategy}' not yet implemented (Phase 1B).`,
+    notes: `Strategy '${strategy}' not yet implemented (Phase 1C).`,
   };
+}
+
+// Helper común: calcular métricas finales desde trades + equityCurve
+function computeBacktestMetrics(trades, equityCurve, initialCapital, equity, feePerLeg, legsPerTrade, notes) {
+  const wins = trades.filter(t => t.pnl > 0).length;
+  const losses = trades.filter(t => t.pnl <= 0).length;
+  const totalPnl = trades.reduce((s, t) => s + t.pnl, 0);
+  const totalFees = trades.length * feePerLeg * legsPerTrade * 2;
+  const winRate = trades.length ? wins / trades.length : 0;
+  const totalReturnPct = (equity - initialCapital) / initialCapital;
+  const avgDte = trades.length ? trades.reduce((s, t) => s + t.dte_at_entry, 0) / trades.length : 0;
+  const avgCredit = trades.length ? trades.reduce((s, t) => s + t.credit, 0) / trades.length : 0;
+  let peak = initialCapital, maxDd = 0;
+  for (const c of equityCurve) {
+    if (c.equity > peak) peak = c.equity;
+    const dd = (peak - c.equity) / peak;
+    if (dd > maxDd) maxDd = dd;
+  }
+  const dailyReturns = [];
+  for (let i = 1; i < equityCurve.length; i++) {
+    const prev = equityCurve[i-1].equity, cur = equityCurve[i].equity;
+    if (prev > 0) dailyReturns.push((cur - prev) / prev);
+  }
+  const meanDaily = dailyReturns.reduce((a,b) => a+b, 0) / (dailyReturns.length || 1);
+  const variance = dailyReturns.reduce((a,b) => a + (b - meanDaily) ** 2, 0) / (dailyReturns.length || 1);
+  const stdDaily = Math.sqrt(variance);
+  const sharpe = stdDaily > 0 ? (meanDaily / stdDaily) * Math.sqrt(252) : 0;
+  const calmar = maxDd > 0 ? totalReturnPct / maxDd : 0;
+  return {
+    trades_count: trades.length, wins, losses,
+    win_rate: winRate,
+    total_pnl: Math.round(totalPnl),
+    total_return_pct: Math.round(totalReturnPct * 10000) / 100,
+    max_drawdown_pct: Math.round(maxDd * 10000) / 100,
+    sharpe: Math.round(sharpe * 100) / 100,
+    calmar: Math.round(calmar * 100) / 100,
+    avg_dte_at_entry: Math.round(avgDte * 10) / 10,
+    avg_credit: Math.round(avgCredit * 100) / 100,
+    total_fees: Math.round(totalFees * 100) / 100,
+    equity_curve: equityCurve,
+    trades,
+    notes,
+  };
+}
+
+// ─── Iron Condor ───────────────────────────────────────────────────────────
+// Vende call + put OTM, compra call + put más OTM (wings). Defined risk.
+// Gana si el subyacente se mantiene en rango entre los short strikes.
+// Mejor en regimes laterales / VIX 12-22.
+async function runBacktestIC({ env, params, periodFrom, periodTo, initialCapital }) {
+  const symbol = params.symbol || "SPX";
+  const dteTarget = params.dte_target || 18;
+  const shortDelta = params.short_delta || 0.20;
+  const longDelta = params.long_delta || 0.10;
+  const profitTarget = (params.profit_target_pct || 50) / 100;
+  const stopLoss = (params.stop_loss_pct || 200) / 100;
+  const maxDteClose = params.max_dte_close || 21;
+  const contracts = params.contracts || 1;
+  const minCredit = params.min_credit || 0.50;
+  const entryDays = params.entry_days || [1];  // default lunes
+  const r = 0.04;
+  const feePerLeg = 1.20;
+  const slippage = 0.05;
+
+  const [pxMap, vixMap] = await Promise.all([
+    getHistoricalPrices(env, symbol, periodFrom, periodTo),
+    getHistoricalPrices(env, "VIX", periodFrom, periodTo),
+  ]);
+  const dates = Array.from(pxMap.keys()).sort();
+  if (!dates.length) throw new Error("No price data for period");
+
+  let equity = initialCapital;
+  const equityCurve = [{ date: dates[0], equity: initialCapital }];
+  const trades = [];
+  let openTrade = null;
+
+  for (const date of dates) {
+    const px = pxMap.get(date);
+    const vix = vixMap.get(date);
+    if (!px || !vix) continue;
+    const sigma = Math.max(0.10, Math.min(0.80, vix.close / 100));
+
+    // Cerrar trade si toca
+    if (openTrade) {
+      const dte = Math.max(0, Math.round((openTrade.expiry - new Date(date).getTime()) / 86400000));
+      const T = dte / 365;
+      let mtmDebit;
+      if (dte === 0) {
+        // Expira: PnL es la suma de las 4 patas en intrínseco
+        const sp = Math.max(0, openTrade.shortPut - px.close);
+        const lp = Math.max(0, openTrade.longPut - px.close);
+        const sc = Math.max(0, px.close - openTrade.shortCall);
+        const lc = Math.max(0, px.close - openTrade.longCall);
+        mtmDebit = (sp - lp) + (sc - lc);
+      } else {
+        const sp = bsPrice(px.close, openTrade.shortPut, r, sigma, T, false);
+        const lp = bsPrice(px.close, openTrade.longPut, r, sigma, T, false);
+        const sc = bsPrice(px.close, openTrade.shortCall, r, sigma, T, true);
+        const lc = bsPrice(px.close, openTrade.longCall, r, sigma, T, true);
+        mtmDebit = (sp - lp) + (sc - lc);
+      }
+      const currentValue = mtmDebit * 100 * openTrade.contracts;
+      const pnl = openTrade.creditCash - currentValue;
+      const pnlPct = pnl / openTrade.maxRiskCash;
+
+      const dteMgmt = dteTarget > maxDteClose;
+      const breached = px.close < openTrade.shortPut || px.close > openTrade.shortCall;
+
+      const shouldClose =
+        pnlPct >= profitTarget ||
+        pnlPct <= -stopLoss ||
+        dte <= 0 ||
+        (dteMgmt && dte <= maxDteClose) ||
+        (params.touch_close && breached);
+
+      if (shouldClose) {
+        const fees = feePerLeg * 4 * openTrade.contracts;
+        const realizedPnl = pnl - fees - openTrade.entryFees;
+        equity += realizedPnl;
+        trades.push({
+          opened: openTrade.opened, closed: date,
+          short_put: openTrade.shortPut, long_put: openTrade.longPut,
+          short_call: openTrade.shortCall, long_call: openTrade.longCall,
+          dte_at_entry: openTrade.dteAtEntry,
+          credit: openTrade.credit,
+          exit_debit: mtmDebit,
+          pnl: realizedPnl,
+          pnl_pct: pnlPct * 100,
+          reason: pnlPct >= profitTarget ? "profit_target" : pnlPct <= -stopLoss ? "stop_loss" : dte <= 0 ? "expired" : breached ? "breach" : "max_dte",
+        });
+        openTrade = null;
+      }
+    }
+
+    // Abrir nuevo si es día de entrada
+    if (!openTrade) {
+      const dow = new Date(date).getDay();
+      if (entryDays.includes(dow)) {
+        const T = dteTarget / 365;
+        const shortPut = strikeForDelta(px.close, r, sigma, T, false, shortDelta);
+        const longPut = strikeForDelta(px.close, r, sigma, T, false, longDelta);
+        const shortCall = strikeForDelta(px.close, r, sigma, T, true, shortDelta);
+        const longCall = strikeForDelta(px.close, r, sigma, T, true, longDelta);
+        if (shortPut > longPut && longCall > shortCall) {
+          const sp = bsPrice(px.close, shortPut, r, sigma, T, false);
+          const lp = bsPrice(px.close, longPut, r, sigma, T, false);
+          const sc = bsPrice(px.close, shortCall, r, sigma, T, true);
+          const lc = bsPrice(px.close, longCall, r, sigma, T, true);
+          const credit = ((sp - lp) + (sc - lc)) * (1 - slippage);
+          if (credit >= minCredit) {
+            const expiryDate = new Date(new Date(date).getTime() + dteTarget * 86400000).toISOString().slice(0, 10);
+            const entryFees = feePerLeg * 4 * contracts;
+            const creditCash = credit * 100 * contracts;
+            const widthPut = (shortPut - longPut) * 100 * contracts;
+            const widthCall = (longCall - shortCall) * 100 * contracts;
+            const maxRiskCash = Math.max(widthPut, widthCall) - creditCash;
+            equity -= entryFees;
+            openTrade = {
+              opened: date,
+              expiry: new Date(expiryDate).getTime(),
+              shortPut: Math.round(shortPut), longPut: Math.round(longPut),
+              shortCall: Math.round(shortCall), longCall: Math.round(longCall),
+              credit, creditCash, maxRiskCash,
+              dteAtEntry: dteTarget, contracts, entryFees,
+            };
+          }
+        }
+      }
+    }
+
+    // MtM equity
+    let mtmEquity = equity;
+    if (openTrade) {
+      const dte = Math.max(0, Math.round((openTrade.expiry - new Date(date).getTime()) / 86400000));
+      if (dte > 0) {
+        const T = dte / 365;
+        const sp = bsPrice(px.close, openTrade.shortPut, r, sigma, T, false);
+        const lp = bsPrice(px.close, openTrade.longPut, r, sigma, T, false);
+        const sc = bsPrice(px.close, openTrade.shortCall, r, sigma, T, true);
+        const lc = bsPrice(px.close, openTrade.longCall, r, sigma, T, true);
+        const debit = (sp - lp) + (sc - lc);
+        const unrealized = openTrade.creditCash - (debit * 100 * openTrade.contracts);
+        mtmEquity = equity + unrealized;
+      }
+    }
+    equityCurve.push({ date, equity: Math.round(mtmEquity) });
+  }
+
+  return computeBacktestMetrics(
+    trades, equityCurve, initialCapital, equity, feePerLeg, 4,
+    `Iron Condor SPY simulado con BS+VIX. Slippage ${slippage*100}%, fee $${feePerLeg}/leg × 4 patas.`
+  );
+}
+
+// ─── 0DTE Put Credit Spread ───────────────────────────────────────────────
+// Mismo día expiry, strike OTM 0.05-0.10 delta. Win rate altísimo pero gamma
+// puede destruir mucho en un día malo. Filter: VIX < 30, weekday only.
+async function runBacktest0DTE({ env, params, periodFrom, periodTo, initialCapital }) {
+  const symbol = params.symbol || "SPX";
+  const shortDelta = params.short_delta || 0.10;
+  const longDelta = params.long_delta || 0.05;
+  const profitTarget = (params.profit_target_pct || 80) / 100;
+  const stopLoss = (params.stop_loss_pct || 150) / 100;
+  const contracts = params.contracts || 1;
+  const minCredit = params.min_credit || 0.10;
+  const vixMax = params.vix_max || 30;
+  const r = 0.04;
+  const feePerLeg = 1.20;
+  const slippage = 0.10;  // 0DTE más caro de slippage
+
+  const [pxMap, vixMap] = await Promise.all([
+    getHistoricalPrices(env, symbol, periodFrom, periodTo),
+    getHistoricalPrices(env, "VIX", periodFrom, periodTo),
+  ]);
+  const dates = Array.from(pxMap.keys()).sort();
+  if (!dates.length) throw new Error("No price data");
+
+  let equity = initialCapital;
+  const equityCurve = [{ date: dates[0], equity: initialCapital }];
+  const trades = [];
+
+  for (const date of dates) {
+    const px = pxMap.get(date);
+    const vix = vixMap.get(date);
+    if (!px || !vix) continue;
+    if (vix.close > vixMax) {
+      equityCurve.push({ date, equity: Math.round(equity) });
+      continue; // Skip high VIX days
+    }
+    const dow = new Date(date).getDay();
+    if (dow === 0 || dow === 6) {
+      equityCurve.push({ date, equity: Math.round(equity) });
+      continue;
+    }
+    const sigma = Math.max(0.10, Math.min(0.80, vix.close / 100));
+
+    // 0DTE: simulamos como si abriéramos al open y cerráramos al close
+    // T = 6.5h trading = 0.027 años (escalado)
+    const T = 6.5 / (24 * 252);
+    const shortStrike = strikeForDelta(px.open, r, sigma, T, false, shortDelta);
+    const longStrike = strikeForDelta(px.open, r, sigma, T, false, longDelta);
+    if (shortStrike <= longStrike) {
+      equityCurve.push({ date, equity: Math.round(equity) });
+      continue;
+    }
+    const sp = bsPrice(px.open, shortStrike, r, sigma, T, false);
+    const lp = bsPrice(px.open, longStrike, r, sigma, T, false);
+    const credit = (sp - lp) * (1 - slippage);
+    if (credit < minCredit) {
+      equityCurve.push({ date, equity: Math.round(equity) });
+      continue;
+    }
+    // Worst-case intra-día low: usamos px.low para evaluar si tocó stop loss
+    const intradayMaxDebit = bsPrice(px.low, shortStrike, r, sigma * 1.3, T * 0.3, false) -
+                              bsPrice(px.low, longStrike, r, sigma * 1.3, T * 0.3, false);
+    const intradayPnl = credit - intradayMaxDebit;
+    const intradayPnlPct = intradayPnl / Math.max(0.01, (shortStrike - longStrike) - credit);
+    const stopHit = intradayPnlPct <= -stopLoss;
+
+    // Final close intrinsic value
+    const closeIntrinsic = Math.max(0, shortStrike - px.close) - Math.max(0, longStrike - px.close);
+    const finalDebit = stopHit ? Math.min(closeIntrinsic, (shortStrike - longStrike) * 0.7) : closeIntrinsic;
+    const pnlPerSpread = (credit - finalDebit) * 100;
+    const fees = feePerLeg * 2 * 2 * contracts; // entry + exit
+    const pnl = pnlPerSpread * contracts - fees;
+
+    equity += pnl;
+    trades.push({
+      opened: date, closed: date,
+      short_strike: Math.round(shortStrike), long_strike: Math.round(longStrike),
+      dte_at_entry: 0,
+      credit,
+      exit_debit: finalDebit,
+      pnl, pnl_pct: ((credit - finalDebit) / Math.max(0.01, (shortStrike - longStrike) - credit)) * 100,
+      reason: stopHit ? "stop_intraday" : closeIntrinsic > 0 ? "expired_itm" : "expired_otm",
+    });
+    equityCurve.push({ date, equity: Math.round(equity) });
+  }
+
+  return computeBacktestMetrics(
+    trades, equityCurve, initialCapital, equity, feePerLeg, 2,
+    `0DTE PCS — daily entry/exit, VIX<${vixMax}, slippage ${slippage*100}%. CAUTION: gamma blowups underestimated by BS sim.`
+  );
 }
 
 async function runBacktestBPS({ env, params, periodFrom, periodTo, initialCapital }) {
