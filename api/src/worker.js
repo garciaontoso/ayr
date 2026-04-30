@@ -3823,20 +3823,72 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
     
-    // CORS — allow any *.pages.dev preview, onto-so.com, and localhost
+    // CORS — allowlist EXACTA (audit 2026-05-01: pages.dev wildcard permitía
+    // que evil.pages.dev hiciese CSRF a usuarios autenticados).
     const origin = request.headers.get("Origin") || "";
-    const isAllowed = origin.endsWith(".pages.dev") || origin.endsWith(".onto-so.com") || origin === "https://onto-so.com" || origin.startsWith("http://localhost:");
+    const ALLOWED_ORIGINS = [
+      "https://ayr.onto-so.com",
+      "https://onto-so.com",
+      "https://ayr-196.pages.dev",   // Cloudflare Pages production alias
+    ];
+    const isLocalhost = origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:");
+    // Pages preview URLs son hash-{commit}.ayr-196.pages.dev — permitidos solo
+    // los del proyecto ayr-196 (no cualquier *.pages.dev).
+    const isPagesPreview = /^https:\/\/[a-f0-9]+\.ayr-196\.pages\.dev$/.test(origin);
+    const isAllowed = ALLOWED_ORIGINS.includes(origin) || isLocalhost || isPagesPreview;
     const corsOrigin = isAllowed ? origin : "https://ayr.onto-so.com";
     const corsHeaders = {
       "Access-Control-Allow-Origin": corsOrigin,
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
       "Access-Control-Allow-Headers": "Content-Type, Authorization, X-AYR-Auth, X-Control-Token",
       "Access-Control-Allow-Credentials": "true",
       "Vary": "Origin",
     };
-    
+
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
+    }
+
+    // SECURITY GATE — endpoints WRITE peligrosos requieren X-AYR-Auth header.
+    // El frontend manda este header en build-time via import.meta.env.VITE_AYR_TOKEN.
+    // Endpoints solo-lectura por ahora siguen abiertos para compatibilidad UI;
+    // se cierran cuando el frontend haga release con el header.
+    const PROTECTED_WRITE = [
+      "/api/claude",                    // factura Anthropic
+      "/api/agent-run",                 // factura Anthropic
+      "/api/ai-analyze",                // factura Anthropic × N
+      "/api/ai-analyze-portfolio",      // factura Anthropic × 200 tickers
+      "/api/sector-deep-dive",          // factura Anthropic
+      "/api/scanner/run",               // FMP burn
+      "/api/brain/run",                 // factura Anthropic
+      "/api/auto-close/scan",           // FMP + Telegram spam
+      "/api/auto-close/sync-positions", // bridge calls + telegram
+      "/api/ib-bridge/control",         // DoS button
+      "/api/ib-flex-import",            // injection
+      "/api/ib-flex-sync",              // injection
+      "/api/ib-auto-sync",              // factura
+      "/api/positions/sync-ib",         // corruption
+      "/api/positions/import",          // corruption
+      "/api/positions/reconcile",       // corruption
+      "/api/refresh-",                  // FMP burn (refresh-positions-fx, refresh-div-ttm, etc)
+      "/api/enrich-",                   // FMP burn
+      "/api/holdings/enrich",           // FMP burn
+      "/api/telegram/test",             // spam
+    ];
+    const isProtectedWrite = PROTECTED_WRITE.some(p => path.startsWith(p)) &&
+                              ["POST","PUT","PATCH","DELETE"].includes(request.method);
+    if (isProtectedWrite) {
+      const authHeader = request.headers.get("X-AYR-Auth") || request.headers.get("Authorization") || "";
+      const token = authHeader.replace(/^Bearer\s+/i, "");
+      if (!env.AYR_WORKER_TOKEN || token !== env.AYR_WORKER_TOKEN) {
+        // Excepción: si origin es localhost o ayr.onto-so.com explícitamente,
+        // permitimos por ahora (compatibilidad mientras se despliega el header
+        // en el frontend). Esta excepción se quitará cuando frontend mande X-AYR-Auth.
+        if (!isAllowed) {
+          return new Response(JSON.stringify({ error: "unauthorized", endpoint: path }),
+            { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      }
     }
 
     // Ping endpoint — responds without touching D1 or any async work.
@@ -11605,7 +11657,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // This replaces the Mac cron — callable from the UI with one click
       if (path === "/api/ib-flex-sync" && request.method === "POST") {
         try {
-          const FLEX_TOKEN = env.IB_FLEX_TOKEN || "187746530027081663959936";
+          const FLEX_TOKEN = env.IB_FLEX_TOKEN;
           const QUERY_ID = "1452278";
 
           // Step 1: Request Flex statement
@@ -12428,10 +12480,16 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           for (let i = 0; i < stmts.length; i += 50) {
             await env.DB.batch(stmts.slice(i, i + 50));
           }
-          // Zero out sold positions
+          // Zero out sold positions — fix v4.3 (audit 2026-05-01):
+          // antes solo limpiaba ib_*, dejaba shares/market_value/usd_value stale.
+          // Ahora aplica el mismo patrón que performAutoSync (línea 2202).
           if (syncedTickers.length > 0) {
             const ph = syncedTickers.map(() => "?").join(",");
-            await env.DB.prepare(`UPDATE positions SET ib_shares=0, ib_avg_cost=0, ib_price=0 WHERE ib_shares > 0 AND ticker NOT IN (${ph})`).bind(...syncedTickers).run();
+            await env.DB.prepare(`UPDATE positions
+              SET ib_shares=0, ib_avg_cost=0, ib_price=0,
+                  shares=0, market_value=0, usd_value=0,
+                  updated_at=datetime('now')
+              WHERE (ib_shares > 0 OR shares > 0) AND ticker NOT IN (${ph})`).bind(...syncedTickers).run();
           }
 
           return json({ ok: true, accounts: accountIds.length, synced, total: Object.keys(merged).length }, corsHeaders);
@@ -21272,7 +21330,7 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
         }
         const bridgeUrl = env.IB_BRIDGE_URL || "https://ib.onto-so.com";
         const bridgeToken = env.IB_BRIDGE_TOKEN || env.BRIDGE_AUTH_TOKEN;
-        const flexToken = env.IB_FLEX_TOKEN || "187746530027081663959936";
+        const flexToken = env.IB_FLEX_TOKEN;
         if (!bridgeToken) {
           console.warn("[scheduled] no IB_BRIDGE_TOKEN, skipping flex sync");
           return;
