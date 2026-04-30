@@ -1,0 +1,41 @@
+# A&R Tastytrade Stack — DS423+
+# El cloudflare-tunnel ya existe en /volume1/docker/cloudflare-tunnel/ con
+# network_mode:host, así que solo exponemos tastytrade-bridge en localhost
+# y añadimos hostname ttapi.onto-so.com → http://localhost:8091 en CF dashboard.
+
+name: tt-stack
+
+services:
+  tastytrade-bridge:
+    build:
+      context: ../tastytrade-bridge
+      dockerfile: Dockerfile
+    container_name: tastytrade-bridge
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 8091
+      HOST: 0.0.0.0
+      DATA_DIR: /data
+      BRIDGE_TOKEN: ${BRIDGE_TOKEN}
+      TT_CLIENT_ID: ${TT_CLIENT_ID}
+      TT_CLIENT_SECRET: ${TT_CLIENT_SECRET}
+      TT_REDIRECT_URI: ${TT_REDIRECT_URI:-https://api.onto-so.com/api/tastytrade/oauth/callback}
+      TZ: ${TZ:-Europe/Madrid}
+    ports:
+      - '127.0.0.1:8091:8091'
+    volumes:
+      # Persistencia de tokens OAuth
+      - /volume1/docker/tt-stack/data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8091/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 64M

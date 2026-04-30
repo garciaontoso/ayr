@@ -1,0 +1,20 @@
+{
+  "name": "tastytrade-bridge",
+  "version": "0.1.0",
+  "description": "HTTP bridge between A&R Cloudflare Worker and Tastytrade API. Runs on NAS (residential IP) to bypass CF Workers IP block.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "lint": "node --check src/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.21.1"
+  },
+  "private": true,
+  "license": "UNLICENSED"
+}

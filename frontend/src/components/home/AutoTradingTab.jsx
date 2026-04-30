@@ -14,6 +14,8 @@ import { API_URL } from '../../constants/index.js';
 const SUB_TABS = [
   { id: 'catalog',   lbl: '📚 Catálogo' },
   { id: 'backtest',  lbl: '🧪 Backtest' },
+  { id: 'fishing',   lbl: '🎣 Pescando' },
+  { id: 'brain',     lbl: '🧠 Brain' },
   { id: 'today',     lbl: '📅 Hoy' },
   { id: 'paper',     lbl: '📊 Paper' },
 ];
@@ -81,6 +83,8 @@ export default function AutoTradingTab() {
 
       {subTab === 'catalog' && <CatalogPanel strategies={strategies} loading={loading} />}
       {subTab === 'backtest' && <BacktestPanel strategies={strategies} />}
+      {subTab === 'fishing' && <FishingPanel strategies={strategies} />}
+      {subTab === 'brain' && <BrainPanel />}
       {subTab === 'today' && <TodayPanel />}
       {subTab === 'paper' && <PaperPanel />}
     </div>
@@ -314,6 +318,353 @@ function EquityChart({ curve }) {
     </div>
   );
 }
+
+// ── Sub-panel: Pescando (fishing orders) ──────────────────────────────────
+
+function FishingPanel({ strategies }) {
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [error, setError] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/fishing/orders`);
+      const d = await r.json();
+      setOrders(d.orders || []);
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const scan = async () => {
+    setScanning(true); setError(null);
+    try {
+      const r = await fetch(`${API_URL}/api/fishing/scan`, { method: 'POST' });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setScanResult(d);
+      load();
+    } catch (e) { setError(e.message); }
+    finally { setScanning(false); }
+  };
+
+  const cancelOrder = async (id) => {
+    if (!confirm('¿Cancelar esta fishing order?')) return;
+    await fetch(`${API_URL}/api/fishing/orders/${id}`, { method: 'DELETE' });
+    load();
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button onClick={() => setShowForm(!showForm)} style={primaryBtnStyle}>
+          {showForm ? '✕ Cancelar' : '+ Nueva fishing order'}
+        </button>
+        <button onClick={scan} disabled={scanning} style={{
+          ...secondaryBtnStyle,
+          background: scanning ? 'var(--text-tertiary)' : 'rgba(96,165,250,.15)',
+          color: scanning ? '#000' : '#60a5fa',
+          border: '1px solid rgba(96,165,250,.4)',
+        }}>
+          {scanning ? 'Escaneando…' : '🎣 Escanear precios ahora'}
+        </button>
+        <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+          {orders.filter(o => o.status === 'fishing').length} activas · {orders.filter(o => o.status === 'hit').length} pescadas · {orders.filter(o => o.status === 'cancelled').length} canceladas
+        </div>
+      </div>
+
+      {error && <ErrorBox text={error} />}
+
+      {scanResult && (
+        <div style={{ padding: 10, marginBottom: 12, background: 'rgba(96,165,250,.08)', border: '1px solid rgba(96,165,250,.3)', borderRadius: 6, fontSize: 11 }}>
+          <b>Escaneo:</b> {scanResult.scanned} órdenes revisadas, {scanResult.hits} HITs 🐟, {scanResult.proximity} cerca 🎣
+          {scanResult.source && <span style={{ color: 'var(--text-tertiary)', marginLeft: 8 }}>(fuente: {scanResult.source})</span>}
+        </div>
+      )}
+
+      {showForm && <FishingOrderForm strategies={strategies} onSaved={() => { setShowForm(false); load(); }} />}
+
+      {loading ? (
+        <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-tertiary)' }}>Cargando…</div>
+      ) : !orders.length ? (
+        <EmptyState
+          icon="🎣"
+          title="Sin fishing orders todavía"
+          subtitle="Crea una orden GTC con credit objetivo y el sistema avisará cuando el precio se acerque o llegue al target."
+        />
+      ) : (
+        <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--border)' }}>
+              <th style={th}>Estado</th>
+              <th style={th}>Estrategia</th>
+              <th style={th}>Spread</th>
+              <th style={th}>Expira</th>
+              <th style={{...th, textAlign:'right'}}>Target $</th>
+              <th style={{...th, textAlign:'right'}}>Actual $</th>
+              <th style={{...th, textAlign:'right'}}>%</th>
+              <th style={{...th, textAlign:'right'}}>POP</th>
+              <th style={th}>Last scan</th>
+              <th style={th}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {orders.map(o => {
+              const pct = o.target_credit && o.current_credit != null ? (o.current_credit / o.target_credit) * 100 : null;
+              const pctColor = pct == null ? 'var(--text-tertiary)' : pct >= 100 ? '#30d158' : pct >= 80 ? '#fbbf24' : 'var(--text-secondary)';
+              const sb = o.status === 'fishing' ? { lbl: '🎣 Pescando', color: '#60a5fa' }
+                : o.status === 'hit' ? { lbl: '🐟 Pescado', color: '#30d158' }
+                : o.status === 'cancelled' ? { lbl: 'Cancelada', color: 'var(--text-tertiary)' }
+                : { lbl: o.status, color: 'var(--text)' };
+              return (
+                <tr key={o.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{...td, color: sb.color, fontWeight: 600 }}>{sb.lbl}</td>
+                  <td style={td}>{o.strategy_code}</td>
+                  <td style={td}>{o.underlying} {o.short_strike}/{o.long_strike} ×{o.contracts}</td>
+                  <td style={td}>{o.expiration}</td>
+                  <td style={{...td, textAlign:'right', fontWeight: 700}}>${Number(o.target_credit).toFixed(2)}</td>
+                  <td style={{...td, textAlign:'right'}}>{o.current_credit != null ? '$' + Number(o.current_credit).toFixed(2) : '—'}</td>
+                  <td style={{...td, textAlign:'right', color: pctColor, fontWeight: 700}}>{pct != null ? pct.toFixed(0) + '%' : '—'}</td>
+                  <td style={{...td, textAlign:'right'}}>{o.current_pop != null ? (Number(o.current_pop) * 100).toFixed(0) + '%' : '—'}</td>
+                  <td style={{...td, color: 'var(--text-tertiary)'}}>{o.last_scan_at ? o.last_scan_at.slice(11, 16) : '—'}</td>
+                  <td style={td}>
+                    {o.status === 'fishing' && (
+                      <button onClick={() => cancelOrder(o.id)} style={{
+                        padding: '3px 8px', fontSize: 10, color: '#f87171',
+                        background: 'transparent', border: '1px solid #f8717155', borderRadius: 3, cursor: 'pointer',
+                      }}>✕</button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function FishingOrderForm({ strategies, onSaved }) {
+  const [form, setForm] = useState({
+    strategy_code: strategies.find(s => s.code.startsWith('bps_iwm'))?.code || strategies[0]?.code || '',
+    underlying: 'IWM',
+    spread_type: 'BPS',
+    short_strike: '',
+    long_strike: '',
+    expiration: '',
+    contracts: 1,
+    target_credit: '',
+    notes: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  const save = async () => {
+    setSaving(true); setError(null);
+    try {
+      const r = await fetch(`${API_URL}/api/fishing/orders`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      onSaved && onSaved();
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const upd = (k, v) => setForm(p => ({...p, [k]: v}));
+
+  return (
+    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, padding: 14, marginBottom: 14 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Nueva fishing order</div>
+      {error && <ErrorBox text={error} />}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
+        <Field lbl="Estrategia">
+          <select value={form.strategy_code} onChange={e => upd('strategy_code', e.target.value)} style={selectStyle}>
+            {strategies.filter(s => s.enabled).map(s => <option key={s.code} value={s.code}>{s.name}</option>)}
+          </select>
+        </Field>
+        <Field lbl="Underlying">
+          <input type="text" value={form.underlying} onChange={e => upd('underlying', e.target.value.toUpperCase())} style={inputStyle} placeholder="IWM" />
+        </Field>
+        <Field lbl="Tipo">
+          <select value={form.spread_type} onChange={e => upd('spread_type', e.target.value)} style={selectStyle}>
+            <option value="BPS">Bull Put Spread</option>
+            <option value="BCS">Bear Call Spread</option>
+            <option value="IC">Iron Condor</option>
+          </select>
+        </Field>
+        <Field lbl="Short strike">
+          <input type="number" step="0.5" value={form.short_strike} onChange={e => upd('short_strike', e.target.value)} style={inputStyle} placeholder="245" />
+        </Field>
+        <Field lbl="Long strike">
+          <input type="number" step="0.5" value={form.long_strike} onChange={e => upd('long_strike', e.target.value)} style={inputStyle} placeholder="240" />
+        </Field>
+        <Field lbl="Expiración">
+          <input type="date" value={form.expiration} onChange={e => upd('expiration', e.target.value)} style={inputStyle} />
+        </Field>
+        <Field lbl="Contratos">
+          <input type="number" min="1" value={form.contracts} onChange={e => upd('contracts', Number(e.target.value))} style={inputStyle} />
+        </Field>
+        <Field lbl="Target credit $">
+          <input type="number" step="0.05" value={form.target_credit} onChange={e => upd('target_credit', e.target.value)} style={inputStyle} placeholder="0.80" />
+        </Field>
+      </div>
+      <div style={{ marginTop: 10 }}>
+        <Field lbl="Notas (opcional)">
+          <input type="text" value={form.notes} onChange={e => upd('notes', e.target.value)} style={{...inputStyle, width: '100%'}} placeholder="Phil Town setup, esperando IV expansión" />
+        </Field>
+      </div>
+      <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+        <button onClick={save} disabled={saving} style={primaryBtnStyle}>{saving ? 'Guardando…' : 'Crear fishing order'}</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Sub-panel: Brain ──────────────────────────────────────────────────────
+
+function BrainPanel() {
+  const [decisions, setDecisions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [lastResult, setLastResult] = useState(null);
+  const [error, setError] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/brain/decisions?limit=30`);
+      const d = await r.json();
+      setDecisions(d.decisions || []);
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const run = async () => {
+    setRunning(true); setError(null);
+    try {
+      const r = await fetch(`${API_URL}/api/brain/run`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dry_run: false }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setLastResult(d);
+      load();
+    } catch (e) { setError(e.message); }
+    finally { setRunning(false); }
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button onClick={run} disabled={running} style={primaryBtnStyle}>
+          {running ? 'Pensando…' : '🧠 Ejecutar Brain ahora'}
+        </button>
+        <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+          MVP rules-based · {decisions.length} decisiones loggeadas · Coste: $0
+        </div>
+      </div>
+
+      {error && <ErrorBox text={error} />}
+
+      {lastResult && lastResult.market && (
+        <div style={{ padding: 12, marginBottom: 14, background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Snapshot mercado</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px,1fr))', gap: 8 }}>
+            <Metric lbl="VIX" value={fmtN(lastResult.market.vix, 2)} color={lastResult.market.vix > 22 ? '#fbbf24' : lastResult.market.vix < 14 ? '#60a5fa' : '#30d158'} />
+            <Metric lbl="VIX Δ%" value={fmtPct(lastResult.market.vix_delta_pct)} color={lastResult.market.vix_spike ? '#f87171' : 'var(--text)'} />
+            <Metric lbl="SPY" value={'$' + fmtN(lastResult.market.spy, 2)} />
+            <Metric lbl="IWM" value={'$' + fmtN(lastResult.market.iwm, 2)} />
+            <Metric lbl="Régimen" value={lastResult.market.regime} />
+            <Metric lbl="Fishing activos" value={lastResult.fishing_active} />
+          </div>
+          <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-secondary)', fontStyle: 'italic' }}>
+            {lastResult.market.regime_reason}
+          </div>
+        </div>
+      )}
+
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 }}>Historial decisiones</div>
+      {loading ? (
+        <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-tertiary)' }}>Cargando…</div>
+      ) : !decisions.length ? (
+        <EmptyState icon="🧠" title="Sin decisiones todavía" subtitle="Pulsa 'Ejecutar Brain' para que analice mercado actual + posiciones." />
+      ) : (
+        <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--border)' }}>
+              <th style={th}>Hora</th>
+              <th style={th}>Sev</th>
+              <th style={th}>Acción</th>
+              <th style={th}>Estrategia</th>
+              <th style={th}>Underlying</th>
+              <th style={th}>Régimen</th>
+              <th style={{...th, textAlign:'right'}}>Conf</th>
+              <th style={th}>Razón</th>
+            </tr>
+          </thead>
+          <tbody>
+            {decisions.map(d => {
+              const sevColor = d.severity === 'critical' ? '#f87171' : d.severity === 'warn' ? '#fbbf24' : d.severity === 'notice' ? '#60a5fa' : 'var(--text-tertiary)';
+              return (
+                <tr key={d.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{...td, color: 'var(--text-tertiary)'}}>{(d.ts || '').slice(11, 16)}</td>
+                  <td style={{...td, color: sevColor, fontWeight: 700, textTransform: 'uppercase', fontSize: 9}}>{d.severity}</td>
+                  <td style={{...td, fontWeight: 700}}>{d.action}</td>
+                  <td style={td}>{d.strategy || '—'}</td>
+                  <td style={td}>{d.underlying || '—'}</td>
+                  <td style={{...td, color: 'var(--text-tertiary)'}}>{d.regime_view || '—'}</td>
+                  <td style={{...td, textAlign:'right'}}>{d.confidence != null ? (d.confidence*100).toFixed(0) + '%' : '—'}</td>
+                  <td style={{...td, maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}} title={d.rationale}>{d.rationale}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+// ── helpers compartidos ──────────────────────────────────────────────────
+
+function ErrorBox({ text }) {
+  return (
+    <div style={{ padding: 10, marginBottom: 12, background: 'rgba(248,113,113,.1)', border: '1px solid rgba(248,113,113,.3)', borderRadius: 6, color: '#f87171', fontSize: 11 }}>
+      ❌ {text}
+    </div>
+  );
+}
+
+function EmptyState({ icon, title, subtitle }) {
+  return (
+    <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-tertiary)' }}>
+      <div style={{ fontSize: 28, marginBottom: 8 }}>{icon}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{title}</div>
+      <div style={{ fontSize: 11, lineHeight: 1.5, maxWidth: 420, margin: '0 auto' }}>{subtitle}</div>
+    </div>
+  );
+}
+
+const primaryBtnStyle = {
+  padding: '6px 14px', fontSize: 12, fontWeight: 700,
+  background: 'var(--gold)', color: '#000', border: 'none', borderRadius: 5, cursor: 'pointer',
+};
+const secondaryBtnStyle = {
+  padding: '6px 14px', fontSize: 12, fontWeight: 700,
+  background: 'transparent', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 5, cursor: 'pointer',
+};
 
 // ── Today + Paper sub-panels (placeholders) ───────────────────────────────
 

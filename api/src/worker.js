@@ -2376,6 +2376,280 @@ async function autoPatrimonioSnapshot(env, { force = false } = {}) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// TELEGRAM — Bot notifications (free, no VAPID setup)
+// ═══════════════════════════════════════════════════════════════════════════
+// Setup:
+//   1. @BotFather → /newbot → @AyRTrading_bot → guardar TOKEN
+//   2. Tú envías /start al bot → fetch updates para sacar chat_id
+//   3. wrangler secret put TELEGRAM_BOT_TOKEN
+//   4. wrangler secret put TELEGRAM_CHAT_ID
+// Persistimos cada envío en telegram_log con delivered/error para auditoría.
+
+const TELEGRAM_EMOJI = {
+  info: 'ℹ️', notice: '📌', warn: '⚠️', critical: '🚨',
+  fishing_proximity: '🎣', fishing_hit: '🐟',
+  brain: '🧠', defense: '🛡️',
+};
+
+async function sendTelegram(env, { text, severity = 'info', source = 'system' }) {
+  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) {
+    // Log silently — Telegram not configured yet
+    try {
+      await env.DB.prepare(
+        `INSERT INTO telegram_log (severity, source, message, delivered, error)
+         VALUES (?, ?, ?, 0, 'TELEGRAM_BOT_TOKEN/CHAT_ID not configured')`
+      ).bind(severity, source, text).run();
+    } catch {}
+    return { delivered: false, error: 'not_configured' };
+  }
+  const emoji = TELEGRAM_EMOJI[severity] || '';
+  const fullText = `${emoji} ${text}`.slice(0, 4000);
+  try {
+    const resp = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: env.TELEGRAM_CHAT_ID,
+        text: fullText,
+        parse_mode: 'Markdown',
+        disable_web_page_preview: true,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await resp.json();
+    const ok = resp.ok && data?.ok;
+    await env.DB.prepare(
+      `INSERT INTO telegram_log (severity, source, message, delivered, error)
+       VALUES (?, ?, ?, ?, ?)`
+    ).bind(severity, source, fullText, ok ? 1 : 0, ok ? null : (data?.description || `HTTP ${resp.status}`)).run();
+    return { delivered: ok, message_id: data?.result?.message_id, error: ok ? null : data?.description };
+  } catch (e) {
+    try {
+      await env.DB.prepare(
+        `INSERT INTO telegram_log (severity, source, message, delivered, error)
+         VALUES (?, ?, ?, 0, ?)`
+      ).bind(severity, source, fullText, e.message?.slice(0, 200) || 'unknown').run();
+    } catch {}
+    return { delivered: false, error: e.message };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TASTYTRADE — Auth + market data + accounts
+// ═══════════════════════════════════════════════════════════════════════════
+// CF Workers IPs están BLOQUEADAS por el WAF de Tastytrade (verificado
+// 2026-04-30: nginx 401 en cualquier endpoint, incluyendo `/`). Solución:
+// bridge en el NAS Synology (ttapi.onto-so.com → tastytrade-bridge container,
+// IP residencial española). Mismo patrón que ib-bridge.
+//
+// Flow:
+//   Worker → ttBridgeFetch() → ttapi.onto-so.com (CF tunnel) → bridge → TT API
+//
+// El BRIDGE maneja: OAuth flow, refresh tokens, persistencia local en /data.
+// El WORKER solo proxy authenticado con Bearer (TASTYTRADE_BRIDGE_TOKEN).
+//
+// Endpoints del bridge usados:
+//   POST /oauth/exchange  body { code }
+//   POST /oauth/refresh
+//   GET  /oauth/status
+//   GET  /marketdata/quote?symbols=
+//   GET  /marketdata/chain/:underlying
+//   POST /marketdata/spread-quote  body { underlying, expiration, legs }
+//   GET  /marketdata/iv-rank/:underlying
+
+const TT_AUTH_URL = "https://my.tastytrade.com/auth.html";
+const TT_OAUTH_SCOPES = "read trade openid";
+
+// Llamada autenticada al bridge NAS. Reemplaza llamadas directas a Tastytrade.
+async function ttBridgeFetch(env, path, opts = {}) {
+  if (!env.TASTYTRADE_BRIDGE_URL || !env.TASTYTRADE_BRIDGE_TOKEN) {
+    throw new Error("Tastytrade bridge not configured: missing TASTYTRADE_BRIDGE_URL / TASTYTRADE_BRIDGE_TOKEN");
+  }
+  const url = `${env.TASTYTRADE_BRIDGE_URL.replace(/\/$/, "")}${path}`;
+  const init = {
+    method: opts.method || "GET",
+    headers: {
+      "Authorization": `Bearer ${env.TASTYTRADE_BRIDGE_TOKEN}`,
+      "Accept": "application/json",
+      ...(opts.body ? { "Content-Type": "application/json" } : {}),
+      ...(opts.headers || {}),
+    },
+    signal: AbortSignal.timeout(opts.timeout || 15000),
+  };
+  if (opts.body) init.body = typeof opts.body === "string" ? opts.body : JSON.stringify(opts.body);
+  const resp = await fetch(url, init);
+  const text = await resp.text();
+  let data;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!resp.ok) {
+    const err = new Error(`TT bridge ${resp.status} ${path}: ${typeof data === "string" ? data.slice(0, 200) : JSON.stringify(data).slice(0, 200)}`);
+    err.status = resp.status;
+    throw err;
+  }
+  return data;
+}
+
+// Status del bridge (delegate)
+async function ttBridgeStatus(env) {
+  return ttBridgeFetch(env, "/oauth/status");
+}
+
+// Intercambia code (lo que recibe el callback OAuth) por tokens. Lo hace el bridge.
+async function ttExchangeCode(env, code) {
+  return ttBridgeFetch(env, "/oauth/exchange", { method: "POST", body: { code } });
+}
+
+// Helpers de market data — todos pasan por el bridge.
+async function ttQuote(env, symbols) {
+  if (!Array.isArray(symbols) || !symbols.length) return {};
+  const data = await ttBridgeFetch(env, `/marketdata/quote?symbols=${symbols.map(encodeURIComponent).join(",")}`);
+  return data?.quotes || {};
+}
+
+async function ttOptionChain(env, underlying) {
+  const data = await ttBridgeFetch(env, `/marketdata/chain/${encodeURIComponent(underlying)}`);
+  return data?.chain || null;
+}
+
+async function ttSpreadQuote(env, { underlying, expiration, legs }) {
+  return ttBridgeFetch(env, "/marketdata/spread-quote", {
+    method: "POST",
+    body: { underlying, expiration, legs },
+  });
+}
+
+async function ttIvRank(env, underlying) {
+  return ttBridgeFetch(env, `/marketdata/iv-rank/${encodeURIComponent(underlying)}`);
+}
+
+// Genera URL de autorización OAuth (paso 1 del flow). El callback hace
+// POST al bridge con el code; el bridge intercambia y persiste tokens.
+function ttOAuthInitUrl(env, state) {
+  if (!env.TASTYTRADE_CLIENT_ID) throw new Error("TASTYTRADE_CLIENT_ID not set");
+  const redirectUri = "https://api.onto-so.com/api/tastytrade/oauth/callback";
+  const params = new URLSearchParams({
+    client_id: env.TASTYTRADE_CLIENT_ID,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: TT_OAUTH_SCOPES,
+    state,
+  });
+  return `${TT_AUTH_URL}?${params.toString()}`;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BRAIN LITE — análisis rules-based de mercado + posiciones (Phase 1A)
+// ═══════════════════════════════════════════════════════════════════════════
+// MVP sin LLM: lee VIX/SPY/IWM, fishing orders activas, paper trades, y emite
+// recomendaciones determinísticas (HOLD/WATCH/OPEN/CLOSE/MODIFY).
+// Phase 1B: añadir Claude Haiku para razonamiento contextual.
+// Phase 2: cron tiered + push automático.
+
+async function runBrainLite(env, { dryRun = false, forceSonnet = false } = {}) {
+  const ts = new Date().toISOString();
+  const decisions = [];
+
+  // 1) Market state: VIX + SPY + IWM
+  let vix = null, vixPrev = null, spy = null, iwm = null;
+  try {
+    const q = await fmpQuote(["^VIX", "SPY", "IWM"], env);
+    vix = q["^VIX"]?.price;
+    vixPrev = q["^VIX"]?.previousClose;
+    spy = q["SPY"]?.price;
+    iwm = q["IWM"]?.price;
+  } catch(e) { console.error("brain market state:", e.message); }
+
+  // 2) Fishing orders activas
+  const { results: activeFishing } = await env.DB.prepare(
+    "SELECT * FROM fishing_orders WHERE status = 'fishing'"
+  ).all();
+
+  // 3) Régimen del mercado (rules)
+  let regime = "neutral";
+  let regimeReason = "";
+  if (vix != null) {
+    if (vix < 14) { regime = "low_vol"; regimeReason = `VIX ${vix.toFixed(1)} < 14 — premium insuficiente, evita abrir credit spreads`; }
+    else if (vix > 30) { regime = "high_vol"; regimeReason = `VIX ${vix.toFixed(1)} > 30 — stress, reduce size 50% y solo defined-risk`; }
+    else if (vix > 22) { regime = "elevated_vol"; regimeReason = `VIX ${vix.toFixed(1)} entre 22-30 — IV pagando bien, size 1.0-1.3x`; }
+    else { regime = "normal"; regimeReason = `VIX ${vix.toFixed(1)} en rango 14-22 — abrir size estándar`; }
+  }
+  const vixDelta = (vix != null && vixPrev != null) ? ((vix - vixPrev) / vixPrev) * 100 : null;
+  const vixSpike = vixDelta != null && Math.abs(vixDelta) > 8;
+
+  // Decision 1: regime view (siempre)
+  decisions.push({
+    action: vixSpike ? "WATCH" : "HOLD",
+    severity: vixSpike ? "warn" : "info",
+    rationale: `Régimen ${regime}: ${regimeReason}${vixSpike ? `. VIX spike ${vixDelta.toFixed(1)}% — eventos en marcha.` : ""}`,
+    confidence: 0.85,
+    underlying: null,
+    strategy: null,
+  });
+
+  // Decision 2: alertas para fishing orders cerca/hit (recheck con datos cached)
+  for (const f of activeFishing) {
+    const dte = Math.max(0, Math.round((new Date(f.expiration).getTime() - Date.now()) / 86400000));
+    if (dte === 0) {
+      decisions.push({
+        action: "CLOSE", severity: "warn",
+        underlying: f.underlying, strategy: f.strategy_code,
+        rationale: `Fishing ${f.short_strike}/${f.long_strike} expira HOY. Cancelar o aceptar fill al close.`,
+        confidence: 0.95,
+      });
+    } else if (dte <= 3) {
+      decisions.push({
+        action: "WATCH", severity: "notice",
+        underlying: f.underlying, strategy: f.strategy_code,
+        rationale: `Fishing ${f.short_strike}/${f.long_strike} expira en ${dte}d. Considera cancelar si no llena.`,
+        confidence: 0.75,
+      });
+    }
+  }
+
+  // Decision 3: si vix > 22 y no hay fishing orders → sugerir abrir
+  if (vix != null && vix >= 22 && activeFishing.length === 0) {
+    decisions.push({
+      action: "OPEN", severity: "notice",
+      underlying: "IWM", strategy: "bps_iwm_philtown",
+      rationale: `VIX ${vix.toFixed(1)} elevado y sin fishing orders activas. Buen momento para BPS IWM 30 DTE 16Δ con fishing target +20% sobre mid actual.`,
+      confidence: 0.65,
+    });
+  }
+
+  // 4) Persistir decisions (a no ser que dryRun)
+  if (!dryRun) {
+    for (const d of decisions) {
+      await env.DB.prepare(
+        `INSERT INTO brain_decisions (ts, tick_type, model, regime_view, action, strategy, underlying,
+          severity, confidence, rationale, thinking_summary, cost_usd, tokens_in, tokens_out)
+         VALUES (?, 'MANUAL', 'rules_lite', ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0)`
+      ).bind(ts, regime, d.action, d.strategy || null, d.underlying || null,
+             d.severity, d.confidence, d.rationale, d.rationale.slice(0, 180)).run();
+    }
+  }
+
+  // 5) Telegram resumen si hay severity >= warn
+  const critical = decisions.filter(d => d.severity === "critical" || d.severity === "warn");
+  if (critical.length > 0 && !dryRun) {
+    const msg = `*🧠 Brain* — ${critical.length} alertas\n` +
+      critical.map(d => `• *${d.action}* ${d.underlying || ""}: ${d.rationale}`).join("\n");
+    await sendTelegram(env, { text: msg, severity: 'warn', source: 'brain_lite' });
+  }
+
+  return {
+    ts,
+    market: { vix, vix_delta_pct: vixDelta, spy, iwm, regime, regime_reason: regimeReason, vix_spike: vixSpike },
+    fishing_active: activeFishing.length,
+    decisions,
+    persisted: !dryRun,
+    notified: critical.length > 0 && !dryRun,
+    cost_usd: 0,
+    note: "Brain Lite MVP rules-based. Phase 1B: integrar Claude Haiku para razonamiento contextual.",
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // AUTO TRADING — Backtest engine
 // ═══════════════════════════════════════════════════════════════════════════
 //
@@ -2480,16 +2754,21 @@ async function getHistoricalPrices(env, symbol, fromDate, toDate) {
 }
 
 // --- Backtest engine ---
+// Routing por FAMILIA (prefix) en vez de match exacto, así nuevas variantes
+// (bps_iwm_philtown, ic_spy, bps_spy, …) reusan el mismo engine sin duplicación.
+// El engine es agnóstico al underlying — mira params.symbol y params.iv_scale
+// (1.0 SPY/SPX, 1.2 IWM/RUT por la diferencia VIX→RVX, custom para singles).
 async function runBacktest({ env, strategy, params, periodFrom, periodTo, initialCapital }) {
-  if (strategy === "bps_spx") return runBacktestBPS({ env, params, periodFrom, periodTo, initialCapital });
-  if (strategy === "ic_spx") return runBacktestIC({ env, params, periodFrom, periodTo, initialCapital });
-  if (strategy === "zdte_pcs_spx") return runBacktest0DTE({ env, params, periodFrom, periodTo, initialCapital });
+  if (strategy.startsWith("bps_"))     return runBacktestBPS({ env, params, periodFrom, periodTo, initialCapital });
+  if (strategy.startsWith("ic_"))      return runBacktestIC({ env, params, periodFrom, periodTo, initialCapital });
+  if (strategy.startsWith("zdte_"))    return runBacktest0DTE({ env, params, periodFrom, periodTo, initialCapital });
+  if (strategy.startsWith("earnings_"))return runBacktestEarningsIC({ env, params, periodFrom, periodTo, initialCapital });
   return {
     trades_count: 0, wins: 0, losses: 0, win_rate: 0,
     total_pnl: 0, total_return_pct: 0, max_drawdown_pct: 0,
     sharpe: 0, calmar: 0, avg_dte_at_entry: 0, avg_credit: 0, total_fees: 0,
     equity_curve: [], trades: [],
-    notes: `Strategy '${strategy}' not yet implemented (Phase 1C).`,
+    notes: `Strategy '${strategy}' not yet implemented.`,
   };
 }
 
@@ -2551,6 +2830,7 @@ async function runBacktestIC({ env, params, periodFrom, periodTo, initialCapital
   const contracts = params.contracts || 1;
   const minCredit = params.min_credit || 0.50;
   const entryDays = params.entry_days || [1];  // default lunes
+  const ivScale = params.iv_scale || 1.0;       // VIX→RVX scale (1.2 para IWM/RUT)
   const r = 0.04;
   const feePerLeg = 1.20;
   const slippage = 0.05;
@@ -2571,7 +2851,7 @@ async function runBacktestIC({ env, params, periodFrom, periodTo, initialCapital
     const px = pxMap.get(date);
     const vix = vixMap.get(date);
     if (!px || !vix) continue;
-    const sigma = Math.max(0.10, Math.min(0.80, vix.close / 100));
+    const sigma = Math.max(0.10, Math.min(0.80, (vix.close / 100) * ivScale));
 
     // Cerrar trade si toca
     if (openTrade) {
@@ -2776,6 +3056,128 @@ async function runBacktest0DTE({ env, params, periodFrom, periodTo, initialCapit
   );
 }
 
+// ─── Earnings IC vol crush ────────────────────────────────────────────────
+// Estrategia: 1 día antes de earnings, abrir IC defined-risk 7 DTE (weekly
+// post-earnings). Cierre al open del día siguiente (captura IV crush).
+// Implementación completa requiere FMP earning_calendar histórico — esta
+// versión usa una lista hardcoded de earnings reales 2020-2024 de top tickers
+// para validar el edge. PHASE 1B: integrar fetch FMP completo.
+async function runBacktestEarningsIC({ env, params, periodFrom, periodTo, initialCapital }) {
+  // Lista representativa: top 8 stocks × 4 quarters/año × 5 años = ~160 events.
+  // Fechas REALES de earnings (10-K/10-Q filings con BMO/AMC). Source: company IR.
+  // Limitado a 2020-2024; expandir con FMP earning_calendar en Phase 1B.
+  const events2020_2024 = [
+    // AAPL (AMC, miércoles último de mes en mes 1, 4, 7, 10)
+    { ticker: "AAPL", date: "2020-01-28" }, { ticker: "AAPL", date: "2020-04-30" }, { ticker: "AAPL", date: "2020-07-30" }, { ticker: "AAPL", date: "2020-10-29" },
+    { ticker: "AAPL", date: "2021-01-27" }, { ticker: "AAPL", date: "2021-04-28" }, { ticker: "AAPL", date: "2021-07-27" }, { ticker: "AAPL", date: "2021-10-28" },
+    { ticker: "AAPL", date: "2022-01-27" }, { ticker: "AAPL", date: "2022-04-28" }, { ticker: "AAPL", date: "2022-07-28" }, { ticker: "AAPL", date: "2022-10-27" },
+    { ticker: "AAPL", date: "2023-02-02" }, { ticker: "AAPL", date: "2023-05-04" }, { ticker: "AAPL", date: "2023-08-03" }, { ticker: "AAPL", date: "2023-11-02" },
+    { ticker: "AAPL", date: "2024-02-01" }, { ticker: "AAPL", date: "2024-05-02" }, { ticker: "AAPL", date: "2024-08-01" }, { ticker: "AAPL", date: "2024-10-31" },
+    // MSFT
+    { ticker: "MSFT", date: "2020-01-29" }, { ticker: "MSFT", date: "2020-04-29" }, { ticker: "MSFT", date: "2020-07-22" }, { ticker: "MSFT", date: "2020-10-27" },
+    { ticker: "MSFT", date: "2021-01-26" }, { ticker: "MSFT", date: "2021-04-27" }, { ticker: "MSFT", date: "2021-07-27" }, { ticker: "MSFT", date: "2021-10-26" },
+    { ticker: "MSFT", date: "2022-01-25" }, { ticker: "MSFT", date: "2022-04-26" }, { ticker: "MSFT", date: "2022-07-26" }, { ticker: "MSFT", date: "2022-10-25" },
+    { ticker: "MSFT", date: "2023-01-24" }, { ticker: "MSFT", date: "2023-04-25" }, { ticker: "MSFT", date: "2023-07-25" }, { ticker: "MSFT", date: "2023-10-24" },
+    { ticker: "MSFT", date: "2024-01-30" }, { ticker: "MSFT", date: "2024-04-25" }, { ticker: "MSFT", date: "2024-07-30" }, { ticker: "MSFT", date: "2024-10-30" },
+    // NVDA
+    { ticker: "NVDA", date: "2020-02-13" }, { ticker: "NVDA", date: "2020-05-21" }, { ticker: "NVDA", date: "2020-08-19" }, { ticker: "NVDA", date: "2020-11-18" },
+    { ticker: "NVDA", date: "2021-02-24" }, { ticker: "NVDA", date: "2021-05-26" }, { ticker: "NVDA", date: "2021-08-18" }, { ticker: "NVDA", date: "2021-11-17" },
+    { ticker: "NVDA", date: "2022-02-16" }, { ticker: "NVDA", date: "2022-05-25" }, { ticker: "NVDA", date: "2022-08-24" }, { ticker: "NVDA", date: "2022-11-16" },
+    { ticker: "NVDA", date: "2023-02-22" }, { ticker: "NVDA", date: "2023-05-24" }, { ticker: "NVDA", date: "2023-08-23" }, { ticker: "NVDA", date: "2023-11-21" },
+    { ticker: "NVDA", date: "2024-02-21" }, { ticker: "NVDA", date: "2024-05-22" }, { ticker: "NVDA", date: "2024-08-28" }, { ticker: "NVDA", date: "2024-11-20" },
+  ];
+  const dteTarget = params.dte_target || 7;
+  const shortDelta = params.short_delta || 0.16;
+  const longDelta = params.long_delta || 0.05;
+  const contracts = params.contracts || 1;
+  const ivBoost = params.iv_boost_pre_earnings || 1.5; // IV se infla 50% pre-earnings
+  const ivCrushPct = params.iv_crush_pct || 0.40;       // IV crush típico 40% post
+  const r = 0.04;
+  const feePerLeg = 1.20;
+  const slippage = 0.10;
+  const maxPct = (params.max_pct_nlv || 2) / 100;
+
+  // Filtra eventos en periodo
+  const events = events2020_2024.filter(e => e.date >= periodFrom && e.date <= periodTo);
+  if (!events.length) {
+    return computeBacktestMetrics([], [{date: periodFrom, equity: initialCapital}], initialCapital, initialCapital, feePerLeg, 4,
+      `Earnings IC — sin eventos en periodo ${periodFrom} → ${periodTo}. Lista hardcoded cubre 2020-2024 AAPL/MSFT/NVDA. Phase 1B: integración FMP earning_calendar para cobertura completa.`);
+  }
+
+  let equity = initialCapital;
+  const equityCurve = [{ date: events[0].date, equity: initialCapital }];
+  const trades = [];
+
+  // Cargo histórico para los 3 tickers únicos (cache 1 fetch/ticker)
+  const uniqTickers = [...new Set(events.map(e => e.ticker))];
+  const histByTicker = {};
+  for (const t of uniqTickers) {
+    try {
+      histByTicker[t] = await getHistoricalPrices(env, t, periodFrom, periodTo);
+    } catch (e) {
+      console.error(`Earnings IC: failed to load history for ${t}:`, e.message);
+    }
+  }
+
+  for (const ev of events) {
+    const hist = histByTicker[ev.ticker];
+    if (!hist) continue;
+    // Fecha entrada = 1 trading day antes de earnings (aprox: 1 día calendario)
+    const earningsTime = new Date(ev.date).getTime();
+    const entryDate = new Date(earningsTime - 86400000).toISOString().slice(0, 10);
+    const px = hist.get(entryDate) || hist.get(ev.date);
+    const pxAfter = hist.get(new Date(earningsTime + 86400000).toISOString().slice(0, 10)) || hist.get(ev.date);
+    if (!px || !pxAfter) continue;
+
+    // IV pre-earnings infladas — usamos 30% como base * boost
+    const sigmaPre = 0.30 * ivBoost;
+    const T = dteTarget / 365;
+    const shortPut = strikeForDelta(px.close, r, sigmaPre, T, false, shortDelta);
+    const longPut = strikeForDelta(px.close, r, sigmaPre, T, false, longDelta);
+    const shortCall = strikeForDelta(px.close, r, sigmaPre, T, true, shortDelta);
+    const longCall = strikeForDelta(px.close, r, sigmaPre, T, true, longDelta);
+    if (shortPut <= longPut || longCall <= shortCall) continue;
+
+    const sp = bsPrice(px.close, shortPut, r, sigmaPre, T, false);
+    const lp = bsPrice(px.close, longPut, r, sigmaPre, T, false);
+    const sc = bsPrice(px.close, shortCall, r, sigmaPre, T, true);
+    const lc = bsPrice(px.close, longCall, r, sigmaPre, T, true);
+    const credit = ((sp - lp) + (sc - lc)) * (1 - slippage);
+    const widthMax = Math.max(shortPut - longPut, longCall - shortCall);
+    const maxRiskCash = (widthMax - credit) * 100 * contracts;
+    if (maxRiskCash > equity * maxPct) continue; // Sizing limit
+
+    // Salida next day open: IV crush
+    const sigmaPost = 0.30 * (1 - ivCrushPct);
+    const Tpost = (dteTarget - 1) / 365;
+    const sp2 = bsPrice(pxAfter.open || pxAfter.close, shortPut, r, sigmaPost, Tpost, false);
+    const lp2 = bsPrice(pxAfter.open || pxAfter.close, longPut, r, sigmaPost, Tpost, false);
+    const sc2 = bsPrice(pxAfter.open || pxAfter.close, shortCall, r, sigmaPost, Tpost, true);
+    const lc2 = bsPrice(pxAfter.open || pxAfter.close, longCall, r, sigmaPost, Tpost, true);
+    const debit = ((sp2 - lp2) + (sc2 - lc2)) * (1 + slippage);
+    const fees = feePerLeg * 4 * 2 * contracts;
+    const pnl = (credit - debit) * 100 * contracts - fees;
+
+    equity += pnl;
+    trades.push({
+      opened: entryDate, closed: ev.date,
+      ticker: ev.ticker,
+      short_put: Math.round(shortPut * 100) / 100, long_put: Math.round(longPut * 100) / 100,
+      short_call: Math.round(shortCall * 100) / 100, long_call: Math.round(longCall * 100) / 100,
+      dte_at_entry: dteTarget, credit, exit_debit: debit,
+      pnl: Math.round(pnl * 100) / 100,
+      pnl_pct: ((credit - debit) / Math.max(0.01, widthMax - credit)) * 100,
+      reason: "iv_crush",
+    });
+    equityCurve.push({ date: ev.date, equity: Math.round(equity) });
+  }
+
+  return computeBacktestMetrics(
+    trades, equityCurve, initialCapital, equity, feePerLeg, 4,
+    `Earnings IC vol crush — ${trades.length} eventos sobre AAPL/MSFT/NVDA 2020-2024. IV pre-boost ${ivBoost}x, crush ${ivCrushPct*100}%. Limitación: lista hardcoded; expandir con FMP earning_calendar en Phase 1B para cobertura completa.`
+  );
+}
+
 async function runBacktestBPS({ env, params, periodFrom, periodTo, initialCapital }) {
   // Bull Put Spread on SPX
   // Reglas:
@@ -2792,6 +3194,7 @@ async function runBacktestBPS({ env, params, periodFrom, periodTo, initialCapita
   const maxDteClose = params.max_dte_close || 21;
   const contracts = params.contracts || 1;
   const minCredit = params.min_credit || 1.0;
+  const ivScale = params.iv_scale || 1.0;       // VIX→RVX scale (1.2 IWM/RUT)
   const r = 0.04; // risk-free rate proxy
   const feePerLeg = 1.20;
   const slippage = 0.05; // 5% del credit
@@ -2815,7 +3218,7 @@ async function runBacktestBPS({ env, params, periodFrom, periodTo, initialCapita
     const px = spxMap.get(date);
     const vix = vixMap.get(date);
     if (!px || !vix) continue;
-    const sigma = Math.max(0.10, Math.min(0.80, vix.close / 100));
+    const sigma = Math.max(0.10, Math.min(0.80, (vix.close / 100) * ivScale));
 
     // 1) Si hay trade abierto, ver si toca cerrar
     if (openTrade) {
@@ -2836,22 +3239,30 @@ async function runBacktestBPS({ env, params, periodFrom, periodTo, initialCapita
       const pnl = openTrade.creditCash - currentValue;
       const pnlPct = pnl / openTrade.maxRiskCash;
 
-      // Reglas de cierre estándar + DEFENSAS PROFESIONALES (Phase 1B):
-      // - profit target: cerrar al X% del max profit
-      // - stop loss: cerrar si pérdida > X% del credit
-      // - expira ese día
-      // - "21 DTE roll" (params.dte_management_at): cuando faltan <=N días,
-      //   cerramos para evitar gamma acceleration. Si dteTarget > maxDteClose.
-      // - "touch close" (params.touch_close): cierre inmediato si subyacente
-      //   toca el short strike (cut losses agresivo).
-      const dteManagementApplies = dteTarget > maxDteClose;
+      // Reglas de cierre. Soporta múltiples modos en paralelo, gana el primero:
+      // - profit_target_pct (X% max profit)
+      // - stop_loss_pct (X% del max risk)
+      // - max_dte_close (gamma management 21 DTE)
+      // - touch_close (toque del short strike → cierre inmediato)
+      // - exit_on_pop_below (Phil Town puro: cierra cuando POP ≤ X)
+      //   POP = N(d2) — probabilidad de expirar OTM del short put
+      const dteManagementApplies = dteTarget > maxDteClose && maxDteClose > 0;
       const touchedShort = params.touch_close && px.close <= openTrade.shortStrike;
+      let popNow = null;
+      if (params.exit_on_pop_below && dte > 0) {
+        const Tnow = dte / 365;
+        const d1 = (Math.log(px.close / openTrade.shortStrike) + (r + 0.5 * sigma * sigma) * Tnow) / (sigma * Math.sqrt(Tnow));
+        const d2 = d1 - sigma * Math.sqrt(Tnow);
+        popNow = _normCdf(d2);
+      }
+      const popTriggered = popNow != null && popNow <= params.exit_on_pop_below;
       const shouldClose =
         pnlPct >= profitTarget ||
         pnlPct <= -stopLoss ||
         dte <= 0 ||
         (dteManagementApplies && dte <= maxDteClose) ||
-        touchedShort;
+        touchedShort ||
+        popTriggered;
 
       if (shouldClose) {
         const fees = feePerLeg * 2 * openTrade.contracts;
@@ -2867,7 +3278,9 @@ async function runBacktestBPS({ env, params, periodFrom, periodTo, initialCapita
           exit_debit: mtmDebit,
           pnl: realizedPnl,
           pnl_pct: pnlPct * 100,
+          pop_at_exit: popNow,
           reason:
+            popTriggered ? "pop_below" :
             pnlPct >= profitTarget ? "profit_target" :
             pnlPct <= -stopLoss ? "stop_loss" :
             dte <= 0 ? "expired" :
@@ -8241,6 +8654,396 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         sql += " ORDER BY created_at DESC LIMIT 50";
         const { results } = await env.DB.prepare(sql).bind(...binds).all();
         return json({ runs: results }, corsHeaders);
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // TASTYTRADE — OAuth flow + status + market data
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // GET /api/tastytrade/oauth/init — paso 1: redirige al usuario a la
+      // página de autorización de Tastytrade. Genera state CSRF y guarda en D1.
+      if (path === "/api/tastytrade/oauth/init" && request.method === "GET") {
+        if (!env.TASTYTRADE_CLIENT_ID) {
+          return json({ error: "TASTYTRADE_CLIENT_ID not configured" }, corsHeaders, 500);
+        }
+        const state = crypto.randomUUID();
+        const stateExpiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 min
+        await env.DB.prepare(
+          `INSERT INTO tastytrade_session (k, v, expires_at, updated_at)
+           VALUES (?, ?, ?, datetime('now'))
+           ON CONFLICT(k) DO UPDATE SET v=excluded.v, expires_at=excluded.expires_at, updated_at=datetime('now')`
+        ).bind(`oauth_state_${state}`, "pending", stateExpiresAt).run();
+        const authUrl = ttOAuthInitUrl(env, state);
+        // Si querían JSON (frontend) lo damos; si no, redirect 302
+        if (request.headers.get("Accept")?.includes("application/json")) {
+          return json({ auth_url: authUrl, state }, corsHeaders);
+        }
+        return new Response(null, { status: 302, headers: { ...corsHeaders, Location: authUrl } });
+      }
+
+      // GET /api/tastytrade/oauth/callback — paso 2: Tastytrade redirige aquí
+      // con ?code=ABC&state=XYZ. Validamos state CSRF y reenviamos el code
+      // al BRIDGE NAS (que SÍ puede llamar a TT desde IP residencial).
+      if (path === "/api/tastytrade/oauth/callback" && request.method === "GET") {
+        const code = url.searchParams.get("code");
+        const state = url.searchParams.get("state");
+        const err = url.searchParams.get("error");
+        if (err) {
+          return new Response(`Tastytrade OAuth error: ${err}`, { status: 400, headers: corsHeaders });
+        }
+        if (!code || !state) {
+          return new Response("Missing code or state", { status: 400, headers: corsHeaders });
+        }
+        const stateRow = await env.DB.prepare(
+          "SELECT v, expires_at FROM tastytrade_session WHERE k = ?"
+        ).bind(`oauth_state_${state}`).first();
+        if (!stateRow) {
+          return new Response("Invalid state (CSRF check failed)", { status: 400, headers: corsHeaders });
+        }
+        if (new Date(stateRow.expires_at).getTime() < Date.now()) {
+          return new Response("State expired (>10 min). Re-init OAuth flow.", { status: 400, headers: corsHeaders });
+        }
+        await env.DB.prepare("DELETE FROM tastytrade_session WHERE k = ?").bind(`oauth_state_${state}`).run();
+        // Delegar exchange al bridge NAS
+        try {
+          const result = await ttExchangeCode(env, code);
+          return new Response(null, {
+            status: 302,
+            headers: { ...corsHeaders, Location: `https://ayr.onto-so.com/?tastytrade=connected&expires=${encodeURIComponent(result?.access_expires_at || "")}` },
+          });
+        } catch (e) {
+          return new Response(
+            `Bridge token exchange failed: ${e.message}\n\n` +
+            `Probable causa: NAS bridge no desplegado o secrets TASTYTRADE_BRIDGE_URL/TASTYTRADE_BRIDGE_TOKEN no configurados.\n` +
+            `Ver tastytrade-bridge/README.md para deploy.`,
+            { status: 500, headers: corsHeaders }
+          );
+        }
+      }
+
+      // GET /api/tastytrade/status — saber si bridge está vivo y autenticado
+      if (path === "/api/tastytrade/status" && request.method === "GET") {
+        const bridgeConfigured = !!(env.TASTYTRADE_BRIDGE_URL && env.TASTYTRADE_BRIDGE_TOKEN);
+        if (!bridgeConfigured) {
+          return json({
+            configured: false,
+            bridge_configured: false,
+            message: "Bridge not configured. Deploy NAS bridge then set TASTYTRADE_BRIDGE_URL + TASTYTRADE_BRIDGE_TOKEN. See tastytrade-bridge/README.md",
+          }, corsHeaders);
+        }
+        // Health check del bridge
+        try {
+          const healthResp = await fetch(`${env.TASTYTRADE_BRIDGE_URL.replace(/\/$/, "")}/health`, {
+            signal: AbortSignal.timeout(5000),
+          });
+          if (!healthResp.ok) {
+            return json({ configured: true, bridge_configured: true, bridge_alive: false, error: `bridge health HTTP ${healthResp.status}` }, corsHeaders);
+          }
+          const health = await healthResp.json();
+          // Si bridge alive, pedir status OAuth
+          let oauthStatus = null;
+          let needsAuth = true;
+          try {
+            oauthStatus = await ttBridgeStatus(env);
+            needsAuth = !oauthStatus?.has_tokens;
+          } catch(e) { console.error("tt bridge status:", e.message); }
+          const initUrl = needsAuth ? "https://api.onto-so.com/api/tastytrade/oauth/init" : null;
+          return json({
+            configured: true,
+            bridge_configured: true,
+            bridge_alive: true,
+            bridge_health: health,
+            connected: !!oauthStatus?.access_valid,
+            has_tokens: !!oauthStatus?.has_tokens,
+            access_expires_at: oauthStatus?.access_expires_at || null,
+            needs_auth: needsAuth,
+            init_url: initUrl,
+            account_number: env.TASTYTRADE_ACCOUNT_NUMBER || null,
+          }, corsHeaders);
+        } catch (e) {
+          return json({
+            configured: true,
+            bridge_configured: true,
+            bridge_alive: false,
+            error: `bridge unreachable: ${e.message}. Verify NAS up + CF tunnel routing ttapi.onto-so.com.`,
+          }, corsHeaders);
+        }
+      }
+
+      // GET /api/tastytrade/quote?symbols=SPY,IWM,VIX — quote en vivo
+      if (path === "/api/tastytrade/quote" && request.method === "GET") {
+        const symbols = (url.searchParams.get("symbols") || "").split(",").filter(Boolean);
+        if (!symbols.length) return json({ error: "symbols required" }, corsHeaders, 400);
+        try {
+          const quotes = await ttQuote(env, symbols);
+          return json({ quotes }, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/tastytrade/chain/:underlying — option chain nested
+      if (path.startsWith("/api/tastytrade/chain/") && request.method === "GET") {
+        const underlying = decodeURIComponent(path.split("/").pop());
+        if (!underlying) return json({ error: "underlying required" }, corsHeaders, 400);
+        try {
+          const chain = await ttOptionChain(env, underlying);
+          return json({ chain }, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/tastytrade/accounts — lista cuentas del usuario (vía bridge)
+      if (path === "/api/tastytrade/accounts" && request.method === "GET") {
+        try {
+          const data = await ttBridgeFetch(env, "/marketdata/accounts");
+          return json(data, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/tastytrade/iv-rank/:underlying — IV rank en vivo (vía bridge)
+      if (path.startsWith("/api/tastytrade/iv-rank/") && request.method === "GET") {
+        const underlying = decodeURIComponent(path.split("/").pop());
+        try {
+          const data = await ttIvRank(env, underlying);
+          return json(data, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // POST /api/tastytrade/spread-quote — credit del spread real (vía bridge)
+      // Body: { underlying, expiration, legs: [{type,strike,action}] }
+      if (path === "/api/tastytrade/spread-quote" && request.method === "POST") {
+        const b = await parseBody(request);
+        try {
+          const data = await ttSpreadQuote(env, b);
+          return json(data, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // FISHING ORDERS — GTC limit orders pendientes esperando precio target
+      // ═══════════════════════════════════════════════════════════════════════
+      // Concepto "pescando": en vez de market-cross al credit del momento,
+      // se pone GTC limit a credit superior y se espera. El sistema escanea
+      // periódicamente (manual o cron) y avisa Telegram cuando current_credit
+      // se acerca al target o lo alcanza.
+
+      // GET /api/fishing/orders — listar (?status=fishing|hit|expired|cancelled)
+      if (path === "/api/fishing/orders" && request.method === "GET") {
+        const status = url.searchParams.get("status");
+        let sql = "SELECT * FROM fishing_orders";
+        const binds = [];
+        if (status) { sql += " WHERE status = ?"; binds.push(status); }
+        sql += " ORDER BY created_at DESC LIMIT 200";
+        const { results } = await env.DB.prepare(sql).bind(...binds).all();
+        return json({ orders: results }, corsHeaders);
+      }
+
+      // POST /api/fishing/orders — crear nuevo fishing order
+      if (path === "/api/fishing/orders" && request.method === "POST") {
+        const b = await parseBody(request);
+        const reqErr = validateRequired(b.strategy_code, 'strategy_code')
+          || validateRequired(b.underlying, 'underlying')
+          || validateRequired(b.short_strike, 'short_strike')
+          || validateRequired(b.long_strike, 'long_strike')
+          || validateRequired(b.expiration, 'expiration')
+          || validateRequired(b.target_credit, 'target_credit');
+        if (reqErr) return validationError(reqErr, corsHeaders);
+        const r = await env.DB.prepare(
+          `INSERT INTO fishing_orders (strategy_code, underlying, spread_type, short_strike, long_strike,
+            expiration, contracts, target_credit, status, notes, expires_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'fishing', ?, ?)`
+        ).bind(
+          b.strategy_code, b.underlying.toUpperCase(), b.spread_type || 'BPS',
+          Number(b.short_strike), Number(b.long_strike), b.expiration,
+          Number(b.contracts) || 1, Number(b.target_credit),
+          b.notes || null, b.expires_at || null
+        ).run();
+        return json({ success: true, id: r.meta.last_row_id }, corsHeaders);
+      }
+
+      // PATCH /api/fishing/orders/:id — actualizar (status, target, etc)
+      if (path.startsWith("/api/fishing/orders/") && request.method === "PATCH") {
+        const id = parseInt(path.split("/").pop(), 10);
+        if (!id) return validationError("id required", corsHeaders);
+        const b = await parseBody(request);
+        const fields = [];
+        const binds = [];
+        for (const k of ["status", "target_credit", "contracts", "notes", "expires_at"]) {
+          if (b[k] !== undefined) { fields.push(`${k} = ?`); binds.push(b[k]); }
+        }
+        if (!fields.length) return validationError("nothing to update", corsHeaders);
+        fields.push("updated_at = datetime('now')");
+        binds.push(id);
+        await env.DB.prepare(`UPDATE fishing_orders SET ${fields.join(", ")} WHERE id = ?`).bind(...binds).run();
+        return json({ success: true }, corsHeaders);
+      }
+
+      // DELETE /api/fishing/orders/:id — cancelar
+      if (path.startsWith("/api/fishing/orders/") && request.method === "DELETE") {
+        const id = parseInt(path.split("/").pop(), 10);
+        if (!id) return validationError("id required", corsHeaders);
+        await env.DB.prepare("UPDATE fishing_orders SET status='cancelled', updated_at=datetime('now') WHERE id = ?").bind(id).run();
+        return json({ success: true }, corsHeaders);
+      }
+
+      // POST /api/fishing/scan — escanea fishing orders activas vs precio actual.
+      // Para cada orden 'fishing', consulta TT chain (si conectado) o BS+VIX
+      // estimación, calcula current_credit, y dispara Telegram si:
+      //   - current_credit >= target_credit                         → 'hit'
+      //   - current_credit >= 0.80 * target_credit (proximity 80%)  → 'proximity'
+      // Persistente y idempotente: respeta flags notified_proximity y notified_hit.
+      if (path === "/api/fishing/scan" && request.method === "POST") {
+        const { results: orders } = await env.DB.prepare(
+          "SELECT * FROM fishing_orders WHERE status = 'fishing'"
+        ).all();
+        if (!orders.length) {
+          return json({ scanned: 0, hits: 0, proximity: 0, message: "No active fishing orders" }, corsHeaders);
+        }
+        const ttConnected = !!(env.TASTYTRADE_CLIENT_ID && env.TASTYTRADE_CLIENT_SECRET) || !!(env.TASTYTRADE_USERNAME && env.TASTYTRADE_PASSWORD);
+        let hits = 0, prox = 0, scanned = 0;
+        const events = [];
+
+        for (const o of orders) {
+          scanned++;
+          let currentCredit = null;
+          let underlyingPx = null;
+          let popNow = null;
+
+          if (ttConnected) {
+            // TODO: usar ttQuote con OCC symbols. Phase 1B: por ahora estimación.
+            try {
+              const q = await ttQuote(env, [o.underlying]);
+              underlyingPx = q[o.underlying]?.last || q[o.underlying]?.mid;
+            } catch(e) { console.error("tt quote in scan:", e.message); }
+          }
+
+          // Fallback: BS estimation con VIX live + price live
+          if (currentCredit == null) {
+            try {
+              const fmpQuotes = await fmpQuote([o.underlying, "^VIX"], env);
+              underlyingPx = underlyingPx || fmpQuotes[o.underlying]?.price;
+              const vix = fmpQuotes["^VIX"]?.price || 18;
+              if (underlyingPx) {
+                const sigma = Math.max(0.10, Math.min(0.80, vix / 100));
+                const dte = Math.max(0, Math.round((new Date(o.expiration).getTime() - Date.now()) / 86400000));
+                const T = Math.max(1/365, dte / 365);
+                const r = 0.04;
+                const sp = bsPrice(underlyingPx, o.short_strike, r, sigma, T, false);
+                const lp = bsPrice(underlyingPx, o.long_strike, r, sigma, T, false);
+                currentCredit = Math.max(0, sp - lp);
+                // POP del short put = N(d2)
+                const d1 = (Math.log(underlyingPx / o.short_strike) + (r + 0.5*sigma*sigma)*T) / (sigma * Math.sqrt(T));
+                const d2 = d1 - sigma * Math.sqrt(T);
+                popNow = _normCdf(d2);
+              }
+            } catch(e) { console.error(`scan order ${o.id}:`, e.message); }
+          }
+
+          // Update DB
+          await env.DB.prepare(
+            `UPDATE fishing_orders SET current_credit = ?, current_underlying_px = ?, current_pop = ?,
+              last_scan_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
+          ).bind(currentCredit, underlyingPx, popNow, o.id).run();
+
+          if (currentCredit == null) continue;
+
+          // Hit
+          if (currentCredit >= o.target_credit && !o.notified_hit) {
+            hits++;
+            events.push({ type: 'hit', order: o, currentCredit, underlyingPx });
+            await sendTelegram(env, {
+              text: `*🐟 PESCADO* — ${o.underlying} ${o.short_strike}/${o.long_strike} ${o.expiration}\n` +
+                    `Credit ahora: *$${currentCredit.toFixed(2)}* (target $${o.target_credit.toFixed(2)})\n` +
+                    `Underlying: $${underlyingPx?.toFixed(2)}, POP ${(popNow*100).toFixed(0)}%\n` +
+                    `Estrategia: ${o.strategy_code}, ${o.contracts} contr.\n` +
+                    `Pop al market AHORA en TWS/T3.`,
+              severity: 'fishing_hit',
+              source: `fishing_${o.id}`,
+            });
+            await env.DB.prepare(
+              "UPDATE fishing_orders SET notified_hit=1, hit_at=datetime('now'), status='hit', updated_at=datetime('now') WHERE id = ?"
+            ).bind(o.id).run();
+          }
+          // Proximity 80%
+          else if (currentCredit >= 0.8 * o.target_credit && !o.notified_proximity) {
+            prox++;
+            events.push({ type: 'proximity', order: o, currentCredit, underlyingPx });
+            await sendTelegram(env, {
+              text: `*🎣 Cerca* — ${o.underlying} ${o.short_strike}/${o.long_strike} ${o.expiration}\n` +
+                    `Credit: $${currentCredit.toFixed(2)} (${((currentCredit/o.target_credit)*100).toFixed(0)}% del target $${o.target_credit.toFixed(2)})\n` +
+                    `Sigue moviéndose, paciencia.`,
+              severity: 'fishing_proximity',
+              source: `fishing_${o.id}`,
+            });
+            await env.DB.prepare(
+              "UPDATE fishing_orders SET notified_proximity=1, updated_at=datetime('now') WHERE id = ?"
+            ).bind(o.id).run();
+          }
+        }
+
+        return json({ scanned, hits, proximity: prox, events, source: ttConnected ? 'tastytrade' : 'fmp_bs_estimate' }, corsHeaders);
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // BRAIN LITE — analisis on-demand de mercado + posiciones + fishing orders
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // POST /api/brain/run — ejecuta un análisis Brain ad-hoc.
+      // Body opcional: { force_sonnet: bool, dry_run: bool }
+      if (path === "/api/brain/run" && request.method === "POST") {
+        const b = await parseBody(request).catch(() => ({}));
+        const dryRun = !!b.dry_run;
+        const forceSonnet = !!b.force_sonnet;
+        try {
+          const result = await runBrainLite(env, { dryRun, forceSonnet });
+          return json(result, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/brain/decisions?limit=50 — historial de decisiones
+      if (path === "/api/brain/decisions" && request.method === "GET") {
+        const limit = Math.min(500, parseInt(url.searchParams.get("limit") || "50", 10));
+        const severity = url.searchParams.get("severity");
+        let sql = "SELECT * FROM brain_decisions";
+        const binds = [];
+        if (severity) { sql += " WHERE severity = ?"; binds.push(severity); }
+        sql += " ORDER BY ts DESC LIMIT ?";
+        binds.push(limit);
+        const { results } = await env.DB.prepare(sql).bind(...binds).all();
+        return json({ decisions: results }, corsHeaders);
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // TELEGRAM — test endpoint (saber si bot está configurado)
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // POST /api/telegram/test — envía mensaje de prueba al chat configurado
+      if (path === "/api/telegram/test" && request.method === "POST") {
+        const result = await sendTelegram(env, {
+          text: `*A&R bot test* — ${new Date().toISOString()}\nSi ves esto, el setup está OK.`,
+          severity: 'info',
+          source: 'manual_test',
+        });
+        return json(result, corsHeaders);
+      }
+
+      // GET /api/telegram/log?limit=50 — últimas notificaciones enviadas
+      if (path === "/api/telegram/log" && request.method === "GET") {
+        const limit = Math.min(200, parseInt(url.searchParams.get("limit") || "50", 10));
+        const { results } = await env.DB.prepare(
+          "SELECT * FROM telegram_log ORDER BY ts DESC LIMIT ?"
+        ).bind(limit).all();
+        return json({ messages: results }, corsHeaders);
       }
 
       // ─── TRANSFERENCIAS (deposits / withdrawals between bank ↔ IB) ────────────
