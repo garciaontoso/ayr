@@ -23,6 +23,7 @@ const FireTab            = lazy(() => import('../home/FireTab'));
 const GastosTab          = lazy(() => import('../home/GastosTab'));
 const TransferenciasTab  = lazy(() => import('../home/TransferenciasTab'));
 const AutoTradingTab     = lazy(() => import('../home/AutoTradingTab'));
+const TTTab              = lazy(() => import('../home/TTTab'));
 // WatchlistTab removed 2026-04-27 — never reachable (no entry in HOME_TAB_GROUPS)
 const HistorialTab       = lazy(() => import('../home/HistorialTab'));
 const AdvisorTab         = lazy(() => import('../home/AdvisorTab'));
@@ -1597,6 +1598,7 @@ export default function HomeView() {
         {homeTab==="gastos" && <GastosTab />}
         {homeTab==="transferencias" && <TransferenciasTab />}
         {homeTab==="auto-trading" && <AutoTradingTab />}
+        {homeTab==="tt" && <TTTab />}
         {/* watchlist, discovery, div-scanner removed 2026-04-27:
             no entries in HOME_TAB_GROUPS so unreachable from UI.
             DiscoveryTab + DividendScannerTab still mounted as sub-tabs of CanteraTab. */}

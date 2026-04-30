@@ -108,6 +108,7 @@ export const HOME_TAB_GROUPS = [
       {id:"action-plan",lbl:"Acciones",ico:"🎯"},
       {id:"briefing",lbl:"Briefing",ico:"☀️"},
       {id:"portfolio",lbl:"Portfolio",ico:"💼"},
+      {id:"tt",lbl:"TT",ico:"💎"},
       {id:"agentes",lbl:"Agentes",ico:"🤖"},
       {id:"dashboard",lbl:"Dashboard",ico:"📊"},
       {id:"trades",lbl:"Trades",ico:"📈"},

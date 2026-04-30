@@ -9419,6 +9419,39 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         }
       }
 
+      // GET /api/tastytrade/positions — TODAS las cuentas (proxy bridge)
+      if (path === "/api/tastytrade/positions" && request.method === "GET") {
+        try {
+          const accountsData = await ttBridgeFetch(env, "/marketdata/accounts");
+          const result = { accounts: [], by_account: {} };
+          for (const acct of accountsData?.accounts || []) {
+            if (acct.is_closed) continue;
+            try {
+              const r = await ttBridgeFetch(env, `/marketdata/positions/${encodeURIComponent(acct.account_number)}`);
+              result.accounts.push({ ...acct, position_count: r?.positions?.length || 0 });
+              result.by_account[acct.account_number] = {
+                ...acct,
+                positions: r?.positions || [],
+              };
+            } catch (e) { console.error(`positions ${acct.account_number}:`, e.message); }
+          }
+          return json(result, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/tastytrade/positions/:account — una cuenta (proxy bridge)
+      if (path.startsWith("/api/tastytrade/positions/") && request.method === "GET") {
+        const account = decodeURIComponent(path.split("/").pop());
+        try {
+          const data = await ttBridgeFetch(env, `/marketdata/positions/${encodeURIComponent(account)}`);
+          return json(data, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
       // GET /api/tastytrade/quote?symbols=SPY,IWM,VIX — quote en vivo
       if (path === "/api/tastytrade/quote" && request.method === "GET") {
         const symbols = (url.searchParams.get("symbols") || "").split(",").filter(Boolean);
