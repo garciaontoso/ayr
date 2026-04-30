@@ -177,4 +177,104 @@ router.get("/accounts", async (req, res) => {
   }
 });
 
+// GET /marketdata/positions/:account — posiciones de una cuenta
+// Devuelve normalizado: symbol, type (stock/option), quantity, strike, expiry, etc.
+router.get("/positions/:account", async (req, res) => {
+  const account = req.params.account;
+  try {
+    const data = await ttFetch(`/accounts/${encodeURIComponent(account)}/positions`);
+    const items = (data?.data?.items || []).map(p => {
+      // OCC symbol parsing si es opción
+      // Format: "IWM   260530P00248000" → underlying=IWM, expiry=2026-05-30, type=P, strike=248
+      const inst = p["instrument-type"]; // "Equity", "Equity Option", "Future", etc
+      const symbol = p.symbol;
+      const isOption = inst === "Equity Option" || inst === "Future Option";
+      let underlying = p["underlying-symbol"] || symbol;
+      let optType = null, expiry = null, strike = null;
+      if (isOption && symbol.length >= 21) {
+        // OCC: 6 chars symbol (padded) + 6 expiry YYMMDD + 1 type + 8 strike (×1000)
+        const m = symbol.match(/^(\S+)\s+(\d{6})([CP])(\d{8})$/);
+        if (m) {
+          underlying = m[1].trim();
+          const yy = m[2].slice(0, 2), mm = m[2].slice(2, 4), dd = m[2].slice(4, 6);
+          expiry = `20${yy}-${mm}-${dd}`;
+          optType = m[3] === "C" ? "call" : "put";
+          strike = Number(m[4]) / 1000;
+        }
+      }
+      return {
+        account,
+        symbol,
+        underlying,
+        instrument_type: inst,
+        is_option: isOption,
+        opt_type: optType,
+        strike,
+        expiry,
+        quantity: Number(p.quantity || 0),
+        quantity_direction: p["quantity-direction"], // Long | Short | Zero
+        average_open_price: p["average-open-price"] != null ? Number(p["average-open-price"]) : null,
+        cost_effect: p["cost-effect"], // Credit | Debit
+        mark_price: p["mark-price"] != null ? Number(p["mark-price"]) : null,
+        opened_at: p["created-at"],
+      };
+    });
+    res.json({ positions: items, account });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+// GET /marketdata/positions — agrega de TODAS las cuentas del user
+router.get("/positions", async (req, res) => {
+  try {
+    const acctData = await ttFetch("/customers/me/accounts");
+    const accounts = (acctData?.data?.items || [])
+      .map(it => it.account?.["account-number"])
+      .filter(a => a && !it_is_closed(acctData, a));
+    const allPositions = [];
+    for (const acct of accounts) {
+      try {
+        const r = await ttFetch(`/accounts/${encodeURIComponent(acct)}/positions`);
+        for (const p of (r?.data?.items || [])) {
+          const inst = p["instrument-type"];
+          const symbol = p.symbol;
+          const isOption = inst === "Equity Option" || inst === "Future Option";
+          let underlying = p["underlying-symbol"] || symbol;
+          let optType = null, expiry = null, strike = null;
+          if (isOption) {
+            const m = symbol.match(/^(\S+)\s+(\d{6})([CP])(\d{8})$/);
+            if (m) {
+              underlying = m[1].trim();
+              const yy = m[2].slice(0, 2), mm = m[2].slice(2, 4), dd = m[2].slice(4, 6);
+              expiry = `20${yy}-${mm}-${dd}`;
+              optType = m[3] === "C" ? "call" : "put";
+              strike = Number(m[4]) / 1000;
+            }
+          }
+          allPositions.push({
+            account: acct, symbol, underlying,
+            instrument_type: inst, is_option: isOption,
+            opt_type: optType, strike, expiry,
+            quantity: Number(p.quantity || 0),
+            quantity_direction: p["quantity-direction"],
+            average_open_price: p["average-open-price"] != null ? Number(p["average-open-price"]) : null,
+            cost_effect: p["cost-effect"],
+            mark_price: p["mark-price"] != null ? Number(p["mark-price"]) : null,
+            opened_at: p["created-at"],
+          });
+        }
+      } catch (e) { console.error(`positions ${acct}:`, e.message); }
+    }
+    res.json({ positions: allPositions, accounts });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+function it_is_closed(acctData, accountNumber) {
+  const it = (acctData?.data?.items || []).find(x => x.account?.["account-number"] === accountNumber);
+  return !!(it?.account?.["is-closed"]);
+}
+
 export default router;

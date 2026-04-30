@@ -327,8 +327,10 @@ function AutoClosePanel() {
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [scanResult, setScanResult] = useState(null);
+  const [syncResult, setSyncResult] = useState(null);
   const [error, setError] = useState(null);
 
   const load = useCallback(async () => {
@@ -345,6 +347,30 @@ function AutoClosePanel() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Auto-sync cada 5 min mientras la tab está activa
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetch(`${API_URL}/api/auto-close/sync-positions`, { method: 'POST', headers:{'Content-Type':'application/json'}, body:'{}' })
+        .then(r => r.json())
+        .then(d => { if (d.inserted > 0 || d.closed_auto > 0) load(); });
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [load]);
+
+  const sync = async () => {
+    setSyncing(true); setError(null);
+    try {
+      const r = await fetch(`${API_URL}/api/auto-close/sync-positions`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setSyncResult(d);
+      load();
+    } catch (e) { setError(e.message); }
+    finally { setSyncing(false); }
+  };
 
   const scan = async () => {
     setScanning(true); setError(null);
@@ -372,19 +398,29 @@ function AutoClosePanel() {
   return (
     <div>
       <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button onClick={() => setShowForm(!showForm)} style={primaryBtnStyle}>
-          {showForm ? '✕ Cancelar' : '+ Registrar trade abierto'}
-        </button>
+        <button onClick={sync} disabled={syncing} style={{
+          ...primaryBtnStyle,
+          background: syncing ? 'var(--text-tertiary)' : 'var(--gold)',
+        }}>{syncing ? 'Sincronizando…' : '🔄 Sync con T3/IB'}</button>
         <button onClick={scan} disabled={scanning} style={{
           ...secondaryBtnStyle,
           background: scanning ? 'var(--text-tertiary)' : 'rgba(96,165,250,.15)',
           color: scanning ? '#000' : '#60a5fa',
           border: '1px solid rgba(96,165,250,.4)',
         }}>{scanning ? 'Escaneando…' : '🛡️ Escanear ahora'}</button>
+        <button onClick={() => setShowForm(!showForm)} style={secondaryBtnStyle}>
+          {showForm ? '✕' : '+ Manual'}
+        </button>
         <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-          {trades.length} open trades · {alerts.filter(a => a.severity === 'CRITICAL' && !a.ack).length} alertas críticas pendientes
+          {trades.length} open · {alerts.filter(a => a.severity === 'CRITICAL' && !a.ack).length} críticas · auto-sync cada 5 min
         </div>
       </div>
+
+      {syncResult && (
+        <div style={{ padding: 10, marginBottom: 12, background: 'rgba(48,209,88,.08)', border: '1px solid rgba(48,209,88,.3)', borderRadius: 6, fontSize: 11 }}>
+          <b>Sync:</b> {syncResult.options_total} opciones · {syncResult.detected} estrategias detectadas · {syncResult.inserted} nuevas · {syncResult.closed_auto} cerradas auto
+        </div>
+      )}
 
       {error && <ErrorBox text={error} />}
 

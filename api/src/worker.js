@@ -2700,6 +2700,198 @@ function buildTelegramAlertMessage(trade, triggerType, severity, payload, snapsh
   return `${head}\n\n${body.join('\n')}${action ? '\n\n' + action : ''}`;
 }
 
+// ─── Sync open_trades desde brokers (T3 + IB bridges) ───────────────────────
+// Detecta automáticamente strategies de las posiciones de opciones del usuario:
+//   - 2 puts (1 short, 1 long) mismo expiry  → BPS (Bull Put Spread)
+//   - 2 calls (1 short, 1 long) mismo expiry → BCS (Bear Call Spread)
+//   - 2 puts + 2 calls mismo expiry          → IC (Iron Condor)
+//   - 1 short put solo (sin long)            → CSP (Cash-Secured Put)
+//   - 1 short call con shares subyacentes    → CC (Covered Call)
+//   - mismo strike, expiries distintos       → CAL (Calendar)
+//
+// Idempotente: usa trade_hash determinístico. Si trade ya existe, no duplica.
+// Si una posición ya no aparece (cerraste el trade), marca closed_at.
+
+async function syncOpenTradesFromBrokers(env) {
+  const inserted = [];
+  const closed = [];
+  const errors = [];
+
+  // 1) Fetch posiciones de T3 (todas las cuentas)
+  const positions = [];
+  if (env.TASTYTRADE_BRIDGE_URL && env.TASTYTRADE_BRIDGE_TOKEN) {
+    try {
+      // Para cada cuenta, fetch posiciones
+      const accountsData = await ttBridgeFetch(env, "/marketdata/accounts");
+      for (const acct of accountsData?.accounts || []) {
+        if (acct.is_closed) continue;
+        try {
+          const r = await ttBridgeFetch(env, `/marketdata/positions/${encodeURIComponent(acct.account_number)}`);
+          for (const p of r?.positions || []) {
+            positions.push({ ...p, broker: 'tastytrade' });
+          }
+        } catch (e) {
+          errors.push(`tastytrade ${acct.account_number}: ${e.message}`);
+        }
+      }
+    } catch (e) {
+      errors.push(`tastytrade accounts: ${e.message}`);
+    }
+  }
+
+  // 2) Filtrar solo opciones
+  const optPositions = positions.filter(p => p.is_option && p.opt_type && p.strike && p.expiry);
+
+  // 3) Agrupar por (broker, account, underlying, expiry)
+  const groups = new Map();
+  for (const p of optPositions) {
+    const key = `${p.broker}|${p.account}|${p.underlying}|${p.expiry}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(p);
+  }
+
+  // 4) Para cada grupo, detectar strategy
+  const detectedTrades = [];
+  for (const [key, legs] of groups) {
+    const [broker, account, underlying, expiry] = key.split('|');
+    const puts = legs.filter(l => l.opt_type === 'put');
+    const calls = legs.filter(l => l.opt_type === 'call');
+
+    let strategy = null, shortStrike = null, longStrike = null;
+    let shortStrikeCall = null, longStrikeCall = null;
+    let creditOpen = null, debitOpen = null;
+    let contracts = null;
+
+    // BPS: 2 puts (1 short + 1 long), 0 calls
+    if (puts.length === 2 && calls.length === 0) {
+      const shorts = puts.filter(l => l.quantity_direction === 'Short');
+      const longs = puts.filter(l => l.quantity_direction === 'Long');
+      if (shorts.length === 1 && longs.length === 1) {
+        strategy = 'BPS';
+        shortStrike = shorts[0].strike;
+        longStrike = longs[0].strike;
+        contracts = Math.abs(shorts[0].quantity);
+        const shortPrice = shorts[0].average_open_price || 0;
+        const longPrice = longs[0].average_open_price || 0;
+        creditOpen = Math.round((shortPrice - longPrice) * 100) / 100;
+      }
+    }
+    // BCS: 2 calls (1 short + 1 long)
+    else if (calls.length === 2 && puts.length === 0) {
+      const shorts = calls.filter(l => l.quantity_direction === 'Short');
+      const longs = calls.filter(l => l.quantity_direction === 'Long');
+      if (shorts.length === 1 && longs.length === 1) {
+        strategy = 'BCS';
+        shortStrikeCall = shorts[0].strike;
+        longStrikeCall = longs[0].strike;
+        contracts = Math.abs(shorts[0].quantity);
+        const shortPrice = shorts[0].average_open_price || 0;
+        const longPrice = longs[0].average_open_price || 0;
+        creditOpen = Math.round((shortPrice - longPrice) * 100) / 100;
+      }
+    }
+    // IC: 2 puts + 2 calls
+    else if (puts.length === 2 && calls.length === 2) {
+      const shortsP = puts.filter(l => l.quantity_direction === 'Short');
+      const longsP = puts.filter(l => l.quantity_direction === 'Long');
+      const shortsC = calls.filter(l => l.quantity_direction === 'Short');
+      const longsC = calls.filter(l => l.quantity_direction === 'Long');
+      if (shortsP.length === 1 && longsP.length === 1 && shortsC.length === 1 && longsC.length === 1) {
+        strategy = 'IC';
+        shortStrike = shortsP[0].strike;
+        longStrike = longsP[0].strike;
+        shortStrikeCall = shortsC[0].strike;
+        longStrikeCall = longsC[0].strike;
+        contracts = Math.abs(shortsP[0].quantity);
+        creditOpen = Math.round(((shortsP[0].average_open_price - longsP[0].average_open_price) +
+                                  (shortsC[0].average_open_price - longsC[0].average_open_price)) * 100) / 100;
+      }
+    }
+    // CSP: 1 short put, sin long (sin counterparty)
+    else if (puts.length === 1 && puts[0].quantity_direction === 'Short' && calls.length === 0) {
+      strategy = 'CSP';
+      shortStrike = puts[0].strike;
+      contracts = Math.abs(puts[0].quantity);
+      creditOpen = puts[0].average_open_price || 0;
+    }
+
+    if (!strategy) continue;
+
+    // Trade hash determinístico
+    const hashSrc = `${account}|${underlying}|${strategy}|${shortStrike}|${longStrike}|${expiry}`;
+    const trade_hash = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(hashSrc))
+      .then(buf => Array.from(new Uint8Array(buf)).map(x => x.toString(16).padStart(2, '0')).join(''));
+
+    detectedTrades.push({
+      trade_hash, broker, account, underlying, strategy, expiry,
+      short_strike: shortStrike, long_strike: longStrike,
+      short_strike_call: shortStrikeCall, long_strike_call: longStrikeCall,
+      contracts, credit_open: creditOpen, debit_open: debitOpen,
+      legs_json: JSON.stringify(legs.map(l => ({
+        type: l.opt_type, strike: l.strike, qty: l.quantity, dir: l.quantity_direction,
+        avg_price: l.average_open_price, symbol: l.symbol,
+      }))),
+    });
+  }
+
+  // 5) UPSERT en open_trades
+  for (const t of detectedTrades) {
+    try {
+      const existing = await env.DB.prepare(
+        `SELECT trade_hash, closed_at FROM open_trades WHERE trade_hash = ?`
+      ).bind(t.trade_hash).first();
+      if (existing) {
+        // Si estaba cerrado pero ahora aparece de nuevo (raro), reabrir
+        if (existing.closed_at) {
+          await env.DB.prepare(
+            `UPDATE open_trades SET closed_at=NULL, close_reason=NULL, updated_at=datetime('now') WHERE trade_hash=?`
+          ).bind(t.trade_hash).run();
+        }
+        continue;
+      }
+      await env.DB.prepare(
+        `INSERT INTO open_trades
+          (trade_hash, account, symbol, strategy, legs_json, opened_at, expiry,
+           short_strike, long_strike, short_strike_call, long_strike_call,
+           contracts, credit_open, debit_open, source)
+         VALUES (?,?,?,?,?,datetime('now'),?,?,?,?,?,?,?,?,?)`
+      ).bind(
+        t.trade_hash, t.account, t.underlying, t.strategy, t.legs_json, t.expiry,
+        t.short_strike, t.long_strike, t.short_strike_call, t.long_strike_call,
+        t.contracts, t.credit_open, t.debit_open, `auto_${t.broker}`
+      ).run();
+      inserted.push(t);
+    } catch (e) {
+      errors.push(`insert ${t.trade_hash}: ${e.message}`);
+    }
+  }
+
+  // 6) Detectar trades cerrados: open_trades en DB pero no en posiciones actuales
+  const detectedHashes = new Set(detectedTrades.map(t => t.trade_hash));
+  const { results: openInDb } = await env.DB.prepare(
+    `SELECT trade_hash, source FROM open_trades WHERE closed_at IS NULL AND source LIKE 'auto_%'`
+  ).all();
+  for (const row of openInDb || []) {
+    if (!detectedHashes.has(row.trade_hash)) {
+      await env.DB.prepare(
+        `UPDATE open_trades SET closed_at=datetime('now'), close_reason='auto_detected_gone', updated_at=datetime('now') WHERE trade_hash=?`
+      ).bind(row.trade_hash).run();
+      closed.push(row.trade_hash);
+    }
+  }
+
+  return {
+    positions_total: positions.length,
+    options_total: optPositions.length,
+    groups_processed: groups.size,
+    detected: detectedTrades.length,
+    inserted: inserted.length,
+    closed_auto: closed.length,
+    errors: errors.length ? errors : undefined,
+    new_trades: inserted,
+  };
+}
+
 async function runAutoCloseEval(env, { dryRun = false, sinceMin = 60 } = {}) {
   const { results: trades } = await env.DB.prepare(
     `SELECT * FROM open_trades WHERE closed_at IS NULL`
@@ -2723,13 +2915,14 @@ async function runAutoCloseEval(env, { dryRun = false, sinceMin = 60 } = {}) {
       const message = buildTelegramAlertMessage(t, type, severity, payload, snapshot);
       let notified = 0;
       if (!dryRun) {
-        // Persistir alerta
+        // D1 no acepta undefined; sustituir por null
+        const _ = (v) => (v == null || Number.isNaN(v)) ? null : v;
         const r = await env.DB.prepare(
           `INSERT INTO auto_close_alerts (trade_hash, trigger_type, severity, fired_at, underlying_now, mark_now, delta_now, pnl_pct, message, payload_json)
            VALUES (?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?)`
         ).bind(
           t.trade_hash, type, severity,
-          snapshot.underlying, snapshot.mark, snapshot.delta, snapshot.pnl_pct,
+          _(snapshot.underlying), _(snapshot.mark), _(snapshot.delta), _(snapshot.pnl_pct),
           message, JSON.stringify(payload)
         ).run();
         // Telegram (solo WARN+CRITICAL para no spam con INFO)
@@ -9518,6 +9711,36 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         binds.push(hash);
         await env.DB.prepare(`UPDATE open_trades SET ${fields.join(", ")} WHERE trade_hash = ?`).bind(...binds).run();
         return json({ success: true }, corsHeaders);
+      }
+
+      // POST /api/auto-close/sync-positions — auto-detecta strategies de tus
+      // brokers (T3 + IB bridge) y mete en open_trades. Marca closed_at si
+      // alguna posición ya no aparece (cerrada manualmente).
+      if (path === "/api/auto-close/sync-positions" && request.method === "POST") {
+        try {
+          const result = await syncOpenTradesFromBrokers(env);
+          // Si insertó trades nuevos, mandar Telegram resumen
+          if (result.inserted > 0) {
+            const newSummary = result.new_trades.slice(0, 5).map(t =>
+              `• ${t.strategy} ${t.underlying} ${t.short_strike}${t.long_strike ? '/'+t.long_strike : ''} exp ${t.expiry} ×${t.contracts}`
+            ).join('\n');
+            await sendTelegram(env, {
+              text: `*🔄 Auto-Sync Trades*\n${result.inserted} nuevo(s) detectado(s) en T3:\n${newSummary}\n\nVigilados desde ya. Avisaré cuando haya que cerrar.`,
+              severity: 'info',
+              source: 'autoclose_sync',
+            });
+          }
+          if (result.closed_auto > 0) {
+            await sendTelegram(env, {
+              text: `*🔄 Auto-Sync*\n${result.closed_auto} trade(s) ya no aparecen en T3 → marcados cerrados automáticamente.`,
+              severity: 'info',
+              source: 'autoclose_sync',
+            });
+          }
+          return json(result, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500);
+        }
       }
 
       // POST /api/auto-close/scan — eval manual de todas las open trades
