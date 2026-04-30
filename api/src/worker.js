@@ -3849,45 +3849,65 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
-    // SECURITY GATE — endpoints WRITE peligrosos requieren X-AYR-Auth header.
-    // El frontend manda este header en build-time via import.meta.env.VITE_AYR_TOKEN.
-    // Endpoints solo-lectura por ahora siguen abiertos para compatibilidad UI;
-    // se cierran cuando el frontend haga release con el header.
+    // SECURITY GATE — endpoints sensibles requieren X-AYR-Auth header.
+    // El frontend (main.jsx) lo añade automáticamente via monkey patch fetch.
+    // Cuando se llama desde curl/scripts, hay que mandar:
+    //   curl -H "X-AYR-Auth: $AYR_WORKER_TOKEN" ...
+
+    // WRITE peligrosos: requieren auth siempre (incluso desde browser)
     const PROTECTED_WRITE = [
-      "/api/claude",                    // factura Anthropic
-      "/api/agent-run",                 // factura Anthropic
-      "/api/ai-analyze",                // factura Anthropic × N
-      "/api/ai-analyze-portfolio",      // factura Anthropic × 200 tickers
-      "/api/sector-deep-dive",          // factura Anthropic
-      "/api/scanner/run",               // FMP burn
-      "/api/brain/run",                 // factura Anthropic
-      "/api/auto-close/scan",           // FMP + Telegram spam
-      "/api/auto-close/sync-positions", // bridge calls + telegram
-      "/api/ib-bridge/control",         // DoS button
-      "/api/ib-flex-import",            // injection
-      "/api/ib-flex-sync",              // injection
-      "/api/ib-auto-sync",              // factura
-      "/api/positions/sync-ib",         // corruption
-      "/api/positions/import",          // corruption
-      "/api/positions/reconcile",       // corruption
-      "/api/refresh-",                  // FMP burn (refresh-positions-fx, refresh-div-ttm, etc)
-      "/api/enrich-",                   // FMP burn
-      "/api/holdings/enrich",           // FMP burn
-      "/api/telegram/test",             // spam
+      "/api/claude", "/api/agent-run",
+      "/api/ai-analyze", "/api/ai-analyze-portfolio",
+      "/api/sector-deep-dive",
+      "/api/scanner/run",
+      "/api/brain/run",
+      "/api/auto-close/scan", "/api/auto-close/sync-positions",
+      "/api/ib-bridge/control",
+      "/api/ib-flex-import", "/api/ib-flex-sync",
+      "/api/ib-auto-sync",
+      "/api/positions/sync-ib", "/api/positions/import", "/api/positions/reconcile",
+      "/api/refresh-", "/api/enrich-", "/api/holdings/enrich",
+      "/api/telegram/test",
     ];
+    // GET sensibles: data financiera privada del usuario.
+    const PROTECTED_READ = [
+      "/api/positions",        // cartera completa
+      "/api/holdings",         // 8000+ trades
+      "/api/cash",             // cash balances
+      "/api/cartera",          // cartera + dividendos agregados
+      "/api/trades",           // historial trades
+      "/api/dividendos",       // 2154 dividendos
+      "/api/transferencias",   // movimientos bancarios
+      "/api/patrimonio",       // patrimonio mensual
+      "/api/gastos",           // gastos personales
+      "/api/nomina",           // sueldo
+      "/api/costbasis",        // cost basis con $ exacto
+      "/api/ib-portfolio", "/api/ib-summary", "/api/ib-pnl", "/api/ib-ledger",
+      "/api/ib-trades", "/api/ib-options", "/api/ib-flex-import-status",
+      "/api/ib-debug",
+      "/api/auto-close/open-trades", "/api/auto-close/alerts",
+      "/api/tastytrade/positions", "/api/tastytrade/accounts",
+    ];
+    // Health/public: SIEMPRE abierto (sin auth)
+    const PUBLIC_PATHS = [
+      "/api/ping", "/api/health", "/api/data-status",
+      "/api/market-sentiment", "/api/futures-intraday", "/api/prices",
+      "/api/ib-bridge/health",
+      "/api/tastytrade/oauth/init", "/api/tastytrade/oauth/callback",
+      "/api/tastytrade/status",
+    ];
+    const isPublic = PUBLIC_PATHS.some(p => path === p || path.startsWith(p + "?") || path.startsWith(p + "/"));
     const isProtectedWrite = PROTECTED_WRITE.some(p => path.startsWith(p)) &&
                               ["POST","PUT","PATCH","DELETE"].includes(request.method);
-    if (isProtectedWrite) {
+    const isProtectedRead = PROTECTED_READ.some(p => path === p || path.startsWith(p + "?") || path.startsWith(p + "/")) &&
+                             request.method === "GET";
+
+    if (!isPublic && (isProtectedWrite || isProtectedRead)) {
       const authHeader = request.headers.get("X-AYR-Auth") || request.headers.get("Authorization") || "";
       const token = authHeader.replace(/^Bearer\s+/i, "");
       if (!env.AYR_WORKER_TOKEN || token !== env.AYR_WORKER_TOKEN) {
-        // Excepción: si origin es localhost o ayr.onto-so.com explícitamente,
-        // permitimos por ahora (compatibilidad mientras se despliega el header
-        // en el frontend). Esta excepción se quitará cuando frontend mande X-AYR-Auth.
-        if (!isAllowed) {
-          return new Response(JSON.stringify({ error: "unauthorized", endpoint: path }),
-            { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        }
+        return new Response(JSON.stringify({ error: "unauthorized", endpoint: path, hint: "Send X-AYR-Auth header" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
     }
 
@@ -6297,14 +6317,16 @@ dilo. En español.`;
         const limitParam = parseInt(url.searchParams.get('limit') || '200', 10);
         const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 2000) : 200;
 
+        // Audit 2026-05-01: antes filtraba `length(cb.ticker) <= 10` que descartaba
+        // OCC raw symbols (ej "UNH   260508C00370000" 21 chars) → user no veía
+        // sus options UNH. Ahora usa la columna `underlying` que está backfilled.
         const where = [
           "cb.tipo = 'OPTION'",
-          "length(cb.ticker) <= 10",
           "ot.id IS NULL",
         ];
         const binds = [];
         if (tickerFilter) {
-          where.push("UPPER(cb.ticker) = UPPER(?)");
+          where.push("UPPER(COALESCE(cb.underlying, cb.ticker)) = UPPER(?)");
           binds.push(tickerFilter);
         }
         if (yearFilter) {
@@ -6313,11 +6335,12 @@ dilo. En español.`;
         }
 
         const sql = `
-          SELECT cb.id, cb.ticker, cb.fecha, cb.opt_tipo, cb.opt_strike, cb.opt_expiry,
+          SELECT cb.id, cb.ticker, COALESCE(cb.underlying, cb.ticker) AS underlying,
+                 cb.fecha, cb.opt_tipo, cb.opt_strike, cb.opt_expiry,
                  cb.opt_contracts, cb.opt_credit_total, cb.opt_status
           FROM cost_basis cb
           LEFT JOIN options_trades ot
-            ON ot.underlying = cb.ticker
+            ON ot.underlying = COALESCE(cb.underlying, cb.ticker)
             AND ot.short_strike = cb.opt_strike
             AND ot.expiration_date = cb.opt_expiry
           WHERE ${where.join(' AND ')}
