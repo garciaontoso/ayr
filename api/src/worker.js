@@ -11731,9 +11731,17 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             if (tradeSet.has(dedupKey)) { tradesSkipped++; continue; }
             tradeSet.add(dedupKey); // prevent intra-batch dupes too
 
+            // Detectar underlying: para opciones, parsear OCC symbol (ej "UNH   260508C00370000" → "UNH").
+            // Para EQUITY/STK, underlying = ticker.
+            let underlying = ticker;
+            if (tipo === 'OPTION' && ticker.includes(' ')) {
+              underlying = ticker.split(' ')[0].trim();
+            } else if (t.underlyingSymbol) {
+              underlying = mapTicker(t.underlyingSymbol);
+            }
             tradeStmts.push(env.DB.prepare(
-              "INSERT INTO cost_basis (ticker, fecha, tipo, shares, precio, comision, coste, opt_strike, opt_expiry, opt_tipo, opt_contracts, opt_credit, opt_credit_total) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
-            ).bind(ticker, fecha, tipo, qty, price, commission, netCash, t.strike || null, expiry, t.putCall || null, optContracts, optCreditPerShare, optCreditTotal));
+              "INSERT INTO cost_basis (ticker, fecha, tipo, shares, precio, comision, coste, opt_strike, opt_expiry, opt_tipo, opt_contracts, opt_credit, opt_credit_total, underlying) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            ).bind(ticker, fecha, tipo, qty, price, commission, netCash, t.strike || null, expiry, t.putCall || null, optContracts, optCreditPerShare, optCreditTotal, underlying));
           }
           // Execute in batches of 80
           for (let i = 0; i < tradeStmts.length; i += 80) {
@@ -11893,11 +11901,49 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             } catch { transfsSkipped += batch.length; }
           }
 
+          // Después de insertar trades nuevos, RECONCILIA positions.shares
+          // a partir del netting agregado de cost_basis. Esto resuelve el
+          // bug raíz de BX/ITRK: aunque cost_basis registró la venta,
+          // positions.shares quedaba stale hasta el siguiente sync IB API.
+          let positionsReconciled = 0;
+          if (tradesInserted > 0) {
+            try {
+              const { results: aggShares } = await env.DB.prepare(
+                `SELECT COALESCE(underlying, ticker) AS u,
+                        SUM(CASE WHEN tipo='EQUITY' THEN shares ELSE 0 END) AS net_shares
+                 FROM cost_basis
+                 WHERE tipo='EQUITY'
+                 GROUP BY COALESCE(underlying, ticker)
+                 HAVING net_shares != 0 OR EXISTS (SELECT 1 FROM positions p WHERE p.ticker = COALESCE(cost_basis.underlying, cost_basis.ticker) AND p.shares > 0)`
+              ).all();
+              const reconStmts = [];
+              for (const row of aggShares || []) {
+                if (!row.u) continue;
+                reconStmts.push(env.DB.prepare(
+                  `UPDATE positions
+                   SET shares = ?,
+                       market_value = ROUND(? * last_price, 2),
+                       usd_value = ROUND(? * last_price * COALESCE(fx, 1), 2),
+                       updated_at = datetime('now')
+                   WHERE ticker = ? AND ABS(shares - ?) > 0.5`
+                ).bind(row.net_shares, row.net_shares, row.net_shares, row.u, row.net_shares));
+              }
+              for (let i = 0; i < reconStmts.length; i += 50) {
+                const batch = reconStmts.slice(i, i + 50);
+                const r = await env.DB.batch(batch);
+                positionsReconciled += r.filter(x => x.meta?.changes > 0).length;
+              }
+            } catch (e) {
+              console.error('flex import reconcile positions error:', e.message);
+            }
+          }
+
           return json({
             trades: { total: trades.length, inserted: tradesInserted, skipped: tradesSkipped },
             dividends: { total: cashTxns.filter(c => (c.type||"").toLowerCase().includes("dividend")).length, inserted: divsInserted, skipped: divsSkipped },
             transferencias: { total: transfStmts.length, inserted: transfsInserted, skipped: transfsSkipped },
             cashTransactions: { total: cashTxns.length },
+            positions_reconciled: positionsReconciled,
           }, corsHeaders);
         } catch (e) {
           return json({ error: "Flex import error: " + e.message }, corsHeaders, 500);
