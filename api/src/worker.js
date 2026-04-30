@@ -2169,18 +2169,49 @@ async function performAutoSync(env) {
     for (const [ticker, p] of Object.entries(merged)) {
       if (Math.abs(p.mktValue) < 50 || p.mktPrice <= 0) continue;
       ibTickers.push(ticker);
+      // RECONCILIA shares con ib_shares automáticamente cuando IB confirma:
+      // copiamos ib_shares → shares para que el frontend lea siempre lo real.
+      // Antes: shares era manual y se desactualizaba (BX, ITRK, etc).
       stmts.push(env.DB.prepare(
-        `UPDATE positions SET ib_shares=?, ib_avg_cost=?, ib_price=?, updated_at=datetime('now') WHERE ticker=?`
-      ).bind(p.shares, p.avgCost, p.mktPrice, ticker));
+        `UPDATE positions SET ib_shares=?, ib_avg_cost=?, ib_price=?,
+          shares=?, avg_price=?, last_price=?,
+          market_value=?, usd_value=?,
+          updated_at=datetime('now') WHERE ticker=?`
+      ).bind(
+        p.shares, p.avgCost, p.mktPrice,
+        p.shares, p.avgCost, p.mktPrice,  // shares manual = shares IB
+        p.mktValue, p.mktValue,           // valor calculado desde IB
+        ticker
+      ));
       ibPositionsSynced++;
     }
     for (let i = 0; i < stmts.length; i += 50) {
       await env.DB.batch(stmts.slice(i, i + 50));
     }
-    // Zero out sold positions (ib_shares was > 0 but ticker no longer in IB)
+    // Zero out sold positions: ib_shares was > 0 pero ticker no aparece en IB
+    // (= se vendió todo). Auto-reconcilia shares también para que no quede
+    // inflado el portfolio (el bug del 30-abr con BX/ITRK/CMCSA/CUBE/WPC/SUI).
     if (ibTickers.length > 0) {
       const placeholders = ibTickers.map(() => "?").join(",");
-      await env.DB.prepare(`UPDATE positions SET ib_shares=0, ib_avg_cost=0, ib_price=0 WHERE ib_shares > 0 AND ticker NOT IN (${placeholders})`).bind(...ibTickers).run();
+      // Detect cuáles van a ser zeroed (para Telegram alert)
+      const soldOut = await env.DB.prepare(
+        `SELECT ticker, name, shares FROM positions
+         WHERE (ib_shares > 0 OR shares > 0) AND ticker NOT IN (${placeholders})`
+      ).bind(...ibTickers).all();
+      await env.DB.prepare(
+        `UPDATE positions SET ib_shares=0, ib_avg_cost=0, ib_price=0,
+          shares=0, market_value=0, usd_value=0, updated_at=datetime('now')
+         WHERE (ib_shares > 0 OR shares > 0) AND ticker NOT IN (${placeholders})`
+      ).bind(...ibTickers).run();
+      // Telegram notify si auto-reconciló alguno
+      if (soldOut?.results?.length && env.TELEGRAM_BOT_TOKEN) {
+        const lines = soldOut.results.slice(0, 10).map(s => `• *${s.ticker}* (${s.name || ''}): ${s.shares} sh → 0`).join('\n');
+        const more = soldOut.results.length > 10 ? `\n_(...y ${soldOut.results.length - 10} más)_` : '';
+        await sendTelegram(env, {
+          text: `*🔄 Auto-reconcile portfolio*\nDetectadas ${soldOut.results.length} posiciones vendidas que el portfolio aún mostraba:\n${lines}${more}\n\nTodas reconciliadas a 0 shares.`,
+          severity: 'info', source: 'auto_reconcile',
+        });
+      }
     }
   } catch(e) {
     errors.push("IB positions sync error: " + e.message);
@@ -11749,6 +11780,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             }
           }
           const divStmts = [];
+          const newDividends = []; // capturados para Telegram notify
           for (const d of Object.values(divAgg)) {
             const bruto = Math.round(d.bruto * 100) / 100;
             const wht = Math.round(d.wht * 100) / 100;
@@ -11770,10 +11802,36 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
               `INSERT INTO dividendos (ticker, fecha, bruto, neto, divisa, wht_rate, wht_amount, broker, notas, bruto_usd, neto_usd, fx_to_usd, shares, dps_gross)
                VALUES (?,?,?,?,?,?,?,'IB','IB Flex sync',?,?,?,?,?)`
             ).bind(d.ticker, d.fecha, bruto, neto, d.divisa, whtRate, whtAmount, brutoUSD, netoUSD, fxUSD, shares, dpsGross));
+            newDividends.push({ ticker: d.ticker, fecha: d.fecha, bruto, neto, divisa: d.divisa, netoUSD, shares, dpsGross });
           }
           for (let i = 0; i < divStmts.length; i += 80) {
             const batch = divStmts.slice(i, i + 80);
             try { await env.DB.batch(batch); divsInserted += batch.length; } catch { divsSkipped += batch.length; }
+          }
+
+          // ─── 💰 Telegram notify: dividendos NUEVOS ───────────────
+          // Solo si hay nuevos en este import. Agrupados por fecha.
+          if (newDividends.length > 0 && env.TELEGRAM_BOT_TOKEN) {
+            const byFecha = {};
+            for (const d of newDividends) {
+              if (!byFecha[d.fecha]) byFecha[d.fecha] = [];
+              byFecha[d.fecha].push(d);
+            }
+            const fechas = Object.keys(byFecha).sort().reverse();
+            for (const fecha of fechas) {
+              const list = byFecha[fecha];
+              const totalNetoUSD = list.reduce((s, x) => s + (x.netoUSD || 0), 0);
+              const lines = list.slice(0, 15).map(d => {
+                const sym = d.divisa === "USD" ? "$" : (d.divisa === "EUR" ? "€" : d.divisa + " ");
+                const sharesStr = d.shares > 0 ? ` (${d.shares}sh × $${d.dpsGross.toFixed(4)})` : '';
+                return `• *${d.ticker}*: ${sym}${d.neto.toFixed(2)} neto${sharesStr}`;
+              }).join('\n');
+              const more = list.length > 15 ? `\n_(...y ${list.length - 15} más)_` : '';
+              const msg = `*💰 Dividendos recibidos ${fecha}*\n\n${lines}${more}\n\n*Total neto USD: $${totalNetoUSD.toFixed(2)}*`;
+              try {
+                await sendTelegram(env, { text: msg, severity: 'info', source: 'flex_dividends' });
+              } catch (e) { console.error('telegram divs:', e.message); }
+            }
           }
 
           // ─── Import transferencias (deposits / withdrawals / internal transfers) ───

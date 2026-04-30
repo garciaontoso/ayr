@@ -32,6 +32,7 @@ import accountRouter from './routes/account.js';
 import marketRouter from './routes/market.js';
 import optionsRouter from './routes/options.js';
 import controlRouter from './routes/control.js';
+import flexRouter, { startScheduledFlexSync } from './routes/flex.js';
 import { version } from './version.js';
 
 // ---------- safety self-check ----------
@@ -89,6 +90,7 @@ export function createApp() {
   app.use('/', marketRouter); // /quotes, /historical
   app.use('/', optionsRouter); // /option-chain, /iv
   app.use('/control', controlRouter); // /control/{status,stop,start,restart}
+  app.use('/flex', flexRouter); // /flex/sync — relay IB Flex Web Service
 
   // 404 — always JSON, never HTML.
   app.use((req, res) => {
@@ -127,6 +129,10 @@ if (isEntry) {
     logger.error('bridge.initial_ib_connect_failed', err);
     // ib-client schedules its own reconnect, so we don't crash.
   });
+
+  // Schedule daily Flex sync (8:30 Madrid time). Independiente de Mac.
+  // Si IB_FLEX_TOKEN no está configurado, el job se skip silenciosamente.
+  startScheduledFlexSync();
 
   // Graceful shutdown
   const shutdown = (signal) => {
