@@ -2375,6 +2375,310 @@ async function autoPatrimonioSnapshot(env, { force = false } = {}) {
   };
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// AUTO TRADING — Backtest engine
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Diseño: Black-Scholes pricing + histórico de precios (FMP) + VIX como proxy
+// de IV ATM 30d. Aproximaciones explícitas (no son data tick-perfect):
+//
+// 1. Strike selection: dado un delta target, calculamos strike via inverse BS
+// 2. Premium: BS price con VIX/100 como sigma (escalado por sqrt(dte/30))
+// 3. PnL: simulación día a día. Si stock cierra > short strike → expira full
+//    profit. Si entre strikes → PnL = (S - short_strike) * 100 - credit. Si
+//    < long strike → max loss = (short_strike - long_strike - credit) * 100
+// 4. Comisiones: $1.20 por leg ($2.40 spread, $4.80 IC)
+// 5. Slippage: 5% del mid (asumimos buen fill en SPX líquido)
+//
+// LIMITACIONES conocidas (aclarar al usuario):
+// - No simula gamma blowups intra-día (importa para 0DTE)
+// - No simula skew real (assume flat surface)
+// - No simula early assignment (irrelevante en SPX cash-settled)
+// - VIX != exact IV de cada strike (skew puede diferir 5-15% en OTM puts)
+//
+// El objetivo es DETECTAR EDGE BRUTO. Si el backtest da Sharpe 0.4, en real
+// será 0.2 (after slippage real, taxes, manual mistakes). Si da Sharpe 1.2,
+// en real puede ser 0.6-0.8 — tradeable. Es necesario filtro grueso, no fino.
+
+// --- Black-Scholes ---
+function _normCdf(x) {
+  // Abramowitz & Stegun aproximación 7.1.26
+  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
+  const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+  const sign = x < 0 ? -1 : 1;
+  const ax = Math.abs(x) / Math.sqrt(2);
+  const t = 1.0 / (1.0 + p * ax);
+  const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-ax * ax);
+  return 0.5 * (1.0 + sign * y);
+}
+
+function bsPrice(S, K, r, sigma, T, isCall) {
+  // S=spot, K=strike, r=risk-free (anual decimal), sigma=IV (decimal anual), T=time to expiry (years), isCall=bool
+  if (T <= 0) return Math.max(0, isCall ? S - K : K - S);
+  const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T));
+  const d2 = d1 - sigma * Math.sqrt(T);
+  if (isCall) return S * _normCdf(d1) - K * Math.exp(-r * T) * _normCdf(d2);
+  return K * Math.exp(-r * T) * _normCdf(-d2) - S * _normCdf(-d1);
+}
+
+function bsDelta(S, K, r, sigma, T, isCall) {
+  if (T <= 0) {
+    if (isCall) return S > K ? 1 : 0;
+    return S < K ? -1 : 0;
+  }
+  const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * T) / (sigma * Math.sqrt(T));
+  return isCall ? _normCdf(d1) : _normCdf(d1) - 1;
+}
+
+// Strike OTM cuyo delta sea aproximadamente targetDelta (positivo, ej 0.20)
+// Para puts pasamos targetDelta positivo y devolvemos strike OTM puts (delta -0.20).
+function strikeForDelta(S, r, sigma, T, isCall, targetDelta) {
+  // Búsqueda binaria. Range para puts: 0.5*S a S; para calls: S a 1.5*S
+  let lo = isCall ? S : S * 0.5;
+  let hi = isCall ? S * 1.5 : S;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    const delta = Math.abs(bsDelta(S, mid, r, sigma, T, isCall));
+    if (Math.abs(delta - targetDelta) < 0.001) return mid;
+    if (delta < targetDelta) {
+      // Para put OTM: strike más alto = delta más alto (negativo más cerca de -1)
+      // Para call OTM: strike más bajo = delta más alto
+      if (isCall) hi = mid; else lo = mid;
+    } else {
+      if (isCall) lo = mid; else hi = mid;
+    }
+  }
+  return (lo + hi) / 2;
+}
+
+// --- Histórico precios ---
+// Usamos FMP `historical-price-full` que ya está cacheado en la D1 fundamentals
+// table. Para SPX usamos ^SPX, para VIX usamos ^VIX. Si el cache no tiene
+// suficiente histórico, FMP API se llama con el rango pedido.
+async function getHistoricalPrices(env, symbol, fromDate, toDate) {
+  // Usamos `stable/historical-price-eod/light` (mismo endpoint que el resto del
+  // worker usa para precios). Para indices, FMP usa el caret en la URL pero
+  // sin URL-encoding en este endpoint stable. Usamos SPY (ETF) como proxy de
+  // SPX cuando símbolo es SPX — fully tradeable y data fiable.
+  let fmpSymbol;
+  if (symbol === "SPX") fmpSymbol = "SPY";       // ETF proxy
+  else if (symbol === "VIX") fmpSymbol = "^VIX";  // index, FMP acepta caret literal
+  else fmpSymbol = symbol;
+  const url = `https://financialmodelingprep.com/stable/historical-price-eod/light?symbol=${encodeURIComponent(fmpSymbol)}&from=${fromDate}&to=${toDate}&apikey=${env.FMP_KEY}`;
+  const resp = await fetch(url, { signal: AbortSignal.timeout(20000) });
+  if (!resp.ok) throw new Error(`FMP historical fetch failed for ${fmpSymbol}: ${resp.status}`);
+  const data = await resp.json();
+  // El endpoint stable/light devuelve directamente un array (no anidado en .historical)
+  const hist = Array.isArray(data) ? data : (data?.historical || []);
+  const map = new Map();
+  for (const r of hist) {
+    if (!r.date || r.price == null && r.close == null) continue;
+    const close = Number(r.price ?? r.close);
+    map.set(r.date, { date: r.date, close, open: Number(r.open ?? close), high: Number(r.high ?? close), low: Number(r.low ?? close) });
+  }
+  return map;
+}
+
+// --- Backtest engine ---
+async function runBacktest({ env, strategy, params, periodFrom, periodTo, initialCapital }) {
+  // Por ahora solo BPS implementado. Resto retorna placeholder.
+  if (strategy === "bps_spx") return runBacktestBPS({ env, params, periodFrom, periodTo, initialCapital });
+  return {
+    trades_count: 0, wins: 0, losses: 0, win_rate: 0,
+    total_pnl: 0, total_return_pct: 0, max_drawdown_pct: 0,
+    sharpe: 0, calmar: 0, avg_dte_at_entry: 0, avg_credit: 0, total_fees: 0,
+    equity_curve: [], trades: [],
+    notes: `Strategy '${strategy}' not yet implemented (Phase 1B).`,
+  };
+}
+
+async function runBacktestBPS({ env, params, periodFrom, periodTo, initialCapital }) {
+  // Bull Put Spread on SPX
+  // Reglas:
+  // - Entry: cada Lunes (o primer día hábil), DTE=params.dte_target
+  // - Strikes: short delta target, long delta target (ambos OTM puts)
+  // - Salida: 50% profit OR 21 DTE (lo que ocurra primero) OR expira
+  // - 1 trade activo por vez (simplifica)
+  const symbol = params.symbol || "SPX";
+  const dteTarget = params.dte_target || 10;
+  const shortDelta = params.short_delta || 0.20;
+  const longDelta = params.long_delta || 0.10;
+  const profitTarget = (params.profit_target_pct || 50) / 100;
+  const stopLoss = (params.stop_loss_pct || 200) / 100;
+  const maxDteClose = params.max_dte_close || 21;
+  const contracts = params.contracts || 1;
+  const minCredit = params.min_credit || 1.0;
+  const r = 0.04; // risk-free rate proxy
+  const feePerLeg = 1.20;
+  const slippage = 0.05; // 5% del credit
+
+  const [spxMap, vixMap] = await Promise.all([
+    getHistoricalPrices(env, symbol, periodFrom, periodTo),
+    getHistoricalPrices(env, "VIX", periodFrom, periodTo),
+  ]);
+
+  const dates = Array.from(spxMap.keys()).sort();
+  if (!dates.length) throw new Error("No price data for period");
+
+  let equity = initialCapital;
+  const equityCurve = [{ date: dates[0], equity: initialCapital }];
+  const trades = [];
+  let openTrade = null;
+  let peak = initialCapital;
+  let maxDd = 0;
+
+  for (const date of dates) {
+    const px = spxMap.get(date);
+    const vix = vixMap.get(date);
+    if (!px || !vix) continue;
+    const sigma = Math.max(0.10, Math.min(0.80, vix.close / 100));
+
+    // 1) Si hay trade abierto, ver si toca cerrar
+    if (openTrade) {
+      const dte = Math.max(0, Math.round((openTrade.expiry - new Date(date).getTime()) / (1000 * 60 * 60 * 24)));
+      const T = dte / 365;
+      let mtmDebit;
+      if (dte === 0 || new Date(date) >= new Date(openTrade.expiryDate)) {
+        // Expira hoy
+        const shortIntrinsic = Math.max(0, openTrade.shortStrike - px.close);
+        const longIntrinsic = Math.max(0, openTrade.longStrike - px.close);
+        mtmDebit = (shortIntrinsic - longIntrinsic);
+      } else {
+        const shortPrice = bsPrice(px.close, openTrade.shortStrike, r, sigma, T, false);
+        const longPrice = bsPrice(px.close, openTrade.longStrike, r, sigma, T, false);
+        mtmDebit = shortPrice - longPrice;
+      }
+      const currentValue = mtmDebit * 100 * openTrade.contracts;
+      const pnl = openTrade.creditCash - currentValue;
+      const pnlPct = pnl / openTrade.maxRiskCash;
+
+      // Reglas de cierre estándar para credit spreads:
+      // - profit target: cerrar al 50% del max profit (estándar institucional)
+      // - stop loss: cerrar si pérdida > 200% del credit (limita gamma)
+      // - expira ese día
+      // - "DTE management": cerrar cuando faltan <= maxDteClose días (solo aplica
+      //   si dteTarget > maxDteClose, e.g. 45 DTE entry con close@21 DTE).
+      //   Para 10 DTE entry con maxDteClose=21, no aplica.
+      const dteManagementApplies = dteTarget > maxDteClose;
+      const shouldClose =
+        pnlPct >= profitTarget ||
+        pnlPct <= -stopLoss ||
+        dte <= 0 ||
+        (dteManagementApplies && dte <= maxDteClose);
+
+      if (shouldClose) {
+        const fees = feePerLeg * 2 * openTrade.contracts;
+        const realizedPnl = pnl - fees - openTrade.entryFees;
+        equity += realizedPnl;
+        trades.push({
+          opened: openTrade.opened,
+          closed: date,
+          short_strike: openTrade.shortStrike,
+          long_strike: openTrade.longStrike,
+          dte_at_entry: openTrade.dteAtEntry,
+          credit: openTrade.credit,
+          exit_debit: mtmDebit,
+          pnl: realizedPnl,
+          pnl_pct: pnlPct * 100,
+          reason: pnlPct >= profitTarget ? "profit_target" : pnlPct <= -stopLoss ? "stop_loss" : dte <= 0 ? "expired" : "max_dte",
+        });
+        openTrade = null;
+      }
+    }
+
+    // 2) Si no hay trade abierto y es lunes (o primer día), abrir nuevo
+    if (!openTrade) {
+      const dow = new Date(date).getDay();  // 0=Sun, 1=Mon, ...
+      if (dow === 1) {
+        const T = dteTarget / 365;
+        const shortStrike = strikeForDelta(px.close, r, sigma, T, false, shortDelta);
+        const longStrike = strikeForDelta(px.close, r, sigma, T, false, longDelta);
+        if (shortStrike > longStrike) {
+          const shortPrice = bsPrice(px.close, shortStrike, r, sigma, T, false);
+          const longPrice = bsPrice(px.close, longStrike, r, sigma, T, false);
+          const credit = (shortPrice - longPrice) * (1 - slippage);
+          if (credit >= minCredit) {
+            const expiryDate = new Date(new Date(date).getTime() + dteTarget * 86400000).toISOString().slice(0, 10);
+            const entryFees = feePerLeg * 2 * contracts;
+            const creditCash = credit * 100 * contracts;
+            const maxRiskCash = (shortStrike - longStrike) * 100 * contracts - creditCash;
+            equity -= entryFees;
+            openTrade = {
+              opened: date,
+              expiry: new Date(expiryDate).getTime(),
+              expiryDate,
+              shortStrike: Math.round(shortStrike),
+              longStrike: Math.round(longStrike),
+              credit,
+              creditCash,
+              maxRiskCash,
+              dteAtEntry: dteTarget,
+              contracts,
+              entryFees,
+            };
+          }
+        }
+      }
+    }
+
+    // 3) Mark-to-market equity
+    let mtmEquity = equity;
+    if (openTrade) {
+      const dte = Math.max(0, Math.round((openTrade.expiry - new Date(date).getTime()) / (1000 * 60 * 60 * 24)));
+      if (dte > 0) {
+        const T = dte / 365;
+        const sp = bsPrice(px.close, openTrade.shortStrike, r, sigma, T, false);
+        const lp = bsPrice(px.close, openTrade.longStrike, r, sigma, T, false);
+        const debit = sp - lp;
+        const unrealized = openTrade.creditCash - (debit * 100 * openTrade.contracts);
+        mtmEquity = equity + unrealized;
+      }
+    }
+    equityCurve.push({ date, equity: Math.round(mtmEquity) });
+    if (mtmEquity > peak) peak = mtmEquity;
+    const dd = (peak - mtmEquity) / peak;
+    if (dd > maxDd) maxDd = dd;
+  }
+
+  const wins = trades.filter(t => t.pnl > 0).length;
+  const losses = trades.filter(t => t.pnl <= 0).length;
+  const totalPnl = trades.reduce((s, t) => s + t.pnl, 0);
+  const totalFees = trades.length * feePerLeg * 4; // entry+exit, both legs
+  const winRate = trades.length ? wins / trades.length : 0;
+  const totalReturnPct = (equity - initialCapital) / initialCapital;
+  const avgDte = trades.length ? trades.reduce((s, t) => s + t.dte_at_entry, 0) / trades.length : 0;
+  const avgCredit = trades.length ? trades.reduce((s, t) => s + t.credit, 0) / trades.length : 0;
+
+  // Sharpe (sobre returns diarios del equity curve)
+  const dailyReturns = [];
+  for (let i = 1; i < equityCurve.length; i++) {
+    const prev = equityCurve[i-1].equity, cur = equityCurve[i].equity;
+    if (prev > 0) dailyReturns.push((cur - prev) / prev);
+  }
+  const meanDaily = dailyReturns.reduce((a,b) => a+b, 0) / (dailyReturns.length || 1);
+  const variance = dailyReturns.reduce((a,b) => a + (b - meanDaily) ** 2, 0) / (dailyReturns.length || 1);
+  const stdDaily = Math.sqrt(variance);
+  const sharpe = stdDaily > 0 ? (meanDaily / stdDaily) * Math.sqrt(252) : 0;
+  const calmar = maxDd > 0 ? totalReturnPct / maxDd : 0;
+
+  return {
+    trades_count: trades.length,
+    wins, losses,
+    win_rate: winRate,
+    total_pnl: Math.round(totalPnl),
+    total_return_pct: Math.round(totalReturnPct * 10000) / 100,
+    max_drawdown_pct: Math.round(maxDd * 10000) / 100,
+    sharpe: Math.round(sharpe * 100) / 100,
+    calmar: Math.round(calmar * 100) / 100,
+    avg_dte_at_entry: Math.round(avgDte * 10) / 10,
+    avg_credit: Math.round(avgCredit * 100) / 100,
+    total_fees: Math.round(totalFees * 100) / 100,
+    equity_curve: equityCurve,
+    trades,
+    notes: `BPS SPX simulado con BS + VIX como IV proxy. Slippage ${slippage*100}%, fee $${feePerLeg}/leg.`,
+  };
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -7543,6 +7847,107 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(b.fecha, b.cuenta, b.divisa, b.cash_balance, b.interest_paid||0, b.interest_received||0, b.fx_rate||1, b.cash_balance_usd||0).run();
         return json({ success: true }, corsHeaders);
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // AUTO TRADING — backtest engine + paper signals + strategy catalog
+      // ═══════════════════════════════════════════════════════════════════════
+      // Diseño en fases:
+      //   Fase 1 (esta): backtest histórico con Black-Scholes simulación
+      //   Fase 2: paper trading live (sin ejecutar, solo log de señales)
+      //   Fase 3: real money con safety nets (account separada, limits, kill switch)
+      //
+      // IMPORTANTE: este sistema NO ejecuta órdenes. La cuenta IBKR principal
+      // tiene Read-Only API enabled — capa 1 de safety. El código tampoco
+      // tiene endpoints de placeOrder. Cualquier ejecución la hace el usuario
+      // manualmente en TWS después de aprobar la señal.
+
+      // GET /api/auto/strategies — catálogo
+      if (path === "/api/auto/strategies" && request.method === "GET") {
+        const { results } = await env.DB.prepare(
+          "SELECT * FROM auto_strategies ORDER BY category, code"
+        ).all();
+        return json({ strategies: results }, corsHeaders);
+      }
+
+      // POST /api/auto/backtest — ejecuta un backtest
+      // Body: { strategy_code, params (opcional, sobreescribe defaults), period_from, period_to, initial_capital }
+      if (path === "/api/auto/backtest" && request.method === "POST") {
+        const b = await parseBody(request);
+        if (!b.strategy_code) return validationError("strategy_code required", corsHeaders);
+
+        const strategy = await env.DB.prepare(
+          "SELECT * FROM auto_strategies WHERE code = ?"
+        ).bind(b.strategy_code).first();
+        if (!strategy) return validationError("strategy not found", corsHeaders, 404);
+
+        const defaults = JSON.parse(strategy.default_params_json);
+        const params = { ...defaults, ...(b.params || {}) };
+        const periodFrom = b.period_from || "2021-01-01";
+        const periodTo = b.period_to || new Date().toISOString().slice(0, 10);
+        const initialCapital = Number(b.initial_capital) || 100000;
+
+        try {
+          const result = await runBacktest({
+            env,
+            strategy: strategy.code,
+            params,
+            periodFrom,
+            periodTo,
+            initialCapital,
+          });
+
+          // Guardar resultado en D1
+          const r = await env.DB.prepare(
+            `INSERT INTO auto_backtest_runs
+              (strategy_code, symbol, params_json, period_from, period_to, initial_capital,
+               trades_count, wins, losses, win_rate, total_pnl, total_return_pct,
+               max_drawdown_pct, sharpe, calmar, avg_dte_at_entry, avg_credit, total_fees,
+               equity_curve_json, trades_json, notes)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          ).bind(
+            strategy.code, params.symbol || "SPX", JSON.stringify(params),
+            periodFrom, periodTo, initialCapital,
+            result.trades_count, result.wins, result.losses, result.win_rate,
+            result.total_pnl, result.total_return_pct, result.max_drawdown_pct,
+            result.sharpe, result.calmar, result.avg_dte_at_entry, result.avg_credit,
+            result.total_fees,
+            JSON.stringify(result.equity_curve.slice(0, 1500)),
+            JSON.stringify(result.trades.slice(0, 500)),
+            result.notes || null
+          ).run();
+
+          return json({ id: r.meta.last_row_id, ...result }, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/auto/backtest/:id
+      if (path.startsWith("/api/auto/backtest/") && request.method === "GET") {
+        const id = parseInt(path.split("/").pop(), 10);
+        if (!id) return validationError("id required", corsHeaders);
+        const run = await env.DB.prepare(
+          "SELECT * FROM auto_backtest_runs WHERE id = ?"
+        ).bind(id).first();
+        if (!run) return json({ error: "not_found" }, corsHeaders, 404);
+        return json({
+          ...run,
+          equity_curve: JSON.parse(run.equity_curve_json || "[]"),
+          trades: JSON.parse(run.trades_json || "[]"),
+          params: JSON.parse(run.params_json || "{}"),
+        }, corsHeaders);
+      }
+
+      // GET /api/auto/backtests?strategy=X — historial de backtests
+      if (path === "/api/auto/backtests" && request.method === "GET") {
+        const strategy = url.searchParams.get("strategy");
+        let sql = "SELECT id, strategy_code, symbol, period_from, period_to, initial_capital, trades_count, win_rate, total_return_pct, max_drawdown_pct, sharpe, created_at FROM auto_backtest_runs";
+        const binds = [];
+        if (strategy) { sql += " WHERE strategy_code = ?"; binds.push(strategy); }
+        sql += " ORDER BY created_at DESC LIMIT 50";
+        const { results } = await env.DB.prepare(sql).bind(...binds).all();
+        return json({ runs: results }, corsHeaders);
       }
 
       // ─── TRANSFERENCIAS (deposits / withdrawals between bank ↔ IB) ────────────
