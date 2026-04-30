@@ -669,10 +669,118 @@ const secondaryBtnStyle = {
 // ── Today + Paper sub-panels (placeholders) ───────────────────────────────
 
 function TodayPanel() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const r = await fetch(`${API_URL}/api/auto/daily-pesca`);
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+      setData(d);
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-tertiary)' }}>Cargando…</div>;
+  if (error) return <ErrorBox text={error} />;
+  if (!data) return null;
+
+  const gateColor = { OPEN: '#30d158', WAIT: '#fbbf24', ABORT: '#f87171' }[data.gate] || 'var(--text)';
+  const gateLabel = { OPEN: '🟢 OPEN — pesca día', WAIT: '🟡 WAIT — espera', ABORT: '🔴 ABORT — no abrir hoy' }[data.gate];
+
   return (
-    <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-tertiary)' }}>
-      <div style={{ fontSize: 14, marginBottom: 8 }}>📅 Señales del día</div>
-      <div style={{ fontSize: 11 }}>Disponible en Fase 1B (próximamente).<br />Cuando se active, mostrará qué trades sugieren las estrategias HOY según el regime detector.</div>
+    <div>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
+        <button onClick={load} style={secondaryBtnStyle}>🔄 Refrescar</button>
+        <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+          Hoy: {data.day_of_week} · {data.is_pesca_day ? 'pesca day (jue/vie)' : 'no es jue/vie'}
+        </span>
+      </div>
+
+      {/* Estado mercado + gate */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, padding: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 8 }}>Mercado live</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8 }}>
+            <Metric lbl="VIX" value={fmtN(data.market.vix, 2)} color={data.market.vix > 22 ? '#f87171' : data.market.vix < 14 ? '#60a5fa' : '#30d158'} />
+            <Metric lbl="IWM" value={'$' + fmtN(data.market.iwm, 2)} />
+            <Metric lbl="RUT proxy" value={'$' + fmtN(data.market.rut_proxy, 0)} />
+            <Metric lbl="RVX proxy" value={fmtN(data.market.rvx_proxy, 1) + '%'} />
+          </div>
+        </div>
+        <div style={{ background: 'var(--card)', border: `2px solid ${gateColor}55`, borderRadius: 8, padding: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 8 }}>Veredicto Brain</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: gateColor, marginBottom: 6 }}>{gateLabel}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{data.recommendation}</div>
+          <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 6 }}>Régimen: {data.regime}</div>
+        </div>
+      </div>
+
+      {/* Candidatos */}
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', marginBottom: 8 }}>Candidatos BPS RUT 28 DTE</div>
+      {data.candidates.length === 0 ? (
+        <EmptyState icon="🎣" title="Sin candidatos" subtitle="No hay strikes que pasen los filtros defensivos en condiciones actuales." />
+      ) : (
+        <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse', marginBottom: 14 }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--border)' }}>
+              <th style={th}>Short/Long IWM</th>
+              <th style={th}>Equiv RUT</th>
+              <th style={{...th, textAlign:'right'}}>OTM</th>
+              <th style={{...th, textAlign:'right'}}>POP</th>
+              <th style={{...th, textAlign:'right'}}>Δ short</th>
+              <th style={{...th, textAlign:'right'}}>Credit mid</th>
+              <th style={{...th, textAlign:'right'}}>Fishing target</th>
+              <th style={{...th, textAlign:'right'}}>Max contr</th>
+              <th style={th}>Defense</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.candidates.map((c, i) => (
+              <tr key={i} style={{ borderBottom: '1px solid var(--border)', background: c.defense_passed ? 'transparent' : 'rgba(248,113,113,.05)' }}>
+                <td style={td}>{c.short_strike_iwm}/{c.long_strike_iwm}</td>
+                <td style={{...td, color: 'var(--text-tertiary)'}}>{c.short_strike_rut_proxy}/{c.long_strike_rut_proxy}</td>
+                <td style={{...td, textAlign:'right'}}>{c.otm_pct}%</td>
+                <td style={{...td, textAlign:'right', color: c.pop_at_open >= 95 ? '#30d158' : '#fbbf24'}}>{c.pop_at_open}%</td>
+                <td style={{...td, textAlign:'right'}}>{c.delta_target}</td>
+                <td style={{...td, textAlign:'right', fontWeight: 700}}>${c.credit_mid}</td>
+                <td style={{...td, textAlign:'right', color: '#60a5fa', fontWeight: 700}}>${c.fishing_target_credit}</td>
+                <td style={{...td, textAlign:'right'}}>{c.max_contracts_for_10k_bucket}</td>
+                <td style={{...td, fontSize: 9}}>
+                  {c.defense_passed ? '✅' : '❌'}
+                  {!c.defense_checks.pop_floor && ' POP'}
+                  {!c.defense_checks.delta_ceiling && ' Δ'}
+                  {!c.defense_checks.otm_floor && ' OTM'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {/* Tu patrón */}
+      <details style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginBottom: 8 }}>
+        <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>📊 Tu patrón histórico (298 trades 2022-2026)</summary>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 10, fontSize: 11 }}>
+          {Object.entries(data.user_pattern).map(([k, v]) => (
+            <div key={k}><b style={{ color: 'var(--text-tertiary)' }}>{k.replace(/_/g, ' ')}:</b> {String(v)}</div>
+          ))}
+        </div>
+      </details>
+
+      <details style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
+        <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>🛡️ Reglas defensivas aplicadas</summary>
+        <ul style={{ marginTop: 10, fontSize: 11, lineHeight: 1.7, paddingLeft: 20 }}>
+          {Object.entries(data.defense_rules_applied).map(([k, v]) => (
+            <li key={k}><b>{k.replace(/_/g, ' ')}:</b> {v}</li>
+          ))}
+        </ul>
+      </details>
     </div>
   );
 }

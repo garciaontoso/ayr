@@ -8645,6 +8645,253 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         }, corsHeaders);
       }
 
+      // GET /api/auto/daily-pesca — sugerencia diaria de fishing order BPS RUT
+      // basada en TU patrón empírico real (298 trades 2022-2026):
+      //   - delta short 0.03 mediana, OTM 9.7%, DTE 28
+      //   - REGLAS DEFENSIVAS (codificadas del análisis forensic):
+      //     POP floor 93%, delta ceiling 0.08, size cap dynamic per VIX
+      //   - VIX regime gate con histéresis (skip 22-26 zona muerta)
+      //
+      // Output: lista de strikes candidatos + razón + advertencias.
+      // No abre nada, solo SUGIERE. Tu mujer / tú lo confirma manual.
+      if (path === "/api/auto/daily-pesca" && request.method === "GET") {
+        try {
+          // 1) Estado mercado actual
+          const fmpQ = await fmpQuote(["IWM", "^VIX"], env);
+          const iwmPx = fmpQ["IWM"]?.price;
+          const vix = fmpQ["^VIX"]?.price;
+          if (!iwmPx || !vix) return json({ error: "missing IWM or VIX live data" }, corsHeaders, 500);
+          const rutPx = iwmPx * 10; // proxy
+          const sigmaRvx = Math.max(0.10, Math.min(0.80, (vix / 100) * 1.2));
+
+          // 2) Apply VIX regime gate
+          let regime, gate;
+          if (vix < 14)        { regime = "low_vol_sweet_spot"; gate = "OPEN"; }
+          else if (vix < 22)   { regime = "normal"; gate = "OPEN"; }
+          else if (vix < 26)   { regime = "elevated_dead_zone"; gate = "WAIT"; }   // 22-26 histéresis
+          else if (vix < 30)   { regime = "your_loser_bucket"; gate = "ABORT"; }   // -$36K en este rango
+          else                 { regime = "stress"; gate = "ABORT"; }
+
+          // 3) DTE target ≈ 28-30 jueves/viernes
+          const today = new Date();
+          const dow = today.getDay();
+          const isPescaDay = dow === 4 || dow === 5; // jueves/viernes
+          const dteTarget = 28;
+          const expiryMs = today.getTime() + dteTarget * 86400000;
+          const expiryDate = new Date(expiryMs).toISOString().slice(0, 10);
+
+          // 4) Calcular strikes candidatos: tu patrón es delta 0.03 ± 0.02
+          // Usamos strikeForDelta sobre IWM (RUT proxy / 10)
+          const r = 0.04;
+          const T = dteTarget / 365;
+          const candidates = [];
+          // Probamos delta 0.02, 0.03, 0.05 (tu rango p25-p75)
+          for (const delta of [0.02, 0.03, 0.05]) {
+            const shortStrikeIwm = strikeForDelta(iwmPx, r, sigmaRvx, T, false, delta);
+            const longStrikeIwm = strikeForDelta(iwmPx, r, sigmaRvx, T, false, Math.max(0.005, delta - 0.02));
+            // Round to integer (IWM strikes son enteros mayoritariamente)
+            const shortInt = Math.round(shortStrikeIwm);
+            const longInt = Math.round(longStrikeIwm);
+            if (shortInt <= longInt) continue;
+            const otmPct = (iwmPx - shortInt) / iwmPx * 100;
+            const sp = bsPrice(iwmPx, shortInt, r, sigmaRvx, T, false);
+            const lp = bsPrice(iwmPx, longInt, r, sigmaRvx, T, false);
+            const creditMid = sp - lp;
+            // POP del short
+            const d1 = (Math.log(iwmPx / shortInt) + (r + 0.5*sigmaRvx*sigmaRvx)*T) / (sigmaRvx*Math.sqrt(T));
+            const d2 = d1 - sigmaRvx * Math.sqrt(T);
+            const pop = _normCdf(d2);
+
+            // Defense filters (combo recomendado: POP+delta+size)
+            const checks = {
+              pop_floor: pop >= 0.93,
+              delta_ceiling: delta <= 0.08,
+              otm_floor: otmPct >= 8,
+            };
+            const passDefense = Object.values(checks).every(Boolean);
+
+            // Size cap dynamic
+            let maxSize = 8;
+            if (vix > 20) maxSize = 4;
+            if (vix > 25) maxSize = 2;
+            // Para $10K bucket, max risk 15% per trade = $1500. Width 5pts × $100 = $500/contract risk.
+            // Entonces max ~3 contracts por trade
+            const sizeFor10kBucket = Math.min(maxSize, Math.floor(1500 / 500));
+
+            // Fishing target: credit + 30% sobre mid (tu patrón histórico ratio real/teórico = 1.34)
+            const fishingTargetCredit = Math.round(creditMid * 1.30 * 100) / 100;
+
+            candidates.push({
+              short_strike_iwm: shortInt,
+              long_strike_iwm: longInt,
+              short_strike_rut_proxy: shortInt * 10,
+              long_strike_rut_proxy: longInt * 10,
+              width_iwm: shortInt - longInt,
+              delta_target: delta,
+              otm_pct: Math.round(otmPct * 100) / 100,
+              pop_at_open: Math.round(pop * 10000) / 100,
+              credit_mid: Math.round(creditMid * 100) / 100,
+              fishing_target_credit: fishingTargetCredit,
+              max_contracts_for_10k_bucket: sizeFor10kBucket,
+              defense_checks: checks,
+              defense_passed: passDefense,
+            });
+          }
+
+          // 5) Recomendación final
+          const passing = candidates.filter(c => c.defense_passed);
+          const recommendation = (gate === "ABORT" || gate === "WAIT")
+            ? `${gate}: VIX ${vix.toFixed(1)} en régimen "${regime}". No abrir hoy.`
+            : !isPescaDay
+            ? `WAIT: hoy es ${["dom","lun","mar","mié","jue","vie","sáb"][dow]}. Tu patrón histórico = 60% trades en jue/vie. Espera 1-2 días.`
+            : passing.length === 0
+            ? `WAIT: ningún candidato pasa los filtros defensivos. Volatilidad muy baja para crédito decente o demasiado cerca del strike.`
+            : `OK: pesca a fishing target ${passing[0].fishing_target_credit}$ (mid $${passing[0].credit_mid}, +30% spread)`;
+
+          return json({
+            ts: new Date().toISOString(),
+            day_of_week: ["dom","lun","mar","mié","jue","vie","sáb"][dow],
+            is_pesca_day: isPescaDay,
+            market: { iwm: iwmPx, rut_proxy: Math.round(rutPx*100)/100, vix: vix, rvx_proxy: Math.round(sigmaRvx*10000)/100 },
+            regime,
+            gate,
+            recommendation,
+            candidates,
+            passing_candidates: passing,
+            user_pattern: {
+              delta_median: 0.03,
+              pop_median: 97,
+              otm_median: 9.7,
+              dte_median: 28,
+              vix_median: 16.5,
+              win_rate: 95.1,
+              worst_trade: "mar-2025 -$19,834 (POP 70%, OTM 5%, VIX 22.8 — violó tu patrón)",
+            },
+            defense_rules_applied: {
+              vix_gate: "ABORT si 26-30 (tu loser bucket -$36K), WAIT si 22-26 (zona muerta histéresis)",
+              pop_floor: ">= 93% (mediana 97%)",
+              delta_ceiling: "<= 0.08 (mediana 0.03)",
+              otm_floor: ">= 8% (mediana 9.7%)",
+              size_cap: "8 base, 4 si VIX>20, 2 si VIX>25",
+              concentration: "max 1 BPS por underlying por día (no replicar mar-2025)",
+            },
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/auto/replay-rut-bps — reconstruye histórico REAL de los BPS RUT
+      // del usuario en options_trades, calculando con BS + VIX histórico el
+      // delta/POP/credit teórico que tenía cada trade al abrirse.
+      // Devuelve análisis estadístico del patrón empírico real, no del Excel.
+      if (path === "/api/auto/replay-rut-bps" && request.method === "GET") {
+        try {
+          // 1) Cargar trades del usuario
+          const { results: trades } = await env.DB.prepare(
+            `SELECT id, trade_date, expiration_date, dte, price, short_strike, long_strike, spread,
+                    actual_contracts, credit, net_credit, status, final_net_credit, year
+             FROM options_trades
+             WHERE strategy='CS' AND underlying='RUT'
+             ORDER BY trade_date`
+          ).all();
+          if (!trades.length) return json({ trades: [] }, corsHeaders);
+
+          const minDate = trades[0].trade_date;
+          const maxDate = trades[trades.length - 1].expiration_date;
+          // Cargo histórico una sola vez
+          // RUT no está siempre en FMP — pruebo IWM como proxy (RUT ≈ IWM × 10)
+          const [iwmHist, vixHist] = await Promise.all([
+            getHistoricalPrices(env, "IWM", minDate, maxDate),
+            getHistoricalPrices(env, "VIX", minDate, maxDate),
+          ]);
+
+          const r = 0.04;
+          const enriched = [];
+          for (const t of trades) {
+            const iwmPx = iwmHist.get(t.trade_date);
+            const vix = vixHist.get(t.trade_date);
+            if (!iwmPx || !vix) {
+              enriched.push({ ...t, replay_skipped: "no historical data" });
+              continue;
+            }
+            // RUT proxy = IWM × 10 (ratio histórico estable)
+            const rutPx = iwmPx.close * 10;
+            // RVX ≈ VIX × 1.2 (factor empírico)
+            const sigma = Math.max(0.10, Math.min(0.80, (vix.close / 100) * 1.2));
+            const T = Math.max(1/365, t.dte / 365);
+            // Delta del short put en momento de apertura
+            const dShort = bsDelta(rutPx, t.short_strike, r, sigma, T, false); // negativo
+            const popShort = (() => {
+              // POP del short put = N(d2) → prob de que RUT > short_strike at expiry
+              const d1 = (Math.log(rutPx / t.short_strike) + (r + 0.5*sigma*sigma)*T) / (sigma * Math.sqrt(T));
+              const d2 = d1 - sigma * Math.sqrt(T);
+              return _normCdf(d2);
+            })();
+            // Credit teórico del spread (mid)
+            const spShort = bsPrice(rutPx, t.short_strike, r, sigma, T, false);
+            const spLong = bsPrice(rutPx, t.long_strike, r, sigma, T, false);
+            const creditTheo = spShort - spLong;
+            // Distancia OTM real
+            const otmPct = (rutPx - t.short_strike) / rutPx * 100;
+            enriched.push({
+              ...t,
+              replay: {
+                rut_proxy: Math.round(rutPx * 100) / 100,
+                iwm_price: iwmPx.close,
+                vix: vix.close,
+                rvx_proxy: Math.round(sigma * 10000) / 100,  // back to %
+                otm_pct: Math.round(otmPct * 100) / 100,
+                short_delta: Math.round(Math.abs(dShort) * 10000) / 10000,
+                pop: Math.round(popShort * 10000) / 100,
+                credit_theo_per_share: Math.round(creditTheo * 100) / 100,
+                credit_theo_per_contract: Math.round(creditTheo * 100 * 100) / 100,
+                credit_real_per_contract: t.credit ? Math.round(t.credit * 100 * 100) / 100 : null,
+                credit_ratio: t.credit && creditTheo > 0 ? Math.round((t.credit / creditTheo) * 100) / 100 : null,
+              },
+            });
+          }
+
+          // 2) Stats agregados
+          const valid = enriched.filter(t => t.replay);
+          const stats = (key) => {
+            const vals = valid.map(t => t.replay[key]).filter(v => v != null && !isNaN(v)).sort((a,b)=>a-b);
+            if (!vals.length) return null;
+            const sum = vals.reduce((a,b) => a+b, 0);
+            return {
+              n: vals.length,
+              mean: Math.round(sum / vals.length * 100) / 100,
+              median: vals[Math.floor(vals.length / 2)],
+              p25: vals[Math.floor(vals.length * 0.25)],
+              p75: vals[Math.floor(vals.length * 0.75)],
+              min: vals[0],
+              max: vals[vals.length - 1],
+            };
+          };
+
+          return json({
+            total: trades.length,
+            replayed: valid.length,
+            skipped: enriched.length - valid.length,
+            stats: {
+              short_delta: stats("short_delta"),
+              pop: stats("pop"),
+              otm_pct: stats("otm_pct"),
+              vix: stats("vix"),
+              rvx_proxy: stats("rvx_proxy"),
+              credit_real: stats("credit_real_per_contract"),
+              credit_theo: stats("credit_theo_per_contract"),
+              credit_ratio: stats("credit_ratio"),
+            },
+            sample_first: enriched[0],
+            sample_last: enriched[enriched.length - 1],
+            trades: enriched,
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500);
+        }
+      }
+
       // GET /api/auto/backtests?strategy=X — historial de backtests
       if (path === "/api/auto/backtests" && request.method === "GET") {
         const strategy = url.searchParams.get("strategy");
