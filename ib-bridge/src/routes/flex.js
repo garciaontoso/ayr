@@ -78,9 +78,13 @@ router.post('/sync', async (req, res) => {
     }
 
     // POST al worker /api/ib-flex-import
+    const workerToken = process.env.AYR_WORKER_TOKEN;
     const importResp = await fetch(`${workerUrl}/api/ib-flex-import`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/xml' },
+      headers: {
+        'Content-Type': 'application/xml',
+        ...(workerToken ? { 'X-AYR-Auth': workerToken } : {}),
+      },
       body: xml,
       signal: AbortSignal.timeout(60000),
     });

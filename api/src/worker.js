@@ -2750,9 +2750,10 @@ async function syncOpenTradesFromBrokers(env) {
 
   // 1) Fetch posiciones de T3 (todas las cuentas)
   const positions = [];
+
+  // 1a) Tastytrade: 3 cuentas via bridge
   if (env.TASTYTRADE_BRIDGE_URL && env.TASTYTRADE_BRIDGE_TOKEN) {
     try {
-      // Para cada cuenta, fetch posiciones
       const accountsData = await ttBridgeFetch(env, "/marketdata/accounts");
       for (const acct of accountsData?.accounts || []) {
         if (acct.is_closed) continue;
@@ -2767,6 +2768,51 @@ async function syncOpenTradesFromBrokers(env) {
       }
     } catch (e) {
       errors.push(`tastytrade accounts: ${e.message}`);
+    }
+  }
+
+  // 1b) Interactive Brokers: 4 cuentas via ib-bridge (si IB Gateway está running)
+  // Si IB Gateway está parado (estado normal cuando user no opera), fallback gracioso.
+  const ibBridgeUrl = env.IB_BRIDGE_URL || "https://ib.onto-so.com";
+  const ibBridgeToken = env.IB_BRIDGE_TOKEN || env.BRIDGE_AUTH_TOKEN;
+  if (ibBridgeUrl && ibBridgeToken) {
+    try {
+      const ibResp = await fetch(`${ibBridgeUrl.replace(/\/$/, "")}/positions`, {
+        headers: { "Authorization": `Bearer ${ibBridgeToken}` },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (ibResp.ok) {
+        const ibData = await ibResp.json();
+        const ibPositions = Array.isArray(ibData) ? ibData : (ibData.items || ibData.positions || []);
+        for (const p of ibPositions) {
+          // ib-bridge devuelve formato distinto a TT. Normalizar a misma shape.
+          const isOpt = p.secType === 'OPT' || p.assetCategory === 'OPT' || (p.expiry && p.strike);
+          if (!isOpt) continue;
+          positions.push({
+            broker: 'ib',
+            account: p.account || p.accountId || null,
+            symbol: p.symbol || p.localSymbol || '',
+            underlying: p.underlying || p.underlyingSymbol || p.symbol,
+            is_option: true,
+            opt_type: (p.right || p.putCall || '').toLowerCase().startsWith('p') ? 'put' :
+                      (p.right || p.putCall || '').toLowerCase().startsWith('c') ? 'call' : null,
+            strike: p.strike != null ? Number(p.strike) : null,
+            expiry: p.expiry ? `${p.expiry.slice(0,4)}-${p.expiry.slice(4,6)}-${p.expiry.slice(6,8)}` : null,
+            quantity: Number(p.position || p.quantity || 0),
+            quantity_direction: (Number(p.position || p.quantity || 0) < 0) ? 'Short' : 'Long',
+            average_open_price: p.avgCost != null ? Number(p.avgCost) / 100 : null,  // IB avgCost en cents para opciones
+            mark_price: p.mktPrice != null ? Number(p.mktPrice) : null,
+          });
+        }
+      } else if (ibResp.status === 503 || ibResp.status === 502) {
+        errors.push(`ib_bridge: gateway_down (HTTP ${ibResp.status})`);
+      } else {
+        const txt = await ibResp.text().catch(() => "");
+        errors.push(`ib_bridge: HTTP ${ibResp.status} ${txt.slice(0, 100)}`);
+      }
+    } catch (e) {
+      // No bloquear sync T3 si IB bridge falla
+      errors.push(`ib_bridge: ${e.message?.slice(0, 100)}`);
     }
   }
 
@@ -11814,9 +11860,13 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             } else if (t.underlyingSymbol) {
               underlying = mapTicker(t.underlyingSymbol);
             }
+            // accountId: viene del XML como attribute. Si IB Flex está bien
+            // configurado para incluir AccountInformation en el query, este
+            // atributo está presente. Si no, NULL (legacy queries).
+            const account = t.accountId || null;
             tradeStmts.push(env.DB.prepare(
-              "INSERT INTO cost_basis (ticker, fecha, tipo, shares, precio, comision, coste, opt_strike, opt_expiry, opt_tipo, opt_contracts, opt_credit, opt_credit_total, underlying) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-            ).bind(ticker, fecha, tipo, qty, price, commission, netCash, t.strike || null, expiry, t.putCall || null, optContracts, optCreditPerShare, optCreditTotal, underlying));
+              "INSERT INTO cost_basis (ticker, fecha, tipo, shares, precio, comision, coste, opt_strike, opt_expiry, opt_tipo, opt_contracts, opt_credit, opt_credit_total, underlying, account) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            ).bind(ticker, fecha, tipo, qty, price, commission, netCash, t.strike || null, expiry, t.putCall || null, optContracts, optCreditPerShare, optCreditTotal, underlying, account));
           }
           // Execute in batches of 80
           for (let i = 0; i < tradeStmts.length; i += 80) {
@@ -11848,7 +11898,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             const amount = parseFloat(c.amount) || 0;
             const key = `${fecha}|${ticker}`;
             const fxRate = parseFloat(c.fxRateToBase) || 1;
-            if (!divAgg[key]) divAgg[key] = { ticker, fecha, bruto: 0, wht: 0, divisa: c.currency || "USD", fxRate, shares: 0 };
+            if (!divAgg[key]) divAgg[key] = { ticker, fecha, bruto: 0, wht: 0, divisa: c.currency || "USD", fxRate, shares: 0, account: c.accountId || null };
             if (type.includes("withholding")) {
               divAgg[key].wht += amount; // negative
             } else {
@@ -11882,9 +11932,9 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             if (divSet.has(divDedupKey)) { divsSkipped++; continue; }
             divSet.add(divDedupKey);
             divStmts.push(env.DB.prepare(
-              `INSERT INTO dividendos (ticker, fecha, bruto, neto, divisa, wht_rate, wht_amount, broker, notas, bruto_usd, neto_usd, fx_to_usd, shares, dps_gross)
-               VALUES (?,?,?,?,?,?,?,'IB','IB Flex sync',?,?,?,?,?)`
-            ).bind(d.ticker, d.fecha, bruto, neto, d.divisa, whtRate, whtAmount, brutoUSD, netoUSD, fxUSD, shares, dpsGross));
+              `INSERT INTO dividendos (ticker, fecha, bruto, neto, divisa, wht_rate, wht_amount, broker, notas, bruto_usd, neto_usd, fx_to_usd, shares, dps_gross, account)
+               VALUES (?,?,?,?,?,?,?,'IB','IB Flex sync',?,?,?,?,?,?)`
+            ).bind(d.ticker, d.fecha, bruto, neto, d.divisa, whtRate, whtAmount, brutoUSD, netoUSD, fxUSD, shares, dpsGross, d.account || null));
             newDividends.push({ ticker: d.ticker, fecha: d.fecha, bruto, neto, divisa: d.divisa, netoUSD, shares, dpsGross });
           }
           for (let i = 0; i < divStmts.length; i += 80) {
