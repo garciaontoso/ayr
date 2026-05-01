@@ -60,6 +60,7 @@ export const DEFAULT_WHT_NET = 0.90;
 
 export const TABS = [
   {id:"dash",lbl:"Resumen",ico:"◈"},
+  {id:"cost-basis",lbl:"Cost Basis",ico:"📋"},
   {id:"tesis",lbl:"Tesis",ico:"📝"},
   {id:"transcript",lbl:"Transcript",ico:"📞"},
   {id:"archive",lbl:"Archivo",ico:"🗄"},
@@ -108,6 +109,7 @@ export const HOME_TAB_GROUPS = [
       {id:"action-plan",lbl:"Acciones",ico:"🎯"},
       {id:"briefing",lbl:"Briefing",ico:"☀️"},
       {id:"portfolio",lbl:"Portfolio",ico:"💼"},
+      {id:"open-options",lbl:"Opciones Abiertas",ico:"🎯"},
       {id:"tt",lbl:"TT",ico:"💎"},
       {id:"agentes",lbl:"Agentes",ico:"🤖"},
       {id:"dashboard",lbl:"Dashboard",ico:"📊"},

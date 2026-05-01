@@ -1,0 +1,8186 @@
+[
+  {
+    "id": 3614,
+    "fecha": "2025-11-27",
+    "ticker": "HKG:1052",
+    "div_total": 246.8,
+    "total_shares": 16000,
+    "account": null
+  },
+  {
+    "id": 3634,
+    "fecha": "2024-07-05",
+    "ticker": "AHRT",
+    "div_total": 86.1,
+    "total_shares": 500,
+    "account": "U5372268"
+  },
+  {
+    "id": 3635,
+    "fecha": "2024-07-22",
+    "ticker": "AHRT",
+    "div_total": 24.6,
+    "total_shares": 500,
+    "account": "U5372268"
+  },
+  {
+    "id": 3637,
+    "fecha": "2024-10-03",
+    "ticker": "AHRT",
+    "div_total": 110.7,
+    "total_shares": 700,
+    "account": "U5372268"
+  },
+  {
+    "id": 3639,
+    "fecha": "2025-01-02",
+    "ticker": "AHRT",
+    "div_total": 147.6,
+    "total_shares": 900,
+    "account": null
+  },
+  {
+    "id": 3640,
+    "fecha": "2025-02-06",
+    "ticker": "AHRT",
+    "div_total": 6.54,
+    "total_shares": 900,
+    "account": null
+  },
+  {
+    "id": 3642,
+    "fecha": "2025-04-03",
+    "ticker": "AHRT",
+    "div_total": 151.2,
+    "total_shares": 1200,
+    "account": null
+  },
+  {
+    "id": 3644,
+    "fecha": "2025-07-08",
+    "ticker": "AHRT",
+    "div_total": 151.2,
+    "total_shares": 2200,
+    "account": null
+  },
+  {
+    "id": 3647,
+    "fecha": "2025-10-02",
+    "ticker": "AHRT",
+    "div_total": 315.0,
+    "total_shares": 2900,
+    "account": null
+  },
+  {
+    "id": 3726,
+    "fecha": "2024-07-15",
+    "ticker": "ARE",
+    "div_total": 91.0,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 3727,
+    "fecha": "2024-07-22",
+    "ticker": "ARE",
+    "div_total": 26.0,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 3738,
+    "fecha": "2025-01-28",
+    "ticker": "ARE",
+    "div_total": 1.88,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 3742,
+    "fecha": "2025-04-15",
+    "ticker": "ARE",
+    "div_total": 237.6,
+    "total_shares": 250,
+    "account": null
+  },
+  {
+    "id": 3744,
+    "fecha": "2025-07-15",
+    "ticker": "ARE",
+    "div_total": 297.0,
+    "total_shares": 250,
+    "account": null
+  },
+  {
+    "id": 3749,
+    "fecha": "2025-10-15",
+    "ticker": "ARE",
+    "div_total": 297.0,
+    "total_shares": 650,
+    "account": null
+  },
+  {
+    "id": 3751,
+    "fecha": "2021-12-31",
+    "ticker": "ARKG",
+    "div_total": 19.11,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 3809,
+    "fecha": "2022-01-24",
+    "ticker": "AVK",
+    "div_total": 8.32,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 3811,
+    "fecha": "2022-02-11",
+    "ticker": "AVK",
+    "div_total": 0.04,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 3813,
+    "fecha": "2022-03-31",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 3814,
+    "fecha": "2022-04-29",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 3815,
+    "fecha": "2022-05-31",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 3816,
+    "fecha": "2022-06-30",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 3817,
+    "fecha": "2022-07-29",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 3818,
+    "fecha": "2022-08-31",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 3819,
+    "fecha": "2022-09-30",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 3820,
+    "fecha": "2022-10-31",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 3823,
+    "fecha": "2023-01-25",
+    "ticker": "AVK",
+    "div_total": 9.61,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 3824,
+    "fecha": "2023-01-31",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 3825,
+    "fecha": "2023-02-27",
+    "ticker": "AVK",
+    "div_total": 3.1,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 3826,
+    "fecha": "2023-02-28",
+    "ticker": "AVK",
+    "div_total": 0.31,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 3827,
+    "fecha": "2023-03-31",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 3828,
+    "fecha": "2023-04-28",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 3830,
+    "fecha": "2023-06-30",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 3837,
+    "fecha": "2023-10-31",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 3839,
+    "fecha": "2023-12-29",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 3840,
+    "fecha": "2024-02-12",
+    "ticker": "AVK",
+    "div_total": 3.25,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 3841,
+    "fecha": "2024-02-29",
+    "ticker": "AVK",
+    "div_total": 8.2,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 3842,
+    "fecha": "2024-03-29",
+    "ticker": "AVK",
+    "div_total": 8.2,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 3843,
+    "fecha": "2024-04-30",
+    "ticker": "AVK",
+    "div_total": 8.2,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 3844,
+    "fecha": "2024-05-31",
+    "ticker": "AVK",
+    "div_total": 8.2,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 3845,
+    "fecha": "2024-06-28",
+    "ticker": "AVK",
+    "div_total": 8.2,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 3846,
+    "fecha": "2024-07-22",
+    "ticker": "AVK",
+    "div_total": 2.35,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 3847,
+    "fecha": "2024-07-31",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 3848,
+    "fecha": "2024-08-30",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 3849,
+    "fecha": "2024-09-30",
+    "ticker": "AVK",
+    "div_total": 10.02,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 3850,
+    "fecha": "2024-10-31",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 3853,
+    "fecha": "2025-01-28",
+    "ticker": "AVK",
+    "div_total": 30.4,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 3854,
+    "fecha": "2025-02-06",
+    "ticker": "AVK",
+    "div_total": 15.24,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 3855,
+    "fecha": "2025-03-31",
+    "ticker": "AVK",
+    "div_total": 10.54,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 3856,
+    "fecha": "2025-04-30",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 3857,
+    "fecha": "2025-05-30",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 3858,
+    "fecha": "2025-06-30",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 3859,
+    "fecha": "2025-07-31",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 3860,
+    "fecha": "2025-08-29",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 3861,
+    "fecha": "2025-10-31",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 3862,
+    "fecha": "2025-10-28",
+    "ticker": "AVK",
+    "div_total": 10.55,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 3864,
+    "fecha": "2025-12-23",
+    "ticker": "AVK",
+    "div_total": 11.72,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 3965,
+    "fecha": "2024-01-18",
+    "ticker": "BABA",
+    "div_total": 588.02,
+    "total_shares": 700,
+    "account": "U5372268"
+  },
+  {
+    "id": 3967,
+    "fecha": "2024-07-15",
+    "ticker": "BABA",
+    "div_total": 1148.0,
+    "total_shares": 700,
+    "account": "U5372268"
+  },
+  {
+    "id": 3982,
+    "fecha": "2025-07-11",
+    "ticker": "BABA",
+    "div_total": 792.0,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 3991,
+    "fecha": "2025-06-12",
+    "ticker": "BBDC",
+    "div_total": 111.59,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 3992,
+    "fecha": "2025-09-10",
+    "ticker": "BBDC",
+    "div_total": 111.6,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 4031,
+    "fecha": "2023-03-17",
+    "ticker": "BFH",
+    "div_total": 0.38,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 4042,
+    "fecha": "2023-12-15",
+    "ticker": "BFH",
+    "div_total": 37.8,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 4044,
+    "fecha": "2024-06-14",
+    "ticker": "BFH",
+    "div_total": 44.1,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 4049,
+    "fecha": "2024-12-13",
+    "ticker": "BFH",
+    "div_total": 56.7,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 4056,
+    "fecha": "2025-06-13",
+    "ticker": "BFH",
+    "div_total": 56.7,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4059,
+    "fecha": "2025-09-30",
+    "ticker": "BFH",
+    "div_total": 56.7,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 4066,
+    "fecha": "2025-09-02",
+    "ticker": "BGH",
+    "div_total": 65.39,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4076,
+    "fecha": "2025-09-29",
+    "ticker": "BIPC",
+    "div_total": 42.42,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 4079,
+    "fecha": "2024-12-30",
+    "ticker": "BIZD",
+    "div_total": 160.02,
+    "total_shares": 400,
+    "account": "U5372268"
+  },
+  {
+    "id": 4080,
+    "fecha": "2025-02-17",
+    "ticker": "BIZD",
+    "div_total": 11.39,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 4081,
+    "fecha": "2025-04-04",
+    "ticker": "BIZD",
+    "div_total": 154.62,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 4083,
+    "fecha": "2025-07-07",
+    "ticker": "BIZD",
+    "div_total": 236.85,
+    "total_shares": 600,
+    "account": null
+  },
+  {
+    "id": 4086,
+    "fecha": "2025-10-06",
+    "ticker": "BIZD",
+    "div_total": 252.76,
+    "total_shares": 700,
+    "account": null
+  },
+  {
+    "id": 4087,
+    "fecha": "2025-12-23",
+    "ticker": "BIZD",
+    "div_total": 281.05,
+    "total_shares": 700,
+    "account": null
+  },
+  {
+    "id": 4102,
+    "fecha": "2025-04-30",
+    "ticker": "BST",
+    "div_total": 22.5,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 4103,
+    "fecha": "2025-05-30",
+    "ticker": "BST",
+    "div_total": 22.5,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 4105,
+    "fecha": "2025-06-30",
+    "ticker": "BST",
+    "div_total": 22.5,
+    "total_shares": 1,
+    "account": null
+  },
+  {
+    "id": 4110,
+    "fecha": "2025-04-30",
+    "ticker": "BUI",
+    "div_total": 24.48,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4111,
+    "fecha": "2025-05-30",
+    "ticker": "BUI",
+    "div_total": 24.48,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4113,
+    "fecha": "2025-06-30",
+    "ticker": "BUI",
+    "div_total": 24.48,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 4114,
+    "fecha": "2025-07-31",
+    "ticker": "BUI",
+    "div_total": 24.48,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 4130,
+    "fecha": "2025-04-30",
+    "ticker": "CCIF",
+    "div_total": 37.8,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 4131,
+    "fecha": "2025-05-30",
+    "ticker": "CCIF",
+    "div_total": 37.8,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 4132,
+    "fecha": "2025-06-30",
+    "ticker": "CCIF",
+    "div_total": 37.8,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 4133,
+    "fecha": "2025-07-31",
+    "ticker": "CCIF",
+    "div_total": 37.8,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 4134,
+    "fecha": "2025-08-29",
+    "ticker": "CCIF",
+    "div_total": 37.8,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 4135,
+    "fecha": "2025-09-30",
+    "ticker": "CCIF",
+    "div_total": 37.8,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 4142,
+    "fecha": "2025-03-31",
+    "ticker": "CII",
+    "div_total": 25.38,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4143,
+    "fecha": "2025-04-30",
+    "ticker": "CII",
+    "div_total": 25.38,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4144,
+    "fecha": "2025-05-30",
+    "ticker": "CII",
+    "div_total": 25.38,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4145,
+    "fecha": "2025-06-30",
+    "ticker": "CII",
+    "div_total": 25.38,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4146,
+    "fecha": "2025-07-31",
+    "ticker": "CII",
+    "div_total": 25.38,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4147,
+    "fecha": "2025-08-29",
+    "ticker": "CII",
+    "div_total": 25.38,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4149,
+    "fecha": "2025-09-30",
+    "ticker": "CII",
+    "div_total": 25.38,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 4155,
+    "fecha": "2022-01-03",
+    "ticker": "CIK",
+    "div_total": 0.44,
+    "total_shares": 302,
+    "account": "U5372268"
+  },
+  {
+    "id": 4156,
+    "fecha": "2022-01-19",
+    "ticker": "CIK",
+    "div_total": 0.03,
+    "total_shares": 302,
+    "account": "U5372268"
+  },
+  {
+    "id": 4171,
+    "fecha": "2023-03-22",
+    "ticker": "CIK",
+    "div_total": 6.12,
+    "total_shares": 302,
+    "account": "U5372268"
+  },
+  {
+    "id": 4180,
+    "fecha": "2023-12-22",
+    "ticker": "CIK",
+    "div_total": 6.11,
+    "total_shares": 302,
+    "account": "U5372268"
+  },
+  {
+    "id": 4182,
+    "fecha": "2024-03-22",
+    "ticker": "CIK",
+    "div_total": 4.76,
+    "total_shares": 302,
+    "account": "U5372268"
+  },
+  {
+    "id": 4185,
+    "fecha": "2024-06-25",
+    "ticker": "CIK",
+    "div_total": 4.75,
+    "total_shares": 302,
+    "account": "U5372268"
+  },
+  {
+    "id": 4186,
+    "fecha": "2024-07-22",
+    "ticker": "CIK",
+    "div_total": 1.36,
+    "total_shares": 302,
+    "account": "U5372268"
+  },
+  {
+    "id": 4189,
+    "fecha": "2024-09-24",
+    "ticker": "CIK",
+    "div_total": 6.11,
+    "total_shares": 302,
+    "account": "U5372268"
+  },
+  {
+    "id": 4198,
+    "fecha": "2025-05-23",
+    "ticker": "CIK",
+    "div_total": 10.17,
+    "total_shares": 502,
+    "account": null
+  },
+  {
+    "id": 4205,
+    "fecha": "2025-12-19",
+    "ticker": "CIK",
+    "div_total": 11.3,
+    "total_shares": 502,
+    "account": null
+  },
+  {
+    "id": 4208,
+    "fecha": "2025-12-04",
+    "ticker": "CLPR",
+    "div_total": 128.25,
+    "total_shares": 1500,
+    "account": null
+  },
+  {
+    "id": 4220,
+    "fecha": "2025-10-03",
+    "ticker": "CNQ",
+    "div_total": 50.7,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 4247,
+    "fecha": "2025-04-24",
+    "ticker": "DEO",
+    "div_total": 127.2,
+    "total_shares": 80,
+    "account": null
+  },
+  {
+    "id": 4257,
+    "fecha": "2025-12-04",
+    "ticker": "DEO",
+    "div_total": 619.83,
+    "total_shares": 450,
+    "account": null
+  },
+  {
+    "id": 4276,
+    "fecha": "2025-06-19",
+    "ticker": "DNG",
+    "div_total": 6.01,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 4277,
+    "fecha": "2025-07-18",
+    "ticker": "DNG",
+    "div_total": 5.98,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 4278,
+    "fecha": "2025-08-20",
+    "ticker": "DNG",
+    "div_total": 5.93,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 4279,
+    "fecha": "2025-09-30",
+    "ticker": "DNG",
+    "div_total": 5.88,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 4284,
+    "fecha": "2024-01-12",
+    "ticker": "DNP",
+    "div_total": 2.6,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 4285,
+    "fecha": "2024-02-12",
+    "ticker": "DNP",
+    "div_total": 9.1,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 4286,
+    "fecha": "2024-03-11",
+    "ticker": "DNP",
+    "div_total": 9.1,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 4287,
+    "fecha": "2024-04-10",
+    "ticker": "DNP",
+    "div_total": 9.1,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 4288,
+    "fecha": "2024-05-10",
+    "ticker": "DNP",
+    "div_total": 9.1,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 4289,
+    "fecha": "2024-06-10",
+    "ticker": "DNP",
+    "div_total": 9.1,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 4290,
+    "fecha": "2024-07-10",
+    "ticker": "DNP",
+    "div_total": 9.1,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 4291,
+    "fecha": "2024-07-22",
+    "ticker": "DNP",
+    "div_total": 2.6,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 4293,
+    "fecha": "2024-09-10",
+    "ticker": "DNP",
+    "div_total": 11.7,
+    "total_shares": 1000,
+    "account": "U5372268"
+  },
+  {
+    "id": 4294,
+    "fecha": "2024-10-10",
+    "ticker": "DNP",
+    "div_total": 58.5,
+    "total_shares": 1000,
+    "account": "U5372268"
+  },
+  {
+    "id": 4298,
+    "fecha": "2025-01-13",
+    "ticker": "DNP",
+    "div_total": 26.039,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 4299,
+    "fecha": "2025-02-10",
+    "ticker": "DNP",
+    "div_total": 58.5,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 4300,
+    "fecha": "2025-03-10",
+    "ticker": "DNP",
+    "div_total": 58.5,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 4301,
+    "fecha": "2025-05-12",
+    "ticker": "DNP",
+    "div_total": 58.5,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 4302,
+    "fecha": "2025-06-10",
+    "ticker": "DNP",
+    "div_total": 58.5,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 4303,
+    "fecha": "2025-07-10",
+    "ticker": "DNP",
+    "div_total": 58.5,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 4304,
+    "fecha": "2025-08-11",
+    "ticker": "DNP",
+    "div_total": 58.5,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 4305,
+    "fecha": "2025-09-10",
+    "ticker": "DNP",
+    "div_total": 58.5,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 4311,
+    "fecha": "2021-12-22",
+    "ticker": "DSU",
+    "div_total": 4.23,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4312,
+    "fecha": "2022-01-12",
+    "ticker": "DSU",
+    "div_total": 6.74,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4321,
+    "fecha": "2022-10-31",
+    "ticker": "DSU",
+    "div_total": 12.75,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4322,
+    "fecha": "2022-11-30",
+    "ticker": "DSU",
+    "div_total": 12.75,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4323,
+    "fecha": "2022-12-22",
+    "ticker": "DSU",
+    "div_total": 12.75,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4325,
+    "fecha": "2023-02-28",
+    "ticker": "DSU",
+    "div_total": 12.44,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4326,
+    "fecha": "2023-03-31",
+    "ticker": "DSU",
+    "div_total": 15.7,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4327,
+    "fecha": "2023-04-28",
+    "ticker": "DSU",
+    "div_total": 15.7,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4328,
+    "fecha": "2023-05-31",
+    "ticker": "DSU",
+    "div_total": 15.7,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4329,
+    "fecha": "2023-06-30",
+    "ticker": "DSU",
+    "div_total": 16.47,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4330,
+    "fecha": "2023-07-31",
+    "ticker": "DSU",
+    "div_total": 16.47,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4331,
+    "fecha": "2023-08-31",
+    "ticker": "DSU",
+    "div_total": 16.47,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4332,
+    "fecha": "2023-09-29",
+    "ticker": "DSU",
+    "div_total": 16.47,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4333,
+    "fecha": "2023-10-31",
+    "ticker": "DSU",
+    "div_total": 16.47,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4334,
+    "fecha": "2023-11-30",
+    "ticker": "DSU",
+    "div_total": 16.47,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4335,
+    "fecha": "2023-12-21",
+    "ticker": "DSU",
+    "div_total": 17.87,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4336,
+    "fecha": "2024-02-06",
+    "ticker": "DSU",
+    "div_total": 15.34,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4337,
+    "fecha": "2024-02-29",
+    "ticker": "DSU",
+    "div_total": 13.89,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4338,
+    "fecha": "2024-03-28",
+    "ticker": "DSU",
+    "div_total": 13.89,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4339,
+    "fecha": "2024-04-30",
+    "ticker": "DSU",
+    "div_total": 13.89,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4340,
+    "fecha": "2024-05-31",
+    "ticker": "DSU",
+    "div_total": 13.89,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4341,
+    "fecha": "2024-06-28",
+    "ticker": "DSU",
+    "div_total": 13.89,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4342,
+    "fecha": "2024-07-22",
+    "ticker": "DSU",
+    "div_total": 3.97,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4343,
+    "fecha": "2024-07-31",
+    "ticker": "DSU",
+    "div_total": 17.86,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4344,
+    "fecha": "2024-08-30",
+    "ticker": "DSU",
+    "div_total": 17.86,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4345,
+    "fecha": "2024-09-30",
+    "ticker": "DSU",
+    "div_total": 17.86,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4346,
+    "fecha": "2024-10-31",
+    "ticker": "DSU",
+    "div_total": 17.86,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4347,
+    "fecha": "2024-11-29",
+    "ticker": "DSU",
+    "div_total": 17.86,
+    "total_shares": 201,
+    "account": "U5372268"
+  },
+  {
+    "id": 4349,
+    "fecha": "2024-12-23",
+    "ticker": "DSU",
+    "div_total": 53.41,
+    "total_shares": 601,
+    "account": "U5372268"
+  },
+  {
+    "id": 4350,
+    "fecha": "2025-01-28",
+    "ticker": "DSU",
+    "div_total": 9.25,
+    "total_shares": 601,
+    "account": null
+  },
+  {
+    "id": 4351,
+    "fecha": "2025-01-31",
+    "ticker": "DSU",
+    "div_total": 53.41,
+    "total_shares": 601,
+    "account": null
+  },
+  {
+    "id": 4352,
+    "fecha": "2025-02-06",
+    "ticker": "DSU",
+    "div_total": 29.75,
+    "total_shares": 601,
+    "account": null
+  },
+  {
+    "id": 4353,
+    "fecha": "2025-02-28",
+    "ticker": "DSU",
+    "div_total": 53.41,
+    "total_shares": 601,
+    "account": null
+  },
+  {
+    "id": 4354,
+    "fecha": "2025-03-31",
+    "ticker": "DSU",
+    "div_total": 53.41,
+    "total_shares": 601,
+    "account": null
+  },
+  {
+    "id": 4355,
+    "fecha": "2025-04-30",
+    "ticker": "DSU",
+    "div_total": 53.41,
+    "total_shares": 601,
+    "account": null
+  },
+  {
+    "id": 4356,
+    "fecha": "2025-05-30",
+    "ticker": "DSU",
+    "div_total": 53.41,
+    "total_shares": 601,
+    "account": null
+  },
+  {
+    "id": 4357,
+    "fecha": "2025-06-30",
+    "ticker": "DSU",
+    "div_total": 53.41,
+    "total_shares": 601,
+    "account": null
+  },
+  {
+    "id": 4358,
+    "fecha": "2025-07-31",
+    "ticker": "DSU",
+    "div_total": 53.41,
+    "total_shares": 601,
+    "account": null
+  },
+  {
+    "id": 4359,
+    "fecha": "2025-08-29",
+    "ticker": "DSU",
+    "div_total": 53.4,
+    "total_shares": 601,
+    "account": null
+  },
+  {
+    "id": 4360,
+    "fecha": "2025-09-30",
+    "ticker": "DSU",
+    "div_total": 53.41,
+    "total_shares": 601,
+    "account": null
+  },
+  {
+    "id": 4361,
+    "fecha": "2025-10-31",
+    "ticker": "DSU",
+    "div_total": 53.41,
+    "total_shares": 601,
+    "account": null
+  },
+  {
+    "id": 4362,
+    "fecha": "2025-11-28",
+    "ticker": "DSU",
+    "div_total": 53.41,
+    "total_shares": 601,
+    "account": null
+  },
+  {
+    "id": 4371,
+    "fecha": "2025-05-27",
+    "ticker": "EARN",
+    "div_total": 21.6,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4372,
+    "fecha": "2025-06-30",
+    "ticker": "EARN",
+    "div_total": 21.6,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4373,
+    "fecha": "2025-07-31",
+    "ticker": "EARN",
+    "div_total": 21.6,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4374,
+    "fecha": "2025-08-29",
+    "ticker": "EARN",
+    "div_total": 21.6,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4375,
+    "fecha": "2025-09-30",
+    "ticker": "EARN",
+    "div_total": 21.6,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4377,
+    "fecha": "2025-10-31",
+    "ticker": "EARN",
+    "div_total": 21.6,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 4382,
+    "fecha": "2025-03-31",
+    "ticker": "ECC",
+    "div_total": 25.2,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4383,
+    "fecha": "2025-04-30",
+    "ticker": "ECC",
+    "div_total": 37.8,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4384,
+    "fecha": "2025-05-30",
+    "ticker": "ECC",
+    "div_total": 37.8,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4385,
+    "fecha": "2025-06-30",
+    "ticker": "ECC",
+    "div_total": 37.8,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4386,
+    "fecha": "2025-07-31",
+    "ticker": "ECC",
+    "div_total": 37.8,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4388,
+    "fecha": "2025-09-30",
+    "ticker": "ECC",
+    "div_total": 37.8,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4389,
+    "fecha": "2025-10-31",
+    "ticker": "ECC",
+    "div_total": 37.8,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4390,
+    "fecha": "2025-11-28",
+    "ticker": "ECC",
+    "div_total": 37.8,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4397,
+    "fecha": "2025-03-31",
+    "ticker": "EIC",
+    "div_total": 54.0,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4399,
+    "fecha": "2025-04-30",
+    "ticker": "EIC",
+    "div_total": 72.0,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 4401,
+    "fecha": "2025-05-30",
+    "ticker": "EIC",
+    "div_total": 72.0,
+    "total_shares": 600,
+    "account": null
+  },
+  {
+    "id": 4402,
+    "fecha": "2025-06-30",
+    "ticker": "EIC",
+    "div_total": 108.0,
+    "total_shares": 600,
+    "account": null
+  },
+  {
+    "id": 4403,
+    "fecha": "2025-07-31",
+    "ticker": "EIC",
+    "div_total": 70.2,
+    "total_shares": 600,
+    "account": null
+  },
+  {
+    "id": 4404,
+    "fecha": "2025-08-29",
+    "ticker": "EIC",
+    "div_total": 70.2,
+    "total_shares": 600,
+    "account": null
+  },
+  {
+    "id": 4405,
+    "fecha": "2025-09-30",
+    "ticker": "EIC",
+    "div_total": 70.2,
+    "total_shares": 600,
+    "account": null
+  },
+  {
+    "id": 4406,
+    "fecha": "2025-10-31",
+    "ticker": "EIC",
+    "div_total": 70.2,
+    "total_shares": 600,
+    "account": null
+  },
+  {
+    "id": 4407,
+    "fecha": "2025-11-28",
+    "ticker": "EIC",
+    "div_total": 70.2,
+    "total_shares": 600,
+    "account": null
+  },
+  {
+    "id": 4422,
+    "fecha": "2025-03-31",
+    "ticker": "EOS",
+    "div_total": 13.71,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 4423,
+    "fecha": "2025-04-30",
+    "ticker": "EOS",
+    "div_total": 13.71,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 4424,
+    "fecha": "2025-05-30",
+    "ticker": "EOS",
+    "div_total": 13.71,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 4425,
+    "fecha": "2025-06-30",
+    "ticker": "EOS",
+    "div_total": 13.71,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 4427,
+    "fecha": "2025-08-01",
+    "ticker": "EOS",
+    "div_total": 13.71,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 4428,
+    "fecha": "2025-08-29",
+    "ticker": "EOS",
+    "div_total": 13.71,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 4437,
+    "fecha": "2021-11-30",
+    "ticker": "ETV",
+    "div_total": 0.78,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4441,
+    "fecha": "2022-03-31",
+    "ticker": "ETV",
+    "div_total": 9.97,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4442,
+    "fecha": "2022-04-29",
+    "ticker": "ETV",
+    "div_total": 9.97,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4443,
+    "fecha": "2022-05-31",
+    "ticker": "ETV",
+    "div_total": 9.97,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4444,
+    "fecha": "2022-06-30",
+    "ticker": "ETV",
+    "div_total": 9.97,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4446,
+    "fecha": "2022-08-31",
+    "ticker": "ETV",
+    "div_total": 9.97,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4447,
+    "fecha": "2022-09-30",
+    "ticker": "ETV",
+    "div_total": 9.97,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4448,
+    "fecha": "2022-10-31",
+    "ticker": "ETV",
+    "div_total": 9.97,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4458,
+    "fecha": "2023-08-01",
+    "ticker": "ETV",
+    "div_total": 8.54,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4459,
+    "fecha": "2023-09-01",
+    "ticker": "ETV",
+    "div_total": 8.54,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4464,
+    "fecha": "2024-01-22",
+    "ticker": "ETV",
+    "div_total": 8.19,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4467,
+    "fecha": "2024-02-29",
+    "ticker": "ETV",
+    "div_total": 6.64,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4468,
+    "fecha": "2024-03-28",
+    "ticker": "ETV",
+    "div_total": 6.64,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4469,
+    "fecha": "2024-04-30",
+    "ticker": "ETV",
+    "div_total": 6.95,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4470,
+    "fecha": "2024-06-03",
+    "ticker": "ETV",
+    "div_total": 7.75,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4471,
+    "fecha": "2024-07-01",
+    "ticker": "ETV",
+    "div_total": 6.95,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4472,
+    "fecha": "2024-07-22",
+    "ticker": "ETV",
+    "div_total": 1.99,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4476,
+    "fecha": "2024-11-01",
+    "ticker": "ETV",
+    "div_total": 8.94,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4479,
+    "fecha": "2025-01-28",
+    "ticker": "ETV",
+    "div_total": 29.92,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 4483,
+    "fecha": "2025-04-30",
+    "ticker": "ETV",
+    "div_total": 17.87,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4484,
+    "fecha": "2025-05-30",
+    "ticker": "ETV",
+    "div_total": 17.87,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4485,
+    "fecha": "2025-06-30",
+    "ticker": "ETV",
+    "div_total": 17.87,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4486,
+    "fecha": "2025-07-31",
+    "ticker": "ETV",
+    "div_total": 17.87,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4487,
+    "fecha": "2025-09-30",
+    "ticker": "ETV",
+    "div_total": 17.87,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4488,
+    "fecha": "2025-10-31",
+    "ticker": "ETV",
+    "div_total": 17.87,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4489,
+    "fecha": "2025-11-28",
+    "ticker": "ETV",
+    "div_total": 17.87,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4497,
+    "fecha": "2021-11-30",
+    "ticker": "EXG",
+    "div_total": 4.83,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4498,
+    "fecha": "2021-12-31",
+    "ticker": "EXG",
+    "div_total": 6.2,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4502,
+    "fecha": "2022-04-28",
+    "ticker": "EXG",
+    "div_total": 12.46,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4503,
+    "fecha": "2022-05-31",
+    "ticker": "EXG",
+    "div_total": 12.53,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4505,
+    "fecha": "2022-07-31",
+    "ticker": "EXG",
+    "div_total": 12.53,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4507,
+    "fecha": "2022-09-30",
+    "ticker": "EXG",
+    "div_total": 12.53,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4508,
+    "fecha": "2022-10-31",
+    "ticker": "EXG",
+    "div_total": 12.53,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4510,
+    "fecha": "2022-12-30",
+    "ticker": "EXG",
+    "div_total": 13.65,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4511,
+    "fecha": "2023-01-30",
+    "ticker": "EXG",
+    "div_total": 10.05,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4512,
+    "fecha": "2023-02-28",
+    "ticker": "EXG",
+    "div_total": 10.05,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4513,
+    "fecha": "2023-03-30",
+    "ticker": "EXG",
+    "div_total": 10.05,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4514,
+    "fecha": "2023-04-28",
+    "ticker": "EXG",
+    "div_total": 10.05,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4515,
+    "fecha": "2023-05-31",
+    "ticker": "EXG",
+    "div_total": 10.05,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4516,
+    "fecha": "2023-06-30",
+    "ticker": "EXG",
+    "div_total": 10.05,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4517,
+    "fecha": "2023-07-31",
+    "ticker": "EXG",
+    "div_total": 10.05,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4518,
+    "fecha": "2023-08-01",
+    "ticker": "EXG",
+    "div_total": 10.05,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4519,
+    "fecha": "2023-09-01",
+    "ticker": "EXG",
+    "div_total": 10.05,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4520,
+    "fecha": "2023-09-29",
+    "ticker": "EXG",
+    "div_total": 10.05,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4521,
+    "fecha": "2023-10-31",
+    "ticker": "EXG",
+    "div_total": 10.05,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4523,
+    "fecha": "2023-12-29",
+    "ticker": "EXG",
+    "div_total": 10.05,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4524,
+    "fecha": "2024-01-22",
+    "ticker": "EXG",
+    "div_total": 3.33,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4526,
+    "fecha": "2024-02-29",
+    "ticker": "EXG",
+    "div_total": 7.82,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4527,
+    "fecha": "2024-03-28",
+    "ticker": "EXG",
+    "div_total": 7.82,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4528,
+    "fecha": "2024-04-30",
+    "ticker": "EXG",
+    "div_total": 9.29,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4529,
+    "fecha": "2024-05-31",
+    "ticker": "EXG",
+    "div_total": 9.29,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4530,
+    "fecha": "2024-07-01",
+    "ticker": "EXG",
+    "div_total": 9.29,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4531,
+    "fecha": "2024-07-22",
+    "ticker": "EXG",
+    "div_total": 2.65,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4532,
+    "fecha": "2024-07-31",
+    "ticker": "EXG",
+    "div_total": 11.94,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4533,
+    "fecha": "2024-08-30",
+    "ticker": "EXG",
+    "div_total": 11.94,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4534,
+    "fecha": "2024-09-30",
+    "ticker": "EXG",
+    "div_total": 11.94,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4535,
+    "fecha": "2024-11-01",
+    "ticker": "EXG",
+    "div_total": 11.94,
+    "total_shares": 202,
+    "account": "U5372268"
+  },
+  {
+    "id": 4539,
+    "fecha": "2025-01-28",
+    "ticker": "EXG",
+    "div_total": 35.72,
+    "total_shares": 302,
+    "account": null
+  },
+  {
+    "id": 4540,
+    "fecha": "2025-02-28",
+    "ticker": "EXG",
+    "div_total": 11.94,
+    "total_shares": 302,
+    "account": null
+  },
+  {
+    "id": 4541,
+    "fecha": "2025-03-31",
+    "ticker": "EXG",
+    "div_total": 17.86,
+    "total_shares": 302,
+    "account": null
+  },
+  {
+    "id": 4542,
+    "fecha": "2025-04-30",
+    "ticker": "EXG",
+    "div_total": 17.86,
+    "total_shares": 302,
+    "account": null
+  },
+  {
+    "id": 4543,
+    "fecha": "2025-05-30",
+    "ticker": "EXG",
+    "div_total": 17.85,
+    "total_shares": 302,
+    "account": null
+  },
+  {
+    "id": 4544,
+    "fecha": "2025-06-30",
+    "ticker": "EXG",
+    "div_total": 17.86,
+    "total_shares": 302,
+    "account": null
+  },
+  {
+    "id": 4545,
+    "fecha": "2025-07-31",
+    "ticker": "EXG",
+    "div_total": 17.86,
+    "total_shares": 302,
+    "account": null
+  },
+  {
+    "id": 4546,
+    "fecha": "2025-08-29",
+    "ticker": "EXG",
+    "div_total": 17.86,
+    "total_shares": 302,
+    "account": null
+  },
+  {
+    "id": 4547,
+    "fecha": "2025-09-30",
+    "ticker": "EXG",
+    "div_total": 17.86,
+    "total_shares": 302,
+    "account": null
+  },
+  {
+    "id": 4548,
+    "fecha": "2025-10-31",
+    "ticker": "EXG",
+    "div_total": 17.85,
+    "total_shares": 302,
+    "account": null
+  },
+  {
+    "id": 4549,
+    "fecha": "2025-11-28",
+    "ticker": "EXG",
+    "div_total": 17.85,
+    "total_shares": 302,
+    "account": null
+  },
+  {
+    "id": 4553,
+    "fecha": "2025-06-30",
+    "ticker": "FAX",
+    "div_total": 29.7,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4554,
+    "fecha": "2025-07-31",
+    "ticker": "FAX",
+    "div_total": 29.7,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4556,
+    "fecha": "2025-08-29",
+    "ticker": "FAX",
+    "div_total": 29.7,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 4567,
+    "fecha": "2025-10-20",
+    "ticker": "FR",
+    "div_total": 120.15,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4570,
+    "fecha": "2025-03-31",
+    "ticker": "FSCO",
+    "div_total": 17.41,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4571,
+    "fecha": "2025-04-30",
+    "ticker": "FSCO",
+    "div_total": 17.41,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4572,
+    "fecha": "2025-05-30",
+    "ticker": "FSCO",
+    "div_total": 17.41,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4573,
+    "fecha": "2025-06-30",
+    "ticker": "FSCO",
+    "div_total": 18.31,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4574,
+    "fecha": "2025-07-31",
+    "ticker": "FSCO",
+    "div_total": 18.31,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4575,
+    "fecha": "2025-08-29",
+    "ticker": "FSCO",
+    "div_total": 18.31,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4576,
+    "fecha": "2025-09-30",
+    "ticker": "FSCO",
+    "div_total": 18.31,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4577,
+    "fecha": "2025-10-31",
+    "ticker": "FSCO",
+    "div_total": 18.31,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4578,
+    "fecha": "2025-11-28",
+    "ticker": "FSCO",
+    "div_total": 18.31,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 4582,
+    "fecha": "2025-07-03",
+    "ticker": "FSK",
+    "div_total": 126.0,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4583,
+    "fecha": "2025-10-02",
+    "ticker": "FSK",
+    "div_total": 126.0,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4584,
+    "fecha": "2025-12-17",
+    "ticker": "FSK",
+    "div_total": 140.0,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4588,
+    "fecha": "2021-12-17",
+    "ticker": "GAB",
+    "div_total": 12.6,
+    "total_shares": 101,
+    "account": "U5372268"
+  },
+  {
+    "id": 4589,
+    "fecha": "2022-01-03",
+    "ticker": "GAB",
+    "div_total": 3.6,
+    "total_shares": 101,
+    "account": "U5372268"
+  },
+  {
+    "id": 4590,
+    "fecha": "2022-02-09",
+    "ticker": "GAB",
+    "div_total": 1.69,
+    "total_shares": 101,
+    "account": "U5372268"
+  },
+  {
+    "id": 4592,
+    "fecha": "2022-06-23",
+    "ticker": "GAB",
+    "div_total": 13.63,
+    "total_shares": 101,
+    "account": "U5372268"
+  },
+  {
+    "id": 4593,
+    "fecha": "2022-09-23",
+    "ticker": "GAB",
+    "div_total": 13.63,
+    "total_shares": 101,
+    "account": "U5372268"
+  },
+  {
+    "id": 4594,
+    "fecha": "2022-12-16",
+    "ticker": "GAB",
+    "div_total": 13.63,
+    "total_shares": 101,
+    "account": "U5372268"
+  },
+  {
+    "id": 4595,
+    "fecha": "2023-03-24",
+    "ticker": "GAB",
+    "div_total": 13.63,
+    "total_shares": 101,
+    "account": "U5372268"
+  },
+  {
+    "id": 4597,
+    "fecha": "2023-09-22",
+    "ticker": "GAB",
+    "div_total": 13.63,
+    "total_shares": 101,
+    "account": "U5372268"
+  },
+  {
+    "id": 4599,
+    "fecha": "2024-02-12",
+    "ticker": "GAB",
+    "div_total": 5.62,
+    "total_shares": 101,
+    "account": "U5372268"
+  },
+  {
+    "id": 4600,
+    "fecha": "2024-03-21",
+    "ticker": "GAB",
+    "div_total": 10.6,
+    "total_shares": 101,
+    "account": "U5372268"
+  },
+  {
+    "id": 4601,
+    "fecha": "2024-06-21",
+    "ticker": "GAB",
+    "div_total": 10.6,
+    "total_shares": 101,
+    "account": "U5372268"
+  },
+  {
+    "id": 4602,
+    "fecha": "2024-07-22",
+    "ticker": "GAB",
+    "div_total": 3.03,
+    "total_shares": 101,
+    "account": "U5372268"
+  },
+  {
+    "id": 4603,
+    "fecha": "2024-09-23",
+    "ticker": "GAB",
+    "div_total": 13.63,
+    "total_shares": 101,
+    "account": "U5372268"
+  },
+  {
+    "id": 4605,
+    "fecha": "2024-12-20",
+    "ticker": "GAB",
+    "div_total": 40.63,
+    "total_shares": 301,
+    "account": "U5372268"
+  },
+  {
+    "id": 4606,
+    "fecha": "2025-02-06",
+    "ticker": "GAB",
+    "div_total": 10.67,
+    "total_shares": 301,
+    "account": null
+  },
+  {
+    "id": 4607,
+    "fecha": "2025-03-24",
+    "ticker": "GAB",
+    "div_total": 40.63,
+    "total_shares": 301,
+    "account": null
+  },
+  {
+    "id": 4608,
+    "fecha": "2025-06-23",
+    "ticker": "GAB",
+    "div_total": 40.63,
+    "total_shares": 301,
+    "account": null
+  },
+  {
+    "id": 4609,
+    "fecha": "2025-09-23",
+    "ticker": "GAB",
+    "div_total": 40.63,
+    "total_shares": 301,
+    "account": null
+  },
+  {
+    "id": 4610,
+    "fecha": "2025-12-17",
+    "ticker": "GAB",
+    "div_total": 45.15,
+    "total_shares": 301,
+    "account": null
+  },
+  {
+    "id": 4631,
+    "fecha": "2022-04-29",
+    "ticker": "GLO",
+    "div_total": 33.95,
+    "total_shares": 624,
+    "account": "U5372268"
+  },
+  {
+    "id": 4632,
+    "fecha": "2022-06-01",
+    "ticker": "GLO",
+    "div_total": 34.29,
+    "total_shares": 624,
+    "account": "U5372268"
+  },
+  {
+    "id": 4633,
+    "fecha": "2022-07-29",
+    "ticker": "GLO",
+    "div_total": 49.96,
+    "total_shares": 624,
+    "account": "U5372268"
+  },
+  {
+    "id": 4634,
+    "fecha": "2022-08-31",
+    "ticker": "GLO",
+    "div_total": 51.26,
+    "total_shares": 624,
+    "account": "U5372268"
+  },
+  {
+    "id": 4635,
+    "fecha": "2022-09-30",
+    "ticker": "GLO",
+    "div_total": 51.26,
+    "total_shares": 624,
+    "account": "U5372268"
+  },
+  {
+    "id": 4636,
+    "fecha": "2022-07-01",
+    "ticker": "GLO",
+    "div_total": 34.28,
+    "total_shares": 624,
+    "account": "U5372268"
+  },
+  {
+    "id": 4637,
+    "fecha": "2022-11-01",
+    "ticker": "GLO",
+    "div_total": 52.96,
+    "total_shares": 624,
+    "account": "U5372268"
+  },
+  {
+    "id": 4640,
+    "fecha": "2023-01-31",
+    "ticker": "GLO",
+    "div_total": 27.13,
+    "total_shares": 624,
+    "account": "U5372268"
+  },
+  {
+    "id": 4641,
+    "fecha": "2023-02-28",
+    "ticker": "GLO",
+    "div_total": 27.13,
+    "total_shares": 624,
+    "account": "U5372268"
+  },
+  {
+    "id": 4642,
+    "fecha": "2023-03-31",
+    "ticker": "GLO",
+    "div_total": 27.13,
+    "total_shares": 624,
+    "account": "U5372268"
+  },
+  {
+    "id": 4643,
+    "fecha": "2023-04-28",
+    "ticker": "GLO",
+    "div_total": 27.13,
+    "total_shares": 624,
+    "account": "U5372268"
+  },
+  {
+    "id": 4644,
+    "fecha": "2023-05-31",
+    "ticker": "GLO",
+    "div_total": 27.13,
+    "total_shares": 624,
+    "account": "U5372268"
+  },
+  {
+    "id": 4645,
+    "fecha": "2023-06-30",
+    "ticker": "GLO",
+    "div_total": 27.13,
+    "total_shares": 624,
+    "account": "U5372268"
+  },
+  {
+    "id": 4648,
+    "fecha": "2023-07-31",
+    "ticker": "GLO",
+    "div_total": 27.13,
+    "total_shares": 624,
+    "account": "U5372268"
+  },
+  {
+    "id": 4649,
+    "fecha": "2023-08-01",
+    "ticker": "GLO",
+    "div_total": 27.13,
+    "total_shares": 624,
+    "account": "U5372268"
+  },
+  {
+    "id": 4650,
+    "fecha": "2023-08-31",
+    "ticker": "GLO",
+    "div_total": 27.13,
+    "total_shares": 624,
+    "account": "U5372268"
+  },
+  {
+    "id": 4651,
+    "fecha": "2023-09-29",
+    "ticker": "GLO",
+    "div_total": 27.13,
+    "total_shares": 624,
+    "account": "U5372268"
+  },
+  {
+    "id": 4653,
+    "fecha": "2023-11-30",
+    "ticker": "GLO",
+    "div_total": 27.13,
+    "total_shares": 824,
+    "account": "U5372268"
+  },
+  {
+    "id": 4654,
+    "fecha": "2024-01-02",
+    "ticker": "GLO",
+    "div_total": 27.12,
+    "total_shares": 824,
+    "account": "U5372268"
+  },
+  {
+    "id": 4655,
+    "fecha": "2024-01-11",
+    "ticker": "GLO",
+    "div_total": 36.12,
+    "total_shares": 824,
+    "account": "U5372268"
+  },
+  {
+    "id": 4656,
+    "fecha": "2024-02-29",
+    "ticker": "GLO",
+    "div_total": 20.97,
+    "total_shares": 824,
+    "account": "U5372268"
+  },
+  {
+    "id": 4657,
+    "fecha": "2024-03-28",
+    "ticker": "GLO",
+    "div_total": 20.96,
+    "total_shares": 824,
+    "account": "U5372268"
+  },
+  {
+    "id": 4658,
+    "fecha": "2024-04-30",
+    "ticker": "GLO",
+    "div_total": 20.97,
+    "total_shares": 824,
+    "account": "U5372268"
+  },
+  {
+    "id": 4659,
+    "fecha": "2024-05-31",
+    "ticker": "GLO",
+    "div_total": 20.96,
+    "total_shares": 824,
+    "account": "U5372268"
+  },
+  {
+    "id": 4660,
+    "fecha": "2024-06-28",
+    "ticker": "GLO",
+    "div_total": 34.4,
+    "total_shares": 824,
+    "account": "U5372268"
+  },
+  {
+    "id": 4661,
+    "fecha": "2023-10-30",
+    "ticker": "GLO",
+    "div_total": 27.13,
+    "total_shares": 824,
+    "account": "U5372268"
+  },
+  {
+    "id": 4662,
+    "fecha": "2024-07-22",
+    "ticker": "GLO",
+    "div_total": 9.83,
+    "total_shares": 824,
+    "account": "U5372268"
+  },
+  {
+    "id": 4663,
+    "fecha": "2024-07-31",
+    "ticker": "GLO",
+    "div_total": 44.23,
+    "total_shares": 824,
+    "account": "U5372268"
+  },
+  {
+    "id": 4664,
+    "fecha": "2024-08-30",
+    "ticker": "GLO",
+    "div_total": 44.23,
+    "total_shares": 824,
+    "account": "U5372268"
+  },
+  {
+    "id": 4666,
+    "fecha": "2024-09-30",
+    "ticker": "GLO",
+    "div_total": 65.83,
+    "total_shares": 1324,
+    "account": "U5372268"
+  },
+  {
+    "id": 4667,
+    "fecha": "2024-10-31",
+    "ticker": "GLO",
+    "div_total": 65.83,
+    "total_shares": 1324,
+    "account": "U5372268"
+  },
+  {
+    "id": 4668,
+    "fecha": "2024-11-29",
+    "ticker": "GLO",
+    "div_total": 65.79,
+    "total_shares": 1324,
+    "account": "U5372268"
+  },
+  {
+    "id": 4669,
+    "fecha": "2024-12-30",
+    "ticker": "GLO",
+    "div_total": 65.83,
+    "total_shares": 1324,
+    "account": "U5372268"
+  },
+  {
+    "id": 4670,
+    "fecha": "2025-01-20",
+    "ticker": "GLO",
+    "div_total": 88.99,
+    "total_shares": 1324,
+    "account": null
+  },
+  {
+    "id": 4671,
+    "fecha": "2025-01-31",
+    "ticker": "GLO",
+    "div_total": 68.71,
+    "total_shares": 1324,
+    "account": null
+  },
+  {
+    "id": 4672,
+    "fecha": "2025-02-28",
+    "ticker": "GLO",
+    "div_total": 68.71,
+    "total_shares": 1324,
+    "account": null
+  },
+  {
+    "id": 4673,
+    "fecha": "2025-03-31",
+    "ticker": "GLO",
+    "div_total": 68.71,
+    "total_shares": 1324,
+    "account": null
+  },
+  {
+    "id": 4675,
+    "fecha": "2025-04-30",
+    "ticker": "GLO",
+    "div_total": 68.71,
+    "total_shares": 1324,
+    "account": null
+  },
+  {
+    "id": 4676,
+    "fecha": "2025-05-30",
+    "ticker": "GLO",
+    "div_total": 68.71,
+    "total_shares": 1324,
+    "account": null
+  },
+  {
+    "id": 4677,
+    "fecha": "2025-06-30",
+    "ticker": "GLO",
+    "div_total": 68.71,
+    "total_shares": 1324,
+    "account": null
+  },
+  {
+    "id": 4678,
+    "fecha": "2025-07-31",
+    "ticker": "GLO",
+    "div_total": 68.71,
+    "total_shares": 1324,
+    "account": null
+  },
+  {
+    "id": 4679,
+    "fecha": "2025-08-29",
+    "ticker": "GLO",
+    "div_total": 68.71,
+    "total_shares": 1324,
+    "account": null
+  },
+  {
+    "id": 4680,
+    "fecha": "2025-09-30",
+    "ticker": "GLO",
+    "div_total": 68.72,
+    "total_shares": 1324,
+    "account": null
+  },
+  {
+    "id": 4746,
+    "fecha": "2024-06-17",
+    "ticker": "GOOGL",
+    "div_total": 28.0,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 4753,
+    "fecha": "2024-07-22",
+    "ticker": "GOOGL",
+    "div_total": 8.0,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 4784,
+    "fecha": "2025-10-17",
+    "ticker": "HASI",
+    "div_total": 151.2,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4791,
+    "fecha": "2023-11-30",
+    "ticker": "HPS",
+    "div_total": 9.9,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4793,
+    "fecha": "2024-01-22",
+    "ticker": "HPS",
+    "div_total": 2.7,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4794,
+    "fecha": "2024-02-29",
+    "ticker": "HPS",
+    "div_total": 7.7,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4795,
+    "fecha": "2024-03-28",
+    "ticker": "HPS",
+    "div_total": 7.7,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4796,
+    "fecha": "2024-04-30",
+    "ticker": "HPS",
+    "div_total": 7.7,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4797,
+    "fecha": "2024-05-31",
+    "ticker": "HPS",
+    "div_total": 7.7,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4798,
+    "fecha": "2024-06-28",
+    "ticker": "HPS",
+    "div_total": 7.7,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4816,
+    "fecha": "2023-05-31",
+    "ticker": "HPS",
+    "div_total": 9.9,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4821,
+    "fecha": "2023-10-31",
+    "ticker": "HPS",
+    "div_total": 9.9,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4822,
+    "fecha": "2024-07-22",
+    "ticker": "HPS",
+    "div_total": 2.2,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4829,
+    "fecha": "2025-01-20",
+    "ticker": "HPS",
+    "div_total": 6.12,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 4837,
+    "fecha": "2025-08-29",
+    "ticker": "HPS",
+    "div_total": 9.9,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 4848,
+    "fecha": "2023-08-29",
+    "ticker": "HR",
+    "div_total": 27.9,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4849,
+    "fecha": "2023-11-30",
+    "ticker": "HR",
+    "div_total": 27.9,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4850,
+    "fecha": "2024-01-22",
+    "ticker": "HR",
+    "div_total": 2.52,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4851,
+    "fecha": "2024-03-14",
+    "ticker": "HR",
+    "div_total": 21.7,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4852,
+    "fecha": "2024-05-23",
+    "ticker": "HR",
+    "div_total": 21.7,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4853,
+    "fecha": "2024-08-28",
+    "ticker": "HR",
+    "div_total": 27.9,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4854,
+    "fecha": "2024-11-27",
+    "ticker": "HR",
+    "div_total": 27.9,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4855,
+    "fecha": "2025-01-21",
+    "ticker": "HR",
+    "div_total": 1.89,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 4856,
+    "fecha": "2025-03-19",
+    "ticker": "HR",
+    "div_total": 15.12,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 4858,
+    "fecha": "2025-08-28",
+    "ticker": "HR",
+    "div_total": 27.9,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 4867,
+    "fecha": "2022-02-23",
+    "ticker": "IGR",
+    "div_total": 0.46,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4882,
+    "fecha": "2023-04-28",
+    "ticker": "IGR",
+    "div_total": 5.4,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 4892,
+    "fecha": "2024-02-21",
+    "ticker": "IGR",
+    "div_total": 3.78,
+    "total_shares": 400,
+    "account": "U5372268"
+  },
+  {
+    "id": 4893,
+    "fecha": "2024-02-29",
+    "ticker": "IGR",
+    "div_total": 4.2,
+    "total_shares": 400,
+    "account": "U5372268"
+  },
+  {
+    "id": 4894,
+    "fecha": "2024-03-28",
+    "ticker": "IGR",
+    "div_total": 4.2,
+    "total_shares": 400,
+    "account": "U5372268"
+  },
+  {
+    "id": 4897,
+    "fecha": "2024-06-28",
+    "ticker": "IGR",
+    "div_total": 16.82,
+    "total_shares": 400,
+    "account": "U5372268"
+  },
+  {
+    "id": 4898,
+    "fecha": "2024-07-22",
+    "ticker": "IGR",
+    "div_total": 4.8,
+    "total_shares": 400,
+    "account": "U5372268"
+  },
+  {
+    "id": 4905,
+    "fecha": "2025-01-31",
+    "ticker": "IGR",
+    "div_total": 21.6,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 4906,
+    "fecha": "2025-02-17",
+    "ticker": "IGR",
+    "div_total": 9.44,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 4908,
+    "fecha": "2025-03-31",
+    "ticker": "IGR",
+    "div_total": 37.8,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 4909,
+    "fecha": "2025-04-30",
+    "ticker": "IGR",
+    "div_total": 37.8,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 4910,
+    "fecha": "2025-05-30",
+    "ticker": "IGR",
+    "div_total": 37.8,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 4911,
+    "fecha": "2025-06-30",
+    "ticker": "IGR",
+    "div_total": 37.8,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 4912,
+    "fecha": "2025-07-31",
+    "ticker": "IGR",
+    "div_total": 37.8,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 4913,
+    "fecha": "2025-08-29",
+    "ticker": "IGR",
+    "div_total": 37.8,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 4915,
+    "fecha": "2025-10-31",
+    "ticker": "IGR",
+    "div_total": 37.8,
+    "total_shares": 700,
+    "account": null
+  },
+  {
+    "id": 4917,
+    "fecha": "2025-11-28",
+    "ticker": "IGR",
+    "div_total": 37.8,
+    "total_shares": 700,
+    "account": null
+  },
+  {
+    "id": 4923,
+    "fecha": "2025-04-15",
+    "ticker": "IIPR PRA",
+    "div_total": 101.25,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4924,
+    "fecha": "2025-07-15",
+    "ticker": "IIPR PRA",
+    "div_total": 101.25,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 4926,
+    "fecha": "2025-10-15",
+    "ticker": "IIPR PRA",
+    "div_total": 202.5,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 4963,
+    "fecha": "2023-06-01",
+    "ticker": "INTC",
+    "div_total": 33.75,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 4994,
+    "fecha": "2023-07-17",
+    "ticker": "ISPA",
+    "div_total": 130.8,
+    "total_shares": 150,
+    "account": "U5372268"
+  },
+  {
+    "id": 4995,
+    "fecha": "2023-10-17",
+    "ticker": "ISPA",
+    "div_total": 66.13,
+    "total_shares": 150,
+    "account": "U5372268"
+  },
+  {
+    "id": 4996,
+    "fecha": "2024-01-16",
+    "ticker": "ISPA",
+    "div_total": 65.0,
+    "total_shares": 150,
+    "account": "U5372268"
+  },
+  {
+    "id": 4997,
+    "fecha": "2024-04-16",
+    "ticker": "ISPA",
+    "div_total": 27.64,
+    "total_shares": 150,
+    "account": "U5372268"
+  },
+  {
+    "id": 4999,
+    "fecha": "2024-07-17",
+    "ticker": "ISPA",
+    "div_total": 94.64,
+    "total_shares": 400,
+    "account": "U5372268"
+  },
+  {
+    "id": 5000,
+    "fecha": "2024-10-17",
+    "ticker": "ISPA",
+    "div_total": 158.1,
+    "total_shares": 400,
+    "account": "U5372268"
+  },
+  {
+    "id": 5003,
+    "fecha": "2025-04-01",
+    "ticker": "JCE",
+    "div_total": 28.8,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 5004,
+    "fecha": "2025-07-01",
+    "ticker": "JCE",
+    "div_total": 28.8,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 5006,
+    "fecha": "2025-10-01",
+    "ticker": "JCE",
+    "div_total": 28.8,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 5012,
+    "fecha": "2024-07-03",
+    "ticker": "JEPI",
+    "div_total": 4.62,
+    "total_shares": 20,
+    "account": "U5372268"
+  },
+  {
+    "id": 5013,
+    "fecha": "2024-07-22",
+    "ticker": "JEPI",
+    "div_total": 1.32,
+    "total_shares": 20,
+    "account": "U5372268"
+  },
+  {
+    "id": 5028,
+    "fecha": "2025-08-05",
+    "ticker": "JEPI",
+    "div_total": 160.97,
+    "total_shares": 720,
+    "account": null
+  },
+  {
+    "id": 5030,
+    "fecha": "2025-09-04",
+    "ticker": "JEPI",
+    "div_total": 331.43,
+    "total_shares": -280,
+    "account": null
+  },
+  {
+    "id": 5031,
+    "fecha": "2025-09-02",
+    "ticker": "JEPI",
+    "div_total": 331.43,
+    "total_shares": -280,
+    "account": null
+  },
+  {
+    "id": 5037,
+    "fecha": "2025-05-01",
+    "ticker": "JFR",
+    "div_total": 22.95,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5038,
+    "fecha": "2025-06-02",
+    "ticker": "JFR",
+    "div_total": 22.95,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5039,
+    "fecha": "2025-07-01",
+    "ticker": "JFR",
+    "div_total": 22.95,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5040,
+    "fecha": "2025-08-01",
+    "ticker": "JFR",
+    "div_total": 22.95,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5041,
+    "fecha": "2025-09-02",
+    "ticker": "JFR",
+    "div_total": 20.25,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5043,
+    "fecha": "2025-11-03",
+    "ticker": "JFR",
+    "div_total": 20.25,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 5051,
+    "fecha": "2022-05-01",
+    "ticker": "JPC",
+    "div_total": 4.77,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 5071,
+    "fecha": "2023-12-05",
+    "ticker": "JPC",
+    "div_total": 0.38,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 5072,
+    "fecha": "2023-12-29",
+    "ticker": "JPC",
+    "div_total": 8.55,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 5074,
+    "fecha": "2024-02-12",
+    "ticker": "JPC",
+    "div_total": 0.83,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 5079,
+    "fecha": "2024-07-01",
+    "ticker": "JPC",
+    "div_total": 9.31,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 5080,
+    "fecha": "2024-07-22",
+    "ticker": "JPC",
+    "div_total": 2.66,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 5082,
+    "fecha": "2024-09-03",
+    "ticker": "JPC",
+    "div_total": 11.97,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 5083,
+    "fecha": "2024-10-02",
+    "ticker": "JPC",
+    "div_total": 11.97,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 5088,
+    "fecha": "2025-02-13",
+    "ticker": "JPC",
+    "div_total": 2.21,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5089,
+    "fecha": "2025-02-27",
+    "ticker": "JPC",
+    "div_total": -0.87,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5090,
+    "fecha": "2025-03-03",
+    "ticker": "JPC",
+    "div_total": 11.97,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5093,
+    "fecha": "2025-06-02",
+    "ticker": "JPC",
+    "div_total": 11.79,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5095,
+    "fecha": "2025-08-04",
+    "ticker": "JPC",
+    "div_total": 11.97,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5098,
+    "fecha": "2025-10-01",
+    "ticker": "JPC",
+    "div_total": 11.97,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 5102,
+    "fecha": "2025-01-17",
+    "ticker": "KER",
+    "div_total": 32.63,
+    "total_shares": 20,
+    "account": null
+  },
+  {
+    "id": 5103,
+    "fecha": "2025-05-09",
+    "ticker": "KER",
+    "div_total": 76.96,
+    "total_shares": 20,
+    "account": null
+  },
+  {
+    "id": 5107,
+    "fecha": "2023-01-05",
+    "ticker": "KGRO",
+    "div_total": 79.58,
+    "total_shares": 50,
+    "account": "U5372268"
+  },
+  {
+    "id": 5108,
+    "fecha": "2025-02-20",
+    "ticker": "KGRO",
+    "div_total": 0.21,
+    "total_shares": 50,
+    "account": null
+  },
+  {
+    "id": 5135,
+    "fecha": "2025-07-17",
+    "ticker": "KRG",
+    "div_total": 72.9,
+    "total_shares": 500,
+    "account": null
+  },
+  {
+    "id": 5255,
+    "fecha": "2025-08-29",
+    "ticker": "LANDP",
+    "div_total": 56.21,
+    "total_shares": 500,
+    "account": null
+  },
+  {
+    "id": 5256,
+    "fecha": "2025-10-31",
+    "ticker": "LANDP",
+    "div_total": 56.26,
+    "total_shares": 500,
+    "account": null
+  },
+  {
+    "id": 5260,
+    "fecha": "2025-03-21",
+    "ticker": "LGI",
+    "div_total": 13.18,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 5261,
+    "fecha": "2025-04-22",
+    "ticker": "LGI",
+    "div_total": 13.18,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 5262,
+    "fecha": "2025-05-22",
+    "ticker": "LGI",
+    "div_total": 13.18,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 5263,
+    "fecha": "2025-06-24",
+    "ticker": "LGI",
+    "div_total": 13.18,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 5264,
+    "fecha": "2025-07-22",
+    "ticker": "LGI",
+    "div_total": 13.18,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 5265,
+    "fecha": "2025-08-22",
+    "ticker": "LGI",
+    "div_total": 13.18,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 5266,
+    "fecha": "2025-10-22",
+    "ticker": "LGI",
+    "div_total": 13.19,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 5270,
+    "fecha": "2025-02-28",
+    "ticker": "LOG",
+    "div_total": 128.59,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 5272,
+    "fecha": "2025-08-28",
+    "ticker": "LOG",
+    "div_total": 124.52,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5350,
+    "fecha": "2024-07-10",
+    "ticker": "LUV",
+    "div_total": 50.4,
+    "total_shares": 400,
+    "account": "U5372268"
+  },
+  {
+    "id": 5351,
+    "fecha": "2024-07-22",
+    "ticker": "LUV",
+    "div_total": 14.4,
+    "total_shares": 400,
+    "account": "U5372268"
+  },
+  {
+    "id": 5366,
+    "fecha": "2025-09-30",
+    "ticker": "LUV",
+    "div_total": 81.0,
+    "total_shares": 500,
+    "account": null
+  },
+  {
+    "id": 5387,
+    "fecha": "2024-08-01",
+    "ticker": "MBY",
+    "div_total": 108.0,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 5390,
+    "fecha": "2024-11-01",
+    "ticker": "MBY",
+    "div_total": 108.0,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 5396,
+    "fecha": "2025-07-01",
+    "ticker": "MCN",
+    "div_total": 16.2,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5397,
+    "fecha": "2025-08-01",
+    "ticker": "MCN",
+    "div_total": 16.44,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5414,
+    "fecha": "2024-04-25",
+    "ticker": "MDV",
+    "div_total": 6.71,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 5415,
+    "fecha": "2024-05-21",
+    "ticker": "MDV",
+    "div_total": 6.71,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 5416,
+    "fecha": "2024-06-25",
+    "ticker": "MDV",
+    "div_total": 6.71,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 5417,
+    "fecha": "2024-07-22",
+    "ticker": "MDV",
+    "div_total": 1.91,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 5423,
+    "fecha": "2024-11-22",
+    "ticker": "MDV",
+    "div_total": 17.25,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 5424,
+    "fecha": "2024-12-24",
+    "ticker": "MDV",
+    "div_total": 17.25,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 5425,
+    "fecha": "2025-01-27",
+    "ticker": "MDV",
+    "div_total": 17.25,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5426,
+    "fecha": "2025-01-28",
+    "ticker": "MDV",
+    "div_total": 12.9,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5427,
+    "fecha": "2025-02-25",
+    "ticker": "MDV",
+    "div_total": 17.55,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5428,
+    "fecha": "2025-03-25",
+    "ticker": "MDV",
+    "div_total": 17.55,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5429,
+    "fecha": "2025-04-25",
+    "ticker": "MDV",
+    "div_total": 17.55,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5430,
+    "fecha": "2025-05-15",
+    "ticker": "MDV",
+    "div_total": 17.55,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5431,
+    "fecha": "2025-06-16",
+    "ticker": "MDV",
+    "div_total": 17.55,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5432,
+    "fecha": "2025-07-15",
+    "ticker": "MDV",
+    "div_total": 17.55,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5433,
+    "fecha": "2025-08-15",
+    "ticker": "MDV",
+    "div_total": 17.55,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5434,
+    "fecha": "2025-09-15",
+    "ticker": "MDV",
+    "div_total": 17.55,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5436,
+    "fecha": "2025-10-15",
+    "ticker": "MDV",
+    "div_total": 17.55,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 5437,
+    "fecha": "2025-11-14",
+    "ticker": "MDV",
+    "div_total": 17.55,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 5438,
+    "fecha": "2025-12-15",
+    "ticker": "MDV",
+    "div_total": 35.1,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 5440,
+    "fecha": "2025-03-31",
+    "ticker": "MEGI",
+    "div_total": 33.75,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5441,
+    "fecha": "2025-04-30",
+    "ticker": "MEGI",
+    "div_total": 33.75,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5442,
+    "fecha": "2025-05-30",
+    "ticker": "MEGI",
+    "div_total": 33.75,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5446,
+    "fecha": "2025-08-29",
+    "ticker": "MEGI",
+    "div_total": 33.76,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 5448,
+    "fecha": "2025-03-27",
+    "ticker": "MFIC",
+    "div_total": 34.2,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 5450,
+    "fecha": "2025-06-25",
+    "ticker": "MFIC",
+    "div_total": 102.6,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5451,
+    "fecha": "2025-09-23",
+    "ticker": "MFIC",
+    "div_total": 102.6,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5452,
+    "fecha": "2025-12-22",
+    "ticker": "MFIC",
+    "div_total": 114.0,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5454,
+    "fecha": "2024-07-10",
+    "ticker": "MO",
+    "div_total": 68.6,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 5455,
+    "fecha": "2024-07-22",
+    "ticker": "MO",
+    "div_total": 19.6,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 5464,
+    "fecha": "2025-10-24",
+    "ticker": "MSD",
+    "div_total": 360.0,
+    "total_shares": 350,
+    "account": null
+  },
+  {
+    "id": 5468,
+    "fecha": "2025-01-24",
+    "ticker": "MSDL",
+    "div_total": 135.0,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5469,
+    "fecha": "2025-04-25",
+    "ticker": "MSDL",
+    "div_total": 135.0,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5471,
+    "fecha": "2025-07-25",
+    "ticker": "MSDL",
+    "div_total": 135.0,
+    "total_shares": 800,
+    "account": null
+  },
+  {
+    "id": 5484,
+    "fecha": "2025-10-26",
+    "ticker": "MTN",
+    "div_total": 39.93,
+    "total_shares": 20,
+    "account": null
+  },
+  {
+    "id": 5487,
+    "fecha": "2025-04-28",
+    "ticker": "NCDL",
+    "div_total": 81.0,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5492,
+    "fecha": "2024-02-29",
+    "ticker": "NET.UN",
+    "div_total": 18.02,
+    "total_shares": 1000,
+    "account": "U5372268"
+  },
+  {
+    "id": 5493,
+    "fecha": "2024-04-02",
+    "ticker": "NET.UN",
+    "div_total": 18.01,
+    "total_shares": 1000,
+    "account": "U5372268"
+  },
+  {
+    "id": 5495,
+    "fecha": "2024-06-03",
+    "ticker": "NET.UN",
+    "div_total": 17.94,
+    "total_shares": 1000,
+    "account": "U5372268"
+  },
+  {
+    "id": 5496,
+    "fecha": "2024-07-01",
+    "ticker": "NET.UN",
+    "div_total": 17.79,
+    "total_shares": 1000,
+    "account": "U5372268"
+  },
+  {
+    "id": 5497,
+    "fecha": "2024-07-31",
+    "ticker": "NET.UN",
+    "div_total": 17.7,
+    "total_shares": 1000,
+    "account": "U5372268"
+  },
+  {
+    "id": 5498,
+    "fecha": "2024-08-30",
+    "ticker": "NET.UN",
+    "div_total": 42.56,
+    "total_shares": 1000,
+    "account": "U5372268"
+  },
+  {
+    "id": 5499,
+    "fecha": "2024-10-07",
+    "ticker": "NET.UN",
+    "div_total": 17.95,
+    "total_shares": 1000,
+    "account": "U5372268"
+  },
+  {
+    "id": 5500,
+    "fecha": "2024-11-01",
+    "ticker": "NET.UN",
+    "div_total": 12.46,
+    "total_shares": 1000,
+    "account": "U5372268"
+  },
+  {
+    "id": 5501,
+    "fecha": "2024-12-02",
+    "ticker": "NET.UN",
+    "div_total": 11.62,
+    "total_shares": 1000,
+    "account": "U5372268"
+  },
+  {
+    "id": 5502,
+    "fecha": "2025-01-01",
+    "ticker": "NET.UN",
+    "div_total": 11.89,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 5503,
+    "fecha": "2025-02-03",
+    "ticker": "NET.UN",
+    "div_total": 16.94,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 5504,
+    "fecha": "2025-03-03",
+    "ticker": "NET.UN",
+    "div_total": 16.87,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 5505,
+    "fecha": "2025-04-01",
+    "ticker": "NET.UN",
+    "div_total": 12.19,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 5506,
+    "fecha": "2025-05-01",
+    "ticker": "NET.UN",
+    "div_total": 17.64,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 5507,
+    "fecha": "2025-05-30",
+    "ticker": "NET.UN",
+    "div_total": 12.98,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 5509,
+    "fecha": "2025-07-01",
+    "ticker": "NET.UN",
+    "div_total": 12.98,
+    "total_shares": 2000,
+    "account": null
+  },
+  {
+    "id": 5510,
+    "fecha": "2025-08-01",
+    "ticker": "NET.UN",
+    "div_total": 17.98,
+    "total_shares": 2000,
+    "account": null
+  },
+  {
+    "id": 5511,
+    "fecha": "2025-09-01",
+    "ticker": "NET.UN",
+    "div_total": 36.07,
+    "total_shares": 2000,
+    "account": null
+  },
+  {
+    "id": 5512,
+    "fecha": "2025-09-30",
+    "ticker": "NET.UN",
+    "div_total": 35.62,
+    "total_shares": 2000,
+    "account": null
+  },
+  {
+    "id": 5513,
+    "fecha": "2025-11-03",
+    "ticker": "NET.UN",
+    "div_total": 61.26,
+    "total_shares": 2000,
+    "account": null
+  },
+  {
+    "id": 5514,
+    "fecha": "2025-12-01",
+    "ticker": "NET.UN",
+    "div_total": 98.86,
+    "total_shares": 2000,
+    "account": null
+  },
+  {
+    "id": 5567,
+    "fecha": "2024-01-15",
+    "ticker": "NNN",
+    "div_total": 0.09,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 5578,
+    "fecha": "2025-11-14",
+    "ticker": "NNN",
+    "div_total": 324.0,
+    "total_shares": 600,
+    "account": null
+  },
+  {
+    "id": 5584,
+    "fecha": "2025-03-31",
+    "ticker": "NRO",
+    "div_total": 27.99,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 5585,
+    "fecha": "2025-05-01",
+    "ticker": "NRO",
+    "div_total": 28.08,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 5586,
+    "fecha": "2025-05-30",
+    "ticker": "NRO",
+    "div_total": 28.08,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 5587,
+    "fecha": "2025-06-30",
+    "ticker": "NRO",
+    "div_total": 28.08,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 5589,
+    "fecha": "2025-10-31",
+    "ticker": "NRO",
+    "div_total": 28.08,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 5659,
+    "fecha": "2024-02-06",
+    "ticker": "O",
+    "div_total": 0.34,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 5660,
+    "fecha": "2024-03-15",
+    "ticker": "O",
+    "div_total": 17.95,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 5661,
+    "fecha": "2024-04-15",
+    "ticker": "O",
+    "div_total": 17.99,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 5662,
+    "fecha": "2024-05-15",
+    "ticker": "O",
+    "div_total": 17.99,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 5663,
+    "fecha": "2024-06-14",
+    "ticker": "O",
+    "div_total": 18.37,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 5664,
+    "fecha": "2024-07-15",
+    "ticker": "O",
+    "div_total": 18.41,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 5665,
+    "fecha": "2024-07-22",
+    "ticker": "O",
+    "div_total": 5.26,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 5667,
+    "fecha": "2024-09-13",
+    "ticker": "O",
+    "div_total": 47.34,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 5668,
+    "fecha": "2024-10-15",
+    "ticker": "O",
+    "div_total": 47.43,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 5670,
+    "fecha": "2024-11-15",
+    "ticker": "O",
+    "div_total": 47.43,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 5671,
+    "fecha": "2024-12-13",
+    "ticker": "O",
+    "div_total": 71.14,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 5673,
+    "fecha": "2025-01-31",
+    "ticker": "O",
+    "div_total": 22.95,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5674,
+    "fecha": "2025-02-14",
+    "ticker": "O",
+    "div_total": 71.28,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5675,
+    "fecha": "2025-03-14",
+    "ticker": "O",
+    "div_total": 72.36,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5676,
+    "fecha": "2025-04-15",
+    "ticker": "O",
+    "div_total": 72.49,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5677,
+    "fecha": "2025-05-15",
+    "ticker": "O",
+    "div_total": 72.49,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5678,
+    "fecha": "2025-06-13",
+    "ticker": "O",
+    "div_total": 72.49,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5680,
+    "fecha": "2025-07-15",
+    "ticker": "O",
+    "div_total": 72.63,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5682,
+    "fecha": "2025-08-15",
+    "ticker": "O",
+    "div_total": 72.63,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5684,
+    "fecha": "2025-09-15",
+    "ticker": "O",
+    "div_total": 96.84,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 5685,
+    "fecha": "2025-10-15",
+    "ticker": "O",
+    "div_total": 121.27,
+    "total_shares": 500,
+    "account": null
+  },
+  {
+    "id": 5686,
+    "fecha": "2025-11-14",
+    "ticker": "O",
+    "div_total": 121.27,
+    "total_shares": 500,
+    "account": null
+  },
+  {
+    "id": 5687,
+    "fecha": "2025-12-15",
+    "ticker": "O",
+    "div_total": 121.27,
+    "total_shares": 500,
+    "account": null
+  },
+  {
+    "id": 5689,
+    "fecha": "2024-12-13",
+    "ticker": "OBDC",
+    "div_total": 10.8,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 5690,
+    "fecha": "2025-01-09",
+    "ticker": "OBDC",
+    "div_total": 93.6,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5691,
+    "fecha": "2025-01-10",
+    "ticker": "OBDC",
+    "div_total": 72.31,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5692,
+    "fecha": "2025-02-17",
+    "ticker": "OBDC",
+    "div_total": 8.8,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5693,
+    "fecha": "2025-03-17",
+    "ticker": "OBDC",
+    "div_total": 65.12,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5694,
+    "fecha": "2025-04-15",
+    "ticker": "OBDC",
+    "div_total": 1.76,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5695,
+    "fecha": "2025-06-13",
+    "ticker": "OBDC",
+    "div_total": 65.15,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5698,
+    "fecha": "2025-09-15",
+    "ticker": "OBDC",
+    "div_total": 65.12,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 5701,
+    "fecha": "2025-04-30",
+    "ticker": "OCCI",
+    "div_total": 20.7,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5702,
+    "fecha": "2025-05-30",
+    "ticker": "OCCI",
+    "div_total": 20.7,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5703,
+    "fecha": "2025-06-30",
+    "ticker": "OCCI",
+    "div_total": 17.1,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5705,
+    "fecha": "2025-08-29",
+    "ticker": "OCCI",
+    "div_total": 20.7,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5706,
+    "fecha": "2025-09-30",
+    "ticker": "OCCI",
+    "div_total": 20.7,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5707,
+    "fecha": "2025-10-31",
+    "ticker": "OCCI",
+    "div_total": 20.7,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5713,
+    "fecha": "2025-05-28",
+    "ticker": "OWL",
+    "div_total": 60.75,
+    "total_shares": 500,
+    "account": null
+  },
+  {
+    "id": 5716,
+    "fecha": "2025-08-28",
+    "ticker": "OWL",
+    "div_total": 101.25,
+    "total_shares": 700,
+    "account": null
+  },
+  {
+    "id": 5718,
+    "fecha": "2025-11-24",
+    "ticker": "OWL",
+    "div_total": 101.25,
+    "total_shares": 500,
+    "account": null
+  },
+  {
+    "id": 5727,
+    "fecha": "2022-01-31",
+    "ticker": "OXLC",
+    "div_total": 13.54,
+    "total_shares": 453,
+    "account": "U5372268"
+  },
+  {
+    "id": 5728,
+    "fecha": "2022-02-28",
+    "ticker": "OXLC",
+    "div_total": 13.49,
+    "total_shares": 453,
+    "account": "U5372268"
+  },
+  {
+    "id": 5741,
+    "fecha": "2023-03-31",
+    "ticker": "OXLC",
+    "div_total": 17.08,
+    "total_shares": 453,
+    "account": "U5372268"
+  },
+  {
+    "id": 5742,
+    "fecha": "2023-04-28",
+    "ticker": "OXLC",
+    "div_total": 17.08,
+    "total_shares": 453,
+    "account": "U5372268"
+  },
+  {
+    "id": 5744,
+    "fecha": "2023-06-30",
+    "ticker": "OXLC",
+    "div_total": 17.08,
+    "total_shares": 453,
+    "account": "U5372268"
+  },
+  {
+    "id": 5749,
+    "fecha": "2023-11-29",
+    "ticker": "OXLC",
+    "div_total": 164.28,
+    "total_shares": 453,
+    "account": "U5372268"
+  },
+  {
+    "id": 5751,
+    "fecha": "2023-12-29",
+    "ticker": "OXLC",
+    "div_total": 32.62,
+    "total_shares": 453,
+    "account": "U5372268"
+  },
+  {
+    "id": 5756,
+    "fecha": "2024-06-28",
+    "ticker": "OXLC",
+    "div_total": 25.37,
+    "total_shares": 453,
+    "account": "U5372268"
+  },
+  {
+    "id": 5757,
+    "fecha": "2024-07-22",
+    "ticker": "OXLC",
+    "div_total": 7.25,
+    "total_shares": 453,
+    "account": "U5372268"
+  },
+  {
+    "id": 5771,
+    "fecha": "2025-05-30",
+    "ticker": "OXLC",
+    "div_total": 101.49,
+    "total_shares": 1053,
+    "account": null
+  },
+  {
+    "id": 5803,
+    "fecha": "2025-05-29",
+    "ticker": "PBR",
+    "div_total": 37.55,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5804,
+    "fecha": "2025-06-30",
+    "ticker": "PBR",
+    "div_total": 39.15,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5805,
+    "fecha": "2025-08-28",
+    "ticker": "PBR",
+    "div_total": 40.78,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5817,
+    "fecha": "2025-05-01",
+    "ticker": "PCN",
+    "div_total": 20.25,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 5818,
+    "fecha": "2025-06-02",
+    "ticker": "PCN",
+    "div_total": 20.25,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 5820,
+    "fecha": "2025-07-01",
+    "ticker": "PCN",
+    "div_total": 20.25,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5822,
+    "fecha": "2025-09-02",
+    "ticker": "PCN",
+    "div_total": 20.25,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5828,
+    "fecha": "2025-04-01",
+    "ticker": "PDI",
+    "div_total": 39.69,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5829,
+    "fecha": "2025-05-01",
+    "ticker": "PDI",
+    "div_total": 39.69,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5830,
+    "fecha": "2025-06-02",
+    "ticker": "PDI",
+    "div_total": 39.69,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5831,
+    "fecha": "2025-07-01",
+    "ticker": "PDI",
+    "div_total": 39.69,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5832,
+    "fecha": "2025-08-01",
+    "ticker": "PDI",
+    "div_total": 39.69,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5833,
+    "fecha": "2025-09-02",
+    "ticker": "PDI",
+    "div_total": 39.69,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5834,
+    "fecha": "2025-10-01",
+    "ticker": "PDI",
+    "div_total": 39.69,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5835,
+    "fecha": "2025-11-03",
+    "ticker": "PDI",
+    "div_total": 39.69,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5844,
+    "fecha": "2021-12-22",
+    "ticker": "PDO",
+    "div_total": 0.4,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 5851,
+    "fecha": "2022-08-01",
+    "ticker": "PDO",
+    "div_total": 10.66,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 5853,
+    "fecha": "2022-10-04",
+    "ticker": "PDO",
+    "div_total": 11.51,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 5864,
+    "fecha": "2023-09-01",
+    "ticker": "PDO",
+    "div_total": 34.53,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 5865,
+    "fecha": "2023-10-02",
+    "ticker": "PDO",
+    "div_total": 34.53,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 5866,
+    "fecha": "2023-11-02",
+    "ticker": "PDO",
+    "div_total": 34.53,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 5867,
+    "fecha": "2023-12-01",
+    "ticker": "PDO",
+    "div_total": 34.53,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 5868,
+    "fecha": "2024-01-02",
+    "ticker": "PDO",
+    "div_total": 34.53,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 5869,
+    "fecha": "2024-02-02",
+    "ticker": "PDO",
+    "div_total": 26.86,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 5870,
+    "fecha": "2024-02-12",
+    "ticker": "PDO",
+    "div_total": 12.44,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 5872,
+    "fecha": "2024-04-02",
+    "ticker": "PDO",
+    "div_total": 26.86,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 5873,
+    "fecha": "2024-05-01",
+    "ticker": "PDO",
+    "div_total": 26.86,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 5874,
+    "fecha": "2024-06-03",
+    "ticker": "PDO",
+    "div_total": 26.86,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 5875,
+    "fecha": "2024-07-01",
+    "ticker": "PDO",
+    "div_total": 26.86,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 5876,
+    "fecha": "2024-07-22",
+    "ticker": "PDO",
+    "div_total": 7.67,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 5877,
+    "fecha": "2024-08-01",
+    "ticker": "PDO",
+    "div_total": 34.53,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 5878,
+    "fecha": "2024-09-03",
+    "ticker": "PDO",
+    "div_total": 34.53,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 5879,
+    "fecha": "2024-10-01",
+    "ticker": "PDO",
+    "div_total": 34.53,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 5880,
+    "fecha": "2024-11-01",
+    "ticker": "PDO",
+    "div_total": 34.53,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 5881,
+    "fecha": "2024-12-02",
+    "ticker": "PDO",
+    "div_total": 34.53,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 5882,
+    "fecha": "2025-01-03",
+    "ticker": "PDO",
+    "div_total": 34.53,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5883,
+    "fecha": "2025-01-28",
+    "ticker": "PDO",
+    "div_total": 35.79,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5885,
+    "fecha": "2025-02-13",
+    "ticker": "PDO",
+    "div_total": 20.38,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5886,
+    "fecha": "2025-03-03",
+    "ticker": "PDO",
+    "div_total": 34.53,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5887,
+    "fecha": "2025-04-01",
+    "ticker": "PDO",
+    "div_total": 34.53,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5889,
+    "fecha": "2025-06-02",
+    "ticker": "PDO",
+    "div_total": 34.54,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5890,
+    "fecha": "2025-07-01",
+    "ticker": "PDO",
+    "div_total": 34.53,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5891,
+    "fecha": "2025-08-01",
+    "ticker": "PDO",
+    "div_total": 34.53,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5892,
+    "fecha": "2025-09-02",
+    "ticker": "PDO",
+    "div_total": 34.53,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5893,
+    "fecha": "2025-10-01",
+    "ticker": "PDO",
+    "div_total": 34.53,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5894,
+    "fecha": "2025-11-03",
+    "ticker": "PDO",
+    "div_total": 34.53,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 5934,
+    "fecha": "2025-03-31",
+    "ticker": "PGZ",
+    "div_total": 18.9,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5935,
+    "fecha": "2025-04-30",
+    "ticker": "PGZ",
+    "div_total": 18.9,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5936,
+    "fecha": "2025-05-30",
+    "ticker": "PGZ",
+    "div_total": 18.9,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5937,
+    "fecha": "2025-06-30",
+    "ticker": "PGZ",
+    "div_total": 18.9,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5938,
+    "fecha": "2025-07-31",
+    "ticker": "PGZ",
+    "div_total": 18.9,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5939,
+    "fecha": "2025-08-29",
+    "ticker": "PGZ",
+    "div_total": 18.9,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5940,
+    "fecha": "2025-09-30",
+    "ticker": "PGZ",
+    "div_total": 18.9,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 5942,
+    "fecha": "2025-10-31",
+    "ticker": "PGZ",
+    "div_total": 18.9,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 5994,
+    "fecha": "2022-10-03",
+    "ticker": "PSKY",
+    "div_total": 64.8,
+    "total_shares": 600,
+    "account": "U5372268"
+  },
+  {
+    "id": 5995,
+    "fecha": "2023-01-03",
+    "ticker": "PSKY",
+    "div_total": 108.0,
+    "total_shares": 600,
+    "account": "U5372268"
+  },
+  {
+    "id": 5996,
+    "fecha": "2023-04-03",
+    "ticker": "PSKY",
+    "div_total": 108.0,
+    "total_shares": 600,
+    "account": "U5372268"
+  },
+  {
+    "id": 5997,
+    "fecha": "2023-07-03",
+    "ticker": "PSKY",
+    "div_total": 22.5,
+    "total_shares": 600,
+    "account": "U5372268"
+  },
+  {
+    "id": 6001,
+    "fecha": "2023-10-02",
+    "ticker": "PSKY",
+    "div_total": 36.0,
+    "total_shares": 1000,
+    "account": "U5372268"
+  },
+  {
+    "id": 6006,
+    "fecha": "2024-01-02",
+    "ticker": "PSKY",
+    "div_total": 45.0,
+    "total_shares": 1000,
+    "account": "U5372268"
+  },
+  {
+    "id": 6007,
+    "fecha": "2024-04-01",
+    "ticker": "PSKY",
+    "div_total": 42.0,
+    "total_shares": 1000,
+    "account": "U5372268"
+  },
+  {
+    "id": 6008,
+    "fecha": "2024-07-01",
+    "ticker": "PSKY",
+    "div_total": 42.0,
+    "total_shares": 1000,
+    "account": "U5372268"
+  },
+  {
+    "id": 6009,
+    "fecha": "2024-07-22",
+    "ticker": "PSKY",
+    "div_total": 12.0,
+    "total_shares": 1000,
+    "account": "U5372268"
+  },
+  {
+    "id": 6010,
+    "fecha": "2024-10-01",
+    "ticker": "PSKY",
+    "div_total": 54.0,
+    "total_shares": 1000,
+    "account": "U5372268"
+  },
+  {
+    "id": 6011,
+    "fecha": "2025-01-02",
+    "ticker": "PSKY",
+    "div_total": 54.0,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 6012,
+    "fecha": "2025-04-01",
+    "ticker": "PSKY",
+    "div_total": 72.0,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 6015,
+    "fecha": "2025-07-01",
+    "ticker": "PSKY",
+    "div_total": 72.0,
+    "total_shares": 700,
+    "account": null
+  },
+  {
+    "id": 6028,
+    "fecha": "2021-12-31",
+    "ticker": "PTY",
+    "div_total": 7.83,
+    "total_shares": 160,
+    "account": "U5372268"
+  },
+  {
+    "id": 6029,
+    "fecha": "2022-01-03",
+    "ticker": "PTY",
+    "div_total": 5.35,
+    "total_shares": 160,
+    "account": "U5372268"
+  },
+  {
+    "id": 6033,
+    "fecha": "2022-05-01",
+    "ticker": "PTY",
+    "div_total": 16.03,
+    "total_shares": 160,
+    "account": "U5372268"
+  },
+  {
+    "id": 6040,
+    "fecha": "2022-12-01",
+    "ticker": "PTY",
+    "div_total": 37.75,
+    "total_shares": 160,
+    "account": "U5372268"
+  },
+  {
+    "id": 6044,
+    "fecha": "2023-04-01",
+    "ticker": "PTY",
+    "div_total": 17.11,
+    "total_shares": 160,
+    "account": "U5372268"
+  },
+  {
+    "id": 6052,
+    "fecha": "2023-11-02",
+    "ticker": "PTY",
+    "div_total": 17.11,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6053,
+    "fecha": "2023-12-01",
+    "ticker": "PTY",
+    "div_total": 17.11,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6054,
+    "fecha": "2024-01-02",
+    "ticker": "PTY",
+    "div_total": 17.11,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6055,
+    "fecha": "2024-02-02",
+    "ticker": "PTY",
+    "div_total": 13.31,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6056,
+    "fecha": "2024-02-12",
+    "ticker": "PTY",
+    "div_total": 8.41,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6057,
+    "fecha": "2024-03-01",
+    "ticker": "PTY",
+    "div_total": 13.31,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6058,
+    "fecha": "2024-04-02",
+    "ticker": "PTY",
+    "div_total": 13.31,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6059,
+    "fecha": "2024-05-01",
+    "ticker": "PTY",
+    "div_total": 13.31,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6060,
+    "fecha": "2024-06-03",
+    "ticker": "PTY",
+    "div_total": 13.3,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6061,
+    "fecha": "2024-07-01",
+    "ticker": "PTY",
+    "div_total": 24.95,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6062,
+    "fecha": "2024-07-22",
+    "ticker": "PTY",
+    "div_total": 7.13,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6063,
+    "fecha": "2024-08-01",
+    "ticker": "PTY",
+    "div_total": 32.08,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6064,
+    "fecha": "2024-09-03",
+    "ticker": "PTY",
+    "div_total": 32.08,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6066,
+    "fecha": "2024-11-01",
+    "ticker": "PTY",
+    "div_total": 32.08,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6067,
+    "fecha": "2024-12-02",
+    "ticker": "PTY",
+    "div_total": 32.08,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6070,
+    "fecha": "2025-01-02",
+    "ticker": "PTY",
+    "div_total": 32.08,
+    "total_shares": 390,
+    "account": null
+  },
+  {
+    "id": 6071,
+    "fecha": "2025-01-28",
+    "ticker": "PTY",
+    "div_total": 20.54,
+    "total_shares": 390,
+    "account": null
+  },
+  {
+    "id": 6073,
+    "fecha": "2025-02-13",
+    "ticker": "PTY",
+    "div_total": 12.85,
+    "total_shares": 390,
+    "account": null
+  },
+  {
+    "id": 6074,
+    "fecha": "2025-03-03",
+    "ticker": "PTY",
+    "div_total": 37.42,
+    "total_shares": 390,
+    "account": null
+  },
+  {
+    "id": 6075,
+    "fecha": "2025-04-01",
+    "ticker": "PTY",
+    "div_total": 41.7,
+    "total_shares": 390,
+    "account": null
+  },
+  {
+    "id": 6077,
+    "fecha": "2025-05-01",
+    "ticker": "PTY",
+    "div_total": 47.04,
+    "total_shares": 440,
+    "account": null
+  },
+  {
+    "id": 6078,
+    "fecha": "2025-06-02",
+    "ticker": "PTY",
+    "div_total": 47.04,
+    "total_shares": 440,
+    "account": null
+  },
+  {
+    "id": 6079,
+    "fecha": "2025-07-01",
+    "ticker": "PTY",
+    "div_total": 47.04,
+    "total_shares": 440,
+    "account": null
+  },
+  {
+    "id": 6080,
+    "fecha": "2025-08-01",
+    "ticker": "PTY",
+    "div_total": 47.04,
+    "total_shares": 440,
+    "account": null
+  },
+  {
+    "id": 6081,
+    "fecha": "2025-09-02",
+    "ticker": "PTY",
+    "div_total": 47.04,
+    "total_shares": 440,
+    "account": null
+  },
+  {
+    "id": 6082,
+    "fecha": "2025-10-01",
+    "ticker": "PTY",
+    "div_total": 47.04,
+    "total_shares": 440,
+    "account": null
+  },
+  {
+    "id": 6083,
+    "fecha": "2025-11-03",
+    "ticker": "PTY",
+    "div_total": 47.04,
+    "total_shares": 440,
+    "account": null
+  },
+  {
+    "id": 6141,
+    "fecha": "2024-09-13",
+    "ticker": "QDTE",
+    "div_total": 40.1,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6142,
+    "fecha": "2024-09-20",
+    "ticker": "QDTE",
+    "div_total": 17.58,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6143,
+    "fecha": "2024-09-27",
+    "ticker": "QDTE",
+    "div_total": 23.1,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6144,
+    "fecha": "2024-10-04",
+    "ticker": "QDTE",
+    "div_total": 19.58,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6145,
+    "fecha": "2024-10-10",
+    "ticker": "QDTE",
+    "div_total": 24.26,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6146,
+    "fecha": "2024-10-18",
+    "ticker": "QDTE",
+    "div_total": 28.63,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6147,
+    "fecha": "2024-10-25",
+    "ticker": "QDTE",
+    "div_total": 18.73,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6148,
+    "fecha": "2024-11-01",
+    "ticker": "QDTE",
+    "div_total": 18.43,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6149,
+    "fecha": "2024-11-08",
+    "ticker": "QDTE",
+    "div_total": 23.81,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6150,
+    "fecha": "2024-11-15",
+    "ticker": "QDTE",
+    "div_total": 22.76,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6151,
+    "fecha": "2024-11-22",
+    "ticker": "QDTE",
+    "div_total": 22.71,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6152,
+    "fecha": "2024-11-29",
+    "ticker": "QDTE",
+    "div_total": 19.9,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6153,
+    "fecha": "2024-12-06",
+    "ticker": "QDTE",
+    "div_total": 21.23,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6154,
+    "fecha": "2024-12-13",
+    "ticker": "QDTE",
+    "div_total": 14.81,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6155,
+    "fecha": "2024-12-20",
+    "ticker": "QDTE",
+    "div_total": 78.25,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6156,
+    "fecha": "2024-12-27",
+    "ticker": "QDTE",
+    "div_total": 72.35,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6161,
+    "fecha": "2025-01-31",
+    "ticker": "QDTE",
+    "div_total": 16.92,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6162,
+    "fecha": "2025-02-07",
+    "ticker": "QDTE",
+    "div_total": 20.82,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6163,
+    "fecha": "2025-02-14",
+    "ticker": "QDTE",
+    "div_total": 22.58,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6164,
+    "fecha": "2025-02-20",
+    "ticker": "QDTE",
+    "div_total": 64.04,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6165,
+    "fecha": "2025-02-28",
+    "ticker": "QDTE",
+    "div_total": 23.36,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6166,
+    "fecha": "2025-03-07",
+    "ticker": "QDTE",
+    "div_total": 13.63,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6167,
+    "fecha": "2025-03-14",
+    "ticker": "QDTE",
+    "div_total": 20.99,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6168,
+    "fecha": "2025-03-21",
+    "ticker": "QDTE",
+    "div_total": 19.95,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6169,
+    "fecha": "2025-03-28",
+    "ticker": "QDTE",
+    "div_total": 21.25,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6170,
+    "fecha": "2025-04-04",
+    "ticker": "QDTE",
+    "div_total": 22.54,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6171,
+    "fecha": "2025-04-11",
+    "ticker": "QDTE",
+    "div_total": 16.15,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6172,
+    "fecha": "2025-04-17",
+    "ticker": "QDTE",
+    "div_total": 18.84,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6173,
+    "fecha": "2025-04-25",
+    "ticker": "QDTE",
+    "div_total": 21.59,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6174,
+    "fecha": "2025-05-02",
+    "ticker": "QDTE",
+    "div_total": 19.64,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6175,
+    "fecha": "2025-05-09",
+    "ticker": "QDTE",
+    "div_total": 27.67,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6176,
+    "fecha": "2025-05-16",
+    "ticker": "QDTE",
+    "div_total": 16.16,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6177,
+    "fecha": "2025-05-23",
+    "ticker": "QDTE",
+    "div_total": 15.49,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6178,
+    "fecha": "2025-05-30",
+    "ticker": "QDTE",
+    "div_total": 19.35,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6179,
+    "fecha": "2025-06-04",
+    "ticker": "QDTE",
+    "div_total": 18.69,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6180,
+    "fecha": "2025-06-13",
+    "ticker": "QDTE",
+    "div_total": 13.12,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6181,
+    "fecha": "2025-06-20",
+    "ticker": "QDTE",
+    "div_total": 18.42,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6182,
+    "fecha": "2025-06-27",
+    "ticker": "QDTE",
+    "div_total": 22.19,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6183,
+    "fecha": "2025-07-07",
+    "ticker": "QDTE",
+    "div_total": 20.61,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6184,
+    "fecha": "2025-07-11",
+    "ticker": "QDTE",
+    "div_total": 21.34,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6185,
+    "fecha": "2025-07-18",
+    "ticker": "QDTE",
+    "div_total": 21.48,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6186,
+    "fecha": "2025-07-25",
+    "ticker": "QDTE",
+    "div_total": 21.3,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6187,
+    "fecha": "2025-08-01",
+    "ticker": "QDTE",
+    "div_total": 21.41,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6188,
+    "fecha": "2025-08-08",
+    "ticker": "QDTE",
+    "div_total": 21.48,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6189,
+    "fecha": "2025-08-15",
+    "ticker": "QDTE",
+    "div_total": 20.96,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6190,
+    "fecha": "2025-08-22",
+    "ticker": "QDTE",
+    "div_total": 21.54,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6191,
+    "fecha": "2025-08-29",
+    "ticker": "QDTE",
+    "div_total": 18.4,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6193,
+    "fecha": "2025-09-05",
+    "ticker": "QDTE",
+    "div_total": 80.16,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 6195,
+    "fecha": "2025-10-03",
+    "ticker": "QDTE",
+    "div_total": 18.65,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 6196,
+    "fecha": "2025-10-10",
+    "ticker": "QDTE",
+    "div_total": 18.37,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 6197,
+    "fecha": "2025-02-28",
+    "ticker": "QQQH",
+    "div_total": 17.55,
+    "total_shares": 50,
+    "account": null
+  },
+  {
+    "id": 6198,
+    "fecha": "2025-03-28",
+    "ticker": "QQQH",
+    "div_total": 16.88,
+    "total_shares": 50,
+    "account": null
+  },
+  {
+    "id": 6199,
+    "fecha": "2025-04-25",
+    "ticker": "QQQH",
+    "div_total": 15.5,
+    "total_shares": 50,
+    "account": null
+  },
+  {
+    "id": 6200,
+    "fecha": "2025-05-23",
+    "ticker": "QQQH",
+    "div_total": 18.5,
+    "total_shares": 50,
+    "account": null
+  },
+  {
+    "id": 6201,
+    "fecha": "2025-07-25",
+    "ticker": "QQQH",
+    "div_total": 19.16,
+    "total_shares": 50,
+    "account": null
+  },
+  {
+    "id": 6202,
+    "fecha": "2025-08-22",
+    "ticker": "QQQH",
+    "div_total": 18.9,
+    "total_shares": 50,
+    "account": null
+  },
+  {
+    "id": 6204,
+    "fecha": "2025-09-26",
+    "ticker": "QQQH",
+    "div_total": 18.48,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 6216,
+    "fecha": "2022-04-01",
+    "ticker": "QQQX",
+    "div_total": 66.61,
+    "total_shares": 2,
+    "account": "U5372268"
+  },
+  {
+    "id": 6219,
+    "fecha": "2024-02-19",
+    "ticker": "QQQX",
+    "div_total": 0.29,
+    "total_shares": 2,
+    "account": "U5372268"
+  },
+  {
+    "id": 6222,
+    "fecha": "2024-07-22",
+    "ticker": "QQQX",
+    "div_total": 0.17,
+    "total_shares": 2,
+    "account": "U5372268"
+  },
+  {
+    "id": 6223,
+    "fecha": "2024-10-02",
+    "ticker": "QQQX",
+    "div_total": 0.76,
+    "total_shares": 2,
+    "account": "U5372268"
+  },
+  {
+    "id": 6226,
+    "fecha": "2025-06-27",
+    "ticker": "QQQX",
+    "div_total": 18.69,
+    "total_shares": 2,
+    "account": null
+  },
+  {
+    "id": 6235,
+    "fecha": "2024-07-15",
+    "ticker": "REXR",
+    "div_total": 29.22,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 6236,
+    "fecha": "2024-07-22",
+    "ticker": "REXR",
+    "div_total": 8.35,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 6256,
+    "fecha": "2024-06-28",
+    "ticker": "RICK",
+    "div_total": 14.7,
+    "total_shares": 350,
+    "account": "U5372268"
+  },
+  {
+    "id": 6258,
+    "fecha": "2024-07-22",
+    "ticker": "RICK",
+    "div_total": 4.2,
+    "total_shares": 550,
+    "account": "U5372268"
+  },
+  {
+    "id": 6260,
+    "fecha": "2024-09-27",
+    "ticker": "RICK",
+    "div_total": 34.65,
+    "total_shares": 550,
+    "account": "U5372268"
+  },
+  {
+    "id": 6266,
+    "fecha": "2025-07-03",
+    "ticker": "RICK",
+    "div_total": 34.65,
+    "total_shares": 850,
+    "account": null
+  },
+  {
+    "id": 6270,
+    "fecha": "2025-09-30",
+    "ticker": "RICK",
+    "div_total": 53.55,
+    "total_shares": 1450,
+    "account": null
+  },
+  {
+    "id": 6272,
+    "fecha": "2025-12-29",
+    "ticker": "RICK",
+    "div_total": 97.65,
+    "total_shares": 1550,
+    "account": null
+  },
+  {
+    "id": 6288,
+    "fecha": "2022-02-28",
+    "ticker": "RNP",
+    "div_total": 6.74,
+    "total_shares": 120,
+    "account": "U5372268"
+  },
+  {
+    "id": 6298,
+    "fecha": "2022-12-31",
+    "ticker": "RNP",
+    "div_total": 54.33,
+    "total_shares": 120,
+    "account": "U5372268"
+  },
+  {
+    "id": 6302,
+    "fecha": "2023-04-29",
+    "ticker": "RNP",
+    "div_total": 8.57,
+    "total_shares": 120,
+    "account": "U5372268"
+  },
+  {
+    "id": 6311,
+    "fecha": "2024-02-12",
+    "ticker": "RNP",
+    "div_total": 5.46,
+    "total_shares": 120,
+    "account": "U5372268"
+  },
+  {
+    "id": 6312,
+    "fecha": "2024-02-29",
+    "ticker": "RNP",
+    "div_total": 11.42,
+    "total_shares": 120,
+    "account": "U5372268"
+  },
+  {
+    "id": 6313,
+    "fecha": "2024-03-28",
+    "ticker": "RNP",
+    "div_total": 11.43,
+    "total_shares": 120,
+    "account": "U5372268"
+  },
+  {
+    "id": 6316,
+    "fecha": "2024-06-28",
+    "ticker": "RNP",
+    "div_total": 11.42,
+    "total_shares": 120,
+    "account": "U5372268"
+  },
+  {
+    "id": 6317,
+    "fecha": "2024-07-22",
+    "ticker": "RNP",
+    "div_total": 3.27,
+    "total_shares": 120,
+    "account": "U5372268"
+  },
+  {
+    "id": 6329,
+    "fecha": "2025-06-30",
+    "ticker": "RNP",
+    "div_total": 14.69,
+    "total_shares": 120,
+    "account": null
+  },
+  {
+    "id": 6332,
+    "fecha": "2025-09-30",
+    "ticker": "RNP",
+    "div_total": 14.69,
+    "total_shares": 120,
+    "account": null
+  },
+  {
+    "id": 6346,
+    "fecha": "2022-03-30",
+    "ticker": "RYLD",
+    "div_total": 84.93,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6347,
+    "fecha": "2022-04-26",
+    "ticker": "RYLD",
+    "div_total": 84.63,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6348,
+    "fecha": "2022-06-01",
+    "ticker": "RYLD",
+    "div_total": 95.85,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6349,
+    "fecha": "2022-06-30",
+    "ticker": "RYLD",
+    "div_total": 93.72,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6350,
+    "fecha": "2022-07-26",
+    "ticker": "RYLD",
+    "div_total": 98.22,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6351,
+    "fecha": "2022-08-30",
+    "ticker": "RYLD",
+    "div_total": 95.89,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6352,
+    "fecha": "2022-09-27",
+    "ticker": "RYLD",
+    "div_total": 90.61,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6353,
+    "fecha": "2022-10-01",
+    "ticker": "RYLD",
+    "div_total": 90.15,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6356,
+    "fecha": "2023-01-31",
+    "ticker": "RYLD",
+    "div_total": 90.66,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6357,
+    "fecha": "2023-03-01",
+    "ticker": "RYLD",
+    "div_total": 90.76,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6358,
+    "fecha": "2023-03-29",
+    "ticker": "RYLD",
+    "div_total": 81.58,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6359,
+    "fecha": "2023-05-02",
+    "ticker": "RYLD",
+    "div_total": 84.36,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6360,
+    "fecha": "2023-05-31",
+    "ticker": "RYLD",
+    "div_total": 74.63,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6361,
+    "fecha": "2023-06-28",
+    "ticker": "RYLD",
+    "div_total": 34.41,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6363,
+    "fecha": "2023-08-01",
+    "ticker": "RYLD",
+    "div_total": 83.29,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6364,
+    "fecha": "2023-08-29",
+    "ticker": "RYLD",
+    "div_total": 80.69,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6365,
+    "fecha": "2023-09-26",
+    "ticker": "RYLD",
+    "div_total": 80.01,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6366,
+    "fecha": "2023-10-31",
+    "ticker": "RYLD",
+    "div_total": 74.9,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6368,
+    "fecha": "2024-01-09",
+    "ticker": "RYLD",
+    "div_total": 77.26,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6369,
+    "fecha": "2024-01-22",
+    "ticker": "RYLD",
+    "div_total": 91.73,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6370,
+    "fecha": "2024-02-28",
+    "ticker": "RYLD",
+    "div_total": 58.83,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6371,
+    "fecha": "2024-03-26",
+    "ticker": "RYLD",
+    "div_total": 60.35,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6372,
+    "fecha": "2024-04-30",
+    "ticker": "RYLD",
+    "div_total": 58.69,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6373,
+    "fecha": "2024-05-29",
+    "ticker": "RYLD",
+    "div_total": 59.63,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6374,
+    "fecha": "2024-07-01",
+    "ticker": "RYLD",
+    "div_total": 57.97,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6375,
+    "fecha": "2024-07-22",
+    "ticker": "RYLD",
+    "div_total": 16.56,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6376,
+    "fecha": "2024-07-29",
+    "ticker": "RYLD",
+    "div_total": 74.39,
+    "total_shares": 515,
+    "account": "U5372268"
+  },
+  {
+    "id": 6378,
+    "fecha": "2024-08-26",
+    "ticker": "RYLD",
+    "div_total": 89.01,
+    "total_shares": 615,
+    "account": "U5372268"
+  },
+  {
+    "id": 6379,
+    "fecha": "2024-09-30",
+    "ticker": "RYLD",
+    "div_total": 89.5,
+    "total_shares": 615,
+    "account": "U5372268"
+  },
+  {
+    "id": 6380,
+    "fecha": "2024-10-28",
+    "ticker": "RYLD",
+    "div_total": 91.6,
+    "total_shares": 615,
+    "account": "U5372268"
+  },
+  {
+    "id": 6383,
+    "fecha": "2025-01-28",
+    "ticker": "RYLD",
+    "div_total": 230.96,
+    "total_shares": 615,
+    "account": null
+  },
+  {
+    "id": 6384,
+    "fecha": "2025-03-03",
+    "ticker": "RYLD",
+    "div_total": 90.05,
+    "total_shares": 615,
+    "account": null
+  },
+  {
+    "id": 6385,
+    "fecha": "2025-03-31",
+    "ticker": "RYLD",
+    "div_total": 85.08,
+    "total_shares": 615,
+    "account": null
+  },
+  {
+    "id": 6386,
+    "fecha": "2025-04-28",
+    "ticker": "RYLD",
+    "div_total": 79.21,
+    "total_shares": 615,
+    "account": null
+  },
+  {
+    "id": 6387,
+    "fecha": "2025-04-30",
+    "ticker": "RYLD",
+    "div_total": 9.9,
+    "total_shares": 615,
+    "account": null
+  },
+  {
+    "id": 6388,
+    "fecha": "2025-05-27",
+    "ticker": "RYLD",
+    "div_total": 81.97,
+    "total_shares": 615,
+    "account": null
+  },
+  {
+    "id": 6389,
+    "fecha": "2025-06-30",
+    "ticker": "RYLD",
+    "div_total": 82.2,
+    "total_shares": 615,
+    "account": null
+  },
+  {
+    "id": 6390,
+    "fecha": "2025-07-28",
+    "ticker": "RYLD",
+    "div_total": 82.92,
+    "total_shares": 615,
+    "account": null
+  },
+  {
+    "id": 6391,
+    "fecha": "2025-08-25",
+    "ticker": "RYLD",
+    "div_total": 83.36,
+    "total_shares": 615,
+    "account": null
+  },
+  {
+    "id": 6393,
+    "fecha": "2025-09-29",
+    "ticker": "RYLD",
+    "div_total": 83.97,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 6398,
+    "fecha": "2025-12-16",
+    "ticker": "RYN",
+    "div_total": 84.0,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 6403,
+    "fecha": "2023-10-13",
+    "ticker": "SAFE",
+    "div_total": 31.86,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 6406,
+    "fecha": "2024-04-15",
+    "ticker": "SAFE",
+    "div_total": 24.78,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6407,
+    "fecha": "2024-07-15",
+    "ticker": "SAFE",
+    "div_total": 37.17,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6408,
+    "fecha": "2024-07-22",
+    "ticker": "SAFE",
+    "div_total": 10.62,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6409,
+    "fecha": "2024-10-15",
+    "ticker": "SAFE",
+    "div_total": 47.79,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6411,
+    "fecha": "2025-01-21",
+    "ticker": "SAFE",
+    "div_total": 20.23,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 6412,
+    "fecha": "2025-04-15",
+    "ticker": "SAFE",
+    "div_total": 47.79,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 6413,
+    "fecha": "2025-07-15",
+    "ticker": "SAFE",
+    "div_total": 95.58,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 6415,
+    "fecha": "2025-10-15",
+    "ticker": "SAFE",
+    "div_total": 95.58,
+    "total_shares": 600,
+    "account": null
+  },
+  {
+    "id": 6417,
+    "fecha": "2024-06-20",
+    "ticker": "SBAC",
+    "div_total": 20.58,
+    "total_shares": 30,
+    "account": "U5372268"
+  },
+  {
+    "id": 6418,
+    "fecha": "2024-07-22",
+    "ticker": "SBAC",
+    "div_total": 5.88,
+    "total_shares": 30,
+    "account": "U5372268"
+  },
+  {
+    "id": 6420,
+    "fecha": "2024-12-12",
+    "ticker": "SBAC",
+    "div_total": 26.46,
+    "total_shares": 30,
+    "account": "U5372268"
+  },
+  {
+    "id": 6429,
+    "fecha": "2024-07-01",
+    "ticker": "SCHD",
+    "div_total": 40.38,
+    "total_shares": 170,
+    "account": "U5372268"
+  },
+  {
+    "id": 6430,
+    "fecha": "2024-07-22",
+    "ticker": "SCHD",
+    "div_total": 11.54,
+    "total_shares": 170,
+    "account": "U5372268"
+  },
+  {
+    "id": 6431,
+    "fecha": "2024-09-30",
+    "ticker": "SCHD",
+    "div_total": 135.81,
+    "total_shares": 170,
+    "account": "U5372268"
+  },
+  {
+    "id": 6445,
+    "fecha": "2025-06-30",
+    "ticker": "SCHD",
+    "div_total": 936.72,
+    "total_shares": 3170,
+    "account": null
+  },
+  {
+    "id": 6452,
+    "fecha": "2025-09-26",
+    "ticker": "SCHD",
+    "div_total": 52.28,
+    "total_shares": 5200,
+    "account": null
+  },
+  {
+    "id": 6453,
+    "fecha": "2025-09-29",
+    "ticker": "SCHD",
+    "div_total": 1171.8,
+    "total_shares": 5200,
+    "account": null
+  },
+  {
+    "id": 6461,
+    "fecha": "2024-09-13",
+    "ticker": "SILA",
+    "div_total": 24.0,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 6462,
+    "fecha": "2024-10-15",
+    "ticker": "SILA",
+    "div_total": 23.99,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 6465,
+    "fecha": "2025-02-18",
+    "ticker": "SILA",
+    "div_total": 3.97,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 6466,
+    "fecha": "2025-03-25",
+    "ticker": "SILA",
+    "div_total": 72.0,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 6467,
+    "fecha": "2025-06-04",
+    "ticker": "SILA",
+    "div_total": 72.0,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 6475,
+    "fecha": "2025-08-29",
+    "ticker": "SPE",
+    "div_total": 19.76,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 6480,
+    "fecha": "2024-04-26",
+    "ticker": "SPHD",
+    "div_total": 3.95,
+    "total_shares": 40,
+    "account": "U5372268"
+  },
+  {
+    "id": 6482,
+    "fecha": "2024-06-28",
+    "ticker": "SPHD",
+    "div_total": 3.64,
+    "total_shares": 40,
+    "account": "U5372268"
+  },
+  {
+    "id": 6483,
+    "fecha": "2024-07-22",
+    "ticker": "SPHD",
+    "div_total": 1.04,
+    "total_shares": 40,
+    "account": "U5372268"
+  },
+  {
+    "id": 6487,
+    "fecha": "2024-09-24",
+    "ticker": "SPHD",
+    "div_total": 20.56,
+    "total_shares": 80,
+    "account": "U5372268"
+  },
+  {
+    "id": 6488,
+    "fecha": "2024-09-26",
+    "ticker": "SPHD",
+    "div_total": 9.5,
+    "total_shares": 80,
+    "account": "U5372268"
+  },
+  {
+    "id": 6499,
+    "fecha": "2025-08-22",
+    "ticker": "SPHD",
+    "div_total": 11.65,
+    "total_shares": 80,
+    "account": null
+  },
+  {
+    "id": 6503,
+    "fecha": "2025-11-28",
+    "ticker": "SPHD",
+    "div_total": 35.06,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 6516,
+    "fecha": "2023-04-28",
+    "ticker": "SPY",
+    "div_total": 84.04,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 6534,
+    "fecha": "2024-08-22",
+    "ticker": "SPY",
+    "div_total": 150.23,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 6536,
+    "fecha": "2024-09-26",
+    "ticker": "SPY",
+    "div_total": 138.97,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 6537,
+    "fecha": "2024-10-24",
+    "ticker": "SPY",
+    "div_total": 140.29,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 6540,
+    "fecha": "2024-11-21",
+    "ticker": "SPY",
+    "div_total": 93.71,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 6545,
+    "fecha": "2024-12-26",
+    "ticker": "SPY",
+    "div_total": 92.95,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 6552,
+    "fecha": "2025-01-24",
+    "ticker": "SPY",
+    "div_total": 94.78,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 6554,
+    "fecha": "2025-05-23",
+    "ticker": "SPY",
+    "div_total": 91.13,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 6559,
+    "fecha": "2024-06-25",
+    "ticker": "SPYD",
+    "div_total": 17.04,
+    "total_shares": 50,
+    "account": "U5372268"
+  },
+  {
+    "id": 6560,
+    "fecha": "2024-07-22",
+    "ticker": "SPYD",
+    "div_total": 4.87,
+    "total_shares": 50,
+    "account": "U5372268"
+  },
+  {
+    "id": 6567,
+    "fecha": "2025-01-28",
+    "ticker": "SPYI",
+    "div_total": 64.43,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 6568,
+    "fecha": "2025-02-17",
+    "ticker": "SPYI",
+    "div_total": 0.12,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 6569,
+    "fecha": "2025-02-28",
+    "ticker": "SPYI",
+    "div_total": 92.56,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 6570,
+    "fecha": "2025-03-28",
+    "ticker": "SPYI",
+    "div_total": 91.17,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 6571,
+    "fecha": "2025-04-25",
+    "ticker": "SPYI",
+    "div_total": 83.09,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 6572,
+    "fecha": "2025-06-27",
+    "ticker": "SPYI",
+    "div_total": 90.85,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 6573,
+    "fecha": "2025-07-25",
+    "ticker": "SPYI",
+    "div_total": 92.02,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 6574,
+    "fecha": "2025-08-22",
+    "ticker": "SPYI",
+    "div_total": 93.17,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 6575,
+    "fecha": "2025-09-26",
+    "ticker": "SPYI",
+    "div_total": 94.86,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 6577,
+    "fecha": "2025-10-24",
+    "ticker": "SPYI",
+    "div_total": 94.82,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 6579,
+    "fecha": "2025-05-27",
+    "ticker": "STK",
+    "div_total": 41.62,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6580,
+    "fecha": "2025-08-25",
+    "ticker": "STK",
+    "div_total": 46.25,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6614,
+    "fecha": "2023-09-19",
+    "ticker": "SWKS",
+    "div_total": 61.2,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6627,
+    "fecha": "2023-12-12",
+    "ticker": "SWKS",
+    "div_total": 61.2,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 6628,
+    "fecha": "2024-03-12",
+    "ticker": "SWKS",
+    "div_total": 47.6,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 6636,
+    "fecha": "2024-12-24",
+    "ticker": "SWKS",
+    "div_total": 126.0,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 6640,
+    "fecha": "2025-09-30",
+    "ticker": "SWKS",
+    "div_total": 223.65,
+    "total_shares": 250,
+    "account": null
+  },
+  {
+    "id": 6662,
+    "fecha": "2025-12-19",
+    "ticker": "TAP",
+    "div_total": 34.82,
+    "total_shares": 700,
+    "account": null
+  },
+  {
+    "id": 6695,
+    "fecha": "2024-07-18",
+    "ticker": "THO",
+    "div_total": 33.6,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6696,
+    "fecha": "2024-07-22",
+    "ticker": "THO",
+    "div_total": 9.6,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6712,
+    "fecha": "2022-10-07",
+    "ticker": "TLT",
+    "div_total": 21.31,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6714,
+    "fecha": "2022-11-07",
+    "ticker": "TLT",
+    "div_total": 21.2,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6715,
+    "fecha": "2022-12-21",
+    "ticker": "TLT",
+    "div_total": 23.61,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6716,
+    "fecha": "2022-12-07",
+    "ticker": "TLT",
+    "div_total": 21.98,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6724,
+    "fecha": "2023-03-07",
+    "ticker": "TLT",
+    "div_total": 22.48,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6728,
+    "fecha": "2023-04-07",
+    "ticker": "TLT",
+    "div_total": 24.19,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 6734,
+    "fecha": "2023-06-07",
+    "ticker": "TLT",
+    "div_total": 49.15,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 6738,
+    "fecha": "2023-07-10",
+    "ticker": "TLT",
+    "div_total": 49.99,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 6748,
+    "fecha": "2023-05-05",
+    "ticker": "TLT",
+    "div_total": 24.12,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6749,
+    "fecha": "2023-08-07",
+    "ticker": "TLT",
+    "div_total": 49.55,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6750,
+    "fecha": "2023-09-08",
+    "ticker": "TLT",
+    "div_total": 77.91,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6751,
+    "fecha": "2023-10-06",
+    "ticker": "TLT",
+    "div_total": 75.6,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 6771,
+    "fecha": "2023-11-07",
+    "ticker": "TLT",
+    "div_total": 77.29,
+    "total_shares": 500,
+    "account": "U5372268"
+  },
+  {
+    "id": 6772,
+    "fecha": "2023-12-07",
+    "ticker": "TLT",
+    "div_total": 78.01,
+    "total_shares": 500,
+    "account": "U5372268"
+  },
+  {
+    "id": 6773,
+    "fecha": "2023-12-20",
+    "ticker": "TLT",
+    "div_total": 83.85,
+    "total_shares": 500,
+    "account": "U5372268"
+  },
+  {
+    "id": 6774,
+    "fecha": "2024-03-07",
+    "ticker": "TLT",
+    "div_total": 103.33,
+    "total_shares": 500,
+    "account": "U5372268"
+  },
+  {
+    "id": 6775,
+    "fecha": "2024-04-05",
+    "ticker": "TLT",
+    "div_total": 109.35,
+    "total_shares": 500,
+    "account": "U5372268"
+  },
+  {
+    "id": 6776,
+    "fecha": "2024-05-07",
+    "ticker": "TLT",
+    "div_total": 107.71,
+    "total_shares": 500,
+    "account": "U5372268"
+  },
+  {
+    "id": 6779,
+    "fecha": "2024-06-07",
+    "ticker": "TLT",
+    "div_total": 107.9,
+    "total_shares": 600,
+    "account": "U5372268"
+  },
+  {
+    "id": 6786,
+    "fecha": "2024-07-05",
+    "ticker": "TLT",
+    "div_total": 101.88,
+    "total_shares": 500,
+    "account": "U5372268"
+  },
+  {
+    "id": 6787,
+    "fecha": "2024-07-22",
+    "ticker": "TLT",
+    "div_total": 29.11,
+    "total_shares": 500,
+    "account": "U5372268"
+  },
+  {
+    "id": 6789,
+    "fecha": "2024-08-05",
+    "ticker": "TLT",
+    "div_total": 170.02,
+    "total_shares": 500,
+    "account": "U5372268"
+  },
+  {
+    "id": 6793,
+    "fecha": "2024-09-06",
+    "ticker": "TLT",
+    "div_total": 140.75,
+    "total_shares": 500,
+    "account": "U5372268"
+  },
+  {
+    "id": 6795,
+    "fecha": "2024-10-04",
+    "ticker": "TLT",
+    "div_total": 142.09,
+    "total_shares": 500,
+    "account": "U5372268"
+  },
+  {
+    "id": 6798,
+    "fecha": "2024-11-06",
+    "ticker": "TLT",
+    "div_total": 139.74,
+    "total_shares": 500,
+    "account": "U5372268"
+  },
+  {
+    "id": 6800,
+    "fecha": "2024-12-05",
+    "ticker": "TLT",
+    "div_total": 146.27,
+    "total_shares": 500,
+    "account": "U5372268"
+  },
+  {
+    "id": 6801,
+    "fecha": "2024-12-23",
+    "ticker": "TLT",
+    "div_total": 157.97,
+    "total_shares": 500,
+    "account": "U5372268"
+  },
+  {
+    "id": 6807,
+    "fecha": "2025-02-06",
+    "ticker": "TLT",
+    "div_total": 466.2,
+    "total_shares": 500,
+    "account": null
+  },
+  {
+    "id": 6810,
+    "fecha": "2025-03-06",
+    "ticker": "TLT",
+    "div_total": 130.42,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 6812,
+    "fecha": "2025-04-04",
+    "ticker": "TLT",
+    "div_total": 146.51,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 6816,
+    "fecha": "2025-08-06",
+    "ticker": "TLT",
+    "div_total": 59.55,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 6817,
+    "fecha": "2025-09-05",
+    "ticker": "TLT",
+    "div_total": 59.06,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 6819,
+    "fecha": "2025-10-06",
+    "ticker": "TLT",
+    "div_total": 55.88,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 6843,
+    "fecha": "2025-04-15",
+    "ticker": "TRIN",
+    "div_total": 91.8,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 6844,
+    "fecha": "2025-07-15",
+    "ticker": "TRIN",
+    "div_total": 91.8,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 6845,
+    "fecha": "2025-10-15",
+    "ticker": "TRIN",
+    "div_total": 91.8,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 6849,
+    "fecha": "2024-09-26",
+    "ticker": "TROW",
+    "div_total": 55.8,
+    "total_shares": 50,
+    "account": "U5372268"
+  },
+  {
+    "id": 6931,
+    "fecha": "2025-06-04",
+    "ticker": "UPS",
+    "div_total": 147.6,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6947,
+    "fecha": "2025-06-30",
+    "ticker": "UTF",
+    "div_total": 13.96,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6951,
+    "fecha": "2025-03-31",
+    "ticker": "UTG",
+    "div_total": 17.1,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6952,
+    "fecha": "2025-04-30",
+    "ticker": "UTG",
+    "div_total": 17.1,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6953,
+    "fecha": "2025-05-30",
+    "ticker": "UTG",
+    "div_total": 17.1,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6954,
+    "fecha": "2025-06-30",
+    "ticker": "UTG",
+    "div_total": 17.1,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6955,
+    "fecha": "2025-07-31",
+    "ticker": "UTG",
+    "div_total": 18.0,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6956,
+    "fecha": "2025-08-29",
+    "ticker": "UTG",
+    "div_total": 18.0,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 6973,
+    "fecha": "2024-12-05",
+    "ticker": "VINP",
+    "div_total": 48.0,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 7002,
+    "fecha": "2025-12-31",
+    "ticker": "WEEL",
+    "div_total": 750.0,
+    "total_shares": 1000,
+    "account": null
+  },
+  {
+    "id": 7010,
+    "fecha": "2025-11-14",
+    "ticker": "WES",
+    "div_total": 327.6,
+    "total_shares": 400,
+    "account": null
+  },
+  {
+    "id": 7018,
+    "fecha": "2024-07-15",
+    "ticker": "WPC",
+    "div_total": 91.35,
+    "total_shares": 150,
+    "account": "U5372268"
+  },
+  {
+    "id": 7019,
+    "fecha": "2024-07-22",
+    "ticker": "WPC",
+    "div_total": 26.1,
+    "total_shares": 150,
+    "account": "U5372268"
+  },
+  {
+    "id": 7023,
+    "fecha": "2025-02-04",
+    "ticker": "WPC",
+    "div_total": 1.23,
+    "total_shares": 100,
+    "account": null
+  },
+  {
+    "id": 7027,
+    "fecha": "2025-10-15",
+    "ticker": "WPC",
+    "div_total": 163.8,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7029,
+    "fecha": "2024-08-09",
+    "ticker": "XDTE",
+    "div_total": 37.12,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 7030,
+    "fecha": "2024-08-16",
+    "ticker": "XDTE",
+    "div_total": 34.85,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 7031,
+    "fecha": "2024-08-23",
+    "ticker": "XDTE",
+    "div_total": 34.96,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 7032,
+    "fecha": "2024-08-30",
+    "ticker": "XDTE",
+    "div_total": 23.51,
+    "total_shares": 100,
+    "account": "U5372268"
+  },
+  {
+    "id": 7034,
+    "fecha": "2024-09-06",
+    "ticker": "XDTE",
+    "div_total": 56.15,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 7035,
+    "fecha": "2024-09-13",
+    "ticker": "XDTE",
+    "div_total": 60.28,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 7036,
+    "fecha": "2024-09-20",
+    "ticker": "XDTE",
+    "div_total": 35.76,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 7037,
+    "fecha": "2024-09-27",
+    "ticker": "XDTE",
+    "div_total": 33.86,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 7038,
+    "fecha": "2024-10-04",
+    "ticker": "XDTE",
+    "div_total": 41.18,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 7039,
+    "fecha": "2024-10-11",
+    "ticker": "XDTE",
+    "div_total": 36.39,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 7040,
+    "fecha": "2024-10-18",
+    "ticker": "XDTE",
+    "div_total": 39.07,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 7041,
+    "fecha": "2024-10-25",
+    "ticker": "XDTE",
+    "div_total": 43.05,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 7042,
+    "fecha": "2024-11-01",
+    "ticker": "XDTE",
+    "div_total": 27.88,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 7043,
+    "fecha": "2024-11-08",
+    "ticker": "XDTE",
+    "div_total": 38.49,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 7044,
+    "fecha": "2024-11-15",
+    "ticker": "XDTE",
+    "div_total": 49.33,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 7045,
+    "fecha": "2024-11-22",
+    "ticker": "XDTE",
+    "div_total": 46.45,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 7046,
+    "fecha": "2024-11-29",
+    "ticker": "XDTE",
+    "div_total": 33.41,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 7047,
+    "fecha": "2024-12-06",
+    "ticker": "XDTE",
+    "div_total": 42.34,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 7048,
+    "fecha": "2024-12-13",
+    "ticker": "XDTE",
+    "div_total": 27.65,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 7049,
+    "fecha": "2024-12-20",
+    "ticker": "XDTE",
+    "div_total": 115.58,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 7050,
+    "fecha": "2024-12-27",
+    "ticker": "XDTE",
+    "div_total": 109.09,
+    "total_shares": 200,
+    "account": "U5372268"
+  },
+  {
+    "id": 7051,
+    "fecha": "2025-01-06",
+    "ticker": "XDTE",
+    "div_total": 60.52,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7055,
+    "fecha": "2025-01-31",
+    "ticker": "XDTE",
+    "div_total": 45.87,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7056,
+    "fecha": "2025-02-07",
+    "ticker": "XDTE",
+    "div_total": 32.11,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7057,
+    "fecha": "2025-02-14",
+    "ticker": "XDTE",
+    "div_total": 42.04,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7058,
+    "fecha": "2025-02-20",
+    "ticker": "XDTE",
+    "div_total": 125.61,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7059,
+    "fecha": "2025-02-28",
+    "ticker": "XDTE",
+    "div_total": 36.58,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7060,
+    "fecha": "2025-03-07",
+    "ticker": "XDTE",
+    "div_total": 25.58,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7061,
+    "fecha": "2025-03-14",
+    "ticker": "XDTE",
+    "div_total": 43.87,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7062,
+    "fecha": "2025-03-21",
+    "ticker": "XDTE",
+    "div_total": 58.49,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7063,
+    "fecha": "2025-03-28",
+    "ticker": "XDTE",
+    "div_total": 37.94,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7064,
+    "fecha": "2025-04-04",
+    "ticker": "XDTE",
+    "div_total": 49.55,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7065,
+    "fecha": "2025-04-11",
+    "ticker": "XDTE",
+    "div_total": 39.04,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7066,
+    "fecha": "2025-04-17",
+    "ticker": "XDTE",
+    "div_total": 42.56,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7067,
+    "fecha": "2025-04-25",
+    "ticker": "XDTE",
+    "div_total": 61.73,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7068,
+    "fecha": "2025-05-02",
+    "ticker": "XDTE",
+    "div_total": 45.97,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7069,
+    "fecha": "2025-05-09",
+    "ticker": "XDTE",
+    "div_total": 60.45,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7070,
+    "fecha": "2025-05-16",
+    "ticker": "XDTE",
+    "div_total": 43.24,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7071,
+    "fecha": "2025-05-23",
+    "ticker": "XDTE",
+    "div_total": 38.09,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7072,
+    "fecha": "2025-05-30",
+    "ticker": "XDTE",
+    "div_total": 37.32,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7073,
+    "fecha": "2025-06-04",
+    "ticker": "XDTE",
+    "div_total": 44.76,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7074,
+    "fecha": "2025-06-13",
+    "ticker": "XDTE",
+    "div_total": 34.78,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7075,
+    "fecha": "2025-06-20",
+    "ticker": "XDTE",
+    "div_total": 40.06,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7076,
+    "fecha": "2025-06-27",
+    "ticker": "XDTE",
+    "div_total": 48.49,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7077,
+    "fecha": "2025-07-07",
+    "ticker": "XDTE",
+    "div_total": 44.52,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7078,
+    "fecha": "2025-07-11",
+    "ticker": "XDTE",
+    "div_total": 45.67,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7079,
+    "fecha": "2025-07-18",
+    "ticker": "XDTE",
+    "div_total": 46.15,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7080,
+    "fecha": "2025-07-25",
+    "ticker": "XDTE",
+    "div_total": 45.73,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7081,
+    "fecha": "2025-08-01",
+    "ticker": "XDTE",
+    "div_total": 45.76,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7082,
+    "fecha": "2025-08-11",
+    "ticker": "XDTE",
+    "div_total": 46.19,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7083,
+    "fecha": "2025-08-15",
+    "ticker": "XDTE",
+    "div_total": 44.97,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7084,
+    "fecha": "2025-08-22",
+    "ticker": "XDTE",
+    "div_total": 45.72,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7085,
+    "fecha": "2025-08-29",
+    "ticker": "XDTE",
+    "div_total": 38.18,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7086,
+    "fecha": "2025-09-05",
+    "ticker": "XDTE",
+    "div_total": 144.39,
+    "total_shares": 200,
+    "account": null
+  },
+  {
+    "id": 7089,
+    "fecha": "2025-10-03",
+    "ticker": "XDTE",
+    "div_total": 30.79,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 7090,
+    "fecha": "2025-10-10",
+    "ticker": "XDTE",
+    "div_total": 76.27,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 7091,
+    "fecha": "2025-10-24",
+    "ticker": "XDTE",
+    "div_total": 37.07,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 7096,
+    "fecha": "2022-02-02",
+    "ticker": "XFLT",
+    "div_total": 6.57,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 7105,
+    "fecha": "2022-10-01",
+    "ticker": "XFLT",
+    "div_total": 6.57,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 7114,
+    "fecha": "2023-07-03",
+    "ticker": "XFLT",
+    "div_total": 22.95,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 7115,
+    "fecha": "2023-08-02",
+    "ticker": "XFLT",
+    "div_total": 22.95,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 7118,
+    "fecha": "2023-11-01",
+    "ticker": "XFLT",
+    "div_total": 22.95,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 7119,
+    "fecha": "2023-12-01",
+    "ticker": "XFLT",
+    "div_total": 22.95,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 7120,
+    "fecha": "2023-12-28",
+    "ticker": "XFLT",
+    "div_total": 22.95,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 7121,
+    "fecha": "2024-02-01",
+    "ticker": "XFLT",
+    "div_total": 17.85,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 7123,
+    "fecha": "2024-04-01",
+    "ticker": "XFLT",
+    "div_total": 17.85,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 7124,
+    "fecha": "2024-05-01",
+    "ticker": "XFLT",
+    "div_total": 17.85,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 7125,
+    "fecha": "2024-06-03",
+    "ticker": "XFLT",
+    "div_total": 17.85,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 7126,
+    "fecha": "2024-07-01",
+    "ticker": "XFLT",
+    "div_total": 17.85,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 7127,
+    "fecha": "2024-07-22",
+    "ticker": "XFLT",
+    "div_total": 5.1,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 7130,
+    "fecha": "2024-10-01",
+    "ticker": "XFLT",
+    "div_total": 22.45,
+    "total_shares": 300,
+    "account": "U5372268"
+  },
+  {
+    "id": 7134,
+    "fecha": "2025-01-21",
+    "ticker": "XFLT",
+    "div_total": 15.19,
+    "total_shares": 300,
+    "account": null
+  },
+  {
+    "id": 7172,
+    "fecha": "2022-01-31",
+    "ticker": "YYY",
+    "div_total": 16.2,
+    "total_shares": 192,
+    "account": "U5372268"
+  },
+  {
+    "id": 7182,
+    "fecha": "2022-11-30",
+    "ticker": "YYY",
+    "div_total": 20.74,
+    "total_shares": 192,
+    "account": "U5372268"
+  },
+  {
+    "id": 7183,
+    "fecha": "2023-12-30",
+    "ticker": "YYY",
+    "div_total": 20.74,
+    "total_shares": 192,
+    "account": "U5372268"
+  },
+  {
+    "id": 7191,
+    "fecha": "2023-08-31",
+    "ticker": "YYY",
+    "div_total": 20.74,
+    "total_shares": 192,
+    "account": "U5372268"
+  },
+  {
+    "id": 7194,
+    "fecha": "2023-12-29",
+    "ticker": "YYY",
+    "div_total": 20.73,
+    "total_shares": 192,
+    "account": "U5372268"
+  },
+  {
+    "id": 7195,
+    "fecha": "2024-02-27",
+    "ticker": "YYY",
+    "div_total": 6.91,
+    "total_shares": 192,
+    "account": "U5372268"
+  },
+  {
+    "id": 7196,
+    "fecha": "2024-02-29",
+    "ticker": "YYY",
+    "div_total": 16.12,
+    "total_shares": 192,
+    "account": "U5372268"
+  },
+  {
+    "id": 7197,
+    "fecha": "2024-03-28",
+    "ticker": "YYY",
+    "div_total": 16.13,
+    "total_shares": 192,
+    "account": "U5372268"
+  },
+  {
+    "id": 7198,
+    "fecha": "2024-04-30",
+    "ticker": "YYY",
+    "div_total": 16.13,
+    "total_shares": 192,
+    "account": "U5372268"
+  },
+  {
+    "id": 7199,
+    "fecha": "2024-05-31",
+    "ticker": "YYY",
+    "div_total": 16.13,
+    "total_shares": 192,
+    "account": "U5372268"
+  },
+  {
+    "id": 7200,
+    "fecha": "2024-06-28",
+    "ticker": "YYY",
+    "div_total": 16.13,
+    "total_shares": 192,
+    "account": "U5372268"
+  },
+  {
+    "id": 7201,
+    "fecha": "2024-07-22",
+    "ticker": "YYY",
+    "div_total": 4.61,
+    "total_shares": 192,
+    "account": "U5372268"
+  },
+  {
+    "id": 7208,
+    "fecha": "2025-01-28",
+    "ticker": "YYY",
+    "div_total": 36.31,
+    "total_shares": 192,
+    "account": null
+  },
+  {
+    "id": 7209,
+    "fecha": "2025-02-28",
+    "ticker": "YYY",
+    "div_total": 20.74,
+    "total_shares": 192,
+    "account": null
+  },
+  {
+    "id": 7210,
+    "fecha": "2025-03-31",
+    "ticker": "YYY",
+    "div_total": 20.7,
+    "total_shares": 192,
+    "account": null
+  },
+  {
+    "id": 7211,
+    "fecha": "2025-04-30",
+    "ticker": "YYY",
+    "div_total": 20.74,
+    "total_shares": 192,
+    "account": null
+  },
+  {
+    "id": 7212,
+    "fecha": "2025-05-30",
+    "ticker": "YYY",
+    "div_total": 20.74,
+    "total_shares": 192,
+    "account": null
+  },
+  {
+    "id": 7213,
+    "fecha": "2025-06-30",
+    "ticker": "YYY",
+    "div_total": 20.74,
+    "total_shares": 192,
+    "account": null
+  },
+  {
+    "id": 7214,
+    "fecha": "2025-07-31",
+    "ticker": "YYY",
+    "div_total": 20.74,
+    "total_shares": 192,
+    "account": null
+  },
+  {
+    "id": 7215,
+    "fecha": "2025-08-29",
+    "ticker": "YYY",
+    "div_total": 20.74,
+    "total_shares": 192,
+    "account": null
+  },
+  {
+    "id": 7216,
+    "fecha": "2025-09-30",
+    "ticker": "YYY",
+    "div_total": 20.74,
+    "total_shares": 192,
+    "account": null
+  },
+  {
+    "id": 7919,
+    "fecha": "2023-07-06",
+    "ticker": "ENGe",
+    "div_total": 206.4,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 7923,
+    "fecha": "2023-07-17",
+    "ticker": "ISPAd",
+    "div_total": 79.58,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 7924,
+    "fecha": "2023-07-17",
+    "ticker": "ISPAd",
+    "div_total": -105.64,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 7925,
+    "fecha": "2023-07-17",
+    "ticker": "ISPAd",
+    "div_total": 105.64,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 8056,
+    "fecha": "2023-10-16",
+    "ticker": "ISPAd",
+    "div_total": -59.25,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 8058,
+    "fecha": "2023-10-16",
+    "ticker": "ISPAd",
+    "div_total": 59.25,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 8194,
+    "fecha": "2023-12-22",
+    "ticker": "ENGe",
+    "div_total": 139.2,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 8264,
+    "fecha": "2024-01-16",
+    "ticker": "ISPAd",
+    "div_total": 55.68,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 8266,
+    "fecha": "2024-01-16",
+    "ticker": "ISPAd",
+    "div_total": -55.3,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 8268,
+    "fecha": "2024-01-16",
+    "ticker": "ISPAd",
+    "div_total": 55.3,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 8457,
+    "fecha": "2024-04-15",
+    "ticker": "ISPAd",
+    "div_total": 26.03,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 8672,
+    "fecha": "2024-07-04",
+    "ticker": "ENGe",
+    "div_total": 313.2,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 8676,
+    "fecha": "2024-07-05",
+    "ticker": "AHRT",
+    "div_total": 123.0,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 8698,
+    "fecha": "2024-07-16",
+    "ticker": "ISPAd",
+    "div_total": 86.52,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 8817,
+    "fecha": "2024-10-03",
+    "ticker": "AHRT",
+    "div_total": 123.0,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 8831,
+    "fecha": "2024-10-15",
+    "ticker": "ISPAd",
+    "div_total": 134.16,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 8907,
+    "fecha": "2024-12-12",
+    "ticker": "ENGe",
+    "div_total": 120.0,
+    "total_shares": 0,
+    "account": "U5372268"
+  },
+  {
+    "id": 8954,
+    "fecha": "2025-01-02",
+    "ticker": "AHRT",
+    "div_total": 164.0,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 9022,
+    "fecha": "2025-02-27",
+    "ticker": "LOGe",
+    "div_total": 153.0,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 9134,
+    "fecha": "2025-04-03",
+    "ticker": "AHRT",
+    "div_total": 168.0,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 9151,
+    "fecha": "2025-04-15",
+    "ticker": "IIPR PRA",
+    "div_total": 112.5,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 9370,
+    "fecha": "2025-07-03",
+    "ticker": "ENGe",
+    "div_total": 179.73,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 9374,
+    "fecha": "2025-07-08",
+    "ticker": "REPe",
+    "div_total": 250.0,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 9376,
+    "fecha": "2025-07-08",
+    "ticker": "AHRT",
+    "div_total": 168.0,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 9387,
+    "fecha": "2025-07-15",
+    "ticker": "IIPR PRA",
+    "div_total": 112.5,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 9462,
+    "fecha": "2025-08-28",
+    "ticker": "LOGe",
+    "div_total": 112.0,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 9594,
+    "fecha": "2025-10-02",
+    "ticker": "AHRT",
+    "div_total": 350.0,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 9611,
+    "fecha": "2025-10-15",
+    "ticker": "ISPAd",
+    "div_total": 0.41,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 9612,
+    "fecha": "2025-10-15",
+    "ticker": "IIPR PRA",
+    "div_total": 225.0,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 9693,
+    "fecha": "2025-12-17",
+    "ticker": "VIS.D",
+    "div_total": 29.66,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 9730,
+    "fecha": "2026-01-08",
+    "ticker": "AHRT",
+    "div_total": 406.0,
+    "total_shares": 0,
+    "account": null
+  },
+  {
+    "id": 9747,
+    "fecha": "2026-01-15",
+    "ticker": "IIPR PRA",
+    "div_total": 225.0,
+    "total_shares": 0,
+    "account": null
+  }
+]

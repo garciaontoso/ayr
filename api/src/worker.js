@@ -3989,6 +3989,7 @@ export default {
       "/api/ib-debug",
       "/api/auto-close/open-trades", "/api/auto-close/alerts",
       "/api/tastytrade/positions", "/api/tastytrade/accounts",
+      "/api/options/open-portfolio",
     ];
     // Health/public: SIEMPRE abierto (sin auth)
     const PUBLIC_PATHS = [
@@ -5191,6 +5192,78 @@ export default {
         }, corsHeaders);
       }
 
+      // POST /api/earnings/archive/reextract?id=X
+      // Re-fetches the SEC HTML for a single document, strips XBRL/HTML junk,
+      // overwrites the R2 text object, and updates size_bytes in D1.
+      // Fallback for the ~173 docs that still contain raw XBRL after initial ingest.
+      if (path === "/api/earnings/archive/reextract" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        if (!env.EARNINGS_R2) return json({ error: "R2 binding EARNINGS_R2 not configured" }, corsHeaders, 500);
+        await ensureMigrations(env);
+        const id = Number(url.searchParams.get("id") || "0");
+        if (!id) return json({ error: "id query param required" }, corsHeaders, 400);
+
+        const row = await env.DB.prepare(
+          `SELECT id, ticker, doc_type, source_url, r2_key, size_bytes FROM earnings_documents WHERE id = ?`
+        ).bind(id).first();
+        if (!row) return json({ error: `No document with id=${id}` }, corsHeaders, 404);
+        if (!row.source_url) return json({ error: "Document has no source_url — cannot reextract" }, corsHeaders, 422);
+        if (!row.r2_key) return json({ error: "Document has no r2_key — cannot overwrite" }, corsHeaders, 422);
+
+        try {
+          // Fetch original HTML from SEC EDGAR
+          const secResp = await fetch(row.source_url, {
+            headers: { "User-Agent": "A&R research rgarciaontoso@gmail.com" },
+          });
+          if (!secResp.ok) return json({ error: `SEC fetch failed: ${secResp.status} ${row.source_url}` }, corsHeaders, 502);
+          const html = await secResp.text();
+
+          // Strip XBRL inline tags (ix:, us-gaap:, dei:, srt:, xbrli:, etc.)
+          let text = html
+            .replace(/<(ix|us-gaap|dei|srt|xbrli|xbrl|link|xlink|xbrldi):[^>]*>/gi, " ")
+            .replace(/<\/(ix|us-gaap|dei|srt|xbrli|xbrl|link|xlink|xbrldi):[^>]*>/gi, " ")
+            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, " ")
+            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ")
+            .replace(/<[^>]+>/g, " ")          // strip remaining HTML tags
+            .replace(/&nbsp;/gi, " ")
+            .replace(/&amp;/gi, "&")
+            .replace(/&lt;/gi, "<")
+            .replace(/&gt;/gi, ">")
+            .replace(/&quot;/gi, '"')
+            .replace(/&#\d+;/g, " ")
+            .replace(/[ \t]{2,}/g, " ")        // collapse horizontal whitespace
+            .replace(/\n{3,}/g, "\n\n")        // collapse blank lines
+            .trim();
+
+          const beforeSize = row.size_bytes || 0;
+          const afterSize = new TextEncoder().encode(text).length;
+
+          // Overwrite the R2 text object
+          await env.EARNINGS_R2.put(row.r2_key, text, {
+            httpMetadata: { contentType: "text/plain; charset=utf-8" },
+          });
+
+          // Update size_bytes in D1
+          await env.DB.prepare(
+            `UPDATE earnings_documents SET size_bytes = ?, downloaded_at = datetime('now') WHERE id = ?`
+          ).bind(afterSize, id).run();
+
+          return json({
+            ok: true,
+            id,
+            ticker: row.ticker,
+            doc_type: row.doc_type,
+            r2_key: row.r2_key,
+            before_size: beforeSize,
+            after_size: afterSize,
+            reduction_pct: beforeSize > 0 ? Math.round((1 - afterSize / beforeSize) * 1000) / 10 : null,
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: String(e) }, corsHeaders, 500);
+        }
+      }
+
       // GET /api/earnings/archive/analyses-cached — read all cached Opus verdicts in one shot.
       if (path === "/api/earnings/archive/analyses-cached" && request.method === "GET") {
         await ensureMigrations(env);
@@ -5310,6 +5383,158 @@ export default {
           updated_at: row.updated_at,
           synthesised,
         }, corsHeaders);
+      }
+
+      // GET /api/debt-maturity?ticker=AAPL
+      // Returns the long-term debt maturity ladder parsed from inline XBRL tags
+      // in the 10-K raw HTML fetched on-demand from SEC EDGAR.
+      // Cache: R2 key maturity/{ticker}.json, TTL 30 days.
+      // No auth required (public).
+      if (path === "/api/debt-maturity" && request.method === "GET") {
+        const ticker = (url.searchParams.get("ticker") || "").trim().toUpperCase();
+        if (!ticker) return json({ error: "ticker required" }, corsHeaders, 400);
+
+        await ensureMigrations(env);
+
+        // Helper: parse inline XBRL maturity tags from raw SEC HTML.
+        // Returns {} if no tags found.
+        // Tags look like:
+        //   <ix:nonFraction name="us-gaap:LongTermDebtMaturitiesRepaymentsOfPrincipalInNextTwelveMonths"
+        //     contextRef="..." decimals="-6" unitRef="USD">1500000000</ix:nonFraction>
+        // We capture the raw number; scale/decimals attributes are ignored (best-effort).
+        const MATURITY_PATTERNS = [
+          ["next12m", /name=["']us-gaap:LongTermDebtMaturitiesRepaymentsOfPrincipalInNextTwelveMonths["'][^>]*>\s*([0-9,.\-]+)\s*<\/ix:nonFraction>/i],
+          ["y2",      /name=["']us-gaap:LongTermDebtMaturitiesRepaymentsOfPrincipalInYearTwo["'][^>]*>\s*([0-9,.\-]+)\s*<\/ix:nonFraction>/i],
+          ["y3",      /name=["']us-gaap:LongTermDebtMaturitiesRepaymentsOfPrincipalInYearThree["'][^>]*>\s*([0-9,.\-]+)\s*<\/ix:nonFraction>/i],
+          ["y4",      /name=["']us-gaap:LongTermDebtMaturitiesRepaymentsOfPrincipalInYearFour["'][^>]*>\s*([0-9,.\-]+)\s*<\/ix:nonFraction>/i],
+          ["y5",      /name=["']us-gaap:LongTermDebtMaturitiesRepaymentsOfPrincipalInYearFive["'][^>]*>\s*([0-9,.\-]+)\s*<\/ix:nonFraction>/i],
+          ["after5",  /name=["']us-gaap:LongTermDebtMaturitiesRepaymentsOfPrincipalAfterYearFive["'][^>]*>\s*([0-9,.\-]+)\s*<\/ix:nonFraction>/i],
+        ];
+
+        // Fallback: some filers use a slightly different form — check both quote styles
+        // and also the legacy non-namespace form (no ix: wrapper, just the value after the tag name).
+        const MATURITY_PATTERNS_ALT = [
+          ["next12m", /LongTermDebtMaturitiesRepaymentsOfPrincipalInNextTwelveMonths[^>]*>\s*([0-9,.\-]+)\s*</i],
+          ["y2",      /LongTermDebtMaturitiesRepaymentsOfPrincipalInYearTwo[^>]*>\s*([0-9,.\-]+)\s*</i],
+          ["y3",      /LongTermDebtMaturitiesRepaymentsOfPrincipalInYearThree[^>]*>\s*([0-9,.\-]+)\s*</i],
+          ["y4",      /LongTermDebtMaturitiesRepaymentsOfPrincipalInYearFour[^>]*>\s*([0-9,.\-]+)\s*</i],
+          ["y5",      /LongTermDebtMaturitiesRepaymentsOfPrincipalInYearFive[^>]*>\s*([0-9,.\-]+)\s*</i],
+          ["after5",  /LongTermDebtMaturitiesRepaymentsOfPrincipalAfterYearFive[^>]*>\s*([0-9,.\-]+)\s*</i],
+        ];
+
+        const parseMaturityFromHtml = (html) => {
+          const out = {};
+          for (const [key, re] of MATURITY_PATTERNS) {
+            const m = html.match(re);
+            if (m) {
+              const val = parseFloat(m[1].replace(/,/g, ""));
+              if (!isNaN(val) && val >= 0) out[key] = val;
+            }
+          }
+          // If primary patterns found nothing, try fallback (non-namespace form)
+          if (Object.keys(out).length === 0) {
+            for (const [key, re] of MATURITY_PATTERNS_ALT) {
+              const m = html.match(re);
+              if (m) {
+                const val = parseFloat(m[1].replace(/,/g, ""));
+                if (!isNaN(val) && val >= 0) out[key] = val;
+              }
+            }
+          }
+          return out;
+        };
+
+        const CACHE_KEY = `maturity/${ticker}.json`;
+        const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+        // 1. Check R2 cache first.
+        const cached = await env.EARNINGS_R2.get(CACHE_KEY);
+        if (cached) {
+          const meta = cached.customMetadata || {};
+          const cachedAt = meta.cached_at ? parseInt(meta.cached_at, 10) : 0;
+          if (Date.now() - cachedAt < CACHE_TTL_MS) {
+            const data = JSON.parse(await cached.text());
+            return json({ ...data, source: "r2_cache" }, corsHeaders);
+          }
+        }
+
+        // 2. Find the most recent 10-K with a source_url in D1.
+        const row = await env.DB.prepare(
+          `SELECT id, r2_key, fiscal_year, period_of_report, source_url
+           FROM earnings_documents
+           WHERE ticker = ? AND doc_type = '10-K' AND source_url IS NOT NULL AND source_url != ''
+           ORDER BY period_of_report DESC LIMIT 1`
+        ).bind(ticker).first();
+
+        if (!row) {
+          return json({ error: "no_10k_found", ticker, hint: "No 10-K with source_url in earnings_documents" }, corsHeaders, 404);
+        }
+
+        // 3. Fetch raw HTML from SEC EDGAR.
+        // SEC rate limit: 10 req/s; single on-demand call is fine.
+        let html;
+        try {
+          const secResp = await fetch(row.source_url, {
+            headers: { "User-Agent": "A&R research rgarciaontoso@gmail.com" },
+            signal: AbortSignal.timeout(30000), // 30s timeout
+          });
+          if (!secResp.ok) {
+            return json({
+              error: "sec_fetch_failed",
+              ticker,
+              status: secResp.status,
+              source_url: row.source_url,
+            }, corsHeaders, 502);
+          }
+          html = await secResp.text();
+        } catch (fetchErr) {
+          return json({
+            error: "sec_fetch_error",
+            ticker,
+            message: fetchErr.message,
+            source_url: row.source_url,
+          }, corsHeaders, 502);
+        }
+
+        // 4. Parse inline XBRL maturity tags.
+        const maturity = parseMaturityFromHtml(html);
+
+        if (Object.keys(maturity).length === 0) {
+          return json({
+            error: "no_xbrl_data",
+            ticker,
+            fiscal_year: row.fiscal_year,
+            period_of_report: row.period_of_report,
+            source_url: row.source_url,
+            hint: "10-K does not contain detailed maturity schedule XBRL tags (may only report aggregate long-term debt)",
+          }, corsHeaders, 200);
+        }
+
+        // 5. Compute y2_y5 aggregate and total.
+        const y2_y5 = (maturity.y2 || 0) + (maturity.y3 || 0) + (maturity.y4 || 0) + (maturity.y5 || 0);
+        const total_long_term_debt = Object.values(maturity).reduce((s, v) => s + v, 0);
+
+        const result = {
+          ticker,
+          fiscal_year: row.fiscal_year,
+          period_of_report: row.period_of_report,
+          source_url: row.source_url,
+          maturity,
+          y2_y5,
+          total_long_term_debt,
+        };
+
+        // 6. Cache in R2 (fire-and-forget — do not block response on write failure).
+        try {
+          await env.EARNINGS_R2.put(CACHE_KEY, JSON.stringify(result), {
+            httpMetadata: { contentType: "application/json" },
+            customMetadata: { cached_at: String(Date.now()), ticker },
+          });
+        } catch (_) {
+          // Non-fatal — cache miss next time is acceptable
+        }
+
+        return json({ ...result, source: "sec_live" }, corsHeaders);
       }
 
       // ═══════════════════════════════════════════════════════════════════
@@ -8987,7 +9212,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         if (!ticker) {
           // Return summary: ticker, count of transactions
           const { results } = await env.DB.prepare(
-            `SELECT ticker, COUNT(*) as txns, 
+            `SELECT ticker, COUNT(*) as txns,
                     SUM(CASE WHEN tipo='EQUITY' AND shares>0 THEN 1 ELSE 0 END) as buys,
                     SUM(CASE WHEN tipo='DIVIDENDS' THEN 1 ELSE 0 END) as divs,
                     SUM(CASE WHEN tipo='OPTION' THEN 1 ELSE 0 END) as opts
@@ -8995,10 +9220,33 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           ).all();
           return json(results, corsHeaders);
         }
-        const { results } = await env.DB.prepare(
-          "SELECT * FROM cost_basis WHERE ticker = ? ORDER BY orden ASC"
-        ).bind(ticker.toUpperCase()).all();
-        return json(results, corsHeaders);
+        // ARQUITECTURA CORRECTA (2026-05-02):
+        // Devuelve trades + options de cost_basis + dividendos de la tabla canonical.
+        // NO usar tipo='DIVIDENDS' en cost_basis (legacy bug que causaba duplicados).
+        const t = ticker.toUpperCase();
+        const { results: trades } = await env.DB.prepare(
+          "SELECT * FROM cost_basis WHERE ticker = ? AND tipo != 'DIVIDENDS' ORDER BY fecha ASC"
+        ).bind(t).all();
+        const { results: divs } = await env.DB.prepare(
+          "SELECT id, fecha, ticker, bruto, neto, shares, dps_gross, divisa FROM dividendos WHERE ticker = ? ORDER BY fecha ASC"
+        ).bind(t).all();
+        // Mapea dividendos a la shape esperada por el frontend (compatible con cost_basis row).
+        const divRows = (divs || []).map(d => ({
+          id: `div_${d.id}`,
+          ticker: d.ticker,
+          fecha: d.fecha,
+          tipo: 'DIVIDENDS',
+          shares: d.shares || 0,
+          precio: 0, comision: 0, coste: 0,
+          opt_expiry: '', opt_tipo: '-', opt_status: '-',
+          opt_contracts: 0, opt_strike: 0, opt_credit: 0, opt_credit_total: 0,
+          dps: d.dps_gross || 0,
+          div_total: d.bruto || 0,
+          balance: 0, total_shares: 0, adjusted_basis: 0, adjusted_basis_pct: 0, div_yield_basis: 0,
+          orden: 0,
+        }));
+        const merged = [...(trades || []), ...divRows].sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
+        return json(merged, corsHeaders);
       }
 
       // POST /api/costbasis — añadir transacción (con dedup)
@@ -9024,8 +9272,15 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return json({ success: true }, corsHeaders);
       }
 
-      // POST /api/costbasis/sync-dividends — auto-sync dividendos → cost_basis
+      // POST /api/costbasis/sync-dividends — DEPRECATED 2026-05-02
+      // Antes copiaba dividendos → cost_basis, generando duplicados (bug AHRT $64,692).
+      // Arquitectura nueva: /api/costbasis ya hace JOIN con dividendos al servir.
+      // Mantenido como no-op para no romper llamadas existentes del frontend.
       if (path === "/api/costbasis/sync-dividends" && request.method === "POST") {
+        return json({ success: true, inserted: 0, skipped: 0, total: 0, deprecated: true, hint: "endpoint deprecated — /api/costbasis now joins dividendos at query time" }, corsHeaders);
+      }
+      // OLD code path (kept for reference, never executed):
+      if (false && path === "/api/costbasis/sync-dividends" && request.method === "POST") {
         // Get all dividends from dividendos table
         const { results: allDivs } = await env.DB.prepare(
           "SELECT fecha, ticker, bruto, neto, divisa, shares FROM dividendos ORDER BY fecha"
@@ -10018,6 +10273,437 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       }
 
       // ═══════════════════════════════════════════════════════════════════════
+      // OPEN OPTIONS PORTFOLIO — unified view of all open option positions
+      // Combines D1 open_trades + live IB bridge + live T3 bridge.
+      // Returns normalised rows with greeks (theta, delta, gamma) plus
+      // Black-Scholes theta estimate when live greeks are unavailable.
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // GET /api/options/open-portfolio
+      // Returns: { positions: [...], kpis: { count, thetaDay, deltaNet, creditTotal, nextExpiry } }
+      if (path === "/api/options/open-portfolio" && request.method === "GET") {
+        try {
+          const rows = [];
+          const errors = [];
+          const now = Date.now();
+          // Cuando IB live está sano, ES la fuente de verdad. cost_basis fallback
+          // solo si IB no responde (evita mostrar ghosts de trades cerrados que no se
+          // capturaron en cost_basis). Bug user-reported 2026-05-02: UPS, IWM, GOOGL fantasmas.
+          let ibLiveHealthy = false;
+
+          // ── Helper: days to expiry ────────────────────────────────────────
+          const dte = (expiryStr) => {
+            if (!expiryStr) return null;
+            const exp = new Date(expiryStr + "T16:00:00-05:00"); // market close ET
+            return Math.max(0, Math.round((exp - now) / 86400000));
+          };
+
+          // ── Black-Scholes theta approximation for spreads ─────────────────
+          // theta ≈ -credit / DTE  (very rough — useful when live greeks absent)
+          const bsTheta = (credit, dteVal) => {
+            if (!credit || !dteVal || dteVal <= 0) return null;
+            return -(Math.abs(credit) / dteVal);
+          };
+
+          // ── 1) D1 open_trades (manual + auto-sync) ────────────────────────
+          const { results: dbTrades } = await env.DB.prepare(
+            "SELECT * FROM open_trades WHERE closed_at IS NULL ORDER BY expiry ASC LIMIT 200"
+          ).all();
+
+          for (const t of dbTrades) {
+            const dteVal = dte(t.expiry);
+            const credit = t.credit_open != null ? Number(t.credit_open) : null;
+            const contracts = Number(t.contracts) || 1;
+            const mult = contracts * 100;
+            const creditTotal = credit != null ? credit * mult : null;
+            const theta = bsTheta(credit, dteVal);
+
+            let strikes = "—";
+            if (t.strategy === "IC") {
+              const ps = t.short_strike ? `${t.short_strike}P/${t.long_strike}P` : "";
+              const cs = t.short_strike_call ? `${t.short_strike_call}C/${t.long_strike_call}C` : "";
+              strikes = [ps, cs].filter(Boolean).join(" · ");
+            } else if (t.short_strike && t.long_strike) {
+              strikes = `${t.short_strike}/${t.long_strike}`;
+            } else if (t.short_strike) {
+              strikes = `${t.short_strike}`;
+            }
+
+            rows.push({
+              id: t.trade_hash,
+              source: t.source || "d1",
+              account: t.account || "—",
+              symbol: t.symbol || t.underlying || "—",
+              strategy: t.strategy || "—",
+              strikes,
+              expiry: t.expiry || null,
+              dte: dteVal,
+              contracts,
+              credit,        // per-spread credit (net)
+              creditTotal,   // credit × contracts × 100
+              theta,         // estimated (negative = decay income)
+              thetaTotal: theta != null ? theta * mult : null,
+              delta: t.delta_short_open != null ? Number(t.delta_short_open) : null,
+              ivr: t.ivr_open != null ? Number(t.ivr_open) : null,
+              vix: t.vix_open != null ? Number(t.vix_open) : null,
+              underlying: t.underlying_open || null,
+              pnl: null,     // no live price from D1 alone
+              pnlPct: null,
+              thetaSource: "bs_estimate",
+              legs: (() => { try { return JSON.parse(t.legs_json || "[]"); } catch { return []; } })(),
+            });
+          }
+
+          // ── 2) Live IB bridge positions ───────────────────────────────────
+          if (env.IB_BRIDGE_URL && env.IB_BRIDGE_TOKEN) {
+            try {
+              const ibResp = await fetch(
+                `${env.IB_BRIDGE_URL.replace(/\/$/, "")}/positions`,
+                { headers: { Authorization: `Bearer ${env.IB_BRIDGE_TOKEN}` }, signal: AbortSignal.timeout(12000) }
+              );
+              if (ibResp.ok) {
+                const ibData = await ibResp.json();
+                const ibPositions = Array.isArray(ibData) ? ibData : (ibData.items || ibData.positions || []);
+                // IB respondió OK con datos → es source of truth (deshabilita cost_basis fallback)
+                if (ibPositions.length > 0) ibLiveHealthy = true;
+                // Filter to options only
+                const opts = ibPositions.filter(p =>
+                  p.secType === "OPT" || p.assetCategory === "OPT" || (p.expiry && p.strike != null)
+                );
+                // Group by (account, underlying, expiry) to detect spreads
+                const ibGroups = new Map();
+                for (const p of opts) {
+                  const und = p.underlying || p.underlyingSymbol || p.symbol || "";
+                  const exp = p.expiry ? `${p.expiry.slice(0,4)}-${p.expiry.slice(4,6)}-${p.expiry.slice(6,8)}` : null;
+                  const acct = p.account || p.accountId || "IB";
+                  const key = `${acct}|${und}|${exp}`;
+                  if (!ibGroups.has(key)) ibGroups.set(key, []);
+                  ibGroups.get(key).push({ ...p, _und: und, _exp: exp, _acct: acct });
+                }
+
+                for (const [, legs] of ibGroups) {
+                  const rep = legs[0];
+                  const und = rep._und;
+                  const exp = rep._exp;
+                  const acct = rep._acct;
+                  const dteVal = dte(exp);
+                  const contracts = Math.abs(Number(rep.position || rep.quantity || 1));
+
+                  // Detect strategy from legs
+                  const puts = legs.filter(l => (l.right || l.putCall || "").toLowerCase().startsWith("p"));
+                  const calls = legs.filter(l => (l.right || l.putCall || "").toLowerCase().startsWith("c"));
+                  const shortPuts = puts.filter(l => Number(l.position || l.quantity || 0) < 0);
+                  const longPuts = puts.filter(l => Number(l.position || l.quantity || 0) > 0);
+                  const shortCalls = calls.filter(l => Number(l.position || l.quantity || 0) < 0);
+                  const longCalls = calls.filter(l => Number(l.position || l.quantity || 0) > 0);
+
+                  let strategy = "OPT";
+                  let strikes = "—";
+                  if (puts.length === 2 && calls.length === 0 && shortPuts.length === 1 && longPuts.length === 1) {
+                    strategy = "BPS";
+                    strikes = `${shortPuts[0].strike}/${longPuts[0].strike}`;
+                  } else if (calls.length === 2 && puts.length === 0 && shortCalls.length === 1 && longCalls.length === 1) {
+                    strategy = "BCS";
+                    strikes = `${shortCalls[0].strike}/${longCalls[0].strike}`;
+                  } else if (puts.length === 2 && calls.length === 2) {
+                    strategy = "IC";
+                    strikes = `${shortPuts[0]?.strike}P/${longPuts[0]?.strike}P · ${shortCalls[0]?.strike}C/${longCalls[0]?.strike}C`;
+                  } else if (shortPuts.length === 1 && longPuts.length === 0 && calls.length === 0) {
+                    strategy = "CSP";
+                    strikes = `${shortPuts[0].strike}P`;
+                  } else if (shortCalls.length === 1 && longCalls.length === 0 && puts.length === 0) {
+                    strategy = "CC";
+                    strikes = `${shortCalls[0].strike}C`;
+                  } else if (legs.length === 1) {
+                    const leg = legs[0];
+                    const dir = Number(leg.position || leg.quantity || 0) < 0 ? "Short" : "Long";
+                    const type = (leg.right || leg.putCall || "").toLowerCase().startsWith("p") ? "P" : "C";
+                    strategy = dir === "Short" ? (type === "P" ? "SP" : "SC") : (type === "P" ? "LP" : "LC");
+                    strikes = `${leg.strike}${type}`;
+                  }
+
+                  // Greeks from IB bridge (fields vary by bridge impl)
+                  const theta = rep.theta != null ? Number(rep.theta) : null;
+                  const delta = rep.delta != null ? Number(rep.delta) : null;
+                  const gamma = rep.gamma != null ? Number(rep.gamma) : null;
+                  const vega = rep.vega != null ? Number(rep.vega) : null;
+
+                  // Credit: use avgCost (IB reports in cents for options → divide by 100)
+                  const avgCostRaw = rep.avgCost != null ? Number(rep.avgCost) : null;
+                  const credit = avgCostRaw != null ? Math.abs(avgCostRaw) / 100 : null;
+                  const mult = contracts * 100;
+                  const creditTotal = credit != null ? credit * mult : null;
+
+                  // P&L: mktPrice vs avgCost
+                  const mktPriceRaw = rep.mktPrice != null ? Number(rep.mktPrice) : null;
+                  const mktPrice = mktPriceRaw != null ? Math.abs(mktPriceRaw) : null;
+                  const pnl = (credit != null && mktPrice != null)
+                    ? (credit - mktPrice) * mult   // positive = profit (spread narrowed)
+                    : null;
+                  const pnlPct = (pnl != null && creditTotal != null && creditTotal !== 0)
+                    ? pnl / Math.abs(creditTotal)
+                    : null;
+
+                  // Use live theta if available, else BS estimate
+                  const thetaFinal = theta != null ? theta : bsTheta(credit, dteVal);
+                  const thetaSource = theta != null ? "live_ib" : "bs_estimate";
+
+                  // Check if this trade already in D1 rows (avoid double-counting)
+                  const alreadyInD1 = rows.some(r =>
+                    r.symbol === und && r.expiry === exp && r.account === acct
+                  );
+                  if (alreadyInD1) continue;
+
+                  rows.push({
+                    id: `ib_${acct}_${und}_${exp}`,
+                    source: "ib_live",
+                    account: acct,
+                    symbol: und,
+                    strategy,
+                    strikes,
+                    expiry: exp,
+                    dte: dteVal,
+                    contracts,
+                    credit,
+                    creditTotal,
+                    theta: thetaFinal,
+                    thetaTotal: thetaFinal != null ? thetaFinal * mult : null,
+                    delta,
+                    gamma,
+                    vega,
+                    ivr: null,
+                    vix: null,
+                    underlying: und,
+                    pnl,
+                    pnlPct,
+                    thetaSource,
+                    legs: legs.map(l => ({
+                      strike: l.strike,
+                      right: l.right || l.putCall,
+                      position: l.position || l.quantity,
+                      mktPrice: l.mktPrice,
+                      theta: l.theta,
+                      delta: l.delta,
+                    })),
+                  });
+                }
+              } else {
+                errors.push(`ib_bridge: HTTP ${ibResp.status}`);
+              }
+            } catch (e) {
+              errors.push(`ib_bridge: ${e.message?.slice(0, 100)}`);
+            }
+          }
+
+          // ── 3) Live Tastytrade bridge positions ───────────────────────────
+          if (env.TASTYTRADE_BRIDGE_URL && env.TASTYTRADE_BRIDGE_TOKEN) {
+            try {
+              const accountsData = await ttBridgeFetch(env, "/marketdata/accounts");
+              for (const acct of accountsData?.accounts || []) {
+                if (acct.is_closed) continue;
+                try {
+                  const r = await ttBridgeFetch(env, `/marketdata/positions/${encodeURIComponent(acct.account_number)}`);
+                  const ttPositions = r?.positions || [];
+                  const opts = ttPositions.filter(p => p.is_option || p.instrument_type === "Equity Option");
+
+                  // Group by (underlying, expiry)
+                  const ttGroups = new Map();
+                  for (const p of opts) {
+                    const und = p.underlying_symbol || p.symbol || "";
+                    const exp = p.expires_at ? p.expires_at.slice(0, 10) : null;
+                    const key = `${acct.account_number}|${und}|${exp}`;
+                    if (!ttGroups.has(key)) ttGroups.set(key, []);
+                    ttGroups.get(key).push({ ...p, _und: und, _exp: exp });
+                  }
+
+                  for (const [, legs] of ttGroups) {
+                    const rep = legs[0];
+                    const und = rep._und;
+                    const exp = rep._exp;
+                    const dteVal = dte(exp);
+                    const contracts = Math.abs(Number(rep.quantity || 1));
+
+                    // TT position: quantity_direction = "Short"|"Long"
+                    const puts = legs.filter(l => l.put_call === "P" || (l.symbol || "").includes("P"));
+                    const calls = legs.filter(l => l.put_call === "C" || (l.symbol || "").includes("C"));
+                    const shortPuts = puts.filter(l => l.quantity_direction === "Short" || Number(l.quantity || 0) < 0);
+                    const longPuts = puts.filter(l => l.quantity_direction === "Long" || Number(l.quantity || 0) > 0);
+                    const shortCalls = calls.filter(l => l.quantity_direction === "Short" || Number(l.quantity || 0) < 0);
+                    const longCalls = calls.filter(l => l.quantity_direction === "Long" || Number(l.quantity || 0) > 0);
+
+                    let strategy = "OPT";
+                    let strikes = "—";
+                    if (puts.length === 2 && calls.length === 0 && shortPuts.length === 1) {
+                      strategy = "BPS";
+                      strikes = `${shortPuts[0].strike_price}/${longPuts[0]?.strike_price}`;
+                    } else if (calls.length === 2 && puts.length === 0 && shortCalls.length === 1) {
+                      strategy = "BCS";
+                      strikes = `${shortCalls[0].strike_price}/${longCalls[0]?.strike_price}`;
+                    } else if (puts.length === 2 && calls.length === 2) {
+                      strategy = "IC";
+                      strikes = `${shortPuts[0]?.strike_price}P/${longPuts[0]?.strike_price}P · ${shortCalls[0]?.strike_price}C/${longCalls[0]?.strike_price}C`;
+                    } else if (shortPuts.length === 1 && calls.length === 0 && longPuts.length === 0) {
+                      strategy = "CSP";
+                      strikes = `${shortPuts[0].strike_price}P`;
+                    } else if (shortCalls.length === 1 && puts.length === 0 && longCalls.length === 0) {
+                      strategy = "CC";
+                      strikes = `${shortCalls[0].strike_price}C`;
+                    }
+
+                    const credit = rep.average_open_price != null ? Math.abs(Number(rep.average_open_price)) : null;
+                    const mult = contracts * 100;
+                    const creditTotal = credit != null ? credit * mult : null;
+
+                    // T3 greeks: check common field names from TT API
+                    const theta = rep.theta != null ? Number(rep.theta) : null;
+                    const delta = rep.delta != null ? Number(rep.delta) : null;
+
+                    const markPrice = rep.mark_price != null ? Math.abs(Number(rep.mark_price)) : null;
+                    const pnl = (credit != null && markPrice != null)
+                      ? (credit - markPrice) * mult
+                      : null;
+                    const pnlPct = (pnl != null && creditTotal != null && creditTotal !== 0)
+                      ? pnl / Math.abs(creditTotal)
+                      : null;
+
+                    const thetaFinal = theta != null ? theta : bsTheta(credit, dteVal);
+                    const thetaSource = theta != null ? "live_tt" : "bs_estimate";
+
+                    // Dedupe vs D1
+                    const alreadyInD1 = rows.some(r =>
+                      r.symbol === und && r.expiry === exp && r.account === acct.account_number
+                    );
+                    if (alreadyInD1) continue;
+
+                    rows.push({
+                      id: `tt_${acct.account_number}_${und}_${exp}`,
+                      source: "tt_live",
+                      account: acct.account_number,
+                      symbol: und,
+                      strategy,
+                      strikes,
+                      expiry: exp,
+                      dte: dteVal,
+                      contracts,
+                      credit,
+                      creditTotal,
+                      theta: thetaFinal,
+                      thetaTotal: thetaFinal != null ? thetaFinal * mult : null,
+                      delta,
+                      ivr: null,
+                      vix: null,
+                      underlying: und,
+                      pnl,
+                      pnlPct,
+                      thetaSource,
+                      legs: legs.map(l => ({
+                        strike: l.strike_price,
+                        right: l.put_call,
+                        position: l.quantity,
+                        markPrice: l.mark_price,
+                      })),
+                    });
+                  }
+                } catch (e) {
+                  errors.push(`tt ${acct.account_number}: ${e.message?.slice(0, 80)}`);
+                }
+              }
+            } catch (e) {
+              errors.push(`tt_accounts: ${e.message?.slice(0, 80)}`);
+            }
+          }
+
+          // ── 3.5) Fallback cost_basis: SOLO si IB no respondió ─────────────
+          // Cuando IB Gateway está LIVE, ES la verdad. cost_basis tiene ghosts de
+          // trades cerrados que nunca se importaron correctamente (bug dedup Flex
+          // con trades idénticos: caso UPS/IWM/GOOGL user-reported 2026-05-02).
+          // SAFETY: solo opciones abiertas en últimos 60 días para reducir ghosts.
+          if (!ibLiveHealthy) try {
+            const today = new Date().toISOString().slice(0, 10);
+            const { results: cbOpts } = await env.DB.prepare(
+              `SELECT COALESCE(NULLIF(underlying,''), ticker) AS und_t,
+                      opt_expiry, opt_strike,
+                      CASE WHEN UPPER(opt_tipo) LIKE 'P%' THEN 'P' ELSE 'C' END AS tipo_norm,
+                      SUM(shares) AS net_contracts,
+                      SUM(opt_credit_total) AS net_credit,
+                      MAX(account) AS account,
+                      MAX(fecha) AS last_trade_date
+               FROM cost_basis
+               WHERE tipo = 'OPTION'
+                 AND opt_expiry IS NOT NULL AND opt_expiry > ?
+                 AND opt_strike IS NOT NULL AND opt_strike > 0
+                 AND opt_tipo IS NOT NULL AND opt_tipo != ''
+                 AND fecha >= date('now', '-60 days')
+               GROUP BY und_t, opt_expiry, opt_strike, tipo_norm
+               HAVING ABS(SUM(shares)) > 0`
+            ).bind(today).all();
+
+            const seenKeys = new Set(rows.map(r => `${r.symbol}|${r.expiry}|${(r.legs?.[0]?.strike) || ''}|${(r.legs?.[0]?.right) || ''}`));
+
+            for (const o of (cbOpts || [])) {
+              const tipo = o.tipo_norm;
+              const k = `${o.und_t}|${o.opt_expiry}|${o.opt_strike}|${tipo}`;
+              if (seenKeys.has(k)) continue;
+              const contracts = Math.abs(o.net_contracts);
+              const isShort = o.net_contracts < 0;
+              const strategy = isShort ? (tipo === 'P' ? 'CSP' : 'CC') : (tipo === 'P' ? 'LP' : 'LC');
+              const dteVal = dte(o.opt_expiry);
+              // credit_total is per CONTRACT × 100 already (from worker import). Divide by mult.
+              const mult = contracts * 100;
+              const credit = mult > 0 ? Math.abs(o.net_credit) / mult : null;
+              const creditTotal = mult > 0 ? Math.abs(o.net_credit) : null;
+              const theta = bsTheta(credit, dteVal);
+              rows.push({
+                id: `cb_${o.und_t}_${o.opt_expiry}_${o.opt_strike}_${tipo}`,
+                source: 'cost_basis',
+                account: o.account || '—',
+                symbol: o.und_t,
+                strategy,
+                strikes: `${o.opt_strike}${tipo}`,
+                expiry: o.opt_expiry,
+                dte: dteVal,
+                contracts,
+                credit,
+                creditTotal,
+                theta,
+                thetaTotal: theta != null ? theta * mult : null,
+                delta: null, ivr: null, vix: null, underlying: o.und_t,
+                pnl: null, pnlPct: null,
+                thetaSource: 'bs_estimate',
+                legs: [{ strike: o.opt_strike, right: tipo, position: isShort ? -contracts : contracts }],
+              });
+            }
+          } catch (e) {
+            errors.push(`cost_basis_fallback: ${e.message?.slice(0, 100)}`);
+          }
+
+          // ── 4) Compute KPIs ───────────────────────────────────────────────
+          const count = rows.length;
+          const thetaDay = rows.reduce((s, r) => s + (r.thetaTotal || 0), 0);
+          const deltaNet = rows.reduce((s, r) => {
+            if (r.delta == null) return s;
+            return s + r.delta * (r.contracts || 1) * 100;
+          }, 0);
+          const creditTotal = rows.reduce((s, r) => s + (r.creditTotal || 0), 0);
+          const withExpiry = rows.filter(r => r.dte != null).sort((a, b) => a.dte - b.dte);
+          const nextExpiry = withExpiry.length > 0
+            ? { expiry: withExpiry[0].expiry, dte: withExpiry[0].dte, symbol: withExpiry[0].symbol }
+            : null;
+
+          rows.sort((a, b) => (a.dte ?? 9999) - (b.dte ?? 9999));
+
+          return json({
+            positions: rows,
+            kpis: { count, thetaDay, deltaNet, creditTotal, nextExpiry },
+            errors: errors.length > 0 ? errors : undefined,
+            generated_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message, positions: [], kpis: {} }, corsHeaders, 500);
+        }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
       // BRAIN LITE — analisis on-demand de mercado + posiciones + fishing orders
       // ═══════════════════════════════════════════════════════════════════════
 
@@ -10837,6 +11523,59 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           return json({ source: "ib-bridge", positions: data }, corsHeaders);
         } catch(e) {
           return json({ error: e.message, source: "ib-bridge" }, corsHeaders, 503);
+        }
+      }
+
+      // POST /api/reconcile/portfolio-check — compara positions D1 vs IB live + Telegram alert
+      // Detecta: tickers en IB no en app, tickers en app no en IB, share count mismatch.
+      // No modifica D1. Lectura solo. Notifica con sendTelegram.
+      if (path === "/api/reconcile/portfolio-check" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          const ibData = await ibBridgeFetch(env, "/positions");
+          const ibPositions = (Array.isArray(ibData) ? ibData : (ibData?.positions || []))
+            .filter(p => p && (p.assetClass === "STK" || p.secType === "STK") && Math.abs(p.position || p.shares || 0) > 0);
+          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA"};
+          const ibByTicker = {};
+          for (const p of ibPositions) {
+            const sym = (p.ticker || p.symbol || "").trim();
+            const t = IB_MAP[sym] || sym;
+            if (!t) continue;
+            ibByTicker[t] = (ibByTicker[t] || 0) + (p.position || p.shares || 0);
+          }
+          const { results: appPositions } = await env.DB.prepare(
+            `SELECT ticker, shares FROM positions WHERE shares > 0`
+          ).all();
+          const appByTicker = {};
+          for (const p of appPositions || []) appByTicker[p.ticker] = p.shares;
+          const inIBNotApp = [];
+          const inAppNotIB = [];
+          const mismatches = [];
+          for (const [t, ibShares] of Object.entries(ibByTicker)) {
+            if (!(t in appByTicker)) inIBNotApp.push({ ticker: t, ibShares });
+            else if (Math.abs(appByTicker[t] - ibShares) > 0.5) {
+              mismatches.push({ ticker: t, app: appByTicker[t], ib: ibShares, diff: ibShares - appByTicker[t] });
+            }
+          }
+          for (const [t, appShares] of Object.entries(appByTicker)) {
+            if (!(t in ibByTicker)) inAppNotIB.push({ ticker: t, appShares });
+          }
+          const issues = inIBNotApp.length + inAppNotIB.length + mismatches.length;
+          const summary = { ok: issues === 0, ib_count: Object.keys(ibByTicker).length, app_count: Object.keys(appByTicker).length, in_ib_not_app: inIBNotApp, in_app_not_ib: inAppNotIB, mismatches };
+          if (issues > 0) {
+            const lines = [`*Reconcile Portfolio Alert* — ${issues} issues`];
+            if (inIBNotApp.length) lines.push(`\n*En IB no en app* (${inIBNotApp.length}):\n${inIBNotApp.slice(0,15).map(x=>`• ${x.ticker} (${x.ibShares})`).join("\n")}`);
+            if (inAppNotIB.length) lines.push(`\n*En app no en IB* (${inAppNotIB.length}):\n${inAppNotIB.slice(0,15).map(x=>`• ${x.ticker} (${x.appShares})`).join("\n")}`);
+            if (mismatches.length) lines.push(`\n*Shares mismatch* (${mismatches.length}):\n${mismatches.slice(0,15).map(x=>`• ${x.ticker}: app=${x.app} ib=${x.ib} (Δ${x.diff>0?"+":""}${x.diff})`).join("\n")}`);
+            await sendTelegram(env, { text: lines.join("\n"), severity: "warn", source: "reconcile_portfolio" });
+          } else {
+            await sendTelegram(env, { text: `✅ *Reconcile Portfolio OK* — ${Object.keys(ibByTicker).length} tickers IB = ${Object.keys(appByTicker).length} app, todas las shares cuadran.`, severity: "info", source: "reconcile_portfolio" });
+          }
+          return json(summary, corsHeaders);
+        } catch(e) {
+          await sendTelegram(env, { text: `⚠️ Reconcile portfolio falló: ${e.message?.slice(0,200)}`, severity: "warn", source: "reconcile_portfolio" });
+          return json({ error: e.message }, corsHeaders, 500);
         }
       }
 
@@ -11867,14 +12606,19 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA"};
           const mapTicker = (sym) => IB_MAP[sym] || sym;
 
-          // Import trades into cost_basis table using batch (D1 limit: 100 statements per batch).
-          // For OPTION rows we additionally populate opt_contracts (|quantity|) and
-          // opt_credit_total (-netCash, so STO shows positive credit, BTC negative debit).
-          // Without these the rows are present but show contracts=0/credit=0 which breaks
-          // the CS reconciliation join. Bug was discovered in session 2026-04-09.
-          // Dedup: load existing (fecha, ticker, tipo, shares, precio, coste) combos for fast lookup
+          // Import trades. Dedup PRIMARIO por exec_id (ibOrderID/transactionID) que ES único.
+          // Composite key sólo como fallback para trades legacy sin exec_id.
+          // Fix 2026-05-02: trades idénticos en mismo día (ej. 4×SELL -1@11.49 IWM) se
+          // dedupeaban mal por composite key, perdíamos cierres → ghosts en open options.
+          // Asegurar exec_id column + UNIQUE index.
+          try { await env.DB.prepare(`ALTER TABLE cost_basis ADD COLUMN exec_id TEXT`).run(); } catch {}
+          try { await env.DB.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_cb_exec_id ON cost_basis(exec_id) WHERE exec_id IS NOT NULL`).run(); } catch {}
+          const { results: existingExecIds } = await env.DB.prepare(
+            "SELECT DISTINCT exec_id FROM cost_basis WHERE exec_id IS NOT NULL AND exec_id != ''"
+          ).all();
+          const execSet = new Set((existingExecIds || []).map(r => r.exec_id));
           const { results: existingTrades } = await env.DB.prepare(
-            "SELECT fecha, ticker, tipo, shares, precio, coste FROM cost_basis WHERE fecha >= date('now', '-90 days')"
+            "SELECT fecha, ticker, tipo, shares, precio, coste FROM cost_basis WHERE fecha >= date('now', '-365 days') AND (exec_id IS NULL OR exec_id = '')"
           ).all();
           const tradeSet = new Set(existingTrades.map(t =>
             `${t.fecha}|${t.ticker}|${t.tipo}|${Math.round((t.shares||0)*1000)}|${Math.round((t.precio||0)*100)}|${Math.round((t.coste||0)*100)}`
@@ -11884,10 +12628,6 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const tradeStmts = [];
           for (const t of trades) {
             if (!t.symbol || !t.tradeDate) continue;
-            // Skip IB allocation duplicates: when trades are allocated between accounts,
-            // IB reports the same execution twice — once with notes="P" (primary) and once
-            // with notes="IA;P" (IB allocated). Same ibOrderID, same quantity, same price.
-            // Keep only the primary "P" record. Bug discovered 2026-04-15.
             const notes = (t.notes || "").toUpperCase();
             if (notes.includes("IA")) { tradesSkipped++; continue; }
             const ticker = mapTicker(t.symbol);
@@ -11900,13 +12640,24 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             const tipo = isOpt ? "OPTION" : "EQUITY";
             const expiry = t.expiry ? `${t.expiry.slice(0,4)}-${t.expiry.slice(4,6)}-${t.expiry.slice(6,8)}` : null;
             const optContracts = isOpt ? Math.abs(qty) : 0;
-            const optCreditTotal = isOpt ? -netCash : 0; // STO: negative netCash → positive credit
+            const optCreditTotal = isOpt ? -netCash : 0;
             const optCreditPerShare = isOpt && qty !== 0 ? optCreditTotal / (Math.abs(qty) * 100) : 0;
 
-            // Dedup check: skip if (fecha, ticker, tipo, shares, precio, coste) already exists
+            // exec_id = ibOrderID/transactionID (UNIQUE per IB execution).
+            const execId = (t.ibOrderID && t.transactionID)
+              ? `${t.ibOrderID}/${t.transactionID}`
+              : (t.transactionID || t.ibOrderID || null);
+
+            // PRIMARY dedup: exec_id (when present) — exact match, no false positives.
+            if (execId && execSet.has(execId)) { tradesSkipped++; continue; }
+            // SIEMPRE check composite también, por si fila vieja no tiene exec_id pero
+            // representa el mismo trade que estamos importando con exec_id nuevo.
+            // (Bug 2026-05-02: re-import duplicó NVDA/UNH/etc porque solo chequeaba composite
+            //  cuando new no tenía exec_id, ignorando legacy rows sin exec_id.)
             const dedupKey = `${fecha}|${ticker}|${tipo}|${Math.round(qty*1000)}|${Math.round(price*100)}|${Math.round(netCash*100)}`;
             if (tradeSet.has(dedupKey)) { tradesSkipped++; continue; }
-            tradeSet.add(dedupKey); // prevent intra-batch dupes too
+            if (execId) execSet.add(execId);
+            tradeSet.add(dedupKey);
 
             // Detectar underlying: para opciones, parsear OCC symbol (ej "UNH   260508C00370000" → "UNH").
             // Para EQUITY/STK, underlying = ticker.
@@ -11921,8 +12672,8 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             // atributo está presente. Si no, NULL (legacy queries).
             const account = t.accountId || null;
             tradeStmts.push(env.DB.prepare(
-              "INSERT INTO cost_basis (ticker, fecha, tipo, shares, precio, comision, coste, opt_strike, opt_expiry, opt_tipo, opt_contracts, opt_credit, opt_credit_total, underlying, account) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-            ).bind(ticker, fecha, tipo, qty, price, commission, netCash, t.strike || null, expiry, t.putCall || null, optContracts, optCreditPerShare, optCreditTotal, underlying, account));
+              "INSERT INTO cost_basis (ticker, fecha, tipo, shares, precio, comision, coste, opt_strike, opt_expiry, opt_tipo, opt_contracts, opt_credit, opt_credit_total, underlying, account, exec_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+            ).bind(ticker, fecha, tipo, qty, price, commission, netCash, t.strike || null, expiry, t.putCall || null, optContracts, optCreditPerShare, optCreditTotal, underlying, account, execId));
           }
           // Execute in batches of 80
           for (let i = 0; i < tradeStmts.length; i += 80) {
@@ -12022,14 +12773,17 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             const fechas = Object.keys(byFecha).sort().reverse();
             for (const fecha of fechas) {
               const list = byFecha[fecha];
+              const totalBrutoUSD = list.reduce((s, x) => s + ((x.bruto||0) * (x.netoUSD && x.neto ? x.netoUSD/x.neto : 1)), 0);
               const totalNetoUSD = list.reduce((s, x) => s + (x.netoUSD || 0), 0);
               const lines = list.slice(0, 15).map(d => {
                 const sym = d.divisa === "USD" ? "$" : (d.divisa === "EUR" ? "€" : d.divisa + " ");
-                const sharesStr = d.shares > 0 ? ` (${d.shares}sh × $${d.dpsGross.toFixed(4)})` : '';
-                return `• *${d.ticker}*: ${sym}${d.neto.toFixed(2)} neto${sharesStr}`;
+                const sharesStr = d.shares > 0 ? ` (${d.shares}sh × ${sym}${d.dpsGross.toFixed(4)})` : '';
+                const brutoStr = `${sym}${(d.bruto||0).toFixed(2)} bruto`;
+                const netoStr = d.neto !== d.bruto ? ` → ${sym}${d.neto.toFixed(2)} neto` : '';
+                return `• *${d.ticker}*: ${brutoStr}${sharesStr}${netoStr}`;
               }).join('\n');
               const more = list.length > 15 ? `\n_(...y ${list.length - 15} más)_` : '';
-              const msg = `*💰 Dividendos recibidos ${fecha}*\n\n${lines}${more}\n\n*Total neto USD: $${totalNetoUSD.toFixed(2)}*`;
+              const msg = `*💰 Dividendos recibidos ${fecha}*\n\n${lines}${more}\n\n*Total bruto USD: $${totalBrutoUSD.toFixed(2)}*\n*Total neto USD: $${totalNetoUSD.toFixed(2)}*`;
               try {
                 await sendTelegram(env, { text: msg, severity: 'info', source: 'flex_dividends' });
               } catch (e) { console.error('telegram divs:', e.message); }
@@ -12394,6 +13148,96 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // ─── POSITIONS (D1 — replaces POS_STATIC) ───
 
       // GET /api/positions — all positions
+      // GET /api/reentry-watch/scan?threshold=5&days=180&apply=1
+      // Detecta tickers que vendiste y han caído X% desde tu precio de venta.
+      // Útil para identificar oportunidades de re-entrada (CSP, BPS, compra directa).
+      // POST manda Telegram alert. GET solo devuelve JSON.
+      if (path === "/api/reentry-watch/scan" && (request.method === "GET" || request.method === "POST")) {
+        try {
+          const threshold = Math.max(1, Math.min(50, parseFloat(url.searchParams.get("threshold")) || 5));
+          const daysBack = Math.max(7, Math.min(730, parseInt(url.searchParams.get("days")) || 180));
+          const sendAlert = request.method === "POST" || url.searchParams.get("apply") === "1";
+
+          // Latest SELL per ticker en el período. shares < 0 = SELL.
+          // Cualquier ticker con al menos 1 SELL en el período (cerrado o parcial).
+          const { results: sells } = await env.DB.prepare(
+            `SELECT ticker, MAX(fecha) AS last_sell_date,
+                    (SELECT precio FROM cost_basis cb2
+                     WHERE cb2.ticker = cost_basis.ticker
+                       AND cb2.tipo = 'EQUITY'
+                       AND cb2.shares < 0
+                       AND cb2.fecha >= date('now', '-${daysBack} days')
+                     ORDER BY cb2.fecha DESC, cb2.id DESC LIMIT 1) AS sell_price
+             FROM cost_basis
+             WHERE tipo = 'EQUITY' AND shares < 0
+               AND fecha >= date('now', '-${daysBack} days')
+             GROUP BY ticker`
+          ).all();
+
+          if (!sells?.length) {
+            return json({ ok: true, candidates: [], alerts: [], threshold, daysBack, message: "no recent sells" }, corsHeaders);
+          }
+
+          // Fetch current price per ticker (FMP cache → live FMP).
+          const FMP = env.FMP_KEY;
+          const tickers = sells.map(s => s.ticker).filter(Boolean);
+          const priceMap = {};
+          if (FMP && tickers.length) {
+            try {
+              const chunks = [];
+              for (let i = 0; i < tickers.length; i += 50) chunks.push(tickers.slice(i, i + 50));
+              for (const chunk of chunks) {
+                const symbols = chunk.map(t => t.includes(":") ? t.split(":").pop() : t).join(",");
+                const resp = await fetch(`https://financialmodelingprep.com/stable/quote-short?symbol=${symbols}&apikey=${FMP}`,
+                  { signal: AbortSignal.timeout(20000) });
+                if (resp.ok) {
+                  const data = await resp.json();
+                  for (const q of (Array.isArray(data) ? data : [])) {
+                    if (q.symbol && q.price) priceMap[q.symbol] = q.price;
+                  }
+                }
+              }
+            } catch (e) { console.warn("[reentry] FMP fetch failed:", e.message); }
+          }
+
+          const candidates = [];
+          for (const s of sells) {
+            const sellPrice = parseFloat(s.sell_price) || 0;
+            if (sellPrice <= 0) continue;
+            const lookupTicker = s.ticker.includes(":") ? s.ticker.split(":").pop() : s.ticker;
+            const currentPrice = priceMap[lookupTicker] || priceMap[s.ticker] || 0;
+            if (currentPrice <= 0) continue;
+            const dropPct = ((currentPrice - sellPrice) / sellPrice) * 100;
+            const c = {
+              ticker: s.ticker, sell_date: s.last_sell_date,
+              sell_price: Math.round(sellPrice * 100) / 100,
+              current_price: Math.round(currentPrice * 100) / 100,
+              drop_pct: Math.round(dropPct * 10) / 10,
+              days_since_sell: Math.floor((Date.now() - new Date(s.last_sell_date).getTime()) / 86400000),
+            };
+            candidates.push(c);
+          }
+
+          // Filtra los que cumplen threshold (caída ≥ X%).
+          const alerts = candidates.filter(c => c.drop_pct <= -threshold);
+          alerts.sort((a, b) => a.drop_pct - b.drop_pct); // más caídos primero
+
+          if (sendAlert && alerts.length > 0) {
+            const lines = alerts.slice(0, 20).map(c =>
+              `• *${c.ticker}*: vendiste @$${c.sell_price} (${c.sell_date}), hoy $${c.current_price} (${c.drop_pct.toFixed(1)}%) ${c.drop_pct <= -10 ? "🔥" : "⬇"}${c.days_since_sell <= 30 ? " 🆕" : ""}`
+            ).join("\n");
+            const more = alerts.length > 20 ? `\n_(...${alerts.length - 20} más)_` : "";
+            const msg = `🔄 *Re-entry watch* — ${alerts.length} tickers vendidos han caído ≥${threshold}%\n\n${lines}${more}\n\n_Lookback: ${daysBack}d. Considera CSP/BPS o compra directa._`;
+            await sendTelegram(env, { text: msg, severity: 'info', source: 'reentry_watch' });
+          }
+
+          return json({ ok: true, threshold, daysBack, candidates_total: candidates.length, alerts_total: alerts.length, candidates, alerts }, corsHeaders);
+        } catch (e) {
+          console.error("[reentry-watch] failed:", e.message);
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
       if (path === "/api/positions" && request.method === "GET") {
         try {
           const list = url.searchParams.get("list") || "";
@@ -14312,15 +15156,29 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             const dps = rat.dividendPerShare||0;
             const pe = rat.priceToEarningsRatio||0;
             const evEbitda = km.evToEBITDA||km.enterpriseValueOverEBITDA||0;
-            const roe = safe(ni && totalEquity ? ni/totalEquity : null);
+            // Average equity: GuruFocus / Morningstar / CFA standard.
+            // balance[i+1] = prior fiscal year ending equity (FMP arrays are newest-first).
+            // Fallback to ending equity alone for the oldest year (no i+1 available).
+            const priorBal = balance[i+1] || null;
+            const priorEquity = priorBal ? (priorBal.totalStockholdersEquity || priorBal.totalEquity || 0) : null;
+            const avgEquity = priorEquity != null ? (priorEquity + totalEquity) / 2 : totalEquity;
+            const roe = safe(ni && avgEquity ? ni/avgEquity : null);
             const roa = safe(ni && totalAssets ? ni/totalAssets : null);
+            // ROIC = NOPAT / Avg Invested Capital. IC = totalDebt + totalEquity.
+            // Average IC uses same prior-year balance to match ROE averaging convention.
+            const priorDebt = priorBal ? (priorBal.totalDebt || 0) : null;
+            const priorIC = priorDebt != null ? (priorDebt + priorEquity) : null;
+            const currentIC = totalDebt + totalEquity;
+            const avgIC = priorIC != null ? (priorIC + currentIC) / 2 : currentIC;
+            const nopat = ebit * (1 - 0.21); // 21% US statutory rate — NOPAT proxy
+            const roic = safe(avgIC > 0 ? nopat / avgIC : null);
             const roce = rat.returnOnCapitalEmployed||null;
             const price = (km.marketCap && shares) ? Math.round(km.marketCap/shares*100)/100 : (km.stockPrice||profile.price||0);
 
             years.push({
               year: yr, revenue: M(rev), netIncome: M(ni), ebitda: M(ebitda), ebit: M(ebit), grossProfit: M(gp),
               marginOp: rev?pct(ebit/rev):null, marginNet: rev?pct(ni/rev):null, marginGross: rev?pct(gp/rev):null,
-              roe: pct(roe), roa: pct(roa), roce: pct(roce),
+              roe: pct(roe), roa: pct(roa), roic: pct(roic), roce: pct(roce),
               ocf: M(ocf), capex: M(capex), fcf: M(fcf), divPaid: M(divPaid), buybacks: M(buybacks), sbc: M(sbc), da: M(da),
               totalDebt: M(totalDebt), cash: M(cash), netDebt: M(netDebt),
               totalAssets: M(totalAssets), totalEquity: M(totalEquity), totalLiab: M(totalLiab),
@@ -21503,7 +22361,64 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
           });
         } catch {}
       }
-      return; // Solo ejecutamos flex sync; no más nada en este tick
+
+      // Reconcile portfolio IB vs D1 después del Flex sync (mismo cron tick)
+      try {
+        const bridgeUrl = env.IB_BRIDGE_URL || "https://ib.onto-so.com";
+        const bridgeToken = env.IB_BRIDGE_TOKEN || env.BRIDGE_AUTH_TOKEN;
+        if (bridgeToken) {
+          const ibResp = await fetch(`${bridgeUrl.replace(/\/$/, "")}/positions`, {
+            headers: { "Authorization": `Bearer ${bridgeToken}` },
+            signal: AbortSignal.timeout(60000),
+          });
+          if (ibResp.ok) {
+            const ibData = await ibResp.json();
+            const ibPositions = (Array.isArray(ibData) ? ibData : (ibData?.positions || []))
+              .filter(p => p && (p.assetClass === "STK" || p.secType === "STK") && Math.abs(p.position || p.shares || 0) > 0);
+            const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA"};
+            const ibByT = {};
+            for (const p of ibPositions) {
+              const sym = (p.ticker || p.symbol || "").trim();
+              const t = IB_MAP[sym] || sym;
+              if (t) ibByT[t] = (ibByT[t] || 0) + (p.position || p.shares || 0);
+            }
+            const { results: appPos } = await env.DB.prepare(`SELECT ticker, shares FROM positions WHERE shares > 0`).all();
+            const appByT = {};
+            for (const p of appPos || []) appByT[p.ticker] = p.shares;
+            const inIBNotApp = [], inAppNotIB = [], mismatches = [];
+            for (const [t, ibSh] of Object.entries(ibByT)) {
+              if (!(t in appByT)) inIBNotApp.push({ ticker: t, ibShares: ibSh });
+              else if (Math.abs(appByT[t] - ibSh) > 0.5) mismatches.push({ ticker: t, app: appByT[t], ib: ibSh, diff: ibSh - appByT[t] });
+            }
+            for (const [t, appSh] of Object.entries(appByT)) if (!(t in ibByT)) inAppNotIB.push({ ticker: t, appShares: appSh });
+            const issues = inIBNotApp.length + inAppNotIB.length + mismatches.length;
+            if (issues > 0) {
+              const lines = [`🔍 *Reconcile Daily* — ${issues} issues`];
+              if (inIBNotApp.length) lines.push(`\nEn IB no en app (${inIBNotApp.length}):\n${inIBNotApp.slice(0,10).map(x=>`• ${x.ticker} (${x.ibShares})`).join("\n")}`);
+              if (inAppNotIB.length) lines.push(`\nEn app no en IB (${inAppNotIB.length}):\n${inAppNotIB.slice(0,10).map(x=>`• ${x.ticker} (${x.appShares})`).join("\n")}`);
+              if (mismatches.length) lines.push(`\nShares mismatch (${mismatches.length}):\n${mismatches.slice(0,10).map(x=>`• ${x.ticker}: app=${x.app} ib=${x.ib} (Δ${x.diff>0?"+":""}${x.diff})`).join("\n")}`);
+              await sendTelegram(env, { text: lines.join("\n"), severity: "warn", source: "reconcile_daily" });
+            }
+          }
+        }
+      } catch (e) {
+        console.error("[scheduled] reconcile failed:", e.message);
+      }
+
+      // Re-entry watch: tickers vendidos que han caído ≥5% — alerta Telegram diaria
+      try {
+        const reqUrl = `https://api.onto-so.com/api/reentry-watch/scan?threshold=5&days=180&apply=1`;
+        const r = await fetch(reqUrl, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${env.AYR_WORKER_TOKEN}` },
+          signal: AbortSignal.timeout(60000),
+        });
+        if (!r.ok) console.warn("[scheduled] reentry-watch failed:", r.status);
+      } catch (e) {
+        console.error("[scheduled] reentry-watch error:", e.message);
+      }
+
+      return; // Solo ejecutamos flex sync + reconcile + reentry-watch; no más nada en este tick
     }
 
     // ─── KILL-SWITCH para crons LLM (2026-04-19) ───

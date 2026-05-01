@@ -186,7 +186,7 @@ export default function CostBasisView() {
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12.5,minWidth:1200}}>
               <thead>
                 <tr>
-                  <th colSpan={6} style={{padding:"6px 10px",textAlign:"center",color:"var(--gold)",fontSize:9,fontWeight:700,fontFamily:"var(--fm)",letterSpacing:1,borderBottom:"2px solid var(--gold-dim)",background:"rgba(200,164,78,.04)"}}>TRADE / EQUITY</th>
+                  <th colSpan={7} style={{padding:"6px 10px",textAlign:"center",color:"var(--gold)",fontSize:9,fontWeight:700,fontFamily:"var(--fm)",letterSpacing:1,borderBottom:"2px solid var(--gold-dim)",background:"rgba(200,164,78,.04)"}}>TRADE / EQUITY</th>
                   <th colSpan={6} style={{padding:"6px 10px",textAlign:"center",color:"#64d2ff",fontSize:9,fontWeight:700,fontFamily:"var(--fm)",letterSpacing:1,borderBottom:"2px solid rgba(100,210,255,.15)",background:"rgba(100,210,255,.03)"}}>OPTIONS</th>
                   <th colSpan={2} style={{padding:"6px 10px",textAlign:"center",color:"var(--green)",fontSize:9,fontWeight:700,fontFamily:"var(--fm)",letterSpacing:1,borderBottom:"2px solid rgba(48,209,88,.15)",background:"rgba(48,209,88,.03)"}}>DIVIDENDS</th>
                   <th colSpan={5} style={{padding:"6px 10px",textAlign:"center",color:"var(--orange)",fontSize:9,fontWeight:700,fontFamily:"var(--fm)",letterSpacing:1,borderBottom:"2px solid rgba(255,159,10,.15)",background:"rgba(255,159,10,.03)"}}>ADJUSTED BASIS</th>
@@ -194,7 +194,7 @@ export default function CostBasisView() {
                 </tr>
                 <tr>
                   {[
-                    {l:"FECHA",w:90,sort:'date'},{l:"TIPO",w:80,sort:'type'},{l:"SHARES",w:65,r:1},{l:"PRICE",w:70,r:1},{l:"FEES",w:55,r:1},{l:"COST",w:75,r:1,sort:'cost'},
+                    {l:"ID",w:120},{l:"FECHA",w:90,sort:'date'},{l:"TIPO",w:80,sort:'type'},{l:"SHARES",w:65,r:1},{l:"PRICE",w:70,r:1},{l:"FEES",w:55,r:1},{l:"COST",w:75,r:1,sort:'cost'},
                     {l:"EXPIRY",w:85},{l:"TYPE",w:55},{l:"STATUS",w:70},{l:"CONTR.",w:50,r:1},{l:"STRIKE",w:60,r:1},{l:"CREDIT",w:65,r:1,sort:'optCredit'},
                     {l:"PER SH",w:65,r:1},{l:"TOTAL",w:70,r:1,sort:'divTotal'},
                     {l:"BALANCE",w:80,r:1},{l:"SHARES",w:60,r:1},{l:"BASIS",w:75,r:1},{l:"BASIS %",w:65,r:1},{l:"DIV Y%",w:60,r:1},
@@ -236,6 +236,7 @@ export default function CostBasisView() {
                   return (
                     <tr key={t.id||i} style={{background:rowBg}}
                       onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"} onMouseLeave={e=>e.currentTarget.style.background=rowBg}>
+                      <td style={{padding:"7px 6px",fontSize:9,color:t.execId?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)",letterSpacing:.2,opacity:.8}} title={t.execId?`exec_id IB: ${t.execId}\n(D1 row id: ${t.id||"—"})`:`Sin exec_id (legacy import). D1 row id: ${t.id||"—"}`}>{t.execId ? t.execId.split('/').pop().slice(-8) : (t.id ? `#${t.id}` : "—")}</td>
                       <td style={{padding:"7px 6px",fontSize:12,color:"var(--text-primary)",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>{t.date||""}</td>
                       <td style={{padding:"7px 6px",borderBottom:"1px solid var(--subtle-bg)"}}>
                         <span style={{padding:"2px 8px",borderRadius:5,fontSize:9.5,fontWeight:700,fontFamily:"var(--fm)",color:typeColors[t.type]||"#fff",background:`${typeColors[t.type]||"#fff"}15`,letterSpacing:.2}}>{typeLabels[t.type]||t.type}</span>

@@ -626,7 +626,7 @@ function buildPositionsFromCB() {
     // Try shared storage first
     if (storageAvailable()) {
       try {
-        const result = await window.storage.get(`cb:${ticker.toUpperCase()}`, true);
+        const result = await window.storage.get(`cb:v2:${ticker.toUpperCase()}`, true);
         if (result?.value) {
           const stored = JSON.parse(result.value);
           if (stored.length > 0) txns = stored;
@@ -637,7 +637,7 @@ function buildPositionsFromCB() {
     if (!txns.length) {
       txns = CB_EXPANDED[ticker.toUpperCase()] || CB_EXPANDED[ticker] || [];
       if (txns.length > 0 && storageAvailable()) {
-        try { await window.storage.set(`cb:${ticker.toUpperCase()}`, JSON.stringify(txns), true); } catch(e) {}
+        try { await window.storage.set(`cb:v2:${ticker.toUpperCase()}`, JSON.stringify(txns), true); } catch(e) {}
       }
     }
     // Fallback to API (cost_basis table in D1)
@@ -656,11 +656,14 @@ function buildPositionsFromCB() {
               dps: r.dps || 0, divTotal: r.div_total || 0,
               _balance: r.balance || 0, _totalShares: r.total_shares || 0, _adjustedBasis: r.adjusted_basis || 0,
               _adjustedBasisPct: r.adjusted_basis_pct || 0, _divYieldBasis: r.div_yield_basis || 0,
+              execId: r.exec_id || null,
+              account: r.account || null,
+              underlying: r.underlying || null,
             }));
             // CB loaded from API
             // Cache in storage
             if (storageAvailable()) {
-              try { await window.storage.set(`cb:${ticker.toUpperCase()}`, JSON.stringify(txns), true); } catch(e) {}
+              try { await window.storage.set(`cb:v2:${ticker.toUpperCase()}`, JSON.stringify(txns), true); } catch(e) {}
             }
           }
         }
@@ -669,7 +672,7 @@ function buildPositionsFromCB() {
     // Auto-fix data errors
     const { txns: cleaned, fixed } = sanitizeTransactions(txns);
     if (fixed && storageAvailable()) {
-      try { await window.storage.set(`cb:${ticker.toUpperCase()}`, JSON.stringify(cleaned), true); } catch(e) {}
+      try { await window.storage.set(`cb:v2:${ticker.toUpperCase()}`, JSON.stringify(cleaned), true); } catch(e) {}
     }
     return cleaned;
   }, []);
@@ -678,20 +681,28 @@ function buildPositionsFromCB() {
   const saveTransactions = useCallback(async (ticker, txns) => {
     if (!storageAvailable() || !ticker) return;
     try {
-      await window.storage.set(`cb:${ticker.toUpperCase()}`, JSON.stringify(txns), true);
+      await window.storage.set(`cb:v2:${ticker.toUpperCase()}`, JSON.stringify(txns), true);
     } catch(e) { console.warn("CB save error:", e); }
   }, []);
 
-  // Load transactions when entering cost basis view
+  // Load transactions when entering cost basis view OR analysis view
+  // 2026-05-02: also fire en analysis (cuando se abre la sub-tab "Cost Basis"
+  // dentro de cada empresa). Sin esto la 2ª pestaña aparecía vacía.
   useEffect(() => {
-    if (viewMode === "costbasis" && cbTicker) {
-      setCbLoading(true);
-      loadTransactions(cbTicker).then(txns => {
-        setCbTransactions(txns);
-        setCbLoading(false);
-      });
-    }
-  }, [viewMode, cbTicker, loadTransactions]);
+    const activeTicker = viewMode === "costbasis" ? cbTicker
+                       : viewMode === "analysis" ? (cfg?.ticker || "").toUpperCase()
+                       : null;
+    if (!activeTicker) return;
+    setCbLoading(true);
+    loadTransactions(activeTicker).then(txns => {
+      setCbTransactions(txns);
+      setCbLoading(false);
+      // Tambien sincroniza cbTicker para que CostBasisView use el ticker correcto
+      if (viewMode === "analysis" && cbTicker !== activeTicker) {
+        setCbTicker(activeTicker);
+      }
+    });
+  }, [viewMode, cbTicker, cfg?.ticker, loadTransactions]);
 
   // Add a transaction
   const addTransaction = useCallback((txn) => {
@@ -1872,6 +1883,7 @@ function buildPositionsFromCB() {
     archive:() => <ArchiveTab />,
     business:() => <BusinessModelTab />,
     tesis:() => <TesisTab />,
+    "cost-basis":() => <CostBasisView />,
   };
 
 
@@ -2021,7 +2033,12 @@ function buildPositionsFromCB() {
     sorted.forEach(t => {
       if(t.type === "buy") { totalShares += (t.shares||0); totalCost += (t.shares||0) * (t.price||0) + (t.fees||0); totalFees += (t.fees||0); }
       if(t.type === "sell") { totalShares -= (t.shares||0); totalCost -= (t.shares||0) * (t.price||0) - (t.fees||0); totalFees += (t.fees||0); }
-      if(t.type === "dividend") { totalDivs += (t.dps||0) * (t.shares || totalShares); }
+      if(t.type === "dividend") {
+        // Prefer divTotal (actual amount paid). Fallback to dps × shares (NO totalShares fallback,
+        // que causaba bug AHRT $64,692: rows con shares=0 multiplicaban por holdings totales).
+        const divAmount = t.divTotal || ((t.dps||0) * (t.shares||0));
+        totalDivs += divAmount;
+      }
       if(t.type === "option") { totalOptCredit += (t.optCredit||0) * (t.optContracts||1) * 100; totalFees += (t.fees||0); }
       if(t.type === "fee") { totalFees += (t.fees||0); totalCost += (t.fees||0); }
     });

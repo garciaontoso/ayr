@@ -30,6 +30,9 @@ TRADE_MAP = {
     "Put/Call":       "putCall",
     "Notes/Codes":    "notes",
     "IBOrderID":      "ibOrderID",
+    "TransactionID":  "transactionID",
+    "AccountId":      "accountId",
+    "ClientAccountID": "accountId",
 }
 CTRN_MAP = {
     "Type":             "type",
@@ -97,10 +100,14 @@ def main():
     out_path = "/tmp/flex_payload.xml"
     with open(out_path, "w") as f:
         f.write(xml)
+    import os as _os
+    token = _os.environ.get("AYR_WORKER_TOKEN", "")
     result = subprocess.run(
         [
             "curl", "-sS", "-X", "POST",
             "-H", "Content-Type: application/xml",
+            "-H", f"X-AYR-Auth: {token}",
+            "-H", f"Authorization: Bearer {token}",
             "--data-binary", f"@{out_path}",
             API_URL,
         ],

@@ -14,17 +14,26 @@ export function useAnalysisMetrics({ fin, cfg, setSsd, fmpExtra }) {
     const c = {};
     YEARS.forEach(y=>{
       const d = fin[y]; if(!d) return;
+      const dPrev = fin[y-1] || null;
       const fcf = d.ocf - d.capex;
       const nd = d.totalDebt - d.cash;
       const ebitda = d.operatingIncome + d.depreciation;
       const ev = (cfg.price * (d.sharesOut||1)) + nd;
+      // ROE/ROIC con avg equity (estándar GuruFocus/Morningstar/CFA, no Buffett "ending")
+      const avgEquity = dPrev?.equity ? (d.equity + dPrev.equity) / 2 : d.equity;
+      const ndPrev = dPrev ? (dPrev.totalDebt - dPrev.cash) : null;
+      const avgInvCap = (dPrev?.equity != null && ndPrev != null)
+        ? ((d.equity + nd) + (dPrev.equity + ndPrev)) / 2
+        : (d.equity + nd);
       c[y] = {
         fcf, netDebt:nd, ebitda, ev,
         gm: div(d.grossProfit, d.revenue),
         om: div(d.operatingIncome, d.revenue),
         nm: div(d.netIncome, d.revenue),
-        roe: div(d.netIncome, d.equity),
-        roic: div(d.operatingIncome*(1-(cfg.taxRate/100)), d.equity+nd),
+        roe: div(d.netIncome, avgEquity),
+        roeBuffett: div(d.netIncome, d.equity),
+        roic: div(d.operatingIncome*(1-(cfg.taxRate/100)), avgInvCap),
+        roicBuffett: div(d.operatingIncome*(1-(cfg.taxRate/100)), d.equity+nd),
         fcfm: div(fcf, d.revenue),
         cfm: div(d.ocf, d.revenue),
         ocfCapex: div(d.ocf, d.capex),
@@ -41,6 +50,13 @@ export function useAnalysisMetrics({ fin, cfg, setSsd, fmpExtra }) {
         fcfps: div(fcf, d.sharesOut),
         fcfPayout: fcf>0 ? div(d.dps*d.sharesOut, fcf) : null,
         ePayout: d.netIncome>0 ? div(d.dps*d.sharesOut, d.netIncome) : null,
+        fcfAlloc: {
+          divs: d.dividendsPaid || 0,
+          buybacks: d.buybacks || 0,
+          debtPaydown: d.debtRepayment || 0,
+          acquisitions: d.acquisitions || 0,
+          retained: Math.max(0, fcf - (d.dividendsPaid||0) - (d.buybacks||0) - (d.debtRepayment||0) - (d.acquisitions||0)),
+        },
         roicR1: div(d.netIncome, d.equity + d.totalDebt - d.cash),
         revps: div(d.revenue, d.sharesOut),
         oe: d.netIncome + d.depreciation - d.capex,

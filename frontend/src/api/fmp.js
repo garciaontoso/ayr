@@ -103,6 +103,11 @@ export async function fetchViaFMP(ticker, { forceRefresh = false } = {}) {
       interestExpense: M(inc.interestExpense || 0),
       depreciation: M(inc.depreciationAndAmortization || cf.depreciationAndAmortization || 0),
       taxProvision: M(inc.incomeTaxExpense || 0),
+      // Capital allocation fields (all sign-positive = cash outflow)
+      buybacks: Math.abs(M(cf.commonStockRepurchased || 0)),
+      dividendsPaid: Math.abs(M(cf.commonDividendsPaid || cf.dividendsPaid || cf.netDividendsPaid || 0)),
+      debtRepayment: Math.abs(M((cf.debtRepayment || 0) + (cf.commonStockIssued || 0))),
+      acquisitions: Math.abs(M(cf.acquisitionsNet || 0)),
     };
   });
 

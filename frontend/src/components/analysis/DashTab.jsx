@@ -1,13 +1,27 @@
+import { useState, useEffect } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Badge, BarChart, Card, TrustBadge } from '../ui';
 import { _sf, n, f1, f2, fP, fX, fC, fM, div } from '../../utils/formatters.js';
 import { R } from '../../utils/ratings.js';
 import { useFreshness } from '../../hooks/useFreshness.js';
+import { API_URL } from '../../constants/index.js';
 
 export default function DashTab() {
   const { CHART_YEARS, L, LD, altmanZ, capLabel, cfg, chartLabels, comp, dcf, fin, fmpExtra, marketCap, piotroski, priceChartData, roicWaccSpread, ssd, wacc, waterfall } = useAnalysis();
   // Trust badges — useFreshness has its own useEffect so must be declared before render
   const { getLevel: freshnessLevel, getUpdatedAt: freshnessDate, getSource: freshnessSource } = useFreshness();
+
+  // Debt maturity calendar — must be declared before render (TDZ safety)
+  const [debtMaturity, setDebtMaturity] = useState(null);
+  useEffect(() => {
+    if (!cfg.ticker) return;
+    setDebtMaturity(null);
+    fetch(`${API_URL}/api/debt-maturity?ticker=${encodeURIComponent(cfg.ticker)}`)
+      .then(r => r.json())
+      .then(d => setDebtMaturity(d.maturity ? d : null))
+      .catch(() => setDebtMaturity(null));
+  }, [cfg.ticker]);
+
     const revData = CHART_YEARS.map(y=>fin[y]?.revenue ?? null);
     const fcfData = CHART_YEARS.map(y=>comp[y]?.fcf ?? null);
     const epsData = CHART_YEARS.map(y=>fin[y]?.eps ?? null);
@@ -118,8 +132,9 @@ export default function DashTab() {
           {[
             {lbl:"FCF",val:fM(L.fcf),sub:`Margen: ${fP(L.fcfm)}`,rules:R.fcfm,rv:L.fcfm,trust:{src:"FMP /cash-flow-statement (TTM)",note:"Free Cash Flow = OpCF - CapEx"}},
             {lbl:"M. Bruto",val:fP(L.gm),rules:R.gm,rv:L.gm,trust:{src:"FMP /income-statement (TTM)",note:"Gross Margin = Gross Profit / Revenue"}},
-            {lbl:"ROE",val:fP(L.roe),rules:R.roe,rv:L.roe,trust:{src:"FMP /key-metrics (TTM)",note:"Return on Equity"}},
-            {lbl:"ROIC",val:fP(L.roic),rules:R.roic,rv:L.roic,trust:{src:"FMP /key-metrics (TTM)",note:"Return on Invested Capital"}},
+            {lbl:"M. Operativo",val:fP(L.om),rules:R.gm,rv:L.om,trust:{src:"FMP /income-statement (TTM)",note:"Operating Margin = Operating Income / Revenue"}},
+            {lbl:"ROE",val:fP(L.roe),sub:L.roeBuffett!=null?`Buffett: ${fP(L.roeBuffett)} ${L.roeBuffett>L.roe?"↗":L.roeBuffett<L.roe?"↘":"≈"}`:null,rules:R.roe,rv:L.roe,trust:{src:"Avg: NI / ((begin+end equity)/2) · Buffett: NI / ending equity",note:"Avg = estándar GuruFocus/Morningstar/CFA. Buffett ↗ = recompras (pro-shareholder). Buffett ↘ = equity creciendo (dilución / retención ineficiente)."}},
+            {lbl:"ROIC",val:fP(L.roic),sub:L.roicBuffett!=null?`Buffett: ${fP(L.roicBuffett)} ${L.roicBuffett>L.roic?"↗":L.roicBuffett<L.roic?"↘":"≈"}`:null,rules:R.roic,rv:L.roic,trust:{src:"Avg: NOPAT / Avg IC · Buffett: NOPAT / ending IC",note:"Avg = estándar industria. Buffett ↗ = capital invertido encogiendo (recompras / amortización deuda)."}},
             {lbl:"Deuda/FCF",val:fX(L.d2fcf),rules:R.d2fcf,rv:L.d2fcf,trust:{src:"FMP /balance-sheet + /cash-flow (TTM)",note:"Total Debt / Free Cash Flow"}},
             {lbl:"EV/EBITDA",val:fX(L.eve),rules:R.eve,rv:L.eve,trust:{src:"FMP /key-metrics (TTM)",note:"Enterprise Value / EBITDA"}},
             {lbl:"Piotroski",val:`${piotroski.score}/9`,rules:R.pio,rv:piotroski.score,trust:{src:"Calculado localmente sobre FMP financials",note:"F-Score: 9 criterios de salud financiera"}},
@@ -345,6 +360,122 @@ export default function DashTab() {
           </Card>
         </div>
 
+        {/* FCF Coverage del Dividendo (multi-año) */}
+        {(() => {
+          const rows = CHART_YEARS.map(y => {
+            const d = fin[y]; if(!d) return null;
+            const fcf = (d.ocf||0) - (d.capex||0);
+            const divs = (d.dps||0) * (d.sharesOut||0);
+            return { y, fcf, divs };
+          }).filter(Boolean);
+          if (rows.length === 0) return null;
+          const maxV = Math.max(...rows.map(r => Math.max(r.fcf, r.divs)), 1);
+          const lat = rows[rows.length-1] || {};
+          const cov = lat.divs > 0 ? lat.fcf/lat.divs : null;
+          const covColor = cov==null ? "var(--text-tertiary)" : cov >= 2 ? "var(--green)" : cov >= 1.2 ? "var(--gold)" : cov >= 1 ? "#ff9f0a" : "var(--red)";
+          return (
+            <Card title="Cobertura del Dividendo (FCF vs Dividendos)" icon="🛡" style={{marginTop:12}} badge={
+              cov != null ? <span style={{fontSize:11,fontWeight:700,color:covColor,padding:"4px 12px",borderRadius:100,border:`1px solid ${covColor}`,background:`${covColor.startsWith('var')?'rgba(48,209,88,.12)':covColor+"22"}`}}>{cov.toFixed(2)}x cobertura</span> : null
+            }>
+              <div style={{display:"flex",alignItems:"flex-end",gap:6,height:140,padding:"4px 2px",borderBottom:"1px solid var(--border)"}}>
+                {rows.map((r,i)=>{
+                  const fcfH = (r.fcf/maxV)*120;
+                  const divH = (r.divs/maxV)*120;
+                  return (
+                    <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",height:"100%",justifyContent:"flex-end",position:"relative"}}>
+                      <div style={{display:"flex",gap:2,alignItems:"flex-end",height:120}}>
+                        <div style={{width:10,height:Math.max(fcfH,2),background:"#6b8e6b",borderRadius:"2px 2px 0 0"}} title={`FCF: ${fM(r.fcf)}`}/>
+                        <div style={{width:10,height:Math.max(divH,2),background:"#c9972e",borderRadius:"2px 2px 0 0"}} title={`Dividendos: ${fM(r.divs)}`}/>
+                      </div>
+                      <span style={{fontSize:8,color:"var(--text-tertiary)",marginTop:3,fontFamily:"var(--fm)"}}>{String(r.y).slice(2)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8,fontSize:10,color:"var(--text-secondary)"}}>
+                <div style={{display:"flex",gap:14}}>
+                  <span><span style={{display:"inline-block",width:9,height:9,background:"#6b8e6b",marginRight:4,borderRadius:1}}/>FCF</span>
+                  <span><span style={{display:"inline-block",width:9,height:9,background:"#c9972e",marginRight:4,borderRadius:1}}/>Dividendos pagados</span>
+                </div>
+                <span style={{fontSize:9,color:"var(--text-tertiary)"}}>Coverage = FCF / DPS×Shares · DSTTab tiene allocation con buybacks/SBC/deuda</span>
+              </div>
+            </Card>
+          );
+        })()}
+
+        {/* FCF Allocation — Capital Allocation multi-year stacked bar */}
+        {(() => {
+          const allocRows = CHART_YEARS.map(y => {
+            const d = fin[y]; if (!d) return null;
+            const a = comp[y]?.fcfAlloc;
+            if (!a) return null;
+            const total = a.divs + a.buybacks + a.debtPaydown + a.acquisitions + a.retained;
+            if (total <= 0) return null;
+            return { y, ...a, total };
+          }).filter(Boolean);
+          if (allocRows.length === 0) return null;
+          const maxTotal = Math.max(...allocRows.map(r => r.total), 1);
+          const BAR_H = 120;
+          const SEGS = [
+            { key: 'divs',       label: 'Dividendos', color: '#c8a44e' },
+            { key: 'buybacks',   label: 'Buybacks',   color: '#ff9f0a' },
+            { key: 'debtPaydown',label: 'Deuda',      color: '#5b9bd5' },
+            { key: 'acquisitions',label: 'M&A',       color: '#bf5af2' },
+            { key: 'retained',   label: 'Retenido',   color: '#6b8e6b' },
+          ];
+          const latRow = allocRows[allocRows.length - 1];
+          return (
+            <Card title="Asignación del FCF (Capital Allocation)" icon="📊" style={{marginTop:12}}>
+              {/* Stacked bar chart */}
+              <div style={{display:'flex',alignItems:'flex-end',gap:4,height:BAR_H+20,padding:'0 2px',marginBottom:4}}>
+                {allocRows.map((r,i) => {
+                  const barH = (r.total / maxTotal) * BAR_H;
+                  return (
+                    <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',height:BAR_H+20}}>
+                      <div style={{width:'100%',display:'flex',flexDirection:'column-reverse',height:barH,borderRadius:'3px 3px 0 0',overflow:'hidden',cursor:'default'}}
+                        title={SEGS.map(s => `${s.label}: ${fM(r[s.key])}`).join('\n')}>
+                        {SEGS.map(s => {
+                          const segH = r.total > 0 ? (r[s.key] / r.total) * barH : 0;
+                          if (segH < 0.5) return null;
+                          return <div key={s.key} style={{width:'100%',height:segH,background:s.color,flexShrink:0}}/>;
+                        })}
+                      </div>
+                      <span style={{fontSize:8,color:'var(--text-tertiary)',marginTop:3,fontFamily:'var(--fm)'}}>{String(r.y).slice(2)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Legend */}
+              <div style={{display:'flex',flexWrap:'wrap',gap:'4px 12px',marginBottom:10}}>
+                {SEGS.map(s => (
+                  <span key={s.key} style={{fontSize:9,color:'var(--text-secondary)',display:'flex',alignItems:'center',gap:4}}>
+                    <span style={{display:'inline-block',width:9,height:9,background:s.color,borderRadius:2,flexShrink:0}}/>
+                    {s.label}
+                  </span>
+                ))}
+              </div>
+              {/* Latest-year % breakdown row */}
+              {latRow && latRow.total > 0 && (
+                <div style={{padding:'8px 10px',background:'var(--row-alt)',borderRadius:8,fontSize:10,color:'var(--text-secondary)',fontFamily:'var(--fm)',lineHeight:1.8}}>
+                  <span style={{fontWeight:700,color:'var(--text-primary)',marginRight:8}}>{latRow.y}:</span>
+                  {SEGS.map((s,i) => {
+                    const pct = Math.round((latRow[s.key] / latRow.total) * 100);
+                    if (pct === 0) return null;
+                    return (
+                      <span key={s.key}>
+                        <span style={{color:s.color,fontWeight:600}}>{pct}%</span>
+                        <span style={{color:'var(--text-tertiary)'}}> {s.label}</span>
+                        {i < SEGS.length - 1 && <span style={{color:'var(--border)',margin:'0 6px'}}>·</span>}
+                      </span>
+                    );
+                  })}
+                  <span style={{display:'block',marginTop:4,fontSize:9,color:'var(--text-tertiary)'}}>FCF total {fM(latRow.total)} · ordenado de mayor a menor</span>
+                </div>
+              )}
+            </Card>
+          );
+        })()}
+
         {/* AI Disruption Risk — en Resumen */}
         <Card title="Riesgo Disrupción IA" icon="🤖" style={{marginTop:16}} badge={
           ssd.aiDisruptionLevel ? <span style={{fontSize:11,fontWeight:700,
@@ -380,6 +511,74 @@ export default function DashTab() {
           ) : (
             <div style={{textAlign:"center",padding:"16px",color:"var(--text-tertiary)",fontSize:12}}>
               Haz click en <strong style={{color:"var(--gold)"}}>⚡ Cargar</strong> para generar el análisis de riesgo IA con Claude.
+            </div>
+          )}
+        </Card>
+
+        {/* Calendario de Vencimientos de Deuda */}
+        <Card title="Calendario de Vencimientos de Deuda" icon="📅" style={{marginTop:16}}>
+          {debtMaturity ? (() => {
+            const m = debtMaturity.maturity;
+            const por = debtMaturity.period_of_report || '';
+            // Base year from period_of_report (e.g. "2025-09-28" → 2025)
+            const baseYear = por ? parseInt(por.slice(0, 4), 10) : new Date().getFullYear();
+            const bars = [
+              { key: 'next12m', label: `${baseYear + 1}`,  color: '#ff453a' },
+              { key: 'y2',      label: `${baseYear + 2}`,  color: '#ff9f0a' },
+              { key: 'y3',      label: `${baseYear + 3}`,  color: '#c8a44e' },
+              { key: 'y4',      label: `${baseYear + 4}`,  color: '#ffd60a' },
+              { key: 'y5',      label: `${baseYear + 5}`,  color: '#5b9bd5' },
+              { key: 'after5',  label: `>${baseYear + 5}`, color: '#30d158' },
+            ].filter(b => m[b.key] != null && m[b.key] > 0);
+
+            if (bars.length === 0) return (
+              <div style={{textAlign:'center',padding:'16px',color:'var(--text-tertiary)',fontSize:12}}>
+                Datos de vencimiento no disponibles para este ticker.
+              </div>
+            );
+
+            const maxVal = Math.max(...bars.map(b => m[b.key]));
+            const BAR_H = 110;
+            const totalLP = debtMaturity.total_long_term_debt;
+            const fmt = v => v >= 1e9 ? `$${(v/1e9).toFixed(1)}B` : v >= 1e6 ? `$${(v/1e6).toFixed(0)}M` : `$${v.toFixed(0)}`;
+
+            return (
+              <div>
+                <div style={{fontSize:11,fontWeight:600,color:'var(--text-secondary)',marginBottom:10}}>
+                  Total deuda LP: <span style={{color:'var(--text-primary)',fontFamily:'var(--fm)',fontWeight:700}}>{fmt(totalLP)}</span>
+                  <span style={{fontSize:9,color:'var(--text-tertiary)',marginLeft:8}}>10-K {debtMaturity.fiscal_year} · XBRL</span>
+                </div>
+                <div style={{display:'flex',alignItems:'flex-end',gap:6,height:BAR_H + 36,padding:'0 2px'}}>
+                  {bars.map(b => {
+                    const barH = Math.max((m[b.key] / maxVal) * BAR_H, 3);
+                    return (
+                      <div key={b.key} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end'}}>
+                        <div style={{fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)',marginBottom:2,textAlign:'center'}}>{fmt(m[b.key])}</div>
+                        <div
+                          style={{width:'100%',height:barH,background:b.color,borderRadius:'3px 3px 0 0',opacity:0.85,cursor:'default'}}
+                          title={`${b.label}: ${fmt(m[b.key])}`}
+                        />
+                        <div style={{fontSize:9,color:'var(--text-secondary)',marginTop:4,fontFamily:'var(--fm)',textAlign:'center'}}>{b.label}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{display:'flex',gap:12,marginTop:6,flexWrap:'wrap'}}>
+                  <span style={{fontSize:9,display:'flex',alignItems:'center',gap:4,color:'var(--text-tertiary)'}}>
+                    <span style={{display:'inline-block',width:9,height:9,background:'#ff453a',borderRadius:2}}/>Y+1 urgente
+                  </span>
+                  <span style={{fontSize:9,display:'flex',alignItems:'center',gap:4,color:'var(--text-tertiary)'}}>
+                    <span style={{display:'inline-block',width:9,height:9,background:'#c8a44e',borderRadius:2}}/>Y2-Y5 medio plazo
+                  </span>
+                  <span style={{fontSize:9,display:'flex',alignItems:'center',gap:4,color:'var(--text-tertiary)'}}>
+                    <span style={{display:'inline-block',width:9,height:9,background:'#30d158',borderRadius:2}}/>+5 años
+                  </span>
+                </div>
+              </div>
+            );
+          })() : (
+            <div style={{textAlign:'center',padding:'16px',color:'var(--text-tertiary)',fontSize:12}}>
+              Datos de vencimiento no disponibles para este ticker.
             </div>
           )}
         </Card>

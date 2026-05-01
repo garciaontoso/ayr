@@ -11,7 +11,8 @@ const WL_KEY = "ayr_wl_tabs";
 
 // Sort pill definitions (id stable for persistence)
 const WATCHLIST_SORT_OPTIONS = [
-  { id: "name",   lbl: "A-Z" },
+  { id: "ticker", lbl: "Ticker" },
+  { id: "name",   lbl: "Nombre" },
   { id: "price",  lbl: "Precio" },
   { id: "change", lbl: "Cambio" },
 ];
@@ -145,6 +146,7 @@ export default function WatchlistTab() {
 
   // Sort
   const sortFns = {
+    ticker: (a, b) => (a.ticker || "").localeCompare(b.ticker || ""),
     name: (a, b) => (a.name || a.ticker).localeCompare(b.name || b.ticker),
     price: (a, b) => (b.lastPrice || 0) - (a.lastPrice || 0),
     change: (a, b) => (b.dayChange || 0) - (a.dayChange || 0),
@@ -279,6 +281,7 @@ export default function WatchlistTab() {
                   {[
                     { l: "", align: "left" },
                     { l: "TICKER", align: "left" },
+                    { l: "NOMBRE", align: "left" },
                     { l: "PRECIO", align: "right" },
                     { l: "CAMBIO", align: "right" },
                     { l: "52W RANGE", align: "right" },
@@ -311,10 +314,13 @@ export default function WatchlistTab() {
                           style={{ width: 28, height: 28, borderRadius: 6, background: "#161b22" }} onError={e => { e.target.style.display = "none"; }} />
                       </td>
                       <td style={{ padding: "5px 10px" }}>
-                        <div style={{ fontWeight: 700, color: "var(--text-primary)", fontFamily: "var(--fm)", fontSize: 13 }}>
-                          <span style={{ fontSize: 16, marginRight: 4 }}>{FLAGS[cc] || ""}</span>{p.ticker}
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <span style={{ fontSize: 16 }}>{FLAGS[cc] || ""}</span>
+                          <span style={{ fontWeight: 700, color: "var(--gold)", fontFamily: "var(--fm)", fontSize: 12, letterSpacing: "0.5px", whiteSpace: "nowrap" }}>{p.ticker}</span>
                         </div>
-                        <div style={{ fontSize: 10, color: "var(--text-tertiary)", fontFamily: "var(--fm)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180 }}>{p.name || ""}</div>
+                      </td>
+                      <td style={{ padding: "5px 10px", maxWidth: 200 }}>
+                        <span style={{ fontSize: 12, fontWeight: 400, color: "var(--text-primary)", fontFamily: "var(--fm)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }} title={p.name || p.ticker}>{p.name || p.ticker}</span>
                       </td>
                       <td style={{ padding: "5px 10px", textAlign: "right", fontFamily: "var(--fm)", fontWeight: 700, color: "var(--text-primary)", fontSize: 14 }}>
                         ${_sf(p.lastPrice || 0, 2)}

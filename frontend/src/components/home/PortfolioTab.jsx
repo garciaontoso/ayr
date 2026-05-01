@@ -31,8 +31,10 @@ const getSectorColor = (sector) => {
 };
 
 export const COL_DEFS = [
-  { id:"ticker", label:"TICKER", group:"Core", w:"160px", align:"left", locked:true, defaultOn:true,
-    val:p=>p.ticker, fmt:v=>v, sortV:p=>(p.name||p.ticker).toLowerCase() },
+  { id:"ticker", label:"TICKER", group:"Core", w:"68px", align:"left", locked:true, defaultOn:true,
+    val:p=>p.ticker, fmt:v=>v, sortV:p=>(p.ticker||"").toLowerCase() },
+  { id:"name", label:"NOMBRE", group:"Core", w:"110px", align:"left", defaultOn:true,
+    val:p=>p.name||p.ticker, fmt:v=>v, sortV:p=>(p.name||p.ticker).toLowerCase() },
   { id:"price", label:"PRECIO", group:"Core", w:"58px", defaultOn:true,
     val:p=>p.lastPrice||0, fmt:(v,p)=>{const c=p.ccy||p.currency||"USD";const s=c==="GBX"?"\u00a3":c==="EUR"?"\u20ac":c==="GBP"?"\u00a3":c==="HKD"?"HK$":c==="CAD"?"C$":"$";return s+(c==="GBX"?(v/100):v).toFixed(2);}, sortV:p=>p.priceUSD||0 },
   { id:"chgPct", label:"CHG%", group:"Core", w:"44px", defaultOn:true,
@@ -174,7 +176,8 @@ function PortfolioCountryPills({ countrySorted, countryFilter, setCountryFilter,
 const COL_GROUPS = [...new Set(COL_DEFS.map(c=>c.group))];
 
 const SORT_OPTIONS = [
-  {id:"name",lbl:"A-Z",fn:(a,b)=>(a.name||a.ticker).localeCompare(b.name||b.ticker)},
+  {id:"ticker",lbl:"Ticker",fn:(a,b)=>(a.ticker||"").localeCompare(b.ticker||"")},
+  {id:"name",lbl:"Nombre",fn:(a,b)=>(a.name||a.ticker).localeCompare(b.name||b.ticker)},
   {id:"value",lbl:"Valor",fn:(a,b)=>(b.valueUSD||0)-(a.valueUSD||0)},
   {id:"pnl",lbl:"P&L%",fn:(a,b)=>(b.pnlPct||0)-(a.pnlPct||0)},
   {id:"weight",lbl:"Peso",fn:(a,b)=>(b.weight||0)-(a.weight||0)},
@@ -294,7 +297,12 @@ export default function PortfolioTab() {
   } = useHome();
 
   const [quickFilter, setQuickFilter] = useState("");
-  const [listSort, setListSort] = useState("value");
+  const [listSort, setListSort] = useState(() => {
+    try { return localStorage.getItem('ui_portfolio_sort') || 'ticker'; } catch { return 'ticker'; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('ui_portfolio_sort', listSort); } catch {}
+  }, [listSort]);
   const searchRef = useRef(null);
 
   // Trust badges — data freshness from /api/data-status (fetched once per session)
@@ -441,7 +449,7 @@ export default function PortfolioTab() {
   });
   const [showColPicker, setShowColPicker] = useState(false);
   const colPickerRef = useRef(null);
-  const [colSort, setColSort] = useState({ id: "value", asc: false });
+  const [colSort, setColSort] = useState({ id: null, asc: false });
 
   // ─── Column widths with persistence ───
   // Users can drag the right edge of any header cell to resize. Widths
@@ -1028,12 +1036,16 @@ export default function PortfolioTab() {
                           return (<td key={c.id} style={{padding:"3px 3px",verticalAlign:"middle",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>
                             <div style={{display:"flex",alignItems:"center",gap:3,minWidth:0}}>
                               <span style={{fontSize:11,flexShrink:0}}>{FLAGS[cc]||""}</span>
-                              <span style={{fontSize:10,fontWeight:600,color:"var(--text-primary)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name||p.ticker}</span>
-                              <span style={{fontSize:8,color:"var(--text-tertiary)",flexShrink:0}}>{p.ticker}</span>
+                              <span style={{fontSize:11,fontWeight:700,color:"var(--gold)",letterSpacing:"0.5px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.ticker}</span>
                               {sectorColor && <div style={{width:5,height:5,borderRadius:"50%",background:sectorColor,flexShrink:0,opacity:.8}} title={p.sector}/>}
                               {p.dataSource==="IB" && <div title={ibTitle} style={{width:5,height:5,borderRadius:"50%",background:"#64d2ff",flexShrink:0,opacity:.8}}/>}
                               {divStreaks && divStreaks[p.ticker]?.streak >= 5 && <span style={{fontSize:6,fontWeight:700,padding:"0 3px",borderRadius:3,background:divStreaks[p.ticker]?.streak>=25?"rgba(200,164,78,.18)":"rgba(255,214,10,.10)",color:divStreaks[p.ticker]?.streak>=25?"var(--gold)":"#ffd60a",flexShrink:0,letterSpacing:.2}} title={`${divStreaks[p.ticker].streak} años subiendo dividendo`}>{divStreaks[p.ticker].streak}y</span>}
                             </div>
+                          </td>);
+                        }
+                        if (c.id === "name") {
+                          return (<td key={c.id} style={{padding:"3px 3px",verticalAlign:"middle",overflow:"hidden",whiteSpace:"nowrap",textOverflow:"ellipsis"}}>
+                            <span style={{fontSize:11,fontWeight:400,color:"var(--text-primary)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={p.name||p.ticker}>{p.name||p.ticker}</span>
                           </td>);
                         }
                         if (c.id === "sector") {

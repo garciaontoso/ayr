@@ -1,4 +1,44 @@
-# A&R v4.3 — Auto Trading + T3 Bridge + Auto-Close Engine + Cron Flex + Auth Gates
+# A&R v4.4 — Data Integrity Overhaul + Reconcile + UX Polish
+
+## ⚠️ REGLAS DURAS DE DATA INTEGRITY (no romper)
+
+### Tablas canonical (UN SOLO source of truth por tipo)
+- `cost_basis` = SOLO trades EQUITY/OPTION. **NUNCA tipo='DIVIDENDS'** (es legacy bug).
+- `dividendos` = canonical para divs cobrados. Backend ya hace JOIN con cost_basis al servir `/api/costbasis`.
+- `transferencias` = SOLO bank↔broker externas (no INTERNAL IB-IB).
+- `positions` = posiciones actuales, sincronizadas con IB live.
+- `open_trades` = open BPS/IC/CC (closed_at IS NULL).
+
+### Patrones obligatorios
+1. **MERGE en READ, no en WRITE** — si necesitas vista combinada (ej. trades + divs), JOIN al servir, NO duplicar en disco.
+2. **`/api/costbasis/sync-dividends` está DEPRECATED** (2026-05-02). No usar — solo recrea dups.
+3. **Antes de bulk UPDATE/DELETE** en D1: SELECT COUNT(*) → SELECT sample 5 → script con `--dry-run` si magnitud >100.
+4. **Antes de pedir datos al usuario**: chequear `data/flex-csvs/`, D1, `~/Downloads/` y memoria.
+5. **Validación de divs**: rechazar `shares=0 AND dps>1.0` (siempre bug de extracción).
+
+### Tokens (NO PEDIR al usuario)
+- `AYR_WORKER_TOKEN` (worker secret) = mismo que `VITE_AYR_TOKEN` del frontend `.env.local`
+- Si HTTP 401 en uploads: copiar el VITE_AYR_TOKEN a `~/.ayr-env`
+- Bridge NAS usa `BRIDGE_AUTH_TOKEN` distinto
+
+### CSVs Flex locales (NO PEDIR)
+Permanentes en `/data/flex-csvs/` — multi4 yearly 2021-2026 cubren 4 cuentas.
+
+## v4.4 Changes (2026-05-02) — Data Integrity Overhaul, ~10h sesión
+- **Re-import 6,114 trades 2020-2024** multi-account con exec_id poblado
+- **114 transferencias externas** importadas ($994K bank↔broker)
+- **AHRT bug** $64,692→$1,995: cbCalc fallback peligroso fixed + API merge architecture
+- **Arquitectura `/api/costbasis`**: MERGE cost_basis + dividendos en READ time (fin del bug recurrente)
+- **`sync-dividends` DEPRECATED** (no-op) — ya no recrea duplicados
+- **Reconcile diario IB vs D1** con Telegram alert (cron post-Flex)
+- **Telegram dividendos** muestra bruto total + neto + per share
+- **Portfolio sort default = ticker A-Z** + persiste en localStorage
+- **Columnas TICKER + NOMBRE separadas** (Portfolio + Watchlist)
+- **Tab "Opciones Abiertas"** con theta diaria + filtros + calendar view
+- **DashTab nuevo**: ROE Buffett comparison ↗↘, Operating Margin, Cobertura FCF vs Divs, **FCF Allocation completo**, Debt Maturity (limitado)
+- **Endpoints nuevos**: `/api/reconcile/portfolio-check`, `/api/options/open-portfolio`, `/api/debt-maturity`, `/api/earnings/archive/reextract`
+- **Frontend ROE/ROIC fix**: avg equity en `useAnalysisMetrics.js` (estándar GuruFocus, no Buffett ending)
+- **Cache invalidation**: `cb:` → `cb:v2:` en window.storage para forzar reload limpio
 
 ## v4.3 Changes (2026-05-01) — Sesión master 6h, 13 commits, ~60 bugs fixed (3 rondas auditoría 16 agentes)
 - **Auto Trading tab completo** (grupo Ingresos): Catálogo + Backtest + 🎣 Pescando + 🧠 Brain + 📅 Hoy + 🛡️ Auto-Close + 📊 Paper. 4 estrategias seedeadas (BPS-IWM Phil Town, BPS-SPY, IC-SPY, Earnings-IC).
