@@ -1,4 +1,24 @@
-# A&R v4.2 — Dividend Equity Analysis + 11 AI Agents + IB Bridge LIVE
+# A&R v4.3 — Auto Trading + T3 Bridge + Auto-Close Engine + Cron Flex + Auth Gates
+
+## v4.3 Changes (2026-05-01) — Sesión master 6h, 13 commits, ~60 bugs fixed (3 rondas auditoría 16 agentes)
+- **Auto Trading tab completo** (grupo Ingresos): Catálogo + Backtest + 🎣 Pescando + 🧠 Brain + 📅 Hoy + 🛡️ Auto-Close + 📊 Paper. 4 estrategias seedeadas (BPS-IWM Phil Town, BPS-SPY, IC-SPY, Earnings-IC).
+- **Tab TT** (grupo Cartera): 3 cuentas T3 con auto-detect strategies. Auto-refresh 60s.
+- **NAS Bridge Tastytrade LIVE**: `ttapi.onto-so.com` → tastytrade-bridge container. OAuth flow + persist tokens en `/data/tt-tokens.json`. Resuelve bloqueo CF Workers IPs (verificado nginx 401 desde CF, 200 desde IP residencial).
+- **Auto-Close Engine**: 13 reglas, Telegram CRITICAL+WARN, DTE en ET (no UTC), engine extendido a IB bridge.
+- **Auto-sync open trades** cada 5 min: detecta BPS/BCS/IC/CSP/CC desde T3+IB.
+- **Cron CF diario** `30 7 * * 1-5` (08:30 Madrid): IB Flex sync sin Mac. Coste $0.
+- **Telegram bot @AyRTrading_bot**: dividendos nuevos auto + brain + auto-close + fishing + auto-sync.
+- **Daily Pesca**: sugerencia diaria BPS RUT con patrón histórico empírico (delta 0.03, OTM 9.7%, DTE 28, VIX 16.5, jue+vie) + defensa combo POP+Δ+size cap.
+- **AUTH GATES**: 30+ endpoints sensibles requieren `X-AYR-Auth` token. Frontend monkey patch en `main.jsx` añade auto. Antes /api/positions = HTTP 200 público.
+- **CORS strict**: allowlist exacta (ayr.onto-so.com + ayr-196.pages.dev). Quitado `*.pages.dev` wildcard (CSRF risk).
+- **Schema multi-cuenta**: `account` column en cost_basis/positions/dividendos. Worker flex import populate automático.
+- **Bug UNH resuelto**: 1844 opciones tenían OCC ticker raw → añadida columna `underlying`, backfilled. Frontend orphans filtra por underlying.
+- **Recovered ~$30K visibility**: PAYX 207→307, UNH price stale, DIVO usd_value, HEN3+MO avg negativo, 6 ghost rows movidos.
+- **logEvent + errorBudget centralizado** (foundation para reemplazar 127 catches silenciosos + 67 console.error sin alerta).
+- **Mobile UX**: viewport pinch-zoom, safe-area-inset, inputs 16px, touch 36px min.
+- **Schema cleanup D1**: 6 indexes duplicados borrados, UNIQUE dedup divs.
+- **Backup 4 sitios** (local + NAS + iCloud + GitHub tag `snapshot-2026-05-01`).
+- **Pendientes round 2**: 9 catches CRITICAL más, FMP N+1 fix, backfill account 7942 NULL (re-import Flex 365d), HKG/AHRT cost_basis manual review, VAPID push iOS, frontend tab "Income por opciones".
 
 ## v4.2 Changes (2026-04-27) — IB Gateway bridge en producción
 - **NAS Synology DS423+** corre `ib-gateway` (gnzsnz/ib-gateway) + `ib-bridge` (Node 20 Express). Stack en `/volume1/docker/ib-stack/`
