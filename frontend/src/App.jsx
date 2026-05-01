@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } from "react";
-import { _sf, _sl, n, fDol, fmtNumD, fmtPctFrac, fmtMul, fmtBnUsd } from './utils/formatters.js';
+import { _sf, fmtNumD, fmtPctFrac, fmtMul, fmtBnUsd } from './utils/formatters.js';
 import { CURRENCIES, DISPLAY_CCYS, DEFAULT_FX, YEARS, _CURRENT_YEAR, TABS, API_URL, HOME_TABS } from './constants/index.js';
 import { convertCcy, fetchFxRates } from './utils/currency.js';
 import { storageAvailable, saveCompanyToStorage, loadCompanyFromStorage, loadPortfolioIndex, removeCompanyFromStorage } from './utils/storage.js';
@@ -42,6 +42,7 @@ const TranscriptTab = lazy(() => import('./components/analysis/TranscriptTab'));
 const ArchiveTab = lazy(() => import('./components/analysis/ArchiveTab'));
 const BusinessModelTab = lazy(() => import('./components/analysis/BusinessModelTab'));
 const TesisTab = lazy(() => import('./components/analysis/TesisTab'));
+const DirectivaTab = lazy(() => import('./components/analysis/DirectivaTab'));
 const DSTTab = lazy(() => import('./components/analysis/DSTTab'));
 const OptionsChainTab = lazy(() => import('./components/analysis/OptionsChainTab'));
 
@@ -299,7 +300,7 @@ export default function ARApp() {
           return { positions: snap.positions || [], ledger: {}, summary: snap.summary, trades: [], loaded: true, loading: false, cached: true, lastSync: snap.summary.fecha || null, errors: {} };
         });
       }
-    }).catch(() => {});
+    }).catch(e => console.error('[IB cached snapshot]', e));
   }, [dataLoaded]);
 
   // Auto-sync IB data once per session: call cloud sync endpoint + load IB data
@@ -966,7 +967,7 @@ function buildPositionsFromCB() {
     fetch(`${API_URL}/api/costbasis/sync-dividends`, { method: 'POST' })
       .then(r => r.json())
       .then(d => { if (d.inserted > 0) console.log(`[Sync] ${d.inserted} dividendos → cost_basis`); })
-      .catch(() => {});
+      .catch(e => console.error('[Sync dividends]', e));
   }, [dataLoaded, divLog.length]);
 
   // ── Gastos Log (replaces GASTOS Google Sheets) ──
@@ -1451,7 +1452,7 @@ function buildPositionsFromCB() {
     fetch(`${API_URL}/api/alerts`).then(r => r.json()).then(d => {
       setAlerts(d.alerts || []);
       setAlertsUnread(d.unread || 0);
-    }).catch(() => {});
+    }).catch(e => console.error('[Alerts load]', e));
   }, [dataLoaded]);
 
   // Dividend streak data (loaded once per day)
@@ -1883,6 +1884,7 @@ function buildPositionsFromCB() {
     archive:() => <ArchiveTab />,
     business:() => <BusinessModelTab />,
     tesis:() => <TesisTab />,
+    directiva:() => <DirectivaTab />,
     "cost-basis":() => <CostBasisView />,
   };
 

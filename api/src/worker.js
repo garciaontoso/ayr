@@ -3990,6 +3990,20 @@ export default {
       "/api/auto-close/open-trades", "/api/auto-close/alerts",
       "/api/tastytrade/positions", "/api/tastytrade/accounts",
       "/api/options/open-portfolio",
+      // HIGH additions (audit-overnight-3 2026-05-02):
+      "/api/ib-cached-snapshot",   // NLV + ib_shares + ib_avg_cost for all positions
+      "/api/ib-nlv-history",       // NLV time-series (account wealth trend)
+      "/api/ib-nlv-save",          // POST that mutates nlv_history (sensitive financial data)
+      "/api/ib-flex",              // raw IB Flex XML — account IDs + all trades
+      "/api/tax-report",           // realized gains + dividend totals by ticker
+      "/api/tax/optimization-report", // positions + WHT amounts by country
+      "/api/costbasis/all",        // all 8600+ cost_basis rows including prices
+      "/api/ingresos",             // salary + income entries
+      "/api/margin-interest",      // account IDs + margin interest history
+      "/api/stats",                // patrimonio snapshot + div_ytd (wealth summary)
+      "/api/fire",                 // FIRE tracking + projections (personal financial goals)
+      "/api/pl",                   // annual P&L
+      "/api/directiva",            // executive team + AI assessment per ticker
     ];
     // Health/public: SIEMPRE abierto (sin auth)
     const PUBLIC_PATHS = [
@@ -8679,6 +8693,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // POST /api/patrimonio — añadir snapshot (ahora con breakdown_json)
       if (path === "/api/patrimonio" && request.method === "POST") {
+        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
         const body = await parseBody(request);
         const fechaErr = validateFecha(body.fecha);
         if (fechaErr) return validationError(fechaErr, corsHeaders);
@@ -8828,6 +8843,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // POST /api/gastos — añadir gasto
       if (path === "/api/gastos" && request.method === "POST") {
+        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
         const body = await parseBody(request);
         const fechaErr = validateFecha(body.fecha);
         if (fechaErr) return validationError(fechaErr, corsHeaders);
@@ -8943,6 +8959,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // POST /api/ingresos
       if (path === "/api/ingresos" && request.method === "POST") {
+        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
         const body = await parseBody(request);
         await env.DB.prepare(
           `INSERT OR REPLACE INTO ingresos (mes, dividendos, covered_calls, rop, roc, cal, leaps, total, gastos_usd, salary)
@@ -9069,6 +9086,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // PUT /api/dividendos/:id — update dividendo with tax fields
       if (path.startsWith("/api/dividendos/") && request.method === "PUT") {
+        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
         const id = validateId(path.split("/").pop());
         if (!id) return validationError("Invalid id", corsHeaders);
         const body = await parseBody(request);
@@ -9086,6 +9104,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // DELETE /api/dividendos/:id
       if (path.startsWith("/api/dividendos/") && request.method === "DELETE") {
+        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
         const id = validateId(path.split("/").pop());
         if (!id) return validationError("Invalid id", corsHeaders);
         await env.DB.prepare("DELETE FROM dividendos WHERE id = ?").bind(id).run();
@@ -9094,6 +9113,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // PUT /api/gastos/:id — update gasto
       if (path.startsWith("/api/gastos/") && request.method === "PUT") {
+        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
         const id = validateId(path.split("/").pop());
         if (!id) return validationError("Invalid id", corsHeaders);
         const body = await parseBody(request);
@@ -9158,6 +9178,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // DELETE /api/gastos/:id
       if (path.startsWith("/api/gastos/") && request.method === "DELETE") {
+        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
         const id = validateId(path.split("/").pop());
         if (!id) return validationError("Invalid id", corsHeaders);
         await env.DB.prepare("DELETE FROM gastos WHERE id = ?").bind(id).run();
@@ -9166,6 +9187,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // DELETE /api/patrimonio/:id
       if (path.startsWith("/api/patrimonio/") && request.method === "DELETE") {
+        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
         const id = validateId(path.split("/").pop());
         if (!id) return validationError("Invalid id", corsHeaders);
         await env.DB.prepare("DELETE FROM patrimonio WHERE id = ?").bind(id).run();
@@ -9251,6 +9273,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // POST /api/costbasis — añadir transacción (con dedup)
       if (path === "/api/costbasis" && request.method === "POST") {
+        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
         const b = await parseBody(request);
         const fechaErr = validateFecha(b.fecha);
         if (fechaErr) return validationError(fechaErr, corsHeaders);
@@ -9368,6 +9391,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // DELETE /api/costbasis/:id
       if (path.startsWith("/api/costbasis/") && request.method === "DELETE") {
+        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
         const id = validateId(path.split("/").pop());
         if (!id) return validationError("Invalid id", corsHeaders);
         await env.DB.prepare("DELETE FROM cost_basis WHERE id = ?").bind(id).run();
@@ -10614,10 +10638,10 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           }
 
           // ── 3.5) Fallback cost_basis: SOLO si IB no respondió ─────────────
-          // Cuando IB Gateway está LIVE, ES la verdad. cost_basis tiene ghosts de
-          // trades cerrados que nunca se importaron correctamente (bug dedup Flex
-          // con trades idénticos: caso UPS/IWM/GOOGL user-reported 2026-05-02).
-          // SAFETY: solo opciones abiertas en últimos 60 días para reducir ghosts.
+          // Cuando IB Gateway está LIVE, ES la verdad. SIN filtro de fecha porque
+          // LEAPs pueden estar abiertas años (user-feedback 2026-05-02).
+          // SUM(shares) HAVING ABS>0 = solo posiciones realmente abiertas
+          // (cierres parciales/totales se restan).
           if (!ibLiveHealthy) try {
             const today = new Date().toISOString().slice(0, 10);
             const { results: cbOpts } = await env.DB.prepare(
@@ -10633,7 +10657,6 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
                  AND opt_expiry IS NOT NULL AND opt_expiry > ?
                  AND opt_strike IS NOT NULL AND opt_strike > 0
                  AND opt_tipo IS NOT NULL AND opt_tipo != ''
-                 AND fecha >= date('now', '-60 days')
                GROUP BY und_t, opt_expiry, opt_strike, tipo_norm
                HAVING ABS(SUM(shares)) > 0`
             ).bind(today).all();
@@ -10870,6 +10893,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // POST /api/margin-interest — insertar (dedup via UNIQUE)
       if (path === "/api/margin-interest" && request.method === "POST") {
+        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
         const b = await parseBody(request);
         const reqErr = validateRequired(b.mes, 'mes') || validateRequired(b.cuenta, 'cuenta') || validateNumber(b.interes, 'interes');
         if (reqErr) return validationError(reqErr, corsHeaders);
@@ -12357,6 +12381,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // performAutoSync comment). Refuses >30% drops vs the most recent
       // prior row to prevent corrupt rows from becoming the cached snapshot.
       if (path === "/api/ib-nlv-save" && request.method === "POST") {
+        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
         try {
           const body = await request.json();
           const fecha = body.fecha || new Date().toISOString().slice(0, 10);
@@ -16596,6 +16621,270 @@ OUTPUT: JSON array EXACTO con un objeto por item del input, en el mismo orden. S
         }
       }
 
+      // ═══════════════════════════════════════════════════════════
+      // 👥 DIRECTIVA — executive team analysis per ticker
+      // ═══════════════════════════════════════════════════════════
+      // GET /api/directiva?ticker=AAPL
+      // Returns the C-suite (CEO/CFO/COO/...) with tenure, age, comp,
+      // prior employers (regex from fullDescription), insider activity,
+      // and a Claude Haiku 4.5 cualitative assessment.
+      // Cache: R2 key directiva/{ticker}.json, TTL 30 days.
+      // Auth: PROTECTED_READ.
+      if (path === "/api/directiva" && request.method === "GET") {
+        const ticker = (url.searchParams.get("ticker") || "").trim().toUpperCase();
+        if (!ticker) return json({ error: "ticker required" }, corsHeaders, 400);
+
+        const FMP_KEY = env.FMP_KEY;
+        if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
+
+        const CACHE_KEY = `directiva/${ticker}.json`;
+        const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+        const force = url.searchParams.get("force") === "1";
+
+        // 1. R2 cache check (skip when ?force=1)
+        if (!force && env.EARNINGS_R2) {
+          try {
+            const cached = await env.EARNINGS_R2.get(CACHE_KEY);
+            if (cached) {
+              const meta = cached.customMetadata || {};
+              const cachedAt = meta.cached_at ? parseInt(meta.cached_at, 10) : 0;
+              if (Date.now() - cachedAt < CACHE_TTL_MS) {
+                const data = JSON.parse(await cached.text());
+                return json({ ...data, source: "r2_cache" }, corsHeaders);
+              }
+            }
+          } catch (_) { /* fall through to live fetch */ }
+        }
+
+        // 2. Map our ticker to FMP symbol (BME:/HKG: prefix → bare or .HK form)
+        const toFmpSym = (t) => {
+          if (t.startsWith("BME:")) return t.slice(4);
+          if (t.startsWith("HKG:")) {
+            // HKG:9618 → 9618.HK (4-digit padded)
+            const code = t.slice(4);
+            return `${code.padStart(4, "0")}.HK`;
+          }
+          if (t.startsWith("LSE:")) return `${t.slice(4)}.L`;
+          return t;
+        };
+        const fmpSym = toFmpSym(ticker);
+
+        // 3. Fetch FMP /stable/key-executives + /stable/profile + /stable/insider-trading/search
+        const currentYear = new Date().getUTCFullYear();
+        const cutoff12mISO = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+        let execs = [], profile = null, insiderRaw = [];
+        try {
+          const [execResp, profResp, insResp] = await Promise.all([
+            fetch(`https://financialmodelingprep.com/stable/key-executives?symbol=${encodeURIComponent(fmpSym)}&apikey=${FMP_KEY}`),
+            fetch(`https://financialmodelingprep.com/stable/profile?symbol=${encodeURIComponent(fmpSym)}&apikey=${FMP_KEY}`),
+            fetch(`https://financialmodelingprep.com/stable/insider-trading/search?symbol=${encodeURIComponent(fmpSym)}&page=0&apikey=${FMP_KEY}`),
+          ]);
+          if (execResp.ok) {
+            const j = await execResp.json();
+            execs = Array.isArray(j) ? j : [];
+          }
+          if (profResp.ok) {
+            const j = await profResp.json();
+            profile = Array.isArray(j) ? j[0] : j;
+          }
+          if (insResp.ok) {
+            const j = await insResp.json();
+            insiderRaw = Array.isArray(j) ? j : [];
+          }
+        } catch (e) {
+          return json({ error: "fmp_fetch_failed", message: e.message, ticker }, corsHeaders, 502);
+        }
+
+        if (!execs || execs.length === 0) {
+          return json({
+            error: "no_executives_data",
+            ticker,
+            fmp_symbol: fmpSym,
+            hint: "FMP /key-executives returned empty for this ticker (foreign or thinly covered).",
+          }, corsHeaders, 404);
+        }
+
+        // 4. Normalize executives
+        const tenureBucket = (years) => {
+          if (years == null || isNaN(years)) return "—";
+          if (years < 2) return "<2y";
+          if (years < 5) return "2-5y";
+          if (years < 10) return "5-10y";
+          return "10y+";
+        };
+
+        // Best-effort regex over fullDescription to spot prior employers.
+        // Looks for "previously / formerly / served as ... at Company" phrases.
+        const extractPriorCompanies = (desc) => {
+          if (!desc || typeof desc !== "string") return [];
+          const out = new Set();
+          // "at <Capitalized Word(s)>" after previously/formerly/served as etc.
+          const patterns = [
+            /(?:previously|formerly|prior(?:ly)?|earlier)\s+(?:at|with|served\s+as[^.,]*?at|worked\s+at)\s+([A-Z][\w&.\- ]{2,40}?)(?:[,.;]|\sand\s|\swhere\b|\sas\s)/g,
+            /\b(?:served|worked|spent\s+\d+\s+years)\s+at\s+([A-Z][\w&.\- ]{2,40}?)(?:[,.;]|\sand\s|\swhere\b|\sas\s)/g,
+          ];
+          for (const re of patterns) {
+            let m;
+            while ((m = re.exec(desc)) !== null) {
+              const c = m[1].trim().replace(/\s+/g, " ");
+              if (c.length >= 3 && c.length <= 40 && !/^(The|This|That|Mr|Ms|Mrs|Dr)\b/.test(c)) {
+                out.add(c);
+              }
+              if (out.size >= 5) break;
+            }
+            if (out.size >= 5) break;
+          }
+          return Array.from(out).slice(0, 5);
+        };
+
+        const normalizedExecs = execs.slice(0, 12).map(e => {
+          const sinceYear = (e.titleSince || "").slice(0, 4);
+          const tenureYears = sinceYear && /^\d{4}$/.test(sinceYear) ? currentYear - parseInt(sinceYear, 10) : null;
+          const yearBorn = e.yearBorn ? parseInt(e.yearBorn, 10) : null;
+          const age = yearBorn ? currentYear - yearBorn : null;
+          const pay = Number(e.pay || e.salary || 0) || 0;
+          return {
+            name: e.name || "—",
+            title: e.title || "—",
+            age,
+            year_born: yearBorn,
+            since_year: sinceYear || null,
+            tenure_years: tenureYears,
+            tenure_bucket: tenureBucket(tenureYears),
+            pay_usd: pay,
+            currency_pay: e.currencyPay || "USD",
+            gender: e.gender || null,
+            prior_companies: extractPriorCompanies(e.fullDescription || ""),
+          };
+        });
+
+        // 5. Total compensation
+        const totalCompensation = normalizedExecs.reduce((s, e) => s + (e.pay_usd || 0), 0);
+
+        // 6. Insider activity last 12 months — open-market P/S only
+        let insiderBuyValue = 0, insiderSellValue = 0, insiderBuyCount = 0, insiderSellCount = 0;
+        for (const t of insiderRaw) {
+          const txDate = (t.transactionDate || "").slice(0, 10);
+          if (!txDate || txDate < cutoff12mISO) continue;
+          const code = String(t.transactionType || "").trim().toUpperCase().charAt(0);
+          if (code !== "P" && code !== "S") continue;
+          const shares = Number(t.securitiesTransacted) || 0;
+          const price = Number(t.price) || 0;
+          const value = shares * price;
+          if (code === "P") { insiderBuyValue += value; insiderBuyCount++; }
+          if (code === "S") { insiderSellValue += value; insiderSellCount++; }
+        }
+        const insiderSummary = {
+          buy_count: insiderBuyCount,
+          sell_count: insiderSellCount,
+          buy_value_usd: Math.round(insiderBuyValue),
+          sell_value_usd: Math.round(insiderSellValue),
+          net_value_usd: Math.round(insiderBuyValue - insiderSellValue),
+        };
+
+        // 7. Compute simple flags before AI (so we always have something even if Haiku fails)
+        const greenFlags = [];
+        const redFlags = [];
+        const ceo = normalizedExecs.find(e => /chief\s*executive|ceo/i.test(e.title));
+        const cfo = normalizedExecs.find(e => /chief\s*financial|cfo/i.test(e.title));
+        if (ceo?.tenure_years != null && ceo.tenure_years >= 5) greenFlags.push(`CEO con tenure largo (${ceo.tenure_years}y)`);
+        if (ceo?.tenure_years != null && ceo.tenure_years < 2) redFlags.push(`CEO recién llegado (${ceo.tenure_years}y)`);
+        if (cfo?.tenure_years != null && cfo.tenure_years >= 5) greenFlags.push(`CFO con tenure largo (${cfo.tenure_years}y)`);
+        if (insiderBuyCount > 0 && insiderBuyValue > insiderSellValue) greenFlags.push("Insider buying neto positivo (12m)");
+        if (insiderSellValue > insiderBuyValue * 5 && insiderSellCount >= 3) redFlags.push("Insider selling pesado (12m)");
+        if (ceo?.pay_usd && ceo.pay_usd > 50_000_000) redFlags.push(`CEO compensation alta ($${(ceo.pay_usd/1e6).toFixed(0)}M)`);
+
+        // 8. Claude Haiku 4.5 — qualitative assessment (best-effort, non-fatal if it fails)
+        let aiAssessment = "";
+        let tokensUsed = 0;
+        if (env.ANTHROPIC_API_KEY) {
+          try {
+            const sector = profile?.sector || "Unknown";
+            const industry = profile?.industry || "Unknown";
+            const country = profile?.country || "—";
+            const execSummary = normalizedExecs.slice(0, 6).map(e =>
+              `- ${e.name} (${e.title}) — tenure ${e.tenure_years ?? "?"}y, edad ${e.age ?? "?"}, pay $${(e.pay_usd/1e6).toFixed(1)}M${e.prior_companies.length ? `, prior: ${e.prior_companies.slice(0,3).join(", ")}` : ""}`
+            ).join("\n");
+            const insiderLine = `Insider 12m: ${insiderBuyCount} buys ($${(insiderBuyValue/1e6).toFixed(1)}M) vs ${insiderSellCount} sells ($${(insiderSellValue/1e6).toFixed(1)}M)`;
+
+            const systemPrompt = `Eres un analista value investor evaluando equipos directivos. Estilo Buffett/Munger: prioriza skin in the game, tenure largo, capital allocation razonable. Devuelve UN solo párrafo (4-6 frases) en español. NO repitas la lista de ejecutivos — analiza la calidad del equipo en conjunto. Identifica fortalezas y red flags concretos. Sin disclaimers ni "no soy un asesor".`;
+
+            const userContent = `Empresa: ${ticker} (${profile?.companyName || ""})
+Sector: ${sector} · Industria: ${industry} · País: ${country}
+
+Top ejecutivos:
+${execSummary}
+
+Compensación total top: $${(totalCompensation/1e6).toFixed(1)}M
+${insiderLine}
+
+Análisis (1 párrafo): ¿Es buen equipo de gestión? Tenure razonable? Skin in the game (insider buying)? Red flags?`;
+
+            const RETRYABLE = new Set([429, 500, 502, 503, 504, 529]);
+            let resp = null;
+            for (let attempt = 0; attempt < 3; attempt++) {
+              resp = await fetch("https://api.anthropic.com/v1/messages", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "x-api-key": env.ANTHROPIC_API_KEY,
+                  "anthropic-version": "2023-06-01",
+                },
+                body: JSON.stringify({
+                  model: "claude-haiku-4-5-20251001",
+                  max_tokens: 700,
+                  system: systemPrompt,
+                  messages: [{ role: "user", content: userContent }],
+                }),
+              });
+              if (resp.ok) break;
+              if (!RETRYABLE.has(resp.status)) break;
+              await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+            }
+            if (resp && resp.ok) {
+              const result = await resp.json();
+              aiAssessment = (result.content?.[0]?.text || "").trim();
+              const usage = result.usage || {};
+              tokensUsed = (usage.input_tokens || 0) + (usage.output_tokens || 0);
+            }
+          } catch (e) {
+            console.error("[directiva] Haiku error:", e.message);
+            // non-fatal — return without AI assessment
+          }
+        }
+
+        const result = {
+          ticker,
+          fmp_symbol: fmpSym,
+          company: profile?.companyName || ticker,
+          sector: profile?.sector || null,
+          industry: profile?.industry || null,
+          country: profile?.country || null,
+          ceo_name: profile?.ceo || profile?.ceoName || (ceo?.name || null),
+          executives: normalizedExecs,
+          total_compensation_usd: Math.round(totalCompensation),
+          insider_activity_12m: insiderSummary,
+          ai_assessment: aiAssessment || "(análisis IA no disponible — revisa tenure y skin in the game manualmente)",
+          green_flags: greenFlags,
+          red_flags: redFlags,
+          tokens_used: tokensUsed,
+          cached_at: new Date().toISOString(),
+        };
+
+        // 9. Cache to R2 (fire-and-forget)
+        if (env.EARNINGS_R2) {
+          try {
+            await env.EARNINGS_R2.put(CACHE_KEY, JSON.stringify(result), {
+              httpMetadata: { contentType: "application/json" },
+              customMetadata: { cached_at: String(Date.now()), ticker },
+            });
+          } catch (_) { /* non-fatal */ }
+        }
+
+        return json({ ...result, source: "fmp_live" }, corsHeaders);
+      }
+
       if (path.startsWith("/api/company/")) {
         // Raw Claude call — returns plain markdown, not JSON. Local variant
         // because callAgentClaude wraps everything in JSON.parse.
@@ -17529,7 +17818,7 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
               String(impact).toLowerCase()
             ).run();
             inserted++;
-          } catch {}
+          } catch (e) { console.error('[macro_events insert]', e.message); }
         }
         return json({ ok: true, inserted, total_from_fmp: data.length }, corsHeaders);
       }
@@ -22398,6 +22687,8 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
               if (inAppNotIB.length) lines.push(`\nEn app no en IB (${inAppNotIB.length}):\n${inAppNotIB.slice(0,10).map(x=>`• ${x.ticker} (${x.appShares})`).join("\n")}`);
               if (mismatches.length) lines.push(`\nShares mismatch (${mismatches.length}):\n${mismatches.slice(0,10).map(x=>`• ${x.ticker}: app=${x.app} ib=${x.ib} (Δ${x.diff>0?"+":""}${x.diff})`).join("\n")}`);
               await sendTelegram(env, { text: lines.join("\n"), severity: "warn", source: "reconcile_daily" });
+            } else {
+              console.log("[scheduled] reconcile_daily OK — no issues");
             }
           }
         }
@@ -22413,6 +22704,8 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
           headers: { 'Authorization': `Bearer ${env.AYR_WORKER_TOKEN}` },
           signal: AbortSignal.timeout(60000),
         });
+        const reentryData = await r.json().catch(() => ({}));
+        console.log("[scheduled] reentry-watch:", r.status, `candidates=${reentryData.candidates_total ?? "?"}`, `alerts=${reentryData.alerts_total ?? "?"}`);
         if (!r.ok) console.warn("[scheduled] reentry-watch failed:", r.status);
       } catch (e) {
         console.error("[scheduled] reentry-watch error:", e.message);

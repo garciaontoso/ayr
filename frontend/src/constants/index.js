@@ -62,6 +62,7 @@ export const TABS = [
   {id:"dash",lbl:"Resumen",ico:"◈"},
   {id:"cost-basis",lbl:"Cost Basis",ico:"📋"},
   {id:"tesis",lbl:"Tesis",ico:"📝"},
+  {id:"directiva",lbl:"Directiva",ico:"👥"},
   {id:"transcript",lbl:"Transcript",ico:"📞"},
   {id:"archive",lbl:"Archivo",ico:"🗄"},
   {id:"business",lbl:"Cómo gana $",ico:"👶"},

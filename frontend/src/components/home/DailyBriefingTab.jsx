@@ -150,7 +150,12 @@ export default function DailyBriefingTab() {
     setDigestGenerating(true);
     setDigestGenError(null);
     try {
-      const token = localStorage.getItem('ayr_worker_token') || '';
+      // Use VITE_AYR_TOKEN (same as monkey-patch token). The old localStorage
+      // key 'ayr_worker_token' was never populated by the frontend, causing
+      // constant 401s. ytRequireToken needs Authorization: Bearer, so we must
+      // send a valid token explicitly — the monkey patch skips when Authorization
+      // header is already present.
+      const token = import.meta.env.VITE_AYR_TOKEN || '';
       const r = await fetch(`${API_URL}/api/digest/weekly/generate`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },

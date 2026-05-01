@@ -1,0 +1,150 @@
+# audit-overnight-3-patches.txt — RISKY patches (SQL/code changes requiring manual review)
+# Generated: 2026-05-02
+# DO NOT apply without reading the full rationale below each patch.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATCH-01 (HIGH) — POST /api/dividendos writes with NO auth
+# line ~8778, worker.js
+# Any unauthenticated caller can inject fake dividend entries into D1.
+# Fix: add isAllowed+origin bypass pattern (same as /api/cantera/add).
+# ─────────────────────────────────────────────────────────────────────────────
+# BEFORE (line 8778):
+      if (path === "/api/dividendos" && request.method === "POST") {
+        const body = await parseBody(request);
+# AFTER:
+      if (path === "/api/dividendos" && request.method === "POST") {
+        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
+        const body = await parseBody(request);
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATCH-02 (HIGH) — POST /api/costbasis writes with NO auth
+# line ~9253, worker.js
+# Unauthenticated INSERT into cost_basis (trade history / financial records).
+# ─────────────────────────────────────────────────────────────────────────────
+# BEFORE:
+      if (path === "/api/costbasis" && request.method === "POST") {
+        const body = await parseBody(request);
+# AFTER:
+      if (path === "/api/costbasis" && request.method === "POST") {
+        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
+        const body = await parseBody(request);
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATCH-03 (HIGH) — DELETE /api/costbasis/:id with NO auth
+# line ~9370, worker.js
+# Anyone can DELETE any cost_basis row by guessing an integer ID.
+# ─────────────────────────────────────────────────────────────────────────────
+# BEFORE (line 9370):
+      if (path.startsWith("/api/costbasis/") && request.method === "DELETE") {
+        const id = validateId(path.split("/").pop());
+# AFTER:
+      if (path.startsWith("/api/costbasis/") && request.method === "DELETE") {
+        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
+        const id = validateId(path.split("/").pop());
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATCH-04 (HIGH) — PUT /api/dividendos/:id and DELETE /api/dividendos/:id NO auth
+# lines ~9071 and ~9088, worker.js
+# Unauthenticated mutation of dividend records.
+# ─────────────────────────────────────────────────────────────────────────────
+# PUT ~9071:
+      if (path.startsWith("/api/dividendos/") && request.method === "PUT") {
+        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
+        const id = validateId(path.split("/").pop());
+# DELETE ~9088:
+      if (path.startsWith("/api/dividendos/") && request.method === "DELETE") {
+        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
+        const id = validateId(path.split("/").pop());
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATCH-05 (HIGH) — POST /api/ingresos with NO auth
+# line ~8945, worker.js
+# Unauthenticated INSERT into ingresos (salary/income table).
+# ─────────────────────────────────────────────────────────────────────────────
+# BEFORE:
+      if (path === "/api/ingresos" && request.method === "POST") {
+        const body = await parseBody(request);
+# AFTER:
+      if (path === "/api/ingresos" && request.method === "POST") {
+        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
+        const body = await parseBody(request);
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATCH-06 (HIGH) — POST /api/patrimonio, PUT /api/patrimonio/:id, DELETE /api/patrimonio/:id — NO auth
+# lines ~8681, ~8704, ~9168, worker.js
+# Patrimonio holds monthly wealth snapshots (bank + broker + gold + BTC).
+# Unauthenticated writes can corrupt or delete historical records.
+# ─────────────────────────────────────────────────────────────────────────────
+# At each: add { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
+# immediately after the if() guard opens, before any body/DB operation.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATCH-07 (HIGH) — POST /api/margin-interest with NO auth
+# line ~10872, worker.js
+# Unauthenticated INSERT into margin_interest (margin cost per account).
+# ─────────────────────────────────────────────────────────────────────────────
+# Add auth check as above.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATCH-08 (HIGH) — POST /api/gastos and all PUT/DELETE /api/gastos/* — NO auth
+# lines ~8830, ~9096, ~9138, ~9160, worker.js
+# Expense data. All write paths lack auth gates.
+# ─────────────────────────────────────────────────────────────────────────────
+# Add auth checks as above for POST, PUT (bulk and single), DELETE.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATCH-09 (MEDIUM) — POST /api/youtube/request-processing — NO auth
+# line ~4938, worker.js
+# Writes to app_config (youtube_process_request key). Low-impact but
+# allows anyone to trigger the YouTube processing flag on the Mac scanner.
+# Fix: add same isAllowed+origin bypass (desktop app sets this from browser UI).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATCH-10 (MEDIUM) — POST /api/patrimonio/auto-snapshot — NO auth
+# line ~19530, worker.js
+# Triggers autoPatrimonioSnapshot() which writes to patrimonio + nlv_history.
+# Currently callable by anyone with network access.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATCH-11 (MEDIUM) — POST /api/cache-pnl — NO auth
+# line ~19505, worker.js
+# Calls cachePnlFromIB() which writes to price_cache. Low-impact but
+# unauthenticated POST that triggers IB bridge fetch and DB write.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATCH-12 (MEDIUM) — POST /api/scores/compute — NO auth
+# line ~13297, worker.js (it's actually POST but routed via ?all=1 param)
+# Triggers heavy FMP API calls + D1 batch writes for all tickers.
+# Could drain FMP quota if triggered externally in a loop.
+# Fix: add same isAllowed+origin auth bypass.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATCH-13 (LOW) — DELETE /api/fundamentals — NO auth
+# line ~14928, worker.js
+# Deletes cached FMP data for a ticker. Benign (just cache) but unprotected DELETE.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATCH-14 (LOW) — POST /api/library, PUT/DELETE /api/library/* — NO auth
+# lines ~17256, ~17296, worker.js
+# Reading list writes. Personal data, low risk but unprotected.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATCH-15 (LOW) — POST /api/recommendations/log, PUT /recommendations/*/review — NO auth
+# line ~22114, worker.js
+# Recommendation log writes. Agents write here but also freely writable externally.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NOTE ON isAllowed+origin PATTERN:
+# The pattern: const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env);
+# means: "allow from known browser origins (same-origin user action) OR from scripts
+# that send Bearer token". This is the existing pattern used in ~15 other write endpoints.
+# The key invariant: origin is only set by browsers (CORS policy), not by curl.
+# A curl without --header Origin will have empty origin → falls through to bearer check.
+# ─────────────────────────────────────────────────────────────────────────────
