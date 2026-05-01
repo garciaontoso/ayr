@@ -190,5 +190,15 @@ Checked DailyBriefingTab, TTTab, AutoTradingTab, OpenOptionsTab, OptionsOptimize
 
 ## Applied safe fixes
 
-None applied. All identified issues fall in "risky" category (auth token wiring, hardcoded data strategy, mock data UX label). Listed above for user decision.
+### Fix 1 — DailyBriefingTab: `digest/weekly/generate` now uses `VITE_AYR_TOKEN`
+
+**File:** `frontend/src/components/home/DailyBriefingTab.jsx`
+
+Changed `localStorage.getItem('ayr_worker_token')` → `import.meta.env.VITE_AYR_TOKEN`. Verified: `Authorization: Bearer $VITE_AYR_TOKEN` → 200. Build clean.
+
+### Fix 2 — ScannerTab: mock data banner added
+
+**File:** `frontend/src/components/home/ScannerTab.jsx`
+
+Added yellow `⚠️ Datos simulados` notice above the candidates table. The state toggle wiring (`scanner/state`, `scanner/toggle`) was already real — only the candidate rows are mock.
 

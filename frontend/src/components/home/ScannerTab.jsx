@@ -761,6 +761,15 @@ export default function ScannerTab() {
               </button>
             )}
           </div>
+          {/* Aviso datos simulados — Fase 2 pendiente */}
+          <div style={{
+            padding: "6px 12px", borderRadius: 6, marginBottom: 8,
+            border: "1px solid rgba(251,191,36,.35)",
+            background: "rgba(251,191,36,.07)",
+            color: "#fbbf24", fontSize: 10, fontFamily: "var(--fm)", fontWeight: 600,
+          }}>
+            ⚠️ Datos simulados — wiring IB Bridge pendiente (Fase 2). No usar para tomar decisiones reales.
+          </div>
 
           <div style={{ overflowX: "auto", borderRadius: 10, border: "1px solid var(--border)" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 960 }}>

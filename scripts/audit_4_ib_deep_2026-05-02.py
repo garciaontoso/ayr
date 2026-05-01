@@ -349,29 +349,45 @@ def load_d1_transferencias():
 def analyze_trades(d1_rows, csv_by_exec):
     """
     Returns:
-      missing: CSV records not in D1 (by exec_id)
+      missing: CSV records not in D1 (by exec_id) AND not match by composite either
+      missing_composite_dup: CSV records that COULD be inserted (no D1 exec_id match)
+                             but a composite-equivalent row already exists. Risky.
       d1_only: D1 rows with exec_id NOT in CSV (foreign / manual / non-Flex)
       d1_no_exec: D1 rows with NULL exec_id (legacy)
       mismatches: same exec_id, different shares/price/coste
+
+    Composite key: fecha + ticker + tipo + signed shares + price*100 + coste*100.
+    Two trades that match exactly on ALL of these are virtually certain to be
+    sub-allocations of the same execution that just have different TransactionIDs
+    (e.g. CLAUDE_FULL-4.csv uses raw EXECUTION level, multi4 uses ALLOCATION level).
     """
     print("\n[STEP 6] Trade cross-analysis…")
     d1_by_exec = defaultdict(list)
     d1_id_to_row = {}
+    d1_by_composite = defaultdict(list)
     for r in d1_rows:
         d1_id_to_row[r["id"]] = r
         if r.get("exec_id"):
             d1_by_exec[r["exec_id"]].append(r["id"])
+        # Composite key
+        try:
+            shares = float(r.get("shares") or 0)
+            precio = float(r.get("precio") or 0)
+            coste = float(r.get("coste") or 0)
+        except (TypeError, ValueError):
+            continue
+        ck = f"{r.get('fecha')}|{r.get('ticker')}|{r.get('tipo')}|{round(shares*1000)}|{round(precio*100)}|{round(coste*100)}"
+        d1_by_composite[ck].append(r["id"])
 
     missing = []
+    missing_composite_dup = []
     mismatches = []
     csv_exec_set = set(csv_by_exec.keys())
 
     for eid, t in csv_by_exec.items():
         d1_ids = d1_by_exec.get(eid, [])
-        if not d1_ids:
-            missing.append(t)
-        else:
-            # Compare fields
+        if d1_ids:
+            # Compare fields for mismatch
             for did in d1_ids:
                 d = d1_id_to_row[did]
                 d_shares = float(d.get("shares") or 0)
@@ -391,6 +407,19 @@ def analyze_trades(d1_rows, csv_by_exec):
                         "csv": {"shares": t["shares"], "precio": t["precio"], "coste": t["coste"]},
                         "d1":  {"shares": d_shares, "precio": d_precio, "coste": d_coste},
                     })
+            continue
+        # No exec_id match. Check composite.
+        ck = (
+            f"{t['fecha']}|{t['ticker']}|{t['tipo']}|"
+            f"{round(t['shares']*1000)}|{round(t['precio']*100)}|{round(t['coste']*100)}"
+        )
+        if d1_by_composite.get(ck):
+            # Composite duplicate — DON'T insert (would dup an existing trade with
+            # different exec_id, e.g. sub-allocation vs roll-up).
+            missing_composite_dup.append(t)
+        else:
+            # Truly missing — safe to INSERT (UNIQUE INDEX prevents exec_id dup).
+            missing.append(t)
 
     d1_only = []
     d1_no_exec = []
@@ -402,11 +431,12 @@ def analyze_trades(d1_rows, csv_by_exec):
         if eid not in csv_exec_set:
             d1_only.append(r)
 
-    print(f"  Missing in D1 (CSV exec_ids w/o D1 row): {len(missing)}")
-    print(f"  D1-only (D1 exec_id not in any CSV):     {len(d1_only)}")
-    print(f"  D1 NULL exec_id rows:                    {len(d1_no_exec)}")
-    print(f"  Field mismatches (same exec_id):         {len(mismatches)}")
-    return missing, d1_only, d1_no_exec, mismatches
+    print(f"  Missing in D1, no composite match (SAFE to INSERT): {len(missing)}")
+    print(f"  Missing in D1, but composite match exists (RISKY):   {len(missing_composite_dup)}")
+    print(f"  D1-only (D1 exec_id not in any CSV):                 {len(d1_only)}")
+    print(f"  D1 NULL exec_id rows:                                {len(d1_no_exec)}")
+    print(f"  Field mismatches (same exec_id):                     {len(mismatches)}")
+    return missing, missing_composite_dup, d1_only, d1_no_exec, mismatches
 
 
 def analyze_dividends(d1_divs, csv_ctrn):
@@ -693,7 +723,8 @@ def write_report(data):
     L.append("")
     L.append(f"- D1 cost_basis: **{data['d1_total']}** rows ({data['d1_null_exec']} NULL exec_id)")
     L.append(f"- CSV unique exec_ids: **{data['csv_exec_count']}**")
-    L.append(f"- Trades MISSING in D1 (CSV exec_id not in D1): **{data['n_missing']}**")
+    L.append(f"- Trades SAFE-MISSING (CSV exec_id not in D1, AND no composite match): **{data['n_missing']}**")
+    L.append(f"- Trades RISKY-MISSING (CSV exec_id not in D1, but composite-equivalent row exists): **{data['n_missing_dup']}**")
     L.append(f"- D1-only trades (exec_id not in any CSV): **{data['n_d1_only']}**")
     L.append(f"- Field mismatches (same exec_id, diff shares/price/coste): **{data['n_mismatches']}**")
     L.append(f"- IB_MAP gap candidates discovered: **{data['n_map_gaps']}**")
@@ -709,12 +740,16 @@ def write_report(data):
         L.append("- Dry-run. Re-run with `--apply` to commit.")
     L.append("")
 
-    # ---- A) Missing trades ----
-    L.append("## A) Trades missing in D1")
+    # ---- A) Missing trades (SAFE) ----
+    L.append("## A) Trades SAFE-MISSING (not in D1, no composite duplicate)")
     L.append("")
     if data["missing"]:
         miss_by_year = Counter(m["fecha"][:4] for m in data["missing"])
         miss_by_account = Counter((m.get("account") or "?") for m in data["missing"])
+        L.append("These trades have an exec_id not in D1, AND no D1 row matches by composite "
+                 "(fecha+ticker+tipo+shares+precio+coste). Safe to INSERT — UNIQUE INDEX on exec_id "
+                 "prevents future dupes.")
+        L.append("")
         L.append("### Per year")
         L.append("")
         L.append("| Year | Missing |")
@@ -741,6 +776,36 @@ def write_report(data):
         L.append("")
     else:
         L.append("None — D1 covers all CSV trades by exec_id.")
+        L.append("")
+
+    # ---- A2) Missing trades with composite duplicate (RISKY) ----
+    L.append("## A2) Trades RISKY-MISSING (not in D1 by exec_id, but composite match exists)")
+    L.append("")
+    if data["missing_dup"]:
+        L.append("These have a different exec_id than what's in D1, but a row with identical "
+                 "(fecha, ticker, tipo, shares, precio, coste) already exists. **DO NOT INSERT** — "
+                 "would create duplicates. These are usually sub-allocation TransactionIDs of "
+                 "executions that were aggregated under a different TransactionID at import time "
+                 "(e.g. CLAUDE_FULL-4.csv uses EXECUTION-level granularity vs multi4's ALLOCATION).")
+        L.append("")
+        miss_dup_by_year = Counter(m["fecha"][:4] for m in data["missing_dup"])
+        L.append("| Year | Risky-missing |")
+        L.append("|------|--------------:|")
+        for y in sorted(miss_dup_by_year):
+            L.append(f"| {y} | {miss_dup_by_year[y]} |")
+        L.append("")
+        L.append("### Sample (first 5)")
+        L.append("")
+        L.append("| exec_id | fecha | ticker | shares | precio | coste |")
+        L.append("|---------|-------|--------|-------:|-------:|------:|")
+        for m in data["missing_dup"][:5]:
+            L.append(
+                f"| `{m['exec_id']}` | {m['fecha']} | {m['ticker']} | "
+                f"{m['shares']} | {m['precio']} | {m['coste']} |"
+            )
+        L.append("")
+    else:
+        L.append("None.")
         L.append("")
 
     # ---- B) D1-only ----
@@ -953,7 +1018,7 @@ def main():
     d1_divs = load_d1_dividends()
     d1_trans = load_d1_transferencias()
 
-    missing, d1_only, d1_no_exec, mismatches = analyze_trades(d1_rows, csv_by_exec)
+    missing, missing_dup, d1_only, d1_no_exec, mismatches = analyze_trades(d1_rows, csv_by_exec)
     div_missing, divs_matched, csv_count_by_type = analyze_dividends(d1_divs, csv_ctrn)
     trans_missing = analyze_transferencias(d1_trans, csv_ctrn)
 
@@ -963,12 +1028,14 @@ def main():
         "d1_null_exec": len(d1_no_exec),
         "csv_exec_count": len(csv_by_exec),
         "n_missing": len(missing),
+        "n_missing_dup": len(missing_dup),
         "n_d1_only": len(d1_only),
         "n_mismatches": len(mismatches),
         "n_map_gaps": len(raw_unmapped),
         "n_div_missing": len(div_missing),
         "n_trans_missing": len(trans_missing),
         "missing": missing,
+        "missing_dup": missing_dup,
         "d1_only": d1_only,
         "d1_no_exec": d1_no_exec,
         "mismatches": mismatches,
