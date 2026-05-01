@@ -2,6 +2,51 @@
 -- Generated 2026-05-02 by scripts/audit_4_ib_deep_2026-05-02.py
 
 -- ============================================
+-- 0) IB_MAP ticker backfill
+-- These rows were inserted by audit-4 with the raw IB symbol.
+-- worker.js IB_MAP has been updated to map them on future imports.
+-- This backfill normalizes existing rows for consistency with positions table.
+-- Verify NO downstream filters depend on raw symbol before applying.
+-- ============================================
+
+-- UPDATE cost_basis SET ticker = 'HKG:9988', underlying = 'HKG:9988' WHERE ticker = '9988' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE cost_basis SET underlying = 'HKG:9988' WHERE underlying = '9988' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE dividendos SET ticker = 'HKG:9988' WHERE ticker = '9988';
+-- UPDATE cost_basis SET ticker = 'HKG:1066', underlying = 'HKG:1066' WHERE ticker = '1066' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE cost_basis SET underlying = 'HKG:1066' WHERE underlying = '1066' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE dividendos SET ticker = 'HKG:1066' WHERE ticker = '1066';
+-- UPDATE cost_basis SET ticker = 'HKG:1999', underlying = 'HKG:1999' WHERE ticker = '1999' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE cost_basis SET underlying = 'HKG:1999' WHERE underlying = '1999' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE dividendos SET ticker = 'HKG:1999' WHERE ticker = '1999';
+-- UPDATE cost_basis SET ticker = 'HKG:2168', underlying = 'HKG:2168' WHERE ticker = '2168' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE cost_basis SET underlying = 'HKG:2168' WHERE underlying = '2168' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE dividendos SET ticker = 'HKG:2168' WHERE ticker = '2168';
+-- UPDATE cost_basis SET ticker = 'HKG:2678', underlying = 'HKG:2678' WHERE ticker = '2678' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE cost_basis SET underlying = 'HKG:2678' WHERE underlying = '2678' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE dividendos SET ticker = 'HKG:2678' WHERE ticker = '2678';
+-- UPDATE cost_basis SET ticker = 'HKG:3690', underlying = 'HKG:3690' WHERE ticker = '3690' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE cost_basis SET underlying = 'HKG:3690' WHERE underlying = '3690' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE dividendos SET ticker = 'HKG:3690' WHERE ticker = '3690';
+-- UPDATE cost_basis SET ticker = 'HKG:0700', underlying = 'HKG:0700' WHERE ticker = '700' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE cost_basis SET underlying = 'HKG:0700' WHERE underlying = '700' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE dividendos SET ticker = 'HKG:0700' WHERE ticker = '700';
+-- UPDATE cost_basis SET ticker = 'HKG:0939', underlying = 'HKG:0939' WHERE ticker = '939' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE cost_basis SET underlying = 'HKG:0939' WHERE underlying = '939' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE dividendos SET ticker = 'HKG:0939' WHERE ticker = '939';
+-- UPDATE cost_basis SET ticker = 'HKG:0001', underlying = 'HKG:0001' WHERE ticker = '1' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE cost_basis SET underlying = 'HKG:0001' WHERE underlying = '1' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE dividendos SET ticker = 'HKG:0001' WHERE ticker = '1';
+-- UPDATE cost_basis SET ticker = 'HKG:2102', underlying = 'HKG:2102' WHERE ticker = '2102' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE cost_basis SET underlying = 'HKG:2102' WHERE underlying = '2102' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE dividendos SET ticker = 'HKG:2102' WHERE ticker = '2102';
+-- UPDATE cost_basis SET ticker = 'BME:VIS', underlying = 'BME:VIS' WHERE ticker = 'VISe' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE cost_basis SET underlying = 'BME:VIS' WHERE underlying = 'VISe' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE dividendos SET ticker = 'BME:VIS' WHERE ticker = 'VISe';
+-- UPDATE cost_basis SET ticker = 'BME:IAG', underlying = 'BME:IAG' WHERE ticker = 'IAGe' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE cost_basis SET underlying = 'BME:IAG' WHERE underlying = 'IAGe' AND tipo IN ('EQUITY','OPTION');
+-- UPDATE dividendos SET ticker = 'BME:IAG' WHERE ticker = 'IAGe';
+
+-- ============================================
 -- A) Field mismatches (same exec_id different fields)
 -- Decision: usually CSV wins (it's the broker source of truth).
 -- Review each one — if D1 was hand-corrected, keep D1.

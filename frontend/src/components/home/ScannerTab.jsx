@@ -495,7 +495,8 @@ export default function ScannerTab() {
 
   // In snapshot mode the table shows historical data (we just show same mock with
   // a snapshot label — real wiring will swap in the actual snapshot rows).
-  const displayCandidates = selectedSnapshot ? filteredCandidates : filteredCandidates;
+  // (Tautological ternary cleaned 2026-05-02: both branches were identical mock data.)
+  const displayCandidates = filteredCandidates;
 
   const copyOpus = useCallback(() => {
     const lines = filteredCandidates.map(r =>
@@ -513,6 +514,28 @@ export default function ScannerTab() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+      {/* ── MOCK DATA BANNER (audit-tab-X3-ingresos-2026-05-02) ── */}
+      {/* Toda la data de esta tab (NAV, Init/Maint Margin, VIX, candidatos, snapshots, */}
+      {/* rejected, conviction breakdown) es mock estático en MOCK_* consts arriba.    */}
+      {/* El backend SI tiene endpoints reales (/api/scanner/state, /api/scanner/run,   */}
+      {/* /api/scanner/runs, /api/scanner/snapshots, /api/scanner/filters) pero la UI  */}
+      {/* aún no los consume. Sólo el toggle Activo/Pausado está conectado.             */}
+      <div style={{
+        padding: "10px 14px", borderRadius: 8,
+        border: "1px solid rgba(217,119,6,.5)",
+        background: "rgba(217,119,6,.10)",
+        color: "#f59e0b", fontSize: 12, fontFamily: "var(--fm)",
+        display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+      }}>
+        <span style={{ fontSize: 16 }}>⚠️</span>
+        <strong>Datos MOCK</strong>
+        <span style={{ color: "var(--text-secondary)" }}>
+          · NAV, márgenes, VIX, candidatos y snapshots son estáticos. Sólo el toggle
+          ACTIVO/PAUSADO está conectado al backend (/api/scanner/state). Pendiente
+          wiring con /api/scanner/run + /api/scanner/runs.
+        </span>
+      </div>
 
       {/* ── 1. Top dashboard bar ── */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

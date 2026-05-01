@@ -357,13 +357,24 @@ export async function fetchAccountSummary() {
  *
  * Market price / market value require an extra ticker subscription per symbol;
  * we batch that step at the route layer to avoid storms.
+ *
+ * IMPORTANT — preserves OPT-specific fields (strike, expiry, right, multiplier,
+ * localSymbol, conId) so consumers (worker.syncOpenTradesFromBrokers) can
+ * detect strategies (BPS/BCS/IC/CSP/CC). Earlier versions stripped these and
+ * the worker filtered all OPT positions out → 0 trades detected.
+ *
+ * Also preserves `account` per position — IB returns the same symbol multiple
+ * times across accounts so the consumer needs the account label to dedupe.
  */
 export async function fetchPositions() {
   const out = [];
 
+  // Use a longer timeout for reqPositions because IB streams across all linked
+  // accounts (4 accounts in this setup) and positionEnd only fires after all
+  // are flushed. 10s was sufficient when only one account had positions.
   await reqWithTimeout({
     label: 'reqPositions',
-    timeoutMs: 10_000,
+    timeoutMs: 25_000,
     start: () => ib.reqPositions(),
     cancel: () => ib.cancelPositions(),
     bind: ({ addListener, resolve }) => {
@@ -372,12 +383,23 @@ export async function fetchPositions() {
         out.push({
           account,
           symbol: contract.symbol,
+          localSymbol: contract.localSymbol || null,
           secType: contract.secType,
           exchange: contract.exchange || contract.primaryExch || null,
           currency: contract.currency,
+          // OPT-specific (null for STK)
+          strike: contract.strike != null ? Number(contract.strike) : null,
+          right: contract.right || null, // 'C' or 'P'
+          // IB sends YYYYMMDD; keep raw so consumers can format as needed
+          expiry: contract.lastTradeDateOrContractMonth || null,
+          multiplier: contract.multiplier || null,
+          conId: contract.conId || null,
+          tradingClass: contract.tradingClass || null,
           qty: Number(position),
           avg_cost: Number(avgCost),
-          contract,
+          // _contract kept for internal enrichment (snapshot quote); stripped
+          // before returning to client.
+          _contract: contract,
         });
       });
       addListener(EventName.positionEnd, () => resolve());
@@ -386,38 +408,46 @@ export async function fetchPositions() {
 
   // Best-effort enrichment: snapshot quote per symbol. We deliberately limit
   // concurrency so a 100-position account doesn't trigger IB's pacing limits.
+  // Skip OPT enrichment by default (each option needs its own market data
+  // request which is slow + expensive). STK enrichment only.
   const enriched = await mapWithConcurrency(out, 8, async (pos) => {
+    const base = {
+      account: pos.account,
+      symbol: pos.symbol,
+      localSymbol: pos.localSymbol,
+      secType: pos.secType,
+      exchange: pos.exchange,
+      currency: pos.currency,
+      strike: pos.strike,
+      right: pos.right,
+      expiry: pos.expiry,
+      multiplier: pos.multiplier,
+      conId: pos.conId,
+      tradingClass: pos.tradingClass,
+      qty: pos.qty,
+      avg_cost: pos.avg_cost,
+      market_price: null,
+      market_value: null,
+      unrealized_pnl: null,
+      realized_pnl: 0,
+    };
+    // Only enrich STK with quotes — OPT enrichment is expensive and not
+    // currently consumed (clients use IB's saved avg_cost directly for OPT).
+    if (pos.secType !== 'STK') return base;
     try {
-      const q = await fetchQuote(pos.contract);
+      const q = await fetchQuote(pos._contract);
       const last = q.last ?? q.close ?? null;
       const marketValue = last != null ? last * pos.qty : null;
       const unrealized = last != null ? (last - pos.avg_cost) * pos.qty : null;
       return {
-        symbol: pos.symbol,
-        secType: pos.secType,
-        exchange: pos.exchange,
-        currency: pos.currency,
-        qty: pos.qty,
-        avg_cost: pos.avg_cost,
+        ...base,
         market_price: last,
         market_value: marketValue,
         unrealized_pnl: unrealized,
-        realized_pnl: 0,
       };
     } catch (err) {
       logger.debug('positions.enrich_failed', { symbol: pos.symbol, msg: err.message });
-      return {
-        symbol: pos.symbol,
-        secType: pos.secType,
-        exchange: pos.exchange,
-        currency: pos.currency,
-        qty: pos.qty,
-        avg_cost: pos.avg_cost,
-        market_price: null,
-        market_value: null,
-        unrealized_pnl: null,
-        realized_pnl: 0,
-      };
+      return base;
     }
   });
 

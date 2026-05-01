@@ -16,10 +16,12 @@ export default function DashTab() {
   useEffect(() => {
     if (!cfg.ticker) return;
     setDebtMaturity(null);
-    fetch(`${API_URL}/api/debt-maturity?ticker=${encodeURIComponent(cfg.ticker)}`)
+    const ctrl = new AbortController();
+    fetch(`${API_URL}/api/debt-maturity?ticker=${encodeURIComponent(cfg.ticker)}`, { signal: ctrl.signal })
       .then(r => r.json())
       .then(d => setDebtMaturity(d.maturity ? d : null))
-      .catch(() => setDebtMaturity(null));
+      .catch(e => { if (e.name !== 'AbortError') setDebtMaturity(null); });
+    return () => ctrl.abort();
   }, [cfg.ticker]);
 
     const revData = CHART_YEARS.map(y=>fin[y]?.revenue ?? null);

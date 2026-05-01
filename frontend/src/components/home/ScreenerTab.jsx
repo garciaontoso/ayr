@@ -2,6 +2,21 @@ import { useHome } from '../../context/HomeContext';
 import { _sf } from '../../utils/formatters.js';
 import { InlineLoading, EmptyState } from '../ui/EmptyState.jsx';
 
+// Mapping de ticker FMP/D1 (formato bolsa:ticker) a ticker interno IB.
+// Audit X5 2026-05-02: extraído fuera del render — antes había DOS definiciones
+// inline (una en celda IB PRECIO con 8 entradas, otra en celda IB P&L con 4) y
+// se desincronizaban: HKG:1052/2219/1910/9616 mostraban price pero P&L vacío.
+const IB_TICKER_MAP = {
+  "BME:VIS": "VIS",
+  "BME:AMS": "AMS",
+  "IIPR-PRA": "IIPR PRA",
+  "HKG:9618": "9618",
+  "HKG:1052": "1052",
+  "HKG:2219": "2219",
+  "HKG:1910": "1910",
+  "HKG:9616": "9616",
+};
+
 export default function ScreenerTab() {
   const {
     screenerData, screenerLoading, screenerSort, setScreenerSort,
@@ -164,8 +179,7 @@ export default function ScreenerTab() {
                 </td>
                 <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>
                   {(() => {
-                    const IB_MAP = {"BME:VIS":"VIS","BME:AMS":"AMS","IIPR-PRA":"IIPR PRA","HKG:9618":"9618","HKG:1052":"1052","HKG:2219":"2219","HKG:1910":"1910","HKG:9616":"9616"};
-                    const ibTicker = IB_MAP[item.symbol] || item.symbol;
+                    const ibTicker = IB_TICKER_MAP[item.symbol] || item.symbol;
                     const ibPos = (ibData?.positions||[]).find(p => (p.ticker === ibTicker || p.ticker === item.symbol) && p.assetClass === "STK");
                     if (!ibPos) return <span style={{color:"var(--text-tertiary)",fontSize:9}}>—</span>;
                     return <div>
@@ -176,8 +190,7 @@ export default function ScreenerTab() {
                 </td>
                 <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"var(--fm)",borderBottom:"1px solid var(--subtle-bg)"}}>
                   {(() => {
-                    const IB_MAP = {"BME:VIS":"VIS","BME:AMS":"AMS","IIPR-PRA":"IIPR PRA","HKG:9618":"9618"};
-                    const ibTicker = IB_MAP[item.symbol] || item.symbol;
+                    const ibTicker = IB_TICKER_MAP[item.symbol] || item.symbol;
                     const ibPos = (ibData?.positions||[]).find(p => (p.ticker === ibTicker || p.ticker === item.symbol) && p.assetClass === "STK");
                     if (!ibPos || !ibPos.unrealizedPnl) return <span style={{color:"var(--text-tertiary)",fontSize:9}}>—</span>;
                     const pnl = ibPos.unrealizedPnl;

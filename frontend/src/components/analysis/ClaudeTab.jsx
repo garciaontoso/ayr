@@ -3,9 +3,8 @@ import { Card } from '../ui';
 import { _sf, n, div } from '../../utils/formatters.js';
 
 export default function ClaudeTab() {
-  const { advancedMetrics, cfg, ssd } = useAnalysis();
+  const { cfg, ssd } = useAnalysis();
     const hasReport = ssd.reportGenerated || ssd.moat || ssd.verdict;
-    const am = advancedMetrics;
     
     if (!hasReport) {
       return (

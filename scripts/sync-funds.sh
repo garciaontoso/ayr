@@ -25,11 +25,20 @@ log() {
 
 log "=== sync-funds start ==="
 
+# Source ~/.ayr-env to load AYR_WORKER_TOKEN (auth gate added 2026-04-19)
+[ -f "$HOME/.ayr-env" ] && . "$HOME/.ayr-env"
+TOKEN="${AYR_WORKER_TOKEN:-}"
+if [ -z "$TOKEN" ]; then
+  log "WARN: AYR_WORKER_TOKEN not set — auth-gated endpoints will return 401"
+fi
+
 # --- 1) Refresh 13F filings ----------------------------------------------------
 REFRESH_BODY_FILE="$(mktemp -t ayr-funds-refresh.XXXXXX)"
 REFRESH_HTTP=$(curl -sS -o "$REFRESH_BODY_FILE" -w "%{http_code}" \
   -X POST "$API_URL/api/funds/refresh" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-AYR-Auth: $TOKEN" \
   --max-time 120) || {
     log "ERROR refresh: curl failed with exit $?"
     rm -f "$REFRESH_BODY_FILE"
@@ -63,6 +72,8 @@ NOTIFY_BODY_FILE="$(mktemp -t ayr-funds-notify.XXXXXX)"
 NOTIFY_HTTP=$(curl -sS -o "$NOTIFY_BODY_FILE" -w "%{http_code}" \
   -X POST "$API_URL/api/funds/alerts/notify" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-AYR-Auth: $TOKEN" \
   --max-time 60) || {
     log "ERROR notify: curl failed with exit $?"
     rm -f "$NOTIFY_BODY_FILE"

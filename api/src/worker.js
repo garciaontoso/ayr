@@ -2144,7 +2144,7 @@ async function performAutoSync(env) {
   try {
     // Re-warm portfolio endpoint (IB requires /portfolio/accounts hit before positions)
     await ib("GET", "/portfolio/accounts");
-    const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616"};
+    const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616","9988":"HKG:9988","1066":"HKG:1066","1999":"HKG:1999","2168":"HKG:2168","2678":"HKG:2678","3690":"HKG:3690","700":"HKG:0700","939":"HKG:0939","1":"HKG:0001","2102":"HKG:2102","VISe":"BME:VIS","IAGe":"BME:IAG","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA","AIRd":"AIR","BAYNd":"BAYN","HEN3d":"HEN3"};
     const merged = {};
     for (const accountId of accountIds) {
       for (let page = 0; page < 5; page++) {
@@ -2835,7 +2835,7 @@ async function syncOpenTradesFromBrokers(env) {
     try {
       const ibResp = await fetch(`${ibBridgeUrl.replace(/\/$/, "")}/positions`, {
         headers: { "Authorization": `Bearer ${ibBridgeToken}` },
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(30000),
       });
       if (ibResp.ok) {
         const ibData = await ibResp.json();
@@ -4003,7 +4003,12 @@ export default {
       "/api/stats",                // patrimonio snapshot + div_ytd (wealth summary)
       "/api/fire",                 // FIRE tracking + projections (personal financial goals)
       "/api/pl",                   // annual P&L
+      "/api/pnl",                  // /api/pnl/monthly — true FIFO realized + monthly income (replaces tax-report)
       "/api/directiva",            // executive team + AI assessment per ticker
+      // CRITICAL audit X2 2026-05-02: estaban leaking sin auth
+      "/api/journal",              // decision journal (cubre /list, /stats, /add, /:id/review)
+      "/api/deep-dividend",        // todos los sub-endpoints (list, dashboard, get, calibration, extractions, delete)
+      "/api/alert-rules",          // alertas custom del usuario
     ];
     // Health/public: SIEMPRE abierto (sin auth)
     const PUBLIC_PATHS = [
@@ -4918,6 +4923,13 @@ export default {
               } else { failed++; }
             } catch { failed++; }
           }
+
+          // Telegram alert paralelo a web push (user request 2026-05-02)
+          // Format: "🆕 Berkshire Hathaway nueva posición en AAPL · 0.0% → 4.5% (+4.50%) · Warren Buffett"
+          try {
+            const tgMsg = `${title}\n${body}`;
+            await sendTelegram(env, { text: tgMsg, severity: 'info', source: 'smart_money' });
+          } catch (e) { console.error('telegram smart_money:', e.message); }
 
           if (pushedAny) {
             await env.DB.prepare(`UPDATE fund_alerts SET notified_at = datetime('now') WHERE id = ?`).bind(alert.id).run();
@@ -10383,7 +10395,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             try {
               const ibResp = await fetch(
                 `${env.IB_BRIDGE_URL.replace(/\/$/, "")}/positions`,
-                { headers: { Authorization: `Bearer ${env.IB_BRIDGE_TOKEN}` }, signal: AbortSignal.timeout(12000) }
+                { headers: { Authorization: `Bearer ${env.IB_BRIDGE_TOKEN}` }, signal: AbortSignal.timeout(30000) }
               );
               if (ibResp.ok) {
                 const ibData = await ibResp.json();
@@ -10531,10 +10543,13 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
                   const opts = ttPositions.filter(p => p.is_option || p.instrument_type === "Equity Option");
 
                   // Group by (underlying, expiry)
+                  // Bridge devuelve `expiry` y `underlying`; legacy `expires_at` y `underlying_symbol`.
+                  // Tras audit G 2026-05-02: intentar ambos para evitar duplicados spread vs leg.
                   const ttGroups = new Map();
                   for (const p of opts) {
-                    const und = p.underlying_symbol || p.symbol || "";
-                    const exp = p.expires_at ? p.expires_at.slice(0, 10) : null;
+                    const und = p.underlying_symbol || p.underlying || (p.symbol?.split(/\s+/)[0]) || p.symbol || "";
+                    const exp = p.expiry ? p.expiry.slice(0, 10)
+                              : p.expires_at ? p.expires_at.slice(0, 10) : null;
                     const key = `${acct.account_number}|${und}|${exp}`;
                     if (!ttGroups.has(key)) ttGroups.set(key, []);
                     ttGroups.get(key).push({ ...p, _und: und, _exp: exp });
@@ -10593,9 +10608,11 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
                     const thetaFinal = theta != null ? theta : bsTheta(credit, dteVal);
                     const thetaSource = theta != null ? "live_tt" : "bs_estimate";
 
-                    // Dedupe vs D1
+                    // Dedupe vs D1 — incluye underlying y match laxo (audit G 2026-05-02)
                     const alreadyInD1 = rows.some(r =>
-                      r.symbol === und && r.expiry === exp && r.account === acct.account_number
+                      ((r.symbol === und) || (r.underlying === und) || ((r.symbol||"").startsWith(und + " ")))
+                      && (r.expiry === exp)
+                      && (r.account === acct.account_number)
                     );
                     if (alreadyInD1) continue;
 
@@ -11560,7 +11577,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const ibData = await ibBridgeFetch(env, "/positions");
           const ibPositions = (Array.isArray(ibData) ? ibData : (ibData?.positions || []))
             .filter(p => p && (p.assetClass === "STK" || p.secType === "STK") && Math.abs(p.position || p.shares || 0) > 0);
-          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA"};
+          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616","9988":"HKG:9988","1066":"HKG:1066","1999":"HKG:1999","2168":"HKG:2168","2678":"HKG:2678","3690":"HKG:3690","700":"HKG:0700","939":"HKG:0939","1":"HKG:0001","2102":"HKG:2102","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA","VISe":"BME:VIS","IAGe":"BME:IAG","AIRd":"AIR","BAYNd":"BAYN","HEN3d":"HEN3"};
           const ibByTicker = {};
           for (const p of ibPositions) {
             const sym = (p.ticker || p.symbol || "").trim();
@@ -11670,7 +11687,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const execs = data.executions || [];
 
           // IB ticker → App ticker (mismo mapping que Flex import)
-          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA"};
+          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616","9988":"HKG:9988","1066":"HKG:1066","1999":"HKG:1999","2168":"HKG:2168","2678":"HKG:2678","3690":"HKG:3690","700":"HKG:0700","939":"HKG:0939","1":"HKG:0001","2102":"HKG:2102","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA","VISe":"BME:VIS","IAGe":"BME:IAG","AIRd":"AIR","BAYNd":"BAYN","HEN3d":"HEN3"};
           const mapTicker = (sym) => IB_MAP[sym] || sym;
 
           let inserted = 0, skipped = 0;
@@ -12628,7 +12645,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           }
 
           // IB ticker → App ticker mapping (same as sync-ib)
-          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA"};
+          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616","9988":"HKG:9988","1066":"HKG:1066","1999":"HKG:1999","2168":"HKG:2168","2678":"HKG:2678","3690":"HKG:3690","700":"HKG:0700","939":"HKG:0939","1":"HKG:0001","2102":"HKG:2102","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA","VISe":"BME:VIS","IAGe":"BME:IAG","AIRd":"AIR","BAYNd":"BAYN","HEN3d":"HEN3"};
           const mapTicker = (sym) => IB_MAP[sym] || sym;
 
           // Import trades. Dedup PRIMARIO por exec_id (ibOrderID/transactionID) que ES único.
@@ -13441,7 +13458,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const accounts = await ib("GET", "/portfolio/accounts");
           const accountIds = (Array.isArray(accounts) ? accounts : []).map(a => a.accountId || a.id).filter(Boolean);
 
-          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616"};
+          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616","9988":"HKG:9988","1066":"HKG:1066","1999":"HKG:1999","2168":"HKG:2168","2678":"HKG:2678","3690":"HKG:3690","700":"HKG:0700","939":"HKG:0939","1":"HKG:0001","2102":"HKG:2102","VISe":"BME:VIS","IAGe":"BME:IAG","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA","AIRd":"AIR","BAYNd":"BAYN","HEN3d":"HEN3"};
 
           // Collect all positions across accounts
           const merged = {};
@@ -13571,6 +13588,275 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             dividends: { gross: divs?.gross || 0, count: divs?.count || 0, byTicker: divByTicker.results || [] },
           }, corsHeaders);
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // GET /api/pnl/monthly?year=2025 — true monthly income & realized P&L breakdown
+      //
+      // Replaces the broken /api/tax-report logic:
+      //   - Equity realized P&L now uses FIFO matching (buy lots queued; each sell
+      //     matches against earliest buys). The legacy `Σsells − Σbuys` produced
+      //     INVERTED signs in 5/7 years (2025 reported -$1.14M, real ≈ +$87K).
+      //   - Options income now uses opt_credit_total per closed pair (SUM(shares)==0)
+      //     instead of SUM(ABS(coste)) on credits — that 25× inflated the figure
+      //     ($1.24M vs real ~$48K net for 2025).
+      //
+      // Closed option position = group rows by (ticker, opt_expiry, opt_strike, opt_tipo)
+      // and emit P&L only when SUM(shares across the group) == 0. Net P&L for the group
+      // is SUM(opt_credit_total) (already signed: + when broker credited us, - when paid).
+      //
+      // Dividend income reads canonical `dividendos` table (no more cost_basis duplicates).
+      //
+      // Auth: PROTECTED_READ.
+      if (path === "/api/pnl/monthly" && request.method === "GET") {
+        const yearParam = url.searchParams.get("year");
+        try {
+          // ── Helpers ─────────────────────────────────────────────────────
+          const monthOf = (fecha) => {
+            const m = parseInt(String(fecha || "").slice(5, 7), 10);
+            return Number.isFinite(m) && m >= 1 && m <= 12 ? m : 1;
+          };
+          const yearOf = (fecha) => {
+            const y = parseInt(String(fecha || "").slice(0, 4), 10);
+            return Number.isFinite(y) ? y : 0;
+          };
+          const monthlyShell = () => Array.from({ length: 12 }, (_, i) => ({
+            month: i + 1,
+            dividends_gross: 0,
+            dividends_net: 0,
+            wht: 0,
+            options_closed_pnl: 0,
+            stocks_realized_pnl: 0,
+            total_income: 0,
+            tickers_div: [],
+            options_closed: [],
+          }));
+
+          // ── 1) Realized stock P&L via FIFO (across ALL years) ───────────
+          const { results: equity } = await env.DB.prepare(
+            "SELECT ticker, fecha, shares, precio, comision, coste FROM cost_basis WHERE tipo='EQUITY' ORDER BY ticker ASC, fecha ASC, orden ASC"
+          ).all();
+
+          const realizedByYearMonth = {};
+          const realizedByYearTotal = {};
+          const realizedLifetime = { total: 0 };
+
+          let fifoQueue = [];
+          let curTicker = null;
+          for (const row of equity) {
+            if (row.ticker !== curTicker) {
+              fifoQueue = [];
+              curTicker = row.ticker;
+            }
+            const sh = Number(row.shares) || 0;
+            const px = Number(row.precio) || 0;
+            const com = Number(row.comision) || 0;
+            const cst = Number(row.coste) || 0;
+
+            if (sh > 0) {
+              // BUY — push lot. cost-per-share derived from coste/shares (commissions baked in for IB Flex rows).
+              const costPerShare = sh > 0
+                ? (Math.abs(cst) > 0 ? Math.abs(cst) / sh : px)
+                : px;
+              fifoQueue.push({ qty: sh, costPerShare });
+            } else if (sh < 0) {
+              let qtyToMatch = -sh;
+              const sellPrice = px;
+              const sellCommissionPerShare = qtyToMatch > 0 ? Math.abs(com) / qtyToMatch : 0;
+              while (qtyToMatch > 0.000001 && fifoQueue.length > 0) {
+                const lot = fifoQueue[0];
+                const matchQty = Math.min(qtyToMatch, lot.qty);
+                const realized = (sellPrice - lot.costPerShare) * matchQty - sellCommissionPerShare * matchQty;
+                const yyyy = yearOf(row.fecha);
+                const mIdx = monthOf(row.fecha) - 1;
+                if (yyyy > 0) {
+                  if (!realizedByYearMonth[yyyy]) realizedByYearMonth[yyyy] = Array(12).fill(0);
+                  realizedByYearMonth[yyyy][mIdx] += realized;
+                  realizedByYearTotal[yyyy] = (realizedByYearTotal[yyyy] || 0) + realized;
+                }
+                realizedLifetime.total += realized;
+                lot.qty -= matchQty;
+                qtyToMatch -= matchQty;
+                if (lot.qty <= 0.000001) fifoQueue.shift();
+              }
+              // qtyToMatch > 0 here means a "naked" sell with no inventory — treat as 0 P&L.
+            }
+          }
+
+          // ── 2) Options realized P&L (closed = net shares 0) ─────────────
+          const { results: optTrades } = await env.DB.prepare(
+            "SELECT ticker, fecha, shares, opt_expiry, opt_tipo, opt_strike, opt_credit_total, coste FROM cost_basis WHERE tipo='OPTION' ORDER BY fecha ASC, orden ASC"
+          ).all();
+
+          const optGroups = new Map();
+          for (const r of optTrades) {
+            const key = `${r.ticker}|${r.opt_expiry || ''}|${r.opt_strike || 0}|${r.opt_tipo || ''}`;
+            if (!optGroups.has(key)) {
+              optGroups.set(key, {
+                rows: [],
+                ticker: r.ticker,
+                opt_tipo: r.opt_tipo,
+                opt_strike: r.opt_strike,
+                opt_expiry: r.opt_expiry,
+                latestFecha: r.fecha,
+              });
+            }
+            const g = optGroups.get(key);
+            g.rows.push(r);
+            if ((r.fecha || '') > (g.latestFecha || '')) g.latestFecha = r.fecha;
+          }
+
+          const optionsByYearMonth = {};
+          const optionsByYearTotal = {};
+          const optionsLifetimeTotal = { total: 0 };
+          const optionsClosedDetailByYearMonth = {};
+
+          for (const g of optGroups.values()) {
+            const netShares = g.rows.reduce((s, r) => s + (Number(r.shares) || 0), 0);
+            if (Math.abs(netShares) > 0.000001) continue; // still open
+            let pnl = g.rows.reduce((s, r) => s + (Number(r.opt_credit_total) || 0), 0);
+            if (Math.abs(pnl) < 0.005 && g.rows.length > 0) {
+              // Older Excel rows lack opt_credit_total — fall back to coste.
+              pnl = g.rows.reduce((s, r) => s + (Number(r.coste) || 0), 0);
+            }
+            const yyyy = yearOf(g.latestFecha);
+            const mIdx = monthOf(g.latestFecha) - 1;
+            if (yyyy > 0) {
+              if (!optionsByYearMonth[yyyy]) optionsByYearMonth[yyyy] = Array(12).fill(0);
+              if (!optionsClosedDetailByYearMonth[yyyy]) optionsClosedDetailByYearMonth[yyyy] = Array.from({length:12}, () => []);
+              optionsByYearMonth[yyyy][mIdx] += pnl;
+              optionsByYearTotal[yyyy] = (optionsByYearTotal[yyyy] || 0) + pnl;
+              optionsClosedDetailByYearMonth[yyyy][mIdx].push({
+                ticker: g.ticker,
+                opt_tipo: g.opt_tipo,
+                strike: g.opt_strike,
+                expiry: g.opt_expiry,
+                pnl: Math.round(pnl * 100) / 100,
+              });
+            }
+            optionsLifetimeTotal.total += pnl;
+          }
+
+          // ── 3) Dividend income from canonical dividendos table ──────────
+          const { results: divs } = await env.DB.prepare(
+            `SELECT ticker, fecha,
+                    CASE WHEN bruto_usd > 0 THEN bruto_usd ELSE bruto END AS gross_usd,
+                    CASE WHEN neto_usd  > 0 THEN neto_usd  ELSE neto  END AS net_usd,
+                    COALESCE(wht_amount, 0) AS wht
+             FROM dividendos`
+          ).all();
+
+          const divByYearMonth = {};
+          const divByYearTotal = {};
+          const divLifetime = { gross: 0, net: 0, wht: 0 };
+          for (const d of divs) {
+            const yyyy = yearOf(d.fecha);
+            if (yyyy <= 0) continue;
+            const mIdx = monthOf(d.fecha) - 1;
+            const g = Number(d.gross_usd) || 0;
+            const n = Number(d.net_usd) || (g - (Number(d.wht) || 0));
+            const w = Number(d.wht) || 0;
+            if (!divByYearMonth[yyyy]) {
+              divByYearMonth[yyyy] = Array.from({length:12}, () => ({ gross:0, net:0, wht:0, perTicker:new Map() }));
+            }
+            const slot = divByYearMonth[yyyy][mIdx];
+            slot.gross += g;
+            slot.net += n;
+            slot.wht += w;
+            const cur = slot.perTicker.get(d.ticker) || 0;
+            slot.perTicker.set(d.ticker, cur + g);
+            divLifetime.gross += g;
+            divLifetime.net += n;
+            divLifetime.wht += w;
+            if (!divByYearTotal[yyyy]) divByYearTotal[yyyy] = { gross:0, net:0, wht:0 };
+            divByYearTotal[yyyy].gross += g;
+            divByYearTotal[yyyy].net += n;
+            divByYearTotal[yyyy].wht += w;
+          }
+
+          // ── 4) Build year payload ───────────────────────────────────────
+          const buildYear = (yyyy) => {
+            const monthly = monthlyShell();
+            const stockRow = realizedByYearMonth[yyyy] || Array(12).fill(0);
+            const optRow = optionsByYearMonth[yyyy] || Array(12).fill(0);
+            const optClosedDetail = optionsClosedDetailByYearMonth[yyyy] || Array.from({length:12}, () => []);
+            const divRow = divByYearMonth[yyyy] || Array.from({length:12}, () => ({ gross:0, net:0, wht:0, perTicker:new Map() }));
+            for (let i = 0; i < 12; i++) {
+              const m = monthly[i];
+              m.dividends_gross = Math.round(divRow[i].gross * 100) / 100;
+              m.dividends_net   = Math.round(divRow[i].net   * 100) / 100;
+              m.wht             = Math.round(divRow[i].wht   * 100) / 100;
+              m.options_closed_pnl   = Math.round(optRow[i] * 100) / 100;
+              m.stocks_realized_pnl  = Math.round(stockRow[i] * 100) / 100;
+              m.total_income = Math.round((m.dividends_net + m.options_closed_pnl + m.stocks_realized_pnl) * 100) / 100;
+              m.tickers_div = Array.from(divRow[i].perTicker.entries())
+                .map(([ticker, amount]) => ({ ticker, amount: Math.round(amount * 100) / 100 }))
+                .sort((a, b) => b.amount - a.amount);
+              m.options_closed = optClosedDetail[i].sort((a, b) => Math.abs(b.pnl) - Math.abs(a.pnl));
+            }
+            const annualGross  = (divByYearTotal[yyyy]?.gross || 0);
+            const annualNet    = (divByYearTotal[yyyy]?.net   || 0);
+            const annualWHT    = (divByYearTotal[yyyy]?.wht   || 0);
+            const annualOptPnl = (optionsByYearTotal[yyyy]    || 0);
+            const annualEqPnl  = (realizedByYearTotal[yyyy]   || 0);
+            return {
+              year: yyyy,
+              monthly,
+              annual: {
+                dividends_gross: Math.round(annualGross * 100) / 100,
+                dividends_net: Math.round(annualNet * 100) / 100,
+                wht_total: Math.round(annualWHT * 100) / 100,
+                options_closed_pnl: Math.round(annualOptPnl * 100) / 100,
+                stocks_realized_pnl: Math.round(annualEqPnl * 100) / 100,
+                total_income: Math.round((annualNet + annualOptPnl + annualEqPnl) * 100) / 100,
+              },
+            };
+          };
+
+          const yearSet = new Set([
+            ...Object.keys(divByYearTotal),
+            ...Object.keys(realizedByYearTotal),
+            ...Object.keys(optionsByYearTotal),
+          ].map(Number).filter(y => y > 0));
+          const availableYears = Array.from(yearSet).sort((a, b) => b - a);
+
+          let primary;
+          if (yearParam && yearParam !== "lifetime") {
+            primary = buildYear(parseInt(yearParam, 10));
+          } else {
+            const target = availableYears[0] || new Date().getFullYear();
+            primary = buildYear(target);
+          }
+
+          const lifetime = {
+            dividends_gross: Math.round(divLifetime.gross * 100) / 100,
+            dividends_net: Math.round(divLifetime.net * 100) / 100,
+            wht_total: Math.round(divLifetime.wht * 100) / 100,
+            options_closed_pnl: Math.round(optionsLifetimeTotal.total * 100) / 100,
+            stocks_realized_pnl: Math.round(realizedLifetime.total * 100) / 100,
+            total_income: Math.round((divLifetime.net + optionsLifetimeTotal.total + realizedLifetime.total) * 100) / 100,
+          };
+
+          const byYear = availableYears.map(y => ({
+            year: y,
+            dividends_gross: Math.round((divByYearTotal[y]?.gross || 0) * 100) / 100,
+            dividends_net: Math.round((divByYearTotal[y]?.net || 0) * 100) / 100,
+            wht_total: Math.round((divByYearTotal[y]?.wht || 0) * 100) / 100,
+            options_closed_pnl: Math.round((optionsByYearTotal[y] || 0) * 100) / 100,
+            stocks_realized_pnl: Math.round((realizedByYearTotal[y] || 0) * 100) / 100,
+            total_income: Math.round(((divByYearTotal[y]?.net || 0) + (optionsByYearTotal[y] || 0) + (realizedByYearTotal[y] || 0)) * 100) / 100,
+          }));
+
+          return json({
+            year: primary.year,
+            monthly: primary.monthly,
+            annual: primary.annual,
+            lifetime,
+            availableYears,
+            byYear,
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message, stack: (e.stack || "").slice(0, 500) }, corsHeaders, 500);
+        }
       }
 
       // GET /api/tax/optimization-report — WHT drag analysis for Chinese fiscal resident
@@ -22664,7 +22950,7 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
             const ibData = await ibResp.json();
             const ibPositions = (Array.isArray(ibData) ? ibData : (ibData?.positions || []))
               .filter(p => p && (p.assetClass === "STK" || p.secType === "STK") && Math.abs(p.position || p.shares || 0) > 0);
-            const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA"};
+            const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616","9988":"HKG:9988","1066":"HKG:1066","1999":"HKG:1999","2168":"HKG:2168","2678":"HKG:2678","3690":"HKG:3690","700":"HKG:0700","939":"HKG:0939","1":"HKG:0001","2102":"HKG:2102","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA","VISe":"BME:VIS","IAGe":"BME:IAG","AIRd":"AIR","BAYNd":"BAYN","HEN3d":"HEN3"};
             const ibByT = {};
             for (const p of ibPositions) {
               const sym = (p.ticker || p.symbol || "").trim();

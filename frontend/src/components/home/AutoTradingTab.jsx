@@ -1059,6 +1059,9 @@ function TodayPanel() {
 function PaperPanel() {
   return (
     <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-tertiary)' }}>
+      <div style={{ marginBottom: 14, padding: '8px 12px', background: 'rgba(217,119,6,.08)', border: '1px solid rgba(217,119,6,.4)', borderRadius: 6, color: '#f59e0b', fontSize: 11, display: 'inline-block' }}>
+        ⚠️ Placeholder — sin wiring backend todavía
+      </div>
       <div style={{ fontSize: 14, marginBottom: 8 }}>📊 Paper trading track record</div>
       <div style={{ fontSize: 11 }}>Disponible en Fase 2 (después de validar estrategias en backtest).<br />Mostrará PnL acumulado de paper trades simulados desde activación.</div>
     </div>

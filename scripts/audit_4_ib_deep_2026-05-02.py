@@ -952,6 +952,41 @@ def write_risky_sql(mismatches, d1_only):
     lines.append("-- audit-4-fixes.sql — RISKY changes for review (NOT auto-applied)")
     lines.append("-- Generated 2026-05-02 by scripts/audit_4_ib_deep_2026-05-02.py")
     lines.append("")
+    lines.append("-- ============================================")
+    lines.append("-- 0) IB_MAP ticker backfill")
+    lines.append("-- These rows were inserted by audit-4 with the raw IB symbol.")
+    lines.append("-- worker.js IB_MAP has been updated to map them on future imports.")
+    lines.append("-- This backfill normalizes existing rows for consistency with positions table.")
+    lines.append("-- Verify NO downstream filters depend on raw symbol before applying.")
+    lines.append("-- ============================================")
+    lines.append("")
+    backfill_pairs = [
+        ("9988",  "HKG:9988"),
+        ("1066",  "HKG:1066"),
+        ("1999",  "HKG:1999"),
+        ("2168",  "HKG:2168"),
+        ("2678",  "HKG:2678"),
+        ("3690",  "HKG:3690"),
+        ("700",   "HKG:0700"),
+        ("939",   "HKG:0939"),
+        ("1",     "HKG:0001"),
+        ("2102",  "HKG:2102"),
+        ("VISe",  "BME:VIS"),
+        ("IAGe",  "BME:IAG"),
+    ]
+    for raw, mapped in backfill_pairs:
+        lines.append(
+            f"-- UPDATE cost_basis SET ticker = '{mapped}', underlying = '{mapped}' "
+            f"WHERE ticker = '{raw}' AND tipo IN ('EQUITY','OPTION');"
+        )
+        lines.append(
+            f"-- UPDATE cost_basis SET underlying = '{mapped}' WHERE underlying = '{raw}' "
+            f"AND tipo IN ('EQUITY','OPTION');"
+        )
+        lines.append(
+            f"-- UPDATE dividendos SET ticker = '{mapped}' WHERE ticker = '{raw}';"
+        )
+    lines.append("")
     if mismatches:
         lines.append("-- ============================================")
         lines.append("-- A) Field mismatches (same exec_id different fields)")

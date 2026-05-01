@@ -370,8 +370,6 @@ function StressView() {
   useEffect(() => { reload(); }, [scenario]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const forceReload = () => {
-    const orig = fetch;
-    void orig;
     reload(true);
   };
 

@@ -199,9 +199,9 @@ function ThesesCoverageBadge() {
       const r = await fetch(`${API_URL}/api/theses/missing?min_weight=0.5`);
       const d = await r.json();
       setData(d);
-    } catch {}
+    } catch (e) { console.error('[ThesisCoverage] reload failed:', e); }
   }, []);
-  useEffect(() => { let cancelled = false; (async () => { try { const r = await fetch(`${API_URL}/api/theses/missing?min_weight=0.5`); const d = await r.json(); if (!cancelled) setData(d); } catch {} })(); return () => { cancelled = true; }; }, []);
+  useEffect(() => { let cancelled = false; (async () => { try { const r = await fetch(`${API_URL}/api/theses/missing?min_weight=0.5`); const d = await r.json(); if (!cancelled) setData(d); } catch (e) { console.error('[ThesisCoverage] initial fetch failed:', e); } })(); return () => { cancelled = true; }; }, []);
   const generateAll = useCallback(async () => {
     if (!data || !data.missing || data.missing.length === 0) return;
     if (!window.confirm(`Generar tesis con Opus para ${data.missing.length} empresas. Coste estimado: ~$${(data.missing.length * 0.12).toFixed(2)}. ¿Continuar?`)) return;
@@ -212,7 +212,7 @@ function ThesesCoverageBadge() {
       setProgress(p => ({ ...p, current: t }));
       try {
         await fetch(`${API_URL}/api/theses/${encodeURIComponent(t)}/generate`, { method: 'POST' });
-      } catch {}
+      } catch (e) { console.error('[ThesisCoverage] generate failed for', t, ':', e); }
       setProgress(p => ({ ...p, done: p.done + 1 }));
     }
     setGenerating(false);
@@ -350,7 +350,7 @@ export default function PortfolioTab() {
       for (const row of (d.scores || [])) map[row.ticker] = row;
       setQsScores(map);
       try { sessionStorage.setItem(QS_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: map })); } catch {}
-    } catch {}
+    } catch (e) { console.error('[PortfolioTab] /api/scores failed:', e); }
   }, []);
   useEffect(() => { loadQsScores(false); }, [loadQsScores]);
 
@@ -378,7 +378,7 @@ export default function PortfolioTab() {
         setFiveFilters(d.scores);
         try { sessionStorage.setItem(FF_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: d.scores })); } catch {}
       }
-    } catch {}
+    } catch (e) { console.error('[PortfolioTab] /api/five-filters failed:', e); }
   }, []);
   useEffect(() => { loadFiveFilters(false); }, [loadFiveFilters]);
 
@@ -412,7 +412,7 @@ export default function PortfolioTab() {
         setOracleVerdicts(d.verdicts);
         try { sessionStorage.setItem(ORACLE_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: d.verdicts })); } catch {}
       }
-    } catch {}
+    } catch (e) { console.error('[PortfolioTab] /api/oracle-verdict/batch failed:', e); }
   }, []);
   const portfolioTickers = useMemo(
     () => (portfolioTotals?.positions || []).map(p => p.ticker).filter(Boolean),

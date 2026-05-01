@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext.jsx';
 import { _sf } from '../../utils/formatters.js';
 
@@ -5,7 +6,13 @@ import { _sf } from '../../utils/formatters.js';
 function ARReport() {
   const { reportData, reportLoading, reportSymbol, cfg, openReport, priceChartData } = useAnalysis();
 
-  if (!reportData || reportSymbol !== cfg?.ticker) { if(!reportLoading) openReport(cfg?.ticker); }
+  // Auto-load report when ticker changes — must be in useEffect, not render body
+  useEffect(() => {
+    if (!reportLoading && (!reportData || reportSymbol !== cfg?.ticker)) {
+      openReport(cfg?.ticker);
+    }
+  }, [cfg?.ticker]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (reportLoading) return <div style={{padding:60,textAlign:"center",color:"var(--gold)",fontSize:13}}>Generando informe profesional de {cfg?.ticker}...</div>;
   if (!reportData) return <div style={{padding:60,textAlign:"center"}}><button onClick={()=>openReport(cfg?.ticker)} style={{padding:"14px 28px",borderRadius:10,border:"1px solid var(--gold)",background:"var(--gold-dim)",color:"var(--gold)",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>Generar Informe de {cfg?.ticker}</button></div>;
 

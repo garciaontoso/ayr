@@ -63,6 +63,7 @@ const DecisionJournalTab     = lazy(() => import('../home/DecisionJournalTab'));
 const ResearchAgentTab       = lazy(() => import('../home/ResearchAgentTab'));
 const ScannerTab             = lazy(() => import('../home/ScannerTab'));
 const OpenOptionsTab         = lazy(() => import('../home/OpenOptionsTab'));
+const PnLTab                 = lazy(() => import('../home/PnLTab'));
 
 // Tab skeleton shown while lazy chunks load
 const TabSkeleton = () => (
@@ -1637,6 +1638,7 @@ export default function HomeView() {
         {homeTab==="research-agent" && <ResearchAgentTab />}
         {homeTab==="scanner" && <ScannerTab />}
         {homeTab==="open-options" && <OpenOptionsTab />}
+        {homeTab==="pnl" && <PnLTab />}
       </Suspense>
     </ErrorBoundary>
 

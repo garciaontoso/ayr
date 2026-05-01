@@ -16,11 +16,13 @@ export default function OptionsChainTab() {
 
   useEffect(() => {
     if (!ticker) return;
+    let cancelled = false;
     setLoading(true); setError(null);
     fetch(`${API_URL}/api/options-chain?symbol=${ticker}&dte=30`)
       .then(r => r.json())
-      .then(d => { setData(d); setChainData(d); setLoading(false); })
-      .catch(e => { setError(e.message || "Error cargando opciones"); setLoading(false); });
+      .then(d => { if (!cancelled) { setData(d); setChainData(d); setLoading(false); } })
+      .catch(e => { if (!cancelled) { setError(e.message || "Error cargando opciones"); setLoading(false); } });
+    return () => { cancelled = true; };
   }, [ticker]);
 
   const loadExpiration = (dte) => {

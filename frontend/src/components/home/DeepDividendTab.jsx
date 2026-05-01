@@ -10,7 +10,7 @@
 //   • Per-ticker drill-down with multi-investor lens + Devil's Advocate
 //
 // Backend: /api/deep-dividend/* + /api/smart-alerts/* + /api/daily-briefing
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { API_URL } from '../../constants/index.js';
 import InstitutionalReportPDF from './InstitutionalReportPDF.jsx';

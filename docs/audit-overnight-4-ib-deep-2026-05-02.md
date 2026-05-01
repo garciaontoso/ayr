@@ -1,12 +1,12 @@
 # Audit Overnight 4 — IB Flex vs D1 deep reconciliation
 
-Generated: 2026-05-02. Mode: DRY-RUN
+Generated: 2026-05-02. Mode: APPLY
 
 ## TL;DR
 
-- D1 cost_basis: **12054** rows (1630 NULL exec_id)
+- D1 cost_basis: **12758** rows (1630 NULL exec_id)
 - CSV unique exec_ids: **11419**
-- Trades SAFE-MISSING (CSV exec_id not in D1, AND no composite match): **704**
+- Trades SAFE-MISSING (CSV exec_id not in D1, AND no composite match): **0**
 - Trades RISKY-MISSING (CSV exec_id not in D1, but composite-equivalent row exists): **301**
 - D1-only trades (exec_id not in any CSV): **10**
 - Field mismatches (same exec_id, diff shares/price/coste): **31**
@@ -15,51 +15,13 @@ Generated: 2026-05-02. Mode: DRY-RUN
 - CSV deposits/withdrawals not in D1 transferencias: **0**
 
 ### Applied
-- Dry-run. Re-run with `--apply` to commit.
+- Trades INSERTed: 0
+- Dividends INSERTed: 0
+- Transferencias INSERTed: 0
 
 ## A) Trades SAFE-MISSING (not in D1, no composite duplicate)
 
-These trades have an exec_id not in D1, AND no D1 row matches by composite (fecha+ticker+tipo+shares+precio+coste). Safe to INSERT — UNIQUE INDEX on exec_id prevents future dupes.
-
-### Per year
-
-| Year | Missing |
-|------|--------:|
-| 2025 | 704 |
-
-### Per account
-
-| Account | Missing |
-|---------|--------:|
-| U7257686 | 289 |
-| U5372268 | 170 |
-| U6735130 | 163 |
-| U7953378 | 82 |
-
-### Sample (first 20)
-
-| exec_id | fecha | ticker | underlying | tipo | shares | precio | coste | account |
-|---------|-------|--------|------------|------|-------:|-------:|------:|---------|
-| `3879505109/31740421032` | 2025-03-07 | 9988 | 9988 | EQUITY | -100.0 | 138.8 | 13844.8202 | U5372268 |
-| `3879505109/31740421034` | 2025-03-07 | 9988 | 9988 | EQUITY | -100.0 | 138.8 | 13862.8202 | U5372268 |
-| `3879505109/31740421036` | 2025-03-07 | 9988 | 9988 | EQUITY | -100.0 | 138.8 | 13860.0002 | U5372268 |
-| `3871630447/31689730315` | 2025-03-04 | ALKS | ALKS | EQUITY | 100.0 | 35.37 | -3537.16375725 | U5372268 |
-| `3767878191/31059086824` | 2025-01-27 | ASML | ASML | EQUITY | 10.0 | 680.7 | -6807.37271725 | U5372268 |
-| `3794406211/31214684649` | 2025-02-04 | ASML | ASML | EQUITY | 5.0 | 736.34 | -3682.05143225 | U5372268 |
-| `3869279281/31677243283` | 2025-03-04 | ASML | ASML | EQUITY | 10.0 | 700.515 | -7005.50271725 | U5372268 |
-| `3878657552/31735355003` | 2025-03-06 | BABA | BABA | EQUITY | -100.0 | 138.875 | 13886.86357025 | U5372268 |
-| `3880288285/31749077658` | 2025-03-07 | BABA | BABA | EQUITY | -100.0 | 142.12 | 14211.33454915 | U5372268 |
-| `3732512616/30834592724` | 2025-01-10 | BAER | BAER | EQUITY | 100.0 | 4.31 | -431.67375725 | U5372268 |
-| `3732512616/30834592744` | 2025-01-10 | BAER | BAER | EQUITY | 17.0 | 4.31 | -73.384538732 | U5372268 |
-| `3732512616/30834592750` | 2025-01-10 | BAER | BAER | EQUITY | 83.0 | 4.31 | -358.289218517 | U5372268 |
-| `3744969921/30909342956` | 2025-01-15 | BKYI | BKYI | EQUITY | 100.0 | 3.4 | -340.67375725 | U5372268 |
-| `3744969921/30909342983` | 2025-01-15 | BKYI | BKYI | EQUITY | 200.0 | 3.4 | -681.3475145 | U5372268 |
-| `3744995010/30909482327` | 2025-01-15 | BKYI | BKYI | EQUITY | -300.0 | 3.282 | 983.39825637 | U5372268 |
-| `3745152738/30910341730` | 2025-01-15 | BKYI | BKYI | EQUITY | 300.0 | 2.86 | -860.02127175 | U5372268 |
-| `3745276722/30910864750` | 2025-01-15 | BKYI | BKYI | EQUITY | -300.0 | 3.06 | 916.20340785 | U5372268 |
-| `3759807954/31004892470` | 2025-01-22 | CELH | CELH | EQUITY | 100.0 | 26.0 | -2600.16375725 | U5372268 |
-| `3850229140/31560671291` | 2025-02-25 | CPNG | CPNG | EQUITY | 100.0 | 25.37 | -2537.16375725 | U5372268 |
-| `3904540150/31895957657` | 2025-03-17 | DKS | DKS | EQUITY | 20.0 | 194.865 | -3897.65495725 | U5372268 |
+None — D1 covers all CSV trades by exec_id.
 
 ## A2) Trades RISKY-MISSING (not in D1 by exec_id, but composite match exists)
 
