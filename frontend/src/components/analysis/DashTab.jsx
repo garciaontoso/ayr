@@ -11,6 +11,11 @@ export default function DashTab() {
   // Trust badges — useFreshness has its own useEffect so must be declared before render
   const { getLevel: freshnessLevel, getUpdatedAt: freshnessDate, getSource: freshnessSource } = useFreshness();
 
+  // Chart metric selector: 'price' (default weekly chart) or any of the
+  // metric keys defined in METRIC_CHART_DEFS. Clicking a metric card swaps
+  // the price chart for that metric's annual evolution. Click again to revert.
+  const [chartMetric, setChartMetric] = useState('price');
+
   // Debt maturity calendar — must be declared before render (TDZ safety)
   const [debtMaturity, setDebtMaturity] = useState(null);
   useEffect(() => {
@@ -28,6 +33,19 @@ export default function DashTab() {
     const fcfData = CHART_YEARS.map(y=>comp[y]?.fcf ?? null);
     const epsData = CHART_YEARS.map(y=>fin[y]?.eps ?? null);
     const labels = chartLabels;
+
+    // ── Metric chart definitions ──────────────────────────────────────────
+    // Each metric maps card label → {getter on comp[y], formatter, color}.
+    // The price chart is the default; clicking one of these swaps it.
+    const METRIC_CHART_DEFS = {
+      'FCF':         { get: y => comp[y]?.fcf,   fmt: v => fM(v),                  color: '#34d399', sub: 'M USD' },
+      'M. Bruto':    { get: y => comp[y]?.gm,    fmt: v => fP(v),                  color: '#34d399', sub: '%' },
+      'M. Operativo':{ get: y => comp[y]?.om,    fmt: v => fP(v),                  color: '#34d399', sub: '%' },
+      'ROE':         { get: y => comp[y]?.roe,   fmt: v => fP(v),                  color: '#c8a44e', sub: '%' },
+      'ROIC':        { get: y => comp[y]?.roic,  fmt: v => fP(v),                  color: '#c8a44e', sub: '%' },
+      'Deuda/FCF':   { get: y => comp[y]?.d2fcf, fmt: v => v == null ? '—' : _sf(v,1)+'x', color: '#5b9bd5', sub: 'x' },
+      'EV/EBITDA':   { get: y => comp[y]?.eve,   fmt: v => v == null ? '—' : _sf(v,1)+'x', color: '#5b9bd5', sub: 'x' },
+    };
     return (
       <div style={{display:"flex",flexDirection:"column",gap:20}}>
         <Card glow>
@@ -82,8 +100,67 @@ export default function DashTab() {
               </div>}
             </div>
           </div>
+          {/* Chart slot: price (default) OR selected metric history.
+              Click any metric card below to swap; click the same card again
+              (or "Volver al precio" button) to restore the price chart. */}
+          {chartMetric !== 'price' && METRIC_CHART_DEFS[chartMetric] && (() => {
+            const def = METRIC_CHART_DEFS[chartMetric];
+            const series = CHART_YEARS.map(y => def.get(y)).map(v => Number.isFinite(v) ? v : null);
+            const validVals = series.filter(v => v != null);
+            if (validVals.length < 2) return (
+              <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:16,padding:"16px",marginTop:14,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{fontSize:13,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fd)"}}>{chartMetric}</div>
+                <span style={{fontSize:11,color:"var(--text-tertiary)"}}>Sin histórico suficiente</span>
+                <button onClick={()=>setChartMetric('price')} style={{padding:"4px 10px",borderRadius:7,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:10,cursor:"pointer",fontFamily:"var(--fb)"}}>← Volver al precio</button>
+              </div>
+            );
+            const minV = Math.min(...validVals);
+            const maxV = Math.max(...validVals);
+            const pad = Math.max((maxV - minV) * 0.1, Math.abs(maxV) * 0.05, 0.001);
+            const yMin = minV - pad;
+            const yMax = maxV + pad;
+            const range = yMax - yMin || 1;
+            const W = 900; const H = 300; const PAD = 60;
+            const lastV = series[series.length - 1];
+            const firstV = validVals[0];
+            const chgPct = firstV !== 0 && firstV != null && lastV != null ? ((lastV - firstV) / Math.abs(firstV)) * 100 : null;
+            const positive = chgPct == null ? null : chgPct >= 0;
+            const trendCol = positive == null ? def.color : positive ? '#34d399' : '#f87171';
+            // Build polyline only over consecutive valid values
+            const pts = series.map((v, i) => {
+              if (v == null) return null;
+              const x = PAD + (i / (series.length - 1 || 1)) * (W - PAD);
+              const y = H - ((v - yMin) / range) * H;
+              return { x, y, v, i };
+            }).filter(Boolean);
+            const polyPts = pts.map(p => `${p.x},${p.y}`).join(' ');
+            const gridLines = 5;
+            const gridVals = Array.from({length: gridLines+1}, (_,i) => yMin + (range * i / gridLines));
+            return <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:16,padding:"16px 16px 8px",marginTop:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{display:"flex",alignItems:"baseline",gap:10}}>
+                  <span style={{fontSize:13,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fd)"}}>{chartMetric}</span>
+                  <span style={{fontSize:20,fontWeight:800,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{def.fmt(lastV)}</span>
+                </div>
+                <div style={{display:"flex",gap:12,alignItems:"center"}}>
+                  <span style={{fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{validVals.length} años</span>
+                  {chgPct != null && <span style={{fontSize:14,fontWeight:700,color:trendCol,fontFamily:"var(--fm)",padding:"3px 10px",borderRadius:6,background:`${trendCol}15`}}>{chgPct>=0?"+":""}{_sf(chgPct,0)}%</span>}
+                  <button onClick={()=>setChartMetric('price')} style={{padding:"4px 10px",borderRadius:7,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:10,cursor:"pointer",fontFamily:"var(--fb)"}}>← Precio</button>
+                </div>
+              </div>
+              <svg viewBox={`0 0 ${W} ${H+25}`} style={{width:"100%",height:"auto"}}>
+                <defs><linearGradient id="metricGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={trendCol} stopOpacity=".2"/><stop offset="100%" stopColor={trendCol} stopOpacity="0"/></linearGradient></defs>
+                {gridVals.map((v,i) => {const yPos = H - ((v-yMin)/range)*H; return <g key={i}><line x1={PAD} y1={yPos} x2={W} y2={yPos} stroke="var(--subtle-border)" strokeWidth="0.5"/><text x={PAD-4} y={yPos+3} fill="var(--text-tertiary)" fontSize="8" fontFamily="var(--fm)" textAnchor="end">{def.fmt(v)}</text></g>;})}
+                {CHART_YEARS.map((yr,i) => {const x = PAD + (i / (CHART_YEARS.length - 1 || 1)) * (W - PAD); return <g key={i}><line x1={x} y1={0} x2={x} y2={H} stroke="var(--subtle-bg2)" strokeWidth="0.5"/><text x={x} y={H+16} fill="var(--text-tertiary)" fontSize="9" fontFamily="var(--fm)" textAnchor="middle">{String(yr).slice(2)}</text></g>;})}
+                {pts.length >= 2 && <polygon points={`${pts[0].x},${H} ${polyPts} ${pts[pts.length-1].x},${H}`} fill="url(#metricGrad)"/>}
+                <polyline points={polyPts} fill="none" stroke={trendCol} strokeWidth="2" strokeLinejoin="round"/>
+                {pts.map(p => <circle key={p.i} cx={p.x} cy={p.y} r="3" fill={trendCol} stroke="var(--bg)" strokeWidth="1"/>)}
+              </svg>
+            </div>;
+          })()}
+
           {/* Price chart 10Y */}
-          {(() => {
+          {chartMetric === 'price' && (() => {
             const priceData = priceChartData;
             if (!priceData || priceData.length < 10) return null;
             const weekly = priceData.filter((_,i) => i % 5 === 0);
@@ -142,16 +219,38 @@ export default function DashTab() {
             {lbl:"Piotroski",val:`${piotroski.score}/9`,rules:R.pio,rv:piotroski.score,trust:{src:"Calculado localmente sobre FMP financials",note:"F-Score: 9 criterios de salud financiera"}},
             {lbl:"Div Yield",val:fP(cfg.price>0&&LD.dps>0?LD.dps/cfg.price:null),sub:`DPS: $${LD.dps?.toFixed(2)||"—"}`,rules:[{test:v=>v>.04,lbl:"Alto",c:"var(--green)",bg:"rgba(48,209,88,.1)",score:3},{test:v=>v>.025,lbl:"Medio",c:"var(--yellow)",bg:"rgba(255,214,10,.1)",score:2},{test:v=>v>.01,lbl:"Bajo",c:"var(--orange)",bg:"rgba(255,159,10,.1)",score:1},{test:()=>true,lbl:"Mínimo",c:"var(--text-tertiary)",bg:"#1a202c",score:0}],rv:cfg.price>0&&LD.dps>0?LD.dps/cfg.price:null,trust:{src:"FMP /key-metrics dividendYield + DPS TTM",note:"DPS TTM / precio actual"}},
             {lbl:"WACC",val:fP(wacc.wacc),sub:`Ke:${fP(wacc.costEquity)} Kd:${fP(wacc.costDebt)}`,trust:{lvl:"unverified",src:"Calculado localmente (CAPM + spread)",note:"Beta × ERP + Rf para equity; spread crediticio para deuda. Estimado."}},
-          ].map((m,i) => (
-            <Card key={i}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
-                <span style={{fontSize:10,color:"var(--text-secondary)",fontWeight:600,textTransform:"uppercase",letterSpacing:.5,fontFamily:"var(--fm)",display:"flex",alignItems:"center",gap:3}}>{m.lbl}{m.trust && <TrustBadge level={m.trust.lvl||"fresh"} source={m.trust.src} updatedAt={freshnessDate("scores")||new Date().toISOString().slice(0,10)} note={m.trust.note}/>}</span>
-                {m.rules && <Badge val={m.rv} rules={m.rules}/>}
+          ].map((m,i) => {
+            const hasChart = !!METRIC_CHART_DEFS[m.lbl];
+            const isActive = chartMetric === m.lbl;
+            const cardEl = (
+              <Card key={i} style={hasChart ? {
+                outline: isActive ? '1.5px solid var(--gold)' : 'none',
+                background: isActive ? 'var(--gold-dim)' : undefined,
+                transition: 'background .15s, outline .15s',
+              } : undefined}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:4}}>
+                  <span style={{fontSize:10,color:isActive?"var(--gold)":"var(--text-secondary)",fontWeight:600,textTransform:"uppercase",letterSpacing:.5,fontFamily:"var(--fm)",display:"flex",alignItems:"center",gap:3}}>
+                    {hasChart && <span style={{fontSize:10,opacity:.7}}>📈</span>}
+                    {m.lbl}
+                    {m.trust && <TrustBadge level={m.trust.lvl||"fresh"} source={m.trust.src} updatedAt={freshnessDate("scores")||new Date().toISOString().slice(0,10)} note={m.trust.note}/>}
+                  </span>
+                  {m.rules && <Badge val={m.rv} rules={m.rules}/>}
+                </div>
+                <div style={{fontSize:22,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",marginTop:2}}>{m.val}</div>
+                {m.sub && <div style={{fontSize:10,color:"var(--text-tertiary)",marginTop:2}}>{m.sub}</div>}
+              </Card>
+            );
+            if (!hasChart) return <div key={i}>{cardEl}</div>;
+            return (
+              <div key={i} role="button" tabIndex={0}
+                onClick={() => setChartMetric(isActive ? 'price' : m.lbl)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setChartMetric(isActive ? 'price' : m.lbl); } }}
+                title={isActive ? 'Click para volver al precio' : 'Click para ver evolución histórica'}
+                style={{cursor:'pointer'}}>
+                {cardEl}
               </div>
-              <div style={{fontSize:22,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",marginTop:2}}>{m.val}</div>
-              {m.sub && <div style={{fontSize:10,color:"var(--text-tertiary)",marginTop:2}}>{m.sub}</div>}
-            </Card>
-          ))}
+            );
+          })}
         </div>
 
         {/* ── 52-Week Range + Forward Payout + Sector PE ── */}
