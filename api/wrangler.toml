@@ -35,6 +35,7 @@ bucket_name = "ayr-earnings-archive"
 [triggers]
 crons = [
   "30 7 * * 1-5",   # IB Flex sync diario lun-vie ~08:30 Madrid invierno / 09:30 verano
+  "0 12 * * *",     # News + YouTube refresh diario 12:00 UTC (~20:00 Shanghai)
 ]
 #
 # Crons antiguos preservados como referencia (DESACTIVADOS):

@@ -23034,6 +23034,30 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
       return; // Solo ejecutamos flex sync + reconcile + reentry-watch; no más nada en este tick
     }
 
+    // ─── News + YouTube refresh diario (12:00 UTC) ───
+    // /api/news/refresh: FMP news → Haiku classify (~$0.05/run = $1.50/mes)
+    // /api/youtube/scan-all-channels: scraping HTML, sin coste LLM
+    if (cronExpr === "0 12 * * *") {
+      console.log("[scheduled] news+youtube refresh tick");
+      const apiBase = "https://api.onto-so.com";
+      const auth = { 'Authorization': `Bearer ${env.AYR_WORKER_TOKEN}` };
+      try {
+        const r = await fetch(`${apiBase}/api/news/refresh`, {
+          method: 'POST', headers: auth, signal: AbortSignal.timeout(180000),
+        });
+        const d = await r.json().catch(() => ({}));
+        console.log("[scheduled] news/refresh:", r.status, `inserted=${d.inserted ?? '?'}`);
+      } catch (e) { console.error("[scheduled] news/refresh error:", e.message); }
+      try {
+        const r = await fetch(`${apiBase}/api/youtube/scan-all-channels`, {
+          method: 'POST', headers: auth, signal: AbortSignal.timeout(180000),
+        });
+        const d = await r.json().catch(() => ({}));
+        console.log("[scheduled] youtube/scan:", r.status, `total_new=${d.total_new ?? '?'}`);
+      } catch (e) { console.error("[scheduled] youtube/scan error:", e.message); }
+      return;
+    }
+
     // ─── KILL-SWITCH para crons LLM (2026-04-19) ───
     // Si por error se reactiva otro cron (Oracle/agentes), no se ejecuta.
     console.log("[scheduled] KILL-SWITCH activo para crons LLM — no se ejecuta nada");
