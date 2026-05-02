@@ -219,6 +219,85 @@ function CalendarView({ positions }) {
   );
 }
 
+// ── Expanded row detail — shown when user clicks a position row.
+//    Displays leg-by-leg breakdown when available + days held + key risk metrics.
+function ExpandedRowDetail({ position: p }) {
+  const legs = Array.isArray(p.legs) ? p.legs : [];
+  const daysHeld = p.openFecha ? Math.floor((Date.now() - new Date(p.openFecha + 'T00:00:00Z').getTime()) / 86400000) : null;
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+      {/* Trade summary */}
+      <div>
+        <div style={{ fontSize: 9, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 6, fontFamily: 'var(--fm)' }}>Trade</div>
+        <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.7, fontFamily: 'var(--fm)' }}>
+          <div><span style={{ color: 'var(--text-tertiary)' }}>Estrategia:</span> <StrategyBadge strategy={p.strategy} /></div>
+          <div><span style={{ color: 'var(--text-tertiary)' }}>Underlying:</span> <b>{p.underlying || p.symbol}</b></div>
+          <div><span style={{ color: 'var(--text-tertiary)' }}>Strikes:</span> {p.strikes}</div>
+          <div><span style={{ color: 'var(--text-tertiary)' }}>Expiry:</span> {p.expiry || '—'} <span style={{ color: dteColor(p.dte), fontWeight: 600 }}>({p.dte}d)</span></div>
+          {p.openFecha && <div><span style={{ color: 'var(--text-tertiary)' }}>Abierto:</span> {p.openFecha}{daysHeld != null ? ` · ${daysHeld}d en posición` : ''}</div>}
+        </div>
+      </div>
+
+      {/* Premium / cost */}
+      <div>
+        <div style={{ fontSize: 9, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 6, fontFamily: 'var(--fm)' }}>Premium / Coste</div>
+        <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.7, fontFamily: 'var(--fm)' }}>
+          <div><span style={{ color: 'var(--text-tertiary)' }}>Credit recibido:</span> <span style={{ color: 'var(--gold)', fontWeight: 700 }}>{fmtCredit(p.creditTotal)}</span></div>
+          {p.creditPerContract != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Por contrato:</span> {fmtCredit(p.creditPerContract)}</div>}
+          <div><span style={{ color: 'var(--text-tertiary)' }}>Contratos:</span> ×{p.contracts}</div>
+          {p.markValue != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Mark actual:</span> {fmtCredit(p.markValue)}</div>}
+          {p.maxLoss != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Max loss:</span> <span style={{ color: '#ef4444' }}>{fmtCredit(Math.abs(p.maxLoss))}</span></div>}
+        </div>
+      </div>
+
+      {/* P&L breakdown */}
+      <div>
+        <div style={{ fontSize: 9, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 6, fontFamily: 'var(--fm)' }}>P&L</div>
+        <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.7, fontFamily: 'var(--fm)' }}>
+          <div style={{ fontSize: 18, fontWeight: 800, color: p.pnl == null ? 'var(--text-tertiary)' : p.pnl >= 0 ? '#30d158' : '#ef4444', marginBottom: 4 }}>
+            {p.pnl != null ? (p.pnl >= 0 ? '+' : '-') + fmtCredit(Math.abs(p.pnl)) : '—'}
+            <span style={{ fontSize: 11, fontWeight: 600, marginLeft: 6, opacity: .8 }}>
+              {p.pnlPct != null ? '(' + (p.pnlPct >= 0 ? '+' : '') + (p.pnlPct * 100).toFixed(1) + '% del max)' : ''}
+            </span>
+          </div>
+          {daysHeld != null && p.pnl != null && daysHeld > 0 && (
+            <div><span style={{ color: 'var(--text-tertiary)' }}>P&L / día:</span> {(p.pnl / daysHeld).toFixed(2)}$</div>
+          )}
+          <div><span style={{ color: 'var(--text-tertiary)' }}>Theta:</span> <span style={{ color: '#30d158' }}>{fmtTheta(p.thetaTotal)}/día</span></div>
+          {p.delta != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Delta neta:</span> {fmtDelta(p.delta)}</div>}
+          {p.ivr != null && <div><span style={{ color: 'var(--text-tertiary)' }}>IV Rank:</span> {_sf(p.ivr, 0)}</div>}
+        </div>
+      </div>
+
+      {/* Legs (when available) */}
+      {legs.length > 0 && (
+        <div style={{ gridColumn: '1 / -1', marginTop: 4 }}>
+          <div style={{ fontSize: 9, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 6, fontFamily: 'var(--fm)' }}>Legs ({legs.length})</div>
+          <table style={{ width: '100%', fontSize: 11, fontFamily: 'var(--fm)', borderCollapse: 'collapse' }}>
+            <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
+              {['Strike','Right','Pos','Mark','Theta','Delta'].map(h => (
+                <th key={h} style={{ textAlign: h === 'Strike' ? 'left' : 'right', padding: '4px 6px', fontSize: 9, color: 'var(--text-tertiary)', fontWeight: 600 }}>{h.toUpperCase()}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {legs.map((l, idx) => (
+                <tr key={idx} style={{ borderBottom: '1px solid var(--subtle-border)' }}>
+                  <td style={{ padding: '4px 6px', color: 'var(--text-primary)', fontWeight: 600 }}>{l.strike}</td>
+                  <td style={{ padding: '4px 6px', textAlign: 'right', color: l.right === 'P' || l.right === 'PUT' ? '#60a5fa' : '#a855f7' }}>{l.right}</td>
+                  <td style={{ padding: '4px 6px', textAlign: 'right', color: l.position < 0 ? '#ef4444' : 'var(--text-secondary)' }}>{l.position > 0 ? '+' : ''}{l.position}</td>
+                  <td style={{ padding: '4px 6px', textAlign: 'right', color: 'var(--text-secondary)' }}>{l.mktPrice != null ? '$' + _sf(l.mktPrice, 2) : '—'}</td>
+                  <td style={{ padding: '4px 6px', textAlign: 'right', color: '#30d158' }}>{l.theta != null ? _sf(l.theta, 2) : '—'}</td>
+                  <td style={{ padding: '4px 6px', textAlign: 'right', color: 'var(--text-tertiary)' }}>{l.delta != null ? _sf(l.delta, 3) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ───────────────────────────────────────────────────────────
 export default function OpenOptionsTab() {
   // ── State (all declared before any useEffect — TDZ rule) ──────────────────
@@ -239,6 +318,8 @@ export default function OpenOptionsTab() {
 
   // View mode
   const [viewMode, setViewMode] = useState('table'); // 'table' | 'calendar'
+  // Expanded row id (toggle on click) — shows leg detail / days held inline
+  const [expandedRowId, setExpandedRowId] = useState(null);
 
   const abortRef = useRef(null);
 
@@ -422,6 +503,70 @@ export default function OpenOptionsTab() {
         })()}
       </div>
 
+      {/* Strategy P&L summary — only when a strategy tab is selected.
+          Shows aggregate P&L, win/loss split, win rate, best/worst trade.
+          Helps user immediately see "cuánto gano/pierdo en BPS" etc. */}
+      {filterStrategy && (() => {
+        const stratPos = positions.filter(p => p.strategy === filterStrategy);
+        const withPnl = stratPos.filter(p => p.pnl != null && Number.isFinite(p.pnl));
+        const winners = withPnl.filter(p => p.pnl > 0);
+        const losers  = withPnl.filter(p => p.pnl < 0);
+        const totalPnl = withPnl.reduce((s, p) => s + p.pnl, 0);
+        const totalCredit = stratPos.reduce((s, p) => s + (p.creditTotal || 0), 0);
+        const winRate = withPnl.length > 0 ? winners.length / withPnl.length : null;
+        const best = withPnl.length > 0 ? withPnl.reduce((b, p) => p.pnl > b.pnl ? p : b, withPnl[0]) : null;
+        const worst = withPnl.length > 0 ? withPnl.reduce((w, p) => p.pnl < w.pnl ? p : w, withPnl[0]) : null;
+        const sCol = STRATEGY_COLORS[filterStrategy] || STRATEGY_COLORS.OPT;
+        return (
+          <div style={{ ...cardBase, marginBottom: 14, borderColor: sCol.border, background: `linear-gradient(180deg, ${sCol.bg} 0%, transparent 100%)` }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 10 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: sCol.text, fontFamily: 'var(--fm)' }}>{filterStrategy}</span>
+              <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{stratPos.length} posiciones · {withPnl.length} con P&L visible</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 9, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 3, fontFamily: 'var(--fm)' }}>P&L total abierto</div>
+                <div style={{ fontSize: 22, fontWeight: 800, fontFamily: 'var(--fm)', color: totalPnl >= 0 ? '#30d158' : '#ef4444' }}>
+                  {totalPnl >= 0 ? '+' : ''}{fmtCredit(Math.abs(totalPnl))}
+                  {totalCredit !== 0 && (
+                    <span style={{ fontSize: 10, color: 'var(--text-tertiary)', marginLeft: 6, fontWeight: 500 }}>
+                      ({totalCredit !== 0 ? ((totalPnl / Math.abs(totalCredit)) * 100).toFixed(0) : 0}%)
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 9, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 3, fontFamily: 'var(--fm)' }}>Win rate</div>
+                <div style={{ fontSize: 22, fontWeight: 800, fontFamily: 'var(--fm)', color: winRate == null ? 'var(--text-tertiary)' : winRate > 0.6 ? '#30d158' : winRate > 0.4 ? '#ffd60a' : '#ef4444' }}>
+                  {winRate == null ? '—' : (winRate * 100).toFixed(0) + '%'}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                  <span style={{ color: '#30d158' }}>↑ {winners.length}</span> · <span style={{ color: '#ef4444' }}>↓ {losers.length}</span>
+                </div>
+              </div>
+              {best && (
+                <div>
+                  <div style={{ fontSize: 9, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 3, fontFamily: 'var(--fm)' }}>Mejor</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, fontFamily: 'var(--fm)', color: '#30d158' }}>+{fmtCredit(Math.abs(best.pnl))}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2 }}>{best.symbol} {best.strikes} · {best.dte}d</div>
+                </div>
+              )}
+              {worst && worst !== best && (
+                <div>
+                  <div style={{ fontSize: 9, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 3, fontFamily: 'var(--fm)' }}>Peor</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, fontFamily: 'var(--fm)', color: '#ef4444' }}>{fmtCredit(Math.abs(worst.pnl))}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2 }}>{worst.symbol} {worst.strikes} · {worst.dte}d</div>
+                </div>
+              )}
+              <div>
+                <div style={{ fontSize: 9, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 3, fontFamily: 'var(--fm)' }}>Theta/día</div>
+                <div style={{ fontSize: 16, fontWeight: 700, fontFamily: 'var(--fm)', color: '#30d158' }}>{fmtTheta(stratPos.reduce((s, p) => s + (p.thetaTotal || 0), 0))}</div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* KPI cards — scoped to selected tab */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
         <KpiCard
@@ -545,13 +690,24 @@ export default function OpenOptionsTab() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sorted.map((r, i) => (
-                    <tr key={r.id}
+                  {sorted.map((r, i) => {
+                    const isExpanded = expandedRowId === r.id;
+                    return (
+                    <React.Fragment key={r.id}>
+                    <tr
+                      onClick={() => setExpandedRowId(isExpanded ? null : r.id)}
                       style={{
-                        background: i % 2 === 0 ? 'transparent' : 'var(--row-alt)',
+                        background: isExpanded ? 'var(--gold-dim)' : (i % 2 === 0 ? 'transparent' : 'var(--row-alt)'),
                         borderBottom: '1px solid var(--border)',
-                      }}>
-                      <td style={{ padding: '8px 8px' }}><StrategyBadge strategy={r.strategy} /></td>
+                        cursor: 'pointer',
+                        transition: 'background .15s',
+                      }}
+                      onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = 'rgba(200,164,78,.05)'; }}
+                      onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = i % 2 === 0 ? 'transparent' : 'var(--row-alt)'; }}>
+                      <td style={{ padding: '8px 8px' }}>
+                        <span style={{ fontSize: 9, color: 'var(--text-tertiary)', marginRight: 4 }}>{isExpanded ? '▾' : '▸'}</span>
+                        <StrategyBadge strategy={r.strategy} />
+                      </td>
                       <td style={{ padding: '8px 8px', fontWeight: 700, color: 'var(--text-primary)', textAlign: 'left' }}>{r.symbol}</td>
                       <td style={{ padding: '8px 8px', color: 'var(--text-secondary)', textAlign: 'left', fontSize: 11 }}>{r.strikes}</td>
                       <td style={{ padding: '8px 8px', textAlign: 'right', color: dteColor(r.dte), fontWeight: 600 }}>
@@ -578,10 +734,14 @@ export default function OpenOptionsTab() {
                       <td style={{ padding: '8px 8px', textAlign: 'right', color: 'var(--text-tertiary)', fontSize: 11 }}>
                         {r.ivr != null ? _sf(r.ivr, 0) : '—'}
                       </td>
-                      <td style={{ padding: '8px 8px', textAlign: 'right', color: r.pnl == null ? 'var(--text-tertiary)' : r.pnl >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                      <td style={{
+                        padding: '8px 8px', textAlign: 'right', fontWeight: 800, fontSize: 13,
+                        color: r.pnl == null ? 'var(--text-tertiary)' : r.pnl >= 0 ? '#30d158' : '#ef4444',
+                      }}>
                         {r.pnl != null ? (r.pnl >= 0 ? '+' : '') + fmtCredit(Math.abs(r.pnl)) : '—'}
                       </td>
-                      <td style={{ padding: '8px 8px', textAlign: 'right', color: r.pnlPct == null ? 'var(--text-tertiary)' : r.pnlPct >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                      <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 700,
+                        color: r.pnlPct == null ? 'var(--text-tertiary)' : r.pnlPct >= 0 ? '#30d158' : '#ef4444' }}>
                         {fmtPnlPct(r.pnlPct)}
                       </td>
                       <td style={{ padding: '8px 8px', textAlign: 'right', color: 'var(--text-tertiary)', fontSize: 10 }}>
@@ -598,7 +758,16 @@ export default function OpenOptionsTab() {
                         </span>
                       </td>
                     </tr>
-                  ))}
+                    {isExpanded && (
+                      <tr style={{ background: 'var(--row-alt)', borderBottom: '2px solid var(--gold-dim)' }}>
+                        <td colSpan={14} style={{ padding: '14px 18px' }}>
+                          <ExpandedRowDetail position={r} />
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
+                    );
+                  })}
                 </tbody>
                 {/* Totals footer */}
                 <tfoot>
