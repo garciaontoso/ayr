@@ -13785,15 +13785,24 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           // Strategy inferrer from group leg structure. Best-effort, marks "Other"
           // when uncertain. Per-leg granularity only — multi-leg strategies (BPS/IC)
           // require external matching against options_trades and aren't reliable here.
+          // SCALP detection (2026-05-02): index options (SPX/SPXW/NDX/RUT/RUTW) closed
+          // within ≤7 days are scalps/0DTE, not long calls/puts. User scalps weekly
+          // SPX, separating from regular LC/LP gives accurate strategy attribution.
+          const SCALP_INDEXES = new Set(['SPX','SPXW','NDX','NDXP','RUT','RUTW','VIX','XSP']);
           const inferStrategy = (g) => {
             const tipoKey = (g.opt_tipo || '').toUpperCase();
             // Net direction: short if first non-zero share is negative
             const firstSh = g.rows.find(r => (Number(r.shares) || 0) !== 0);
             const isShort = firstSh && Number(firstSh.shares) < 0;
+            // Scalp: index option held ≤7 days
+            if (SCALP_INDEXES.has((g.ticker || '').toUpperCase()) && g.openFecha && g.latestFecha) {
+              const days = (new Date(g.latestFecha + 'T00:00:00Z') - new Date(g.openFecha + 'T00:00:00Z')) / 86400000;
+              if (days >= 0 && days <= 7) return 'SCALP';
+            }
             if (tipoKey === 'P' || tipoKey === 'PUT') return isShort ? 'CSP' : 'LP';
             if (tipoKey === 'C' || tipoKey === 'CALL') return isShort ? 'CC' : 'LC';
             // Composite tipos already labelled
-            if (['BPS','BCS','IC','CSP','CC','SP','SC','LC','LP'].includes(tipoKey)) return tipoKey;
+            if (['BPS','BCS','IC','CSP','CC','SP','SC','LC','LP','SCALP'].includes(tipoKey)) return tipoKey;
             return 'Other';
           };
 

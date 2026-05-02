@@ -391,12 +391,14 @@ function ByYearStrip({ byYear, currentYear, onYearClick }) {
 const STRATEGY_COLORS = {
   CSP: '#10b981', CC: '#a855f7', BPS: '#34d399', BCS: '#f87171',
   IC: '#eab308', LP: '#60a5fa', LC: '#5b9bd5', SP: '#10b981', SC: '#a855f7',
+  SCALP: '#ff9f0a', // index intraday/weekly — SPX/SPXW/NDX/RUTW ≤7 días
   Other: '#94a3b8',
 };
 const STRATEGY_DESC = {
   CSP: 'Cash-Secured Puts', CC: 'Covered Calls', BPS: 'Bull Put Spread',
   BCS: 'Bear Call Spread', IC: 'Iron Condor', LP: 'Long Puts (compradas)',
   LC: 'Long Calls (compradas)', SP: 'Short Put', SC: 'Short Call',
+  SCALP: 'Scalp/0DTE índices (SPX/SPXW/NDX/RUTW ≤7d)',
   Other: 'Otros / sin categorizar',
 };
 
