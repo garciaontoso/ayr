@@ -66,20 +66,45 @@ function KpiCard({ label, value, sub, color, highlight }) {
 
 // ── Stacked bar chart of monthly income ─────────────────────────────────────
 function MonthlyStackedBars({ monthly, onMonthClick, selectedMonth }) {
+  // Compute per-month per-strategy options breakdown from options_closed array.
+  // Each m.options_closed entry has shape { strategy, pnl, ... }. Group by strategy.
+  const monthlyWithStrategy = useMemo(() => {
+    return monthly.map(m => {
+      const byStrat = {};
+      for (const o of (m.options_closed || [])) {
+        const s = o.strategy || 'Other';
+        byStrat[s] = (byStrat[s] || 0) + (o.pnl || 0);
+      }
+      return { ...m, options_by_strategy: byStrat };
+    });
+  }, [monthly]);
+
+  // Collect all strategies that appear (for legend), sorted by total magnitude
+  const strategies = useMemo(() => {
+    const totals = {};
+    for (const m of monthlyWithStrategy) {
+      for (const [s, v] of Object.entries(m.options_by_strategy)) {
+        totals[s] = (totals[s] || 0) + Math.abs(v);
+      }
+    }
+    return Object.entries(totals).sort((a, b) => b[1] - a[1]).map(([s]) => s);
+  }, [monthlyWithStrategy]);
+
   // Compute peak total magnitude across all months (consider negative bars too)
   const peak = useMemo(() => {
     let max = 0;
-    for (const m of monthly) {
-      const pos = (m.dividends_net > 0 ? m.dividends_net : 0)
-                + (m.options_closed_pnl > 0 ? m.options_closed_pnl : 0)
-                + (m.stocks_realized_pnl > 0 ? m.stocks_realized_pnl : 0);
-      const neg = (m.dividends_net < 0 ? -m.dividends_net : 0)
-                + (m.options_closed_pnl < 0 ? -m.options_closed_pnl : 0)
-                + (m.stocks_realized_pnl < 0 ? -m.stocks_realized_pnl : 0);
+    for (const m of monthlyWithStrategy) {
+      let pos = (m.dividends_net > 0 ? m.dividends_net : 0)
+              + (m.stocks_realized_pnl > 0 ? m.stocks_realized_pnl : 0);
+      let neg = (m.dividends_net < 0 ? -m.dividends_net : 0)
+              + (m.stocks_realized_pnl < 0 ? -m.stocks_realized_pnl : 0);
+      for (const v of Object.values(m.options_by_strategy)) {
+        if (v > 0) pos += v; else neg += -v;
+      }
       max = Math.max(max, pos, neg);
     }
     return max || 1;
-  }, [monthly]);
+  }, [monthlyWithStrategy]);
 
   const H = 220;          // total chart height
   const halfH = H / 2;    // baseline at middle to allow negative bars
@@ -88,29 +113,36 @@ function MonthlyStackedBars({ monthly, onMonthClick, selectedMonth }) {
 
   return (
     <div style={{ ...cardBase, padding: 18 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
         <div style={{ fontSize: 11, fontFamily: 'var(--fm)', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.6px' }}>
-          Income mensual · stacked
+          Income mensual · stacked por estrategia
         </div>
-        <div style={{ display: 'flex', gap: 14, fontSize: 10, fontFamily: 'var(--fb)' }}>
-          <Legend color={COLOR_DIV} label="Dividendos (neto)" />
-          <Legend color={COLOR_OPT} label="Opciones cerradas" />
+        <div style={{ display: 'flex', gap: 10, fontSize: 10, fontFamily: 'var(--fb)', flexWrap: 'wrap' }}>
+          <Legend color={COLOR_DIV} label="Dividendos" />
+          {strategies.map(s => (
+            <Legend key={s} color={STRATEGY_COLORS[s] || STRATEGY_COLORS.Other} label={s} />
+          ))}
           <Legend color={COLOR_STK} label="Capital gains" />
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: GAP, height: H + 30, position: 'relative' }}>
-        {monthly.map((m, idx) => {
-          // segment heights (negative = below baseline)
+        {monthlyWithStrategy.map((m, idx) => {
+          // Build segments: dividends (single) + per-strategy options (multiple) + capital gains (single)
           const segs = [
-            { key: 'div', value: m.dividends_net, color: COLOR_DIV },
-            { key: 'opt', value: m.options_closed_pnl, color: COLOR_OPT },
-            { key: 'stk', value: m.stocks_realized_pnl, color: COLOR_STK },
+            { key: 'div', value: m.dividends_net, color: COLOR_DIV, label: 'Dividendos' },
           ];
+          // Options: one segment per strategy present this month, sorted by magnitude
+          const stratEntries = Object.entries(m.options_by_strategy).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+          for (const [s, v] of stratEntries) {
+            if (v !== 0) segs.push({ key: 'opt:' + s, value: v, color: STRATEGY_COLORS[s] || STRATEGY_COLORS.Other, label: s });
+          }
+          segs.push({ key: 'stk', value: m.stocks_realized_pnl, color: COLOR_STK, label: 'Stocks' });
           const totalPos = segs.filter(s => s.value > 0).reduce((s, x) => s + x.value, 0);
           const totalNeg = segs.filter(s => s.value < 0).reduce((s, x) => s - x.value, 0);
           const isSelected = selectedMonth === m.month;
-          let topOffset = halfH;     // we draw positive bars from this offset upward
-          let bottomOffset = halfH;  // negative bars downward
+          let topOffset = halfH;
+          let bottomOffset = halfH;
+          const positiveSegs = segs.filter(s => s.value > 0);
           return (
             <div key={m.month}
               onClick={() => onMonthClick(isSelected ? null : m.month)}
@@ -122,49 +154,41 @@ function MonthlyStackedBars({ monthly, onMonthClick, selectedMonth }) {
                 width: BARW,
                 position: 'relative',
               }}>
-              {/* Bar column (height = H, baseline at middle) */}
               <div style={{
                 position: 'relative', width: BARW, height: H,
                 background: isSelected ? 'rgba(200,164,78,.06)' : 'transparent',
                 borderRadius: 4,
               }}>
-                {/* Baseline line */}
-                <div style={{
-                  position: 'absolute', left: 0, right: 0, top: halfH,
-                  height: 1, background: 'var(--border)', opacity: .5,
-                }}/>
-                {/* Positive segments stacked from baseline upward */}
-                {segs.filter(s => s.value > 0).map((s, i) => {
+                <div style={{ position: 'absolute', left: 0, right: 0, top: halfH, height: 1, background: 'var(--border)', opacity: .5 }}/>
+                {positiveSegs.map((s, i) => {
                   const h = (s.value / peak) * (halfH - 4);
                   const top = topOffset - h;
                   topOffset = top;
                   return (
-                    <div key={s.key} title={`${s.key}: ${fmtSignedCompact(s.value)}`}
+                    <div key={s.key} title={`${s.label}: ${fmtSignedCompact(s.value)}`}
                       style={{
                         position: 'absolute', left: 4, right: 4,
                         top, height: Math.max(h, 0),
-                        background: s.color, opacity: .85,
-                        borderRadius: i === segs.filter(x=>x.value>0).length-1 ? '3px 3px 0 0' : 0,
+                        background: s.color, opacity: .9,
+                        borderRadius: i === positiveSegs.length-1 ? '3px 3px 0 0' : 0,
                       }}/>
                   );
                 })}
-                {/* Negative segments stacked from baseline downward */}
                 {segs.filter(s => s.value < 0).map((s) => {
                   const h = (-s.value / peak) * (halfH - 4);
                   const top = bottomOffset;
                   bottomOffset = top + h;
                   return (
-                    <div key={s.key} title={`${s.key}: ${fmtSignedCompact(s.value)}`}
+                    <div key={s.key} title={`${s.label}: ${fmtSignedCompact(s.value)}`}
                       style={{
                         position: 'absolute', left: 4, right: 4,
                         top, height: Math.max(h, 0),
-                        background: s.color, opacity: .55,
+                        background: s.color, opacity: .6,
                         borderRadius: '0 0 3px 3px',
                       }}/>
                   );
                 })}
               </div>
-              {/* Total label above */}
               {(totalPos !== 0 || totalNeg !== 0) && (
                 <div style={{
                   position: 'absolute', top: -2 + halfH - (totalPos / peak) * (halfH - 4) - 16,
