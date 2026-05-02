@@ -13841,11 +13841,19 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
               }
               continue;
             }
-            // Closed group P&L. Primary: SUM(opt_credit_total). Fallback: -SUM(coste)
-            // (coste sign is opposite to opt_credit_total in IB Flex rows).
-            let pnl = g.rows.reduce((s, r) => s + (Number(r.opt_credit_total) || 0), 0);
+            // Closed group P&L. PRIMARY: SUM(coste) — standard accounting:
+            //   BUY  → shares > 0, coste < 0 (paid)
+            //   SELL → shares < 0, coste > 0 (received)
+            // Verified 2026-05-02 against AAP/SPXW data.
+            //
+            // FALLBACK: SUM(opt_credit_total) ONLY when coste is all-zero. Note:
+            // opt_credit_total has INVERTED sign vs coste in many IB Flex rows
+            // (importer stored it as -netCash but netCash is already signed),
+            // so we negate it on fallback to match coste convention. If coste
+            // is non-zero on any row, we trust it.
+            let pnl = g.rows.reduce((s, r) => s + (Number(r.coste) || 0), 0);
             if (Math.abs(pnl) < 0.005 && g.rows.length > 0) {
-              pnl = -g.rows.reduce((s, r) => s + (Number(r.coste) || 0), 0);
+              pnl = -g.rows.reduce((s, r) => s + (Number(r.opt_credit_total) || 0), 0);
             }
             const yyyy = yearOf(g.latestFecha);
             const mIdx = monthOf(g.latestFecha) - 1;
