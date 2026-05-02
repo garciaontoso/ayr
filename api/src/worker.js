@@ -4007,6 +4007,7 @@ export default {
       "/api/tastytrade/positions", "/api/tastytrade/accounts",
       "/api/options/open-portfolio",
       // HIGH additions (audit-overnight-3 2026-05-02):
+      "/api/claude/usage",         // tokens + cost dashboard
       "/api/ib-cached-snapshot",   // NLV + ib_shares + ib_avg_cost for all positions
       "/api/ib-nlv-history",       // NLV time-series (account wealth trend)
       "/api/ib-nlv-save",          // POST that mutates nlv_history (sensitive financial data)
@@ -15780,6 +15781,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // POST /api/claude — Proxy to Anthropic API (avoids CORS)
       if (path === "/api/claude" && request.method === "POST") {
         const body = await parseBody(request);
+        const modelUsed = body.model || "claude-sonnet-4-20250514";
         const anthropicResp = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: {
@@ -15788,16 +15790,84 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             "anthropic-version": "2023-06-01",
           },
           body: JSON.stringify({
-            model: body.model || "claude-sonnet-4-20250514",
+            model: modelUsed,
             max_tokens: body.max_tokens || 4000,
             messages: body.messages || [],
           }),
         });
         const result = await anthropicResp.json();
+        // Log usage for the /api/claude/usage dashboard
+        if (anthropicResp.ok && result.usage) {
+          logClaudeCall(env, {
+            endpoint: '/api/claude',
+            model: modelUsed,
+            tokens_in: result.usage.input_tokens || 0,
+            tokens_out: result.usage.output_tokens || 0,
+            ticker: body._ticker || null,
+          }).catch(() => {});
+        }
         return new Response(JSON.stringify(result), {
           status: anthropicResp.status,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
+      }
+
+      // GET /api/claude/usage?days=30 — Claude API consumption dashboard.
+      // Aggregates from claude_usage table (logged on every successful call).
+      // Returns: { today, this_month, last_30d, by_endpoint, by_model, recent }
+      if (path === "/api/claude/usage" && request.method === "GET") {
+        const days = Math.min(Math.max(parseInt(url.searchParams.get('days') || '30', 10), 1), 90);
+        try {
+          await env.DB.prepare(`CREATE TABLE IF NOT EXISTS claude_usage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts TEXT NOT NULL,
+            endpoint TEXT,
+            model TEXT,
+            tokens_in INTEGER DEFAULT 0,
+            tokens_out INTEGER DEFAULT 0,
+            cost_usd REAL DEFAULT 0,
+            ticker TEXT
+          )`).run();
+          const today = await env.DB.prepare(
+            `SELECT COUNT(*) AS calls, COALESCE(SUM(tokens_in),0) AS tin, COALESCE(SUM(tokens_out),0) AS tout, COALESCE(SUM(cost_usd),0) AS cost
+             FROM claude_usage WHERE date(ts) = date('now')`
+          ).first();
+          const month = await env.DB.prepare(
+            `SELECT COUNT(*) AS calls, COALESCE(SUM(tokens_in),0) AS tin, COALESCE(SUM(tokens_out),0) AS tout, COALESCE(SUM(cost_usd),0) AS cost
+             FROM claude_usage WHERE strftime('%Y-%m', ts) = strftime('%Y-%m', 'now')`
+          ).first();
+          const window = await env.DB.prepare(
+            `SELECT COUNT(*) AS calls, COALESCE(SUM(tokens_in),0) AS tin, COALESCE(SUM(tokens_out),0) AS tout, COALESCE(SUM(cost_usd),0) AS cost
+             FROM claude_usage WHERE ts >= datetime('now', ? || ' days')`
+          ).bind(`-${days}`).first();
+          const byDay = await env.DB.prepare(
+            `SELECT date(ts) AS day, COUNT(*) AS calls, SUM(tokens_in) AS tin, SUM(tokens_out) AS tout, SUM(cost_usd) AS cost
+             FROM claude_usage WHERE ts >= datetime('now', ? || ' days') GROUP BY day ORDER BY day DESC`
+          ).bind(`-${days}`).all();
+          const byEndpoint = await env.DB.prepare(
+            `SELECT endpoint, COUNT(*) AS calls, SUM(tokens_in) AS tin, SUM(tokens_out) AS tout, SUM(cost_usd) AS cost
+             FROM claude_usage WHERE ts >= datetime('now', ? || ' days') GROUP BY endpoint ORDER BY cost DESC`
+          ).bind(`-${days}`).all();
+          const byModel = await env.DB.prepare(
+            `SELECT model, COUNT(*) AS calls, SUM(tokens_in) AS tin, SUM(tokens_out) AS tout, SUM(cost_usd) AS cost
+             FROM claude_usage WHERE ts >= datetime('now', ? || ' days') GROUP BY model ORDER BY cost DESC`
+          ).bind(`-${days}`).all();
+          const recent = await env.DB.prepare(
+            `SELECT ts, endpoint, model, tokens_in, tokens_out, cost_usd, ticker
+             FROM claude_usage ORDER BY ts DESC LIMIT 30`
+          ).all();
+          return json({
+            today: today || { calls: 0, tin: 0, tout: 0, cost: 0 },
+            month: month || { calls: 0, tin: 0, tout: 0, cost: 0 },
+            window: { days, ...(window || { calls: 0, tin: 0, tout: 0, cost: 0 }) },
+            by_day: byDay.results || [],
+            by_endpoint: byEndpoint.results || [],
+            by_model: byModel.results || [],
+            recent: recent.results || [],
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
       }
 
       // ─── CARTERA (portfolio positions from D1) ──────────────
@@ -24236,6 +24306,43 @@ function computeValuationMethods({ fundamentals, context, priceData }) {
   };
 }
 
+// ── Claude API pricing (per 1M tokens). Update when Anthropic re-prices.
+// Used for the in-app /api/claude/usage cost dashboard. Source: console.anthropic.com.
+const CLAUDE_PRICING = {
+  'claude-opus-4-7':                   { in: 15.00, out: 75.00 },
+  'claude-sonnet-4-6':                 { in:  3.00, out: 15.00 },
+  'claude-haiku-4-5':                  { in:  1.00, out:  5.00 },
+  'claude-haiku-4-5-20251001':         { in:  1.00, out:  5.00 },
+  'claude-sonnet-4-20250514':          { in:  3.00, out: 15.00 }, // legacy retired
+  'claude-3-5-sonnet-20241022':        { in:  3.00, out: 15.00 },
+  'claude-3-5-haiku-20241022':         { in:  0.80, out:  4.00 },
+};
+function claudeCostUsd(model, tokensIn, tokensOut) {
+  const p = CLAUDE_PRICING[model] || CLAUDE_PRICING['claude-haiku-4-5-20251001'];
+  return (tokensIn * p.in + tokensOut * p.out) / 1e6;
+}
+async function logClaudeCall(env, { endpoint, model, tokens_in = 0, tokens_out = 0, ticker = null }) {
+  try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS claude_usage (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts TEXT NOT NULL,
+      endpoint TEXT,
+      model TEXT,
+      tokens_in INTEGER DEFAULT 0,
+      tokens_out INTEGER DEFAULT 0,
+      cost_usd REAL DEFAULT 0,
+      ticker TEXT
+    )`).run();
+    const cost = claudeCostUsd(model, tokens_in, tokens_out);
+    await env.DB.prepare(
+      `INSERT INTO claude_usage (ts, endpoint, model, tokens_in, tokens_out, cost_usd, ticker)
+       VALUES (datetime('now'), ?, ?, ?, ?, ?, ?)`
+    ).bind(endpoint || 'unknown', model || 'unknown', tokens_in, tokens_out, cost, ticker).run();
+  } catch (e) {
+    console.error('logClaudeCall failed:', e.message);
+  }
+}
+
 async function callAgentClaude(env, systemPrompt, userContent, opts = {}) {
   const model = opts.model || "claude-haiku-4-5-20251001";
   const maxTokens = opts.maxTokens || 3000;
@@ -24286,6 +24393,16 @@ async function callAgentClaude(env, systemPrompt, userContent, opts = {}) {
     throw lastErr || new Error("Claude API: all retries exhausted");
   }
   const result = await resp.json();
+  // ── Log usage for the /api/claude/usage dashboard (fire-and-forget) ──
+  if (result.usage) {
+    logClaudeCall(env, {
+      endpoint: opts.endpoint || 'callAgentClaude',
+      model,
+      tokens_in: result.usage.input_tokens || 0,
+      tokens_out: result.usage.output_tokens || 0,
+      ticker: opts.ticker || null,
+    }).catch(() => {});
+  }
   const rawText = result.content?.[0]?.text || "";
   const cleaned = rawText.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
   // Try direct parse first

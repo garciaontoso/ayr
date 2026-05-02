@@ -319,6 +319,186 @@ function IBControlButton() {
   );
 }
 
+// Claude API usage dashboard. Shows today/month spend + breakdown by endpoint
+// and model + recent calls. Helps catch runaway consumers (cron, external
+// projects sharing the API key, etc.). Data from GET /api/claude/usage backed
+// by D1 claude_usage table populated on every successful call to Anthropic.
+function ClaudeUsageButton() {
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(API_URL + '/api/claude/usage?days=30');
+      if (r.ok) setData(await r.json());
+    } catch {}
+    setLoading(false);
+  }, []);
+  useEffect(() => { if (open) load(); }, [open, load]);
+  // Esc to close
+  useEffect(() => {
+    if (!open) return;
+    const onKey = e => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  // Color by daily spend bucket: green <$2, yellow $2-5, orange $5-15, red >$15
+  const todaySpend = data?.today?.cost || 0;
+  const todayColor = todaySpend > 15 ? '#ff453a' : todaySpend > 5 ? '#ff9f0a' : todaySpend > 2 ? '#ffd60a' : '#30d158';
+
+  return (
+    <>
+      <button onClick={() => setOpen(true)}
+        title="Consumo Claude API — clicks por endpoint, coste hoy/mes, calls recientes"
+        style={{padding:"4px 9px",borderRadius:6,border:`1px solid ${data?'rgba(200,164,78,.4)':'var(--border)'}`,background: data ? 'rgba(200,164,78,.08)':'transparent',color:'var(--text-secondary)',fontSize:10,fontWeight:700,cursor:'pointer',fontFamily:'var(--fm)',whiteSpace:'nowrap'}}>
+        🧠 {data ? `$${(data.today?.cost || 0).toFixed(2)}` : 'API'}
+      </button>
+      {open && (
+        <div onClick={() => setOpen(false)}
+          style={{position:'fixed',inset:0,background:'rgba(0,0,0,.7)',backdropFilter:'blur(4px)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',padding:24}}>
+          <div onClick={e => e.stopPropagation()}
+            style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:16,maxWidth:1000,width:'100%',maxHeight:'88vh',overflowY:'auto',padding:'20px 24px',boxShadow:'0 20px 60px rgba(0,0,0,.5)'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+              <div>
+                <h2 style={{margin:0,fontSize:18,fontWeight:700,color:'var(--text-primary)',fontFamily:'var(--fd)'}}>🧠 Consumo Claude API</h2>
+                <p style={{margin:'4px 0 0',fontSize:11,color:'var(--text-tertiary)'}}>Solo registra llamadas pasadas por el worker. Otras keys / Apps Scripts no aparecen aquí — usa <a style={{color:'var(--gold)'}} href="https://console.anthropic.com/usage" target="_blank" rel="noopener noreferrer">console.anthropic.com/usage</a> para la cifra autoritativa.</p>
+              </div>
+              <button onClick={() => setOpen(false)} style={{padding:'4px 10px',borderRadius:6,border:'1px solid var(--border)',background:'transparent',color:'var(--text-secondary)',fontSize:11,cursor:'pointer'}}>✕</button>
+            </div>
+            {loading && !data && <div style={{padding:40,textAlign:'center',color:'var(--text-tertiary)'}}>Cargando…</div>}
+            {data && (
+              <>
+                {/* Top KPIs */}
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))',gap:10,marginBottom:16}}>
+                  {[
+                    {l:'HOY', cost: data.today?.cost || 0, calls: data.today?.calls || 0, color: todayColor},
+                    {l:'MES ACTUAL', cost: data.month?.cost || 0, calls: data.month?.calls || 0, color: 'var(--gold)'},
+                    {l:`ÚLTIMOS ${data.window?.days||30} DÍAS`, cost: data.window?.cost || 0, calls: data.window?.calls || 0, color: 'var(--text-primary)'},
+                    {l:'TOKENS HOY (in/out)', cost: null, raw: `${(data.today?.tin||0).toLocaleString()} / ${(data.today?.tout||0).toLocaleString()}`, color: 'var(--text-secondary)'},
+                  ].map((m,i) => (
+                    <div key={i} style={{padding:'12px 14px',background:'var(--row-alt)',border:'1px solid var(--border)',borderRadius:10}}>
+                      <div style={{fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)',letterSpacing:.5,marginBottom:4}}>{m.l}</div>
+                      <div style={{fontSize:20,fontWeight:700,color:m.color,fontFamily:'var(--fm)'}}>
+                        {m.cost != null ? '$' + m.cost.toFixed(2) : m.raw}
+                      </div>
+                      {m.calls != null && <div style={{fontSize:10,color:'var(--text-tertiary)',marginTop:2}}>{m.calls} llamadas</div>}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Daily bar chart */}
+                {data.by_day?.length > 0 && (() => {
+                  const maxC = Math.max(...data.by_day.map(d => d.cost || 0), 0.01);
+                  const sortedAsc = [...data.by_day].reverse();
+                  return (
+                    <div style={{padding:'12px 14px',background:'var(--row-alt)',border:'1px solid var(--border)',borderRadius:10,marginBottom:16}}>
+                      <div style={{fontSize:10,color:'var(--text-secondary)',fontWeight:600,fontFamily:'var(--fm)',letterSpacing:.5,marginBottom:8}}>COSTE DIARIO ÚLTIMOS {data.window?.days||30} DÍAS</div>
+                      <div style={{display:'flex',alignItems:'flex-end',gap:2,height:80}}>
+                        {sortedAsc.map(d => {
+                          const h = ((d.cost || 0) / maxC) * 80;
+                          const c = d.cost > 15 ? '#ff453a' : d.cost > 5 ? '#ff9f0a' : d.cost > 2 ? '#ffd60a' : '#30d158';
+                          return <div key={d.day} title={`${d.day}: $${(d.cost||0).toFixed(2)} · ${d.calls} calls`}
+                            style={{flex:1,background:c,minHeight:1,height:Math.max(h,1),borderRadius:'2px 2px 0 0',cursor:'pointer'}}/>;
+                        })}
+                      </div>
+                      <div style={{display:'flex',justifyContent:'space-between',fontSize:9,color:'var(--text-tertiary)',marginTop:4,fontFamily:'var(--fm)'}}>
+                        <span>{sortedAsc[0]?.day}</span>
+                        <span>{sortedAsc[sortedAsc.length-1]?.day}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Two-column breakdown: by endpoint, by model */}
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:16}}>
+                  <div style={{padding:'12px 14px',background:'var(--row-alt)',border:'1px solid var(--border)',borderRadius:10}}>
+                    <div style={{fontSize:10,color:'var(--text-secondary)',fontWeight:600,fontFamily:'var(--fm)',letterSpacing:.5,marginBottom:8}}>POR ENDPOINT</div>
+                    {data.by_endpoint?.length > 0 ? (
+                      <table style={{width:'100%',fontSize:11,fontFamily:'var(--fm)',borderCollapse:'collapse'}}>
+                        <thead><tr style={{borderBottom:'1px solid var(--border)'}}>
+                          <th style={{textAlign:'left',padding:'4px 0',color:'var(--text-tertiary)',fontSize:9,fontWeight:600}}>ENDPOINT</th>
+                          <th style={{textAlign:'right',padding:'4px 0',color:'var(--text-tertiary)',fontSize:9,fontWeight:600}}>CALLS</th>
+                          <th style={{textAlign:'right',padding:'4px 0',color:'var(--text-tertiary)',fontSize:9,fontWeight:600}}>COSTE</th>
+                        </tr></thead>
+                        <tbody>
+                          {data.by_endpoint.slice(0, 12).map((r,i) => (
+                            <tr key={i} style={{borderBottom:'1px solid var(--subtle-border)'}}>
+                              <td style={{padding:'5px 0',color:'var(--text-primary)'}}>{r.endpoint}</td>
+                              <td style={{padding:'5px 0',textAlign:'right',color:'var(--text-secondary)'}}>{r.calls}</td>
+                              <td style={{padding:'5px 0',textAlign:'right',color:'var(--gold)',fontWeight:600}}>${(r.cost||0).toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : <div style={{color:'var(--text-tertiary)',fontSize:11,padding:8}}>Sin datos aún.</div>}
+                  </div>
+
+                  <div style={{padding:'12px 14px',background:'var(--row-alt)',border:'1px solid var(--border)',borderRadius:10}}>
+                    <div style={{fontSize:10,color:'var(--text-secondary)',fontWeight:600,fontFamily:'var(--fm)',letterSpacing:.5,marginBottom:8}}>POR MODELO</div>
+                    {data.by_model?.length > 0 ? (
+                      <table style={{width:'100%',fontSize:11,fontFamily:'var(--fm)',borderCollapse:'collapse'}}>
+                        <thead><tr style={{borderBottom:'1px solid var(--border)'}}>
+                          <th style={{textAlign:'left',padding:'4px 0',color:'var(--text-tertiary)',fontSize:9,fontWeight:600}}>MODELO</th>
+                          <th style={{textAlign:'right',padding:'4px 0',color:'var(--text-tertiary)',fontSize:9,fontWeight:600}}>CALLS</th>
+                          <th style={{textAlign:'right',padding:'4px 0',color:'var(--text-tertiary)',fontSize:9,fontWeight:600}}>COSTE</th>
+                        </tr></thead>
+                        <tbody>
+                          {data.by_model.map((r,i) => (
+                            <tr key={i} style={{borderBottom:'1px solid var(--subtle-border)'}}>
+                              <td style={{padding:'5px 0',color:'var(--text-primary)',fontSize:10}}>{r.model?.replace('claude-','').replace('-20251001','')}</td>
+                              <td style={{padding:'5px 0',textAlign:'right',color:'var(--text-secondary)'}}>{r.calls}</td>
+                              <td style={{padding:'5px 0',textAlign:'right',color:'var(--gold)',fontWeight:600}}>${(r.cost||0).toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : <div style={{color:'var(--text-tertiary)',fontSize:11,padding:8}}>Sin datos aún.</div>}
+                  </div>
+                </div>
+
+                {/* Recent calls */}
+                <div style={{padding:'12px 14px',background:'var(--row-alt)',border:'1px solid var(--border)',borderRadius:10}}>
+                  <div style={{fontSize:10,color:'var(--text-secondary)',fontWeight:600,fontFamily:'var(--fm)',letterSpacing:.5,marginBottom:8}}>ÚLTIMAS 30 LLAMADAS</div>
+                  {data.recent?.length > 0 ? (
+                    <div style={{maxHeight:240,overflowY:'auto'}}>
+                      <table style={{width:'100%',fontSize:10.5,fontFamily:'var(--fm)',borderCollapse:'collapse'}}>
+                        <thead style={{position:'sticky',top:0,background:'var(--row-alt)'}}><tr style={{borderBottom:'1px solid var(--border)'}}>
+                          <th style={{textAlign:'left',padding:'4px 0',color:'var(--text-tertiary)',fontSize:9,fontWeight:600}}>HORA</th>
+                          <th style={{textAlign:'left',padding:'4px 0',color:'var(--text-tertiary)',fontSize:9,fontWeight:600}}>ENDPOINT</th>
+                          <th style={{textAlign:'left',padding:'4px 0',color:'var(--text-tertiary)',fontSize:9,fontWeight:600}}>MODELO</th>
+                          <th style={{textAlign:'right',padding:'4px 0',color:'var(--text-tertiary)',fontSize:9,fontWeight:600}}>TOKENS (in/out)</th>
+                          <th style={{textAlign:'right',padding:'4px 0',color:'var(--text-tertiary)',fontSize:9,fontWeight:600}}>$</th>
+                        </tr></thead>
+                        <tbody>
+                          {data.recent.map((r,i) => (
+                            <tr key={i} style={{borderBottom:'1px solid var(--subtle-border)'}}>
+                              <td style={{padding:'4px 0',color:'var(--text-tertiary)',fontSize:10}}>{r.ts?.replace('T',' ').slice(5,16)}</td>
+                              <td style={{padding:'4px 0',color:'var(--text-primary)'}}>{r.endpoint}{r.ticker ? ` (${r.ticker})` : ''}</td>
+                              <td style={{padding:'4px 0',color:'var(--text-secondary)'}}>{r.model?.replace('claude-','').replace('-20251001','')}</td>
+                              <td style={{padding:'4px 0',textAlign:'right',color:'var(--text-secondary)'}}>{r.tokens_in?.toLocaleString()}/{r.tokens_out?.toLocaleString()}</td>
+                              <td style={{padding:'4px 0',textAlign:'right',color:'var(--gold)',fontWeight:600}}>${(r.cost_usd||0).toFixed(3)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : <div style={{color:'var(--text-tertiary)',fontSize:11,padding:8}}>Aún no se han registrado llamadas (la tabla se rellena al hacer la próxima call).</div>}
+                </div>
+
+                <div style={{marginTop:14,padding:'10px 12px',background:'rgba(255,159,10,.06)',border:'1px solid rgba(255,159,10,.2)',borderRadius:8,fontSize:10.5,color:'var(--text-secondary)',lineHeight:1.55}}>
+                  <strong style={{color:'#ff9f0a'}}>⚠️ Limitación:</strong> Solo se registran llamadas hechas <strong>vía worker AyR</strong> (callAgentClaude + /api/claude proxy). Si tu API key se usa también en otros proyectos (Apps Scripts, bsmart, scripts locales) esos NO aparecen aquí. Para ver el total real, mira <a style={{color:'var(--gold)'}} href="https://console.anthropic.com/usage" target="_blank" rel="noopener noreferrer">console.anthropic.com/usage</a>.
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // Compact sparkline — SVG polyline, no libs, color-coded direction.
 function MiniSpark({ points, width = 90, height = 28, colorUp = '#ff453a', colorDown = '#30d158' }) {
   if (!Array.isArray(points) || points.length < 2) {
@@ -1384,6 +1564,9 @@ export default function HomeView() {
 
         {/* IB Gateway control — pause/start container without SSH */}
         <IBControlButton />
+
+        {/* Claude API consumption dashboard */}
+        <ClaudeUsageButton />
 
         {/* Offline mode — download all data for airplane */}
         <AirplaneMode portfolioList={portfolioList} />
