@@ -1,6 +1,7 @@
 export { default as Badge } from './Badge.jsx';
 export { default as BarChart } from './BarChart.jsx';
 export { default as AreaSparkline } from './AreaSparkline.jsx';
+export { default as MetricHistoryChart } from './MetricHistoryChart.jsx';
 export { default as DonutChart } from './DonutChart.jsx';
 export { default as GaugeVerdict } from './GaugeVerdict.jsx';
 export { default as Tooltip } from './Tooltip.jsx';

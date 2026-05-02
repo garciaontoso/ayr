@@ -1,32 +1,56 @@
+import { useState } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext';
-import { Badge, AreaSparkline, Card } from '../ui';
+import { Badge, AreaSparkline, Card, MetricHistoryChart } from '../ui';
 import { _sf, n, fP, fX, fM, div } from '../../utils/formatters.js';
 import { R } from '../../utils/ratings.js';
 
 export default function QualityTab() {
-  const { DATA_YEARS, L, comp, fmpExtra } = useAnalysis();
+  const { DATA_YEARS, CHART_YEARS, L, comp, fmpExtra } = useAnalysis();
+  // Click any metric card or table row to show a big year-by-year line chart
+  // at the top of the tab. Click ✕ or the same metric again to close.
+  const [selectedKey, setSelectedKey] = useState(null);
     const yrs = DATA_YEARS;
     const metrics = [
       {k:"gm",l:"Margen Bruto",r:R.gm,f:fP},{k:"om",l:"Margen Operativo",r:R.om,f:fP},{k:"nm",l:"Margen Neto",r:R.nm,f:fP},
       {k:"roe",l:"ROE",r:R.roe,f:fP},{k:"roic",l:"ROIC",r:R.roic,f:fP},{k:"fcfm",l:"Margen FCF",r:R.fcfm,f:fP},
       {k:"cfm",l:"OCF / Ventas",f:fP},{k:"ocfCapex",l:"OCF / CapEx",f:fX},
     ];
+    const selected = metrics.find(m => m.k === selectedKey);
     return (
       <div>
         <h2 style={{margin:"0 0 4px",fontSize:20,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fd)"}}>◆ Calidad del Negocio</h2>
-        <p style={{margin:"0 0 20px",fontSize:12,color:"var(--text-secondary)"}}>Márgenes, rentabilidad y eficiencia operativa a lo largo del tiempo.</p>
+        <p style={{margin:"0 0 20px",fontSize:12,color:"var(--text-secondary)"}}>Márgenes, rentabilidad y eficiencia operativa a lo largo del tiempo. <span style={{color:"var(--text-tertiary)"}}>Click en cualquier métrica para ver evolución anual.</span></p>
+        {selected && (
+          <MetricHistoryChart
+            label={selected.l}
+            years={CHART_YEARS}
+            values={CHART_YEARS.map(y => comp[y]?.[selected.k])}
+            format={selected.f}
+            color={selected.r ? '#c8a44e' : '#34d399'}
+            onClose={() => setSelectedKey(null)}
+          />
+        )}
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(185px,1fr))",gap:12,marginBottom:20}}>
           {metrics.slice(0,6).map(m=>{
             const vals = yrs.slice().reverse().map(y=>comp[y]?.[m.k]);
+            const isActive = selectedKey === m.k;
             return (
-              <Card key={m.k}>
-                <div style={{fontSize:10,color:"var(--text-secondary)",fontWeight:600,textTransform:"uppercase",letterSpacing:.5,fontFamily:"var(--fm)"}}>{m.l}</div>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:6}}>
-                  <span style={{fontSize:24,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{m.f(L[m.k])}</span>
-                  {m.r && <Badge val={L[m.k]} rules={m.r}/>}
-                </div>
-                <div style={{marginTop:10}}><AreaSparkline data={vals} w={160} h={36}/></div>
-              </Card>
+              <div key={m.k} role="button" tabIndex={0}
+                onClick={() => setSelectedKey(isActive ? null : m.k)}
+                onKeyDown={e => { if (e.key==='Enter'||e.key===' ') { e.preventDefault(); setSelectedKey(isActive ? null : m.k); } }}
+                title={isActive ? 'Click para cerrar el chart' : 'Click para ver evolución anual'}
+                style={{cursor:'pointer'}}>
+                <Card style={{outline: isActive ? '1.5px solid var(--gold)' : 'none', background: isActive ? 'var(--gold-dim)' : undefined, transition:'background .15s,outline .15s'}}>
+                  <div style={{fontSize:10,color:isActive?"var(--gold)":"var(--text-secondary)",fontWeight:600,textTransform:"uppercase",letterSpacing:.5,fontFamily:"var(--fm)",display:"flex",alignItems:"center",gap:4}}>
+                    <span style={{fontSize:10,opacity:.7}}>📈</span>{m.l}
+                  </div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:6}}>
+                    <span style={{fontSize:24,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{m.f(L[m.k])}</span>
+                    {m.r && <Badge val={L[m.k]} rules={m.r}/>}
+                  </div>
+                  <div style={{marginTop:10}}><AreaSparkline data={vals} w={160} h={36}/></div>
+                </Card>
+              </div>
             );
           })}
         </div>
@@ -37,13 +61,17 @@ export default function QualityTab() {
               <th style={{padding:"10px 8px",textAlign:"center",color:"var(--text-secondary)",borderBottom:"2px solid var(--table-border)",minWidth:80,fontSize:10}}>RATING</th>
               {yrs.map(y=><th key={y} style={{padding:"10px 6px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid var(--table-border)",minWidth:72,fontFamily:"var(--fm)",fontSize:10}}>{y}</th>)}
             </tr></thead>
-            <tbody>{metrics.map((m,i)=>(
-              <tr key={m.k} style={{background:i%2?"var(--row-alt)":"transparent"}}>
-                <td style={{position:"sticky",left:0,background:i%2?"var(--card)":"var(--bg)",padding:"7px 14px",color:"var(--text-primary)",fontWeight:500,borderBottom:"1px solid var(--table-border)"}}>{m.l}</td>
-                <td style={{padding:"7px",textAlign:"center",borderBottom:"1px solid var(--table-border)"}}>{m.r?<Badge val={L[m.k]} rules={m.r}/>:"—"}</td>
-                {yrs.map(y=><td key={y} style={{padding:"7px 6px",textAlign:"right",color:"var(--text-primary)",borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)"}}>{m.f(comp[y]?.[m.k])}</td>)}
-              </tr>
-            ))}</tbody>
+            <tbody>{metrics.map((m,i)=>{
+              const isActive = selectedKey === m.k;
+              return (
+                <tr key={m.k} onClick={() => setSelectedKey(isActive ? null : m.k)} title="Click para ver evolución anual"
+                  style={{background: isActive ? "var(--gold-dim)" : (i%2?"var(--row-alt)":"transparent"), cursor:"pointer", transition:"background .15s"}}>
+                  <td style={{position:"sticky",left:0,background: isActive ? "var(--gold-dim)" : (i%2?"var(--card)":"var(--bg)"),padding:"7px 14px",color: isActive ? "var(--gold)" : "var(--text-primary)",fontWeight:500,borderBottom:"1px solid var(--table-border)"}}>📈 {m.l}</td>
+                  <td style={{padding:"7px",textAlign:"center",borderBottom:"1px solid var(--table-border)"}}>{m.r?<Badge val={L[m.k]} rules={m.r}/>:"—"}</td>
+                  {yrs.map(y=><td key={y} style={{padding:"7px 6px",textAlign:"right",color:"var(--text-primary)",borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)"}}>{m.f(comp[y]?.[m.k])}</td>)}
+                </tr>
+              );
+            })}</tbody>
           </table>
         </Card>
 
