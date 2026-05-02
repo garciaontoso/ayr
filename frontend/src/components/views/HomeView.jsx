@@ -200,9 +200,12 @@ function IBControlButton() {
 
   const refresh = useCallback(async () => {
     try {
-      const headers = { "X-AYR-Auth": import.meta.env.VITE_AYR_BRIDGE_AUTH || "" };
+      // NOTE: don't set X-AYR-Auth manually — main.jsx monkey-patch adds the
+      // worker's VITE_AYR_TOKEN automatically. Setting VITE_AYR_BRIDGE_AUTH
+      // here was a bug: that's the bridge-side token, not the worker token,
+      // so /api/ib-bridge/control/* (PROTECTED_WRITE) returned 401.
       const [ctl, hp] = await Promise.all([
-        fetch(API_URL + "/api/ib-bridge/control/status", { headers }).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(API_URL + "/api/ib-bridge/control/status").then(r => r.ok ? r.json() : null).catch(() => null),
         fetch(API_URL + "/api/ib-bridge/health").then(r => r.json()).catch(() => null), // /health pública
       ]);
       setState({
@@ -233,11 +236,11 @@ function IBControlButton() {
       if (!ok) return;
       setActing(true);
       try {
-        const r = await fetch(API_URL + "/api/ib-bridge/control/stop", {
-          method: "POST",
-          headers: { "X-AYR-Auth": import.meta.env.VITE_AYR_BRIDGE_AUTH || "" },
-        });
-        if (!r.ok) throw new Error('Error al parar');
+        const r = await fetch(API_URL + "/api/ib-bridge/control/stop", { method: "POST" });
+        if (!r.ok) {
+          const body = await r.text().catch(() => '');
+          throw new Error(`HTTP ${r.status}${body ? ': ' + body.slice(0, 120) : ''}`);
+        }
         setTimeout(refresh, 1500);
       } catch (e) {
         alert('No se pudo parar: ' + e.message);
@@ -253,11 +256,11 @@ function IBControlButton() {
       if (!ok) return;
       setActing(true);
       try {
-        const r = await fetch(API_URL + "/api/ib-bridge/control/start", {
-          method: "POST",
-          headers: { "X-AYR-Auth": import.meta.env.VITE_AYR_BRIDGE_AUTH || "" },
-        });
-        if (!r.ok) throw new Error('Error al arrancar');
+        const r = await fetch(API_URL + "/api/ib-bridge/control/start", { method: "POST" });
+        if (!r.ok) {
+          const body = await r.text().catch(() => '');
+          throw new Error(`HTTP ${r.status}${body ? ': ' + body.slice(0, 120) : ''}`);
+        }
         setTimeout(refresh, 3000);
         setTimeout(refresh, 30000);
         setTimeout(refresh, 90000);
