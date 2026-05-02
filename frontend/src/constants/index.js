@@ -138,7 +138,8 @@ export const HOME_TAB_GROUPS = [
     // con strategy=X) — ahora todas en P&L con filtro por estrategia.
     // Componentes preservados pero des-ruteados; orphans queda como tool.
     tabs: [
-      {id:"pnl",lbl:"P&L",ico:"💰"},                     // dashboard único
+      {id:"pnl",lbl:"P&L",ico:"💰"},                     // dashboard unificado de income
+      {id:"dividendos",lbl:"Dividendos",ico:"💰"},        // tab clásica con histórico/calendario completo
       {id:"income",lbl:"Income Lab",ico:"🥦"},            // CC + lab tools
       {id:"opt-optimizer",lbl:"Optimizer",ico:"⚡"},      // find new trades
       {id:"scanner",lbl:"Scanner",ico:"🔍"},
