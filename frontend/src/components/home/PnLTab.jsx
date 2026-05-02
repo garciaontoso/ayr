@@ -326,7 +326,7 @@ function MonthDetail({ month, divs, options }) {
       <div style={{ fontSize: 13, fontFamily: 'var(--fm)', color: 'var(--gold)', fontWeight: 700, marginBottom: 12 }}>
         Detalle: {MONTH_LABELS[month - 1]}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, fontSize: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 24, fontSize: 12 }}>
         <div>
           <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 8, fontFamily: 'var(--fm)' }}>
             Dividendos cobrados ({divs.length})
@@ -457,7 +457,7 @@ function OpenPremiumCard({ open_premium }) {
         </div>
         <div style={{ fontSize: 22, fontWeight: 800, color: tot >= 0 ? '#60a5fa' : COLOR_NEG, fontFamily: 'var(--fm)' }}>{fmtSignedCompact(tot)}</div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
         <div>
           <div style={{ fontSize: 9, color: 'var(--text-tertiary)', marginBottom: 4 }}>Por estrategia</div>
           {(open_premium.by_strategy || []).slice(0, 6).map((s, i) => (
@@ -753,7 +753,7 @@ function HeroHeader({ year, annual, lifetime, prevYearTotal }) {
           </div>
         </div>
         {/* 3 source mini-cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(110px, 1fr))', gap: 8, flex: '1 1 360px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 8, flex: '1 1 360px' }}>
           {[
             { l: 'DIVIDENDOS', v: annual.dividends_net || 0, c: COLOR_DIV, sub: `WHT -${fmtSignedCompact(annual.wht_total)}` },
             { l: 'OPCIONES', v: annual.options_closed_pnl || 0, c: COLOR_OPT, sub: 'cerradas' },
@@ -783,7 +783,7 @@ function CalendarHeatmap({ monthly, onMonthClick, selectedMonth }) {
           <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#ef4444', borderRadius: 2, marginRight: 4, verticalAlign: 'middle' }}/>Negativo</span>
         </div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
         {monthly.map((m, i) => {
           const v = m.total_income || 0;
           const intensity = Math.min(Math.abs(v) / peak, 1);

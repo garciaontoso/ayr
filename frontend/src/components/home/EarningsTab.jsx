@@ -42,22 +42,23 @@ export default function EarningsTab() {
   const [briefingLoading, setBriefingLoading] = useState(false);
   const [briefingError, setBriefingError] = useState(null);
 
-  // ── Fetchers ──
-  const fetchUpcoming = useCallback(async () => {
+  // ── Fetchers (signal-aware so unmount cancels in-flight requests) ──
+  const fetchUpcoming = useCallback(async (signal) => {
     try {
-      const r = await fetch(`${API_URL}/api/earnings/upcoming?days=30`);
+      const r = await fetch(`${API_URL}/api/earnings/upcoming?days=30`, { signal });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const j = await r.json();
       setUpcoming(j);
       setError(null);
     } catch (e) {
+      if (e.name === 'AbortError') return;
       setError(e.message || 'Error al cargar upcoming');
     }
   }, []);
 
-  const fetchRecent = useCallback(async () => {
+  const fetchRecent = useCallback(async (signal) => {
     try {
-      const r = await fetch(`${API_URL}/api/earnings/post`);
+      const r = await fetch(`${API_URL}/api/earnings/post`, { signal });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const j = await r.json();
       setRecent(j);
@@ -66,48 +67,56 @@ export default function EarningsTab() {
     }
   }, []);
 
-  const fetchAll = useCallback(async () => {
+  const fetchAll = useCallback(async (signal) => {
     setLoading(true);
-    await Promise.all([fetchUpcoming(), fetchRecent()]);
+    await Promise.all([fetchUpcoming(signal), fetchRecent(signal)]);
+    if (signal?.aborted) return;
     setLastUpdated(new Date());
     setLoading(false);
   }, [fetchUpcoming, fetchRecent]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
+    const ctrl = new AbortController();
     try {
-      await fetch(`${API_URL}/api/earnings/briefing/refresh`, { method: 'POST' });
-      await fetchAll();
+      await fetch(`${API_URL}/api/earnings/briefing/refresh`, { method: 'POST', signal: ctrl.signal });
+      await fetchAll(ctrl.signal);
     } catch (e) {
-      setError('Error al refrescar calendar');
+      if (e.name !== 'AbortError') setError('Error al refrescar calendar');
     } finally {
       setRefreshing(false);
     }
   }, [fetchAll]);
 
-  const fetchBriefing = useCallback(async (ticker) => {
+  const fetchBriefing = useCallback(async (ticker, signal) => {
     setBriefing(null);
     setBriefingError(null);
     setBriefingLoading(true);
     try {
-      const r = await fetch(`${API_URL}/api/earnings/briefing/${encodeURIComponent(ticker)}`);
+      const r = await fetch(`${API_URL}/api/earnings/briefing/${encodeURIComponent(ticker)}`, { signal });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const j = await r.json();
       setBriefing(j);
     } catch (e) {
+      if (e.name === 'AbortError') return;
       setBriefingError(e.message || 'Error al cargar briefing');
     } finally {
-      setBriefingLoading(false);
+      if (!signal?.aborted) setBriefingLoading(false);
     }
   }, []);
 
   // ── Effects ──
   useEffect(() => {
-    fetchAll();
+    const ctrl = new AbortController();
+    fetchAll(ctrl.signal);
+    return () => ctrl.abort();
   }, [fetchAll]);
 
   useEffect(() => {
-    if (modalTicker) fetchBriefing(modalTicker);
+    if (!modalTicker) return;
+    const ctrl = new AbortController();
+    fetchBriefing(modalTicker, ctrl.signal);
+    return () => ctrl.abort();
   }, [modalTicker, fetchBriefing]);
 
   // ── Derived ──

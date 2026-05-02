@@ -4304,51 +4304,6 @@ export default {
         return json({ resolvedCount: Object.keys(resolved).length, unresolvedCount: unresolved.length, resolved, unresolved }, corsHeaders);
       }
 
-      // POST /api/funds/seed-spanish — seeds fund_holdings from the bundled
-      // SPANISH_FUNDS_1S2025 constant (parsed from Cobas/Magallanes/azValor
-      // CNMV-filed semestral PDFs). Idempotent. Inserts BOTH quarters
-      // (2025-Q2 current and 2024-Q4 prior) so we can show "NEW this
-      // quarter" badges in the UI.
-      if (path === "/api/funds/seed-spanish" && request.method === "POST") {
-        const data = SPANISH_FUNDS_1S2025;
-        const qCur = data.quarter_current;
-        const qPrev = data.quarter_prior;
-        const summary = [];
-        for (const [fundId, fund] of Object.entries(data.funds)) {
-          const stmts = [];
-          stmts.push(env.DB.prepare(`DELETE FROM fund_holdings WHERE fund_id = ? AND quarter IN (?, ?)`).bind(fundId, qCur, qPrev));
-          const insertStmt = env.DB.prepare(
-            `INSERT OR REPLACE INTO fund_holdings (fund_id, quarter, ticker, cusip, name, shares, value_usd, weight_pct, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
-          );
-          let insertedCur = 0, insertedPrev = 0;
-          for (const h of fund.holdings) {
-            // Spanish funds don't have standardized tickers. Store ISIN in ticker field
-            // (prefixed with 'ES:' to avoid colliding with US tickers), name fully.
-            const tickerKey = h.isin ? `ES:${h.isin}` : `ES:${(h.name || '').slice(0, 20).replace(/\s+/g, '_')}`;
-            if (h.w_now > 0) {
-              stmts.push(insertStmt.bind(
-                fundId, qCur, tickerKey, h.isin || '', h.name || '',
-                0, Math.round((h.v_now || 0) * 1000), h.w_now || 0
-              ));
-              insertedCur++;
-            }
-            if (h.w_prev > 0) {
-              stmts.push(insertStmt.bind(
-                fundId, qPrev, tickerKey, h.isin || '', h.name || '',
-                0, Math.round((h.v_prev || 0) * 1000), h.w_prev || 0
-              ));
-              insertedPrev++;
-            }
-          }
-          stmts.push(env.DB.prepare(
-            `UPDATE superinvestors SET last_quarter = ?, last_refreshed_at = datetime('now') WHERE id = ?`
-          ).bind(qCur, fundId));
-          await env.DB.batch(stmts);
-          summary.push({ fund: fundId, qCur, qPrev, insertedCur, insertedPrev });
-        }
-        return json({ seeded: summary.length, summary }, corsHeaders);
-      }
 
       // GET /api/funds/:id/diff?q1=...&q2=... — diff between two quarters
       // for a single fund. Returns per-ticker: was in q1, is in q2, new/removed/changed.
@@ -7820,7 +7775,6 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       //
       // POST /api/digest/weekly/generate  → build + store digest for current week
       // GET  /api/digest/weekly/latest    → fetch most recent stored digest
-      // GET  /api/digest/weekly/history   → list of past digests (id, week_start, created_at)
       // ═══════════════════════════════════════════════════════════════
 
       if (path === "/api/digest/weekly/generate" && request.method === "POST") {
@@ -7851,20 +7805,6 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         }
       }
 
-      if (path === "/api/digest/weekly/history" && request.method === "GET") {
-        await ensureMigrations(env);
-        try {
-          const limit = Math.min(parseInt(url.searchParams.get('limit') || '12', 10), 52);
-          const { results: rows } = await env.DB.prepare(
-            `SELECT id, week_start, created_at, email_sent,
-                    LENGTH(md) AS char_count
-               FROM weekly_digests ORDER BY week_start DESC LIMIT ?`
-          ).bind(limit).all();
-          return json({ ok: true, digests: rows || [] }, corsHeaders);
-        } catch (e) {
-          return json({ ok: false, error: String(e.message || e) }, corsHeaders, 500);
-        }
-      }
 
       // POST /api/deep-dividend/backtest  { ticker, as_of_quarter }
       // Runs the pipeline using only documents available BEFORE as_of_quarter,
@@ -8592,38 +8532,6 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return json({ ok: true }, corsHeaders);
       }
 
-      // GET /api/cantera/tags — all distinct tags across cantera rows
-      // (used by UI to populate the "Mis listas" dropdown with usage counts)
-      if (path === "/api/cantera/tags" && request.method === "GET") {
-        await ensureMigrations(env);
-        const { results } = await env.DB.prepare(
-          `SELECT tags FROM cantera WHERE tags IS NOT NULL AND tags != ''`
-        ).all();
-        const tagCounts = {};
-        for (const r of (results || [])) {
-          for (const tag of String(r.tags).split(',').map(t => t.trim()).filter(Boolean)) {
-            tagCounts[tag] = (tagCounts[tag] || 0) + 1;
-          }
-        }
-        const tags = Object.entries(tagCounts).map(([name, count]) => ({ name, count }))
-          .sort((a, b) => b.count - a.count);
-        return json({ ok: true, tags }, corsHeaders);
-      }
-
-      if (path === "/api/cantera/deltas" && request.method === "GET") {
-        await ensureMigrations(env);
-        const days = Math.min(parseInt(url.searchParams.get('days') || '7', 10), 30);
-        const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 19).replace('T', ' ');
-        const { results: newEntries } = await env.DB.prepare(
-          `SELECT ticker, name, priority_score, sources, reason_to_watch, added_at
-             FROM cantera WHERE added_at >= ? ORDER BY priority_score DESC LIMIT 20`
-        ).bind(since).all();
-        const { results: top5 } = await env.DB.prepare(
-          `SELECT ticker, name, priority_score, yield_pct, dgr_5y, sources
-             FROM cantera WHERE status = 'radar' ORDER BY priority_score DESC LIMIT 5`
-        ).all();
-        return json({ ok: true, days, new_entries: newEntries || [], top_5: top5 || [] }, corsHeaders);
-      }
 
       if (path === "/api/cantera/refresh" && request.method === "POST") {
         await ensureMigrations(env);
@@ -9387,58 +9295,6 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return json({ success: true, inserted, skipped, total: allDivs.length }, corsHeaders);
       }
 
-      // POST /api/dividendos/fix-shares — fill in missing shares from bruto/dps of other entries
-      if (path === "/api/dividendos/fix-shares" && request.method === "POST") {
-        // Get all dividends without shares
-        const { results: missing } = await env.DB.prepare(
-          "SELECT id, ticker, fecha, bruto FROM dividendos WHERE (shares IS NULL OR shares = 0) AND bruto > 0"
-        ).all();
-        // Build DPS lookup from entries that DO have shares: ticker → dps_gross
-        const { results: withShares } = await env.DB.prepare(
-          "SELECT ticker, bruto, shares FROM dividendos WHERE shares > 0 AND bruto > 0"
-        ).all();
-        const dpsMap = {};
-        for (const d of withShares) {
-          const dps = Math.round((d.bruto / d.shares) * 10000) / 10000;
-          if (!dpsMap[d.ticker]) dpsMap[d.ticker] = [];
-          dpsMap[d.ticker].push({ dps, shares: d.shares });
-        }
-
-        let fixed = 0, unfixable = 0;
-        const stmts = [];
-        for (const m of missing) {
-          const entries = dpsMap[m.ticker];
-          if (!entries || entries.length === 0) { unfixable++; continue; }
-          // Try each known DPS to see if bruto divides evenly
-          let bestShares = 0;
-          for (const e of entries) {
-            const calc = Math.round(m.bruto / e.dps);
-            if (calc > 0 && Math.abs(calc * e.dps - m.bruto) < 0.05) {
-              bestShares = calc;
-              break;
-            }
-          }
-          if (bestShares === 0) {
-            // Fallback: use most common shares count for this ticker
-            const shareCounts = {};
-            for (const e of entries) { shareCounts[e.shares] = (shareCounts[e.shares] || 0) + 1; }
-            const mostCommon = Object.entries(shareCounts).sort((a, b) => b[1] - a[1])[0];
-            if (mostCommon) bestShares = parseInt(mostCommon[0]);
-          }
-          if (bestShares > 0) {
-            const dps = Math.round((m.bruto / bestShares) * 10000) / 10000;
-            stmts.push(env.DB.prepare("UPDATE dividendos SET shares = ?, dps_gross = ? WHERE id = ?").bind(bestShares, dps, m.id));
-            fixed++;
-          } else {
-            unfixable++;
-          }
-        }
-        // Execute in batches
-        for (let i = 0; i < stmts.length; i += 80) {
-          await env.DB.batch(stmts.slice(i, i + 80));
-        }
-        return json({ success: true, fixed, unfixable, total_missing: missing.length }, corsHeaders);
-      }
 
       // DELETE /api/costbasis/:id
       if (path.startsWith("/api/costbasis/") && request.method === "DELETE") {
@@ -9721,116 +9577,6 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         }
       }
 
-      // GET /api/auto/replay-rut-bps — reconstruye histórico REAL de los BPS RUT
-      // del usuario en options_trades, calculando con BS + VIX histórico el
-      // delta/POP/credit teórico que tenía cada trade al abrirse.
-      // Devuelve análisis estadístico del patrón empírico real, no del Excel.
-      if (path === "/api/auto/replay-rut-bps" && request.method === "GET") {
-        try {
-          // 1) Cargar trades del usuario
-          const { results: trades } = await env.DB.prepare(
-            `SELECT id, trade_date, expiration_date, dte, price, short_strike, long_strike, spread,
-                    actual_contracts, credit, net_credit, status, final_net_credit, year
-             FROM options_trades
-             WHERE strategy='CS' AND underlying='RUT'
-             ORDER BY trade_date`
-          ).all();
-          if (!trades.length) return json({ trades: [] }, corsHeaders);
-
-          const minDate = trades[0].trade_date;
-          const maxDate = trades[trades.length - 1].expiration_date;
-          // Cargo histórico una sola vez
-          // RUT no está siempre en FMP — pruebo IWM como proxy (RUT ≈ IWM × 10)
-          const [iwmHist, vixHist] = await Promise.all([
-            getHistoricalPrices(env, "IWM", minDate, maxDate),
-            getHistoricalPrices(env, "VIX", minDate, maxDate),
-          ]);
-
-          const r = 0.04;
-          const enriched = [];
-          for (const t of trades) {
-            const iwmPx = iwmHist.get(t.trade_date);
-            const vix = vixHist.get(t.trade_date);
-            if (!iwmPx || !vix) {
-              enriched.push({ ...t, replay_skipped: "no historical data" });
-              continue;
-            }
-            // RUT proxy = IWM × 10 (ratio histórico estable)
-            const rutPx = iwmPx.close * 10;
-            // RVX ≈ VIX × 1.2 (factor empírico)
-            const sigma = Math.max(0.10, Math.min(0.80, (vix.close / 100) * 1.2));
-            const T = Math.max(1/365, t.dte / 365);
-            // Delta del short put en momento de apertura
-            const dShort = bsDelta(rutPx, t.short_strike, r, sigma, T, false); // negativo
-            const popShort = (() => {
-              // POP del short put = N(d2) → prob de que RUT > short_strike at expiry
-              const d1 = (Math.log(rutPx / t.short_strike) + (r + 0.5*sigma*sigma)*T) / (sigma * Math.sqrt(T));
-              const d2 = d1 - sigma * Math.sqrt(T);
-              return _normCdf(d2);
-            })();
-            // Credit teórico del spread (mid)
-            const spShort = bsPrice(rutPx, t.short_strike, r, sigma, T, false);
-            const spLong = bsPrice(rutPx, t.long_strike, r, sigma, T, false);
-            const creditTheo = spShort - spLong;
-            // Distancia OTM real
-            const otmPct = (rutPx - t.short_strike) / rutPx * 100;
-            enriched.push({
-              ...t,
-              replay: {
-                rut_proxy: Math.round(rutPx * 100) / 100,
-                iwm_price: iwmPx.close,
-                vix: vix.close,
-                rvx_proxy: Math.round(sigma * 10000) / 100,  // back to %
-                otm_pct: Math.round(otmPct * 100) / 100,
-                short_delta: Math.round(Math.abs(dShort) * 10000) / 10000,
-                pop: Math.round(popShort * 10000) / 100,
-                credit_theo_per_share: Math.round(creditTheo * 100) / 100,
-                credit_theo_per_contract: Math.round(creditTheo * 100 * 100) / 100,
-                credit_real_per_contract: t.credit ? Math.round(t.credit * 100 * 100) / 100 : null,
-                credit_ratio: t.credit && creditTheo > 0 ? Math.round((t.credit / creditTheo) * 100) / 100 : null,
-              },
-            });
-          }
-
-          // 2) Stats agregados
-          const valid = enriched.filter(t => t.replay);
-          const stats = (key) => {
-            const vals = valid.map(t => t.replay[key]).filter(v => v != null && !isNaN(v)).sort((a,b)=>a-b);
-            if (!vals.length) return null;
-            const sum = vals.reduce((a,b) => a+b, 0);
-            return {
-              n: vals.length,
-              mean: Math.round(sum / vals.length * 100) / 100,
-              median: vals[Math.floor(vals.length / 2)],
-              p25: vals[Math.floor(vals.length * 0.25)],
-              p75: vals[Math.floor(vals.length * 0.75)],
-              min: vals[0],
-              max: vals[vals.length - 1],
-            };
-          };
-
-          return json({
-            total: trades.length,
-            replayed: valid.length,
-            skipped: enriched.length - valid.length,
-            stats: {
-              short_delta: stats("short_delta"),
-              pop: stats("pop"),
-              otm_pct: stats("otm_pct"),
-              vix: stats("vix"),
-              rvx_proxy: stats("rvx_proxy"),
-              credit_real: stats("credit_real_per_contract"),
-              credit_theo: stats("credit_theo_per_contract"),
-              credit_ratio: stats("credit_ratio"),
-            },
-            sample_first: enriched[0],
-            sample_last: enriched[enriched.length - 1],
-            trades: enriched,
-          }, corsHeaders);
-        } catch (e) {
-          return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500);
-        }
-      }
 
       // GET /api/auto/backtests?strategy=X — historial de backtests
       if (path === "/api/auto/backtests" && request.method === "GET") {
@@ -16228,106 +15974,6 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return json({ success: true, deleted: ticker }, corsHeaders);
       }
 
-      // POST /api/cartera/seed — bulk seed from hardcoded data (run once to populate D1)
-      if (path === "/api/cartera/seed" && request.method === "POST") {
-        const SEED = [
-          ["ACN","Accenture Plc",60,"USD",1,"COMPANY","GORKA","Technology","USA",196.65],
-          ["AMCR","Amcor PLC",10,"USD",1,"COMPANY","YO","Materials","USA",40.57],
-          ["AMT","American Tower Corp",100,"USD",1,"REIT","LANDLORD","Real Estate","USA",184.41],
-          ["ARE","Alexandria Real Estate Equities Inc",650,"USD",1,"REIT","LANDLORD","Real Estate","USA",48.41],
-          ["AZJ","Aurizon Holdings Ltd",6000,"AUD",0.6989,"COMPANY","GORKA","Industrials","Australia",4],
-          ["BIZD","VanEck BDC Income ETF",1100,"USD",1,"ETF","YO","Financials","USA",12.48],
-          ["BME:AMS","Amadeus It Group SA",200,"EUR",1.14635,"COMPANY","GORKA","Technology","Spain",52.22],
-          ["BME:VIS","Viscofan SA",300,"EUR",1.14635,"COMPANY","GORKA","Consumer Staples","Spain",58.5],
-          ["CAG","Conagra Brands Inc",400,"USD",1,"COMPANY","YO","Consumer Staples","USA",16.41],
-          ["CLPR","Clipper Realty Inc",1800,"USD",1,"REIT","LANDLORD","Real Estate","USA",3.05],
-          ["CMCSA","Comcast Corp",200,"USD",1,"COMPANY","YO","Communication Services","USA",30.16],
-          ["CNSWF","Constellation Software Inc.",5,"USD",1,"COMPANY","GORKA","Technology","Canada",1841.68],
-          ["CPB","Campbell's Co",200,"USD",1,"COMPANY","YO","Consumer Staples","USA",21.71],
-          ["CUBE","CubeSmart",200,"USD",1,"COMPANY","LANDLORD","Real Estate","USA",38.65],
-          ["CZR","Caesars Entertainment Inc",500,"USD",1,"REIT","LANDLORD","Consumer Discretionary","USA",28.06],
-          ["DEO","Diageo PLC",690,"USD",1,"COMPANY","GORKA","Consumer Staples","UK",77.37],
-          ["DIDIY","DiDi Global Inc - ADR",700,"USD",1,"COMPANY","YO","Technology","China",3.94],
-          ["EMN","Eastman Chemical Co",100,"USD",1,"COMPANY","YO","Materials","USA",69.25],
-          ["ENG","Enagas SA",500,"EUR",1.14635,"COMPANY","GORKA","Utilities","Spain",15.04],
-          ["FDJU","FDJ United",700,"EUR",1.14635,"COMPANY","GORKA","Consumer Discretionary","France",25.86],
-          ["FDS","Factset Research Systems Inc",60,"USD",1,"COMPANY","GORKA","Financials","USA",205.65],
-          ["FLO","Flowers Foods Inc",700,"USD",1,"COMPANY","YO","Consumer Staples","USA",8.79],
-          ["GEO","Geo Group Inc",1300,"USD",1,"REIT","LANDLORD","Real Estate","USA",14.55],
-          ["GIS","General Mills Inc",500,"USD",1,"COMPANY","GORKA","Consumer Staples","USA",39.38],
-          ["GPC","Genuine Parts Co",100,"USD",1,"COMPANY","YO","Consumer Discretionary","USA",105.74],
-          ["GQG","GQG Partners Inc",2000,"AUD",0.6989,"COMPANY","GORKA","Financials","Australia",1.75],
-          ["HEN3","Henkel AG & Co KGaA",150,"EUR",1.14635,"COMPANY","GORKA","Consumer Staples","Germany",70.08],
-          ["HKG:9616","Neutech Group Limited",8000,"HKD",0.127706581,"COMPANY","GORKA","Technology","Hong Kong",2.54],
-          ["HKG:1052","Yuexiu Transport Infrastructure Ltd",16000,"HKD",0.127706581,"COMPANY","GORKA","Industrials","Hong Kong",4.49],
-          ["HKG:1910","Samsonite Group SA",900,"HKD",0.127706581,"COMPANY","GORKA","Consumer Discretionary","Hong Kong",16.1],
-          ["HKG:2219","Chaoju Eye Care Holdings Ltd",20000,"HKD",0.127706581,"COMPANY","GORKA","Healthcare","Hong Kong",2.56],
-          ["HKG:9618","JD.com Inc",1300,"HKD",0.127706581,"COMPANY","GORKA","Consumer Discretionary","China",109.6],
-          ["HR","Healthcare Realty Trust Inc",100,"USD",1,"REIT","LANDLORD","Real Estate","USA",17.98],
-          ["HRB","H & R Block Inc",600,"USD",1,"COMPANY","YO","Consumer Discretionary","USA",30.51],
-          ["IIPR","Innovative Industrial Properties Inc",200,"USD",1,"REIT","LANDLORD","Real Estate","USA",52.66],
-          ["IIPR-PRA","IIPR 9% Series A Preferred",400,"USD",1,"REIT","LANDLORD","Real Estate","USA",24.50],
-          ["KHC","Kraft Heinz Co",1200,"USD",1,"COMPANY","GORKA","Consumer Staples","USA",22.58],
-          ["KRG","Kite Realty Group Trust",500,"USD",1,"REIT","LANDLORD","Real Estate","USA",25.14],
-          ["LANDP","Gladstone Land 6% Preferred Series C",500,"USD",1,"REIT","LANDLORD","Real Estate","USA",19.96],
-          ["LSEG","London Stock Exchange Group Plc",100,"GBX",1.32369997,"COMPANY","GORKA","Financials","UK",8594],
-          ["LW","Lamb Weston Holdings Inc",250,"USD",1,"COMPANY","GORKA","Consumer Staples","USA",40.55],
-          ["LYB","LyondellBasell Industries NV",400,"USD",1,"COMPANY","GORKA","Materials","Netherlands",72.3],
-          ["MDV","Modiv Industrial Inc Class C",400,"USD",1,"REIT","LANDLORD","Real Estate","USA",14.54],
-          ["MO","Altria Group Inc",100,"USD",1,"COMPANY","YO","Consumer Staples","USA",67.89],
-          ["MSDL","Morgan Stanley Direct Lending Fund",1000,"USD",1,"CEF","CEF","Financials","USA",14.61],
-          ["MTN","Vail Resorts Inc",100,"USD",1,"REIT","LANDLORD","Consumer Discretionary","USA",131.74],
-          ["NET.UN","Canadian Net REIT",2000,"CAD",0.694,"REIT","LANDLORD","Real Estate","Canada",6.17],
-          ["NNN","NNN REIT Inc",600,"USD",1,"REIT","LANDLORD","Real Estate","USA",45.01],
-          ["NOMD","Nomad Foods Ltd",1300,"USD",1,"COMPANY","GORKA","Consumer Staples","UK",9.84],
-          ["NVO","Novo Nordisk A/S",400,"USD",1,"COMPANY","YO","Healthcare","Denmark",37.96],
-          ["O","Realty Income Corp",500,"USD",1,"REIT","LANDLORD","Real Estate","USA",64.44],
-          ["OBDC","Blue Owl Capital Corp",400,"USD",1,"CEF","CEF","Financials","USA",10.95],
-          ["OMC","Omnicom Group Inc",68.8,"USD",1,"COMPANY","GORKA","Communication Services","USA",77.8],
-          ["OWL","Blue Owl Capital Inc",1000,"USD",1,"REIT","LANDLORD","Financials","USA",8.75],
-          ["PATH","UiPath Inc",700,"USD",1,"COMPANY","YO","Technology","USA",11.58],
-          ["PAYX","Paychex Inc",207,"USD",1,"COMPANY","GORKA","Industrials","USA",92.61],
-          ["PEP","PepsiCo Inc",150,"USD",1,"COMPANY","YO","Consumer Staples","USA",159.88],
-          ["PFE","Pfizer Inc",400,"USD",1,"COMPANY","YO","Healthcare","USA",26.58],
-          ["PG","Procter & Gamble Co",150,"USD",1,"COMPANY","YO","Consumer Staples","USA",150.65],
-          ["PYPL","PayPal Holdings Inc",700,"USD",1,"COMPANY","YO","Technology","USA",44.9],
-          ["RAND","Rand Capital Corp",400,"USD",1,"CEF","YO","Financials","USA",11.36],
-          ["REXR","Rexford Industrial Realty Inc",400,"USD",1,"COMPANY","LANDLORD","Real Estate","USA",34.47],
-          ["RHI","Robert Half Inc",700,"USD",1,"COMPANY","YO","Industrials","USA",22.37],
-          ["RICK","RCI Hospitality Holdings Inc",1550,"USD",1,"REIT","LANDLORD","Consumer Discretionary","USA",21.42],
-          ["RYN","Rayonier Inc",400,"USD",1,"REIT","LANDLORD","Real Estate","USA",20.18],
-          ["SAFE","Safehold Inc",600,"USD",1,"REIT","LANDLORD","Real Estate","USA",14.52],
-          ["SCHD","Schwab US Dividend Equity ETF",6000,"USD",1,"ETF","YO","Financials","USA",30.8],
-          ["SHUR","Shurgard Self Storage Ltd",400,"EUR",1.14635,"REIT","LANDLORD","Real Estate","Netherlands",27.25],
-          ["SPHD","Invesco S&P 500 High Div Low Volatility ETF",200,"USD",1,"ETF","YO","Financials","USA",49.93],
-          ["SUI","Sun Communities Inc",100,"USD",1,"COMPANY","LANDLORD","Real Estate","USA",134.44],
-          ["TAP","Molson Coors Beverage Co Class B",600,"USD",1,"COMPANY","GORKA","Consumer Staples","USA",43.61],
-          ["TROW","T Rowe Price Group Inc",240,"USD",1,"COMPANY","GORKA","Financials","USA",88.59],
-          ["UNH","UnitedHealth Group Inc",100,"USD",1,"COMPANY","YO","Healthcare","USA",282.09],
-          ["VICI","VICI Properties Inc",1200,"USD",1,"REIT","YO","Real Estate","USA",28.42],
-          ["WEEL","Peerless Option Income Wheel ETF",1000,"USD",1,"ETF","YO","Financials","USA",20.12],
-          ["WEN","Wendy's Co",700,"USD",1,"COMPANY","YO","Consumer Discretionary","USA",7.17],
-          ["WKL","Wolters Kluwer NV",200,"EUR",1.14635,"COMPANY","GORKA","Industrials","Netherlands",67.26],
-          ["WPC","W.p. Carey Inc",200,"USD",1,"REIT","LANDLORD","Real Estate","USA",71.49],
-          ["XYZ","Block Inc",50,"USD",1,"COMPANY","YO","Technology","USA",59.79],
-          ["YYY","Amplify CEF High Income ETF",192,"USD",1,"ETF","CEF","Financials","USA",11.15],
-          ["ZTS","Zoetis Inc",100,"USD",1,"COMPANY","GORKA","Healthcare","USA",115.62],
-        ];
-        let inserted = 0;
-        for (const [ticker,nombre,shares,divisa,fx,categoria,estrategia,sector,pais,lp] of SEED) {
-          try {
-            await env.DB.prepare(
-              `INSERT INTO cartera (ticker,nombre,shares,divisa,fx,categoria,estrategia,sector,pais,last_price)
-               VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(ticker) DO UPDATE SET
-               nombre=excluded.nombre,shares=excluded.shares,divisa=excluded.divisa,fx=excluded.fx,
-               categoria=excluded.categoria,estrategia=excluded.estrategia,sector=excluded.sector,
-               pais=excluded.pais,last_price=excluded.last_price`
-            ).bind(ticker,nombre,shares,divisa,fx,categoria,estrategia,sector,pais,lp).run();
-            inserted++;
-          } catch(e) { console.error("Seed error:", ticker, e.message); }
-        }
-        return json({ success: true, inserted, total: SEED.length }, corsHeaders);
-      }
 
       // ─── PRESUPUESTO (Budget) ────────────────────────
 
@@ -22957,37 +22603,6 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
             };
           }
           return json({ ok: true, count: Object.keys(scores).length, scores }, corsHeaders);
-        } catch (e) {
-          return json({ error: e.message }, corsHeaders, 500);
-        }
-      }
-
-      // ─── ETF holdings (diagnostic — 2026-04-18) ────────────────────────
-      // GET /api/etf-holdings?symbol=SCHD — proxy to FMP etf-holdings endpoint
-      if (path === "/api/etf-holdings" && request.method === "GET") {
-        const symbol = (url.searchParams.get("symbol") || "").toUpperCase();
-        if (!symbol) return json({ error: "Missing ?symbol=" }, corsHeaders, 400);
-        if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
-        try {
-          const resp = await fetch(`https://financialmodelingprep.com/stable/etf/holdings?symbol=${encodeURIComponent(symbol)}&apikey=${FMP_KEY}`);
-          if (!resp.ok) return json({ error: `FMP ${resp.status}` }, corsHeaders, 502);
-          const data = await resp.json();
-          return json({ symbol, holdings: Array.isArray(data) ? data : [], count: Array.isArray(data) ? data.length : 0 }, corsHeaders);
-        } catch (e) {
-          return json({ error: e.message }, corsHeaders, 500);
-        }
-      }
-
-      // GET /api/etf-sector-weightings?symbol=SCHD — pre-computed sector breakdown
-      if (path === "/api/etf-sector-weightings" && request.method === "GET") {
-        const symbol = (url.searchParams.get("symbol") || "").toUpperCase();
-        if (!symbol) return json({ error: "Missing ?symbol=" }, corsHeaders, 400);
-        if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
-        try {
-          const resp = await fetch(`https://financialmodelingprep.com/stable/etf/sector-weightings?symbol=${encodeURIComponent(symbol)}&apikey=${FMP_KEY}`);
-          if (!resp.ok) return json({ error: `FMP ${resp.status}` }, corsHeaders, 502);
-          const data = await resp.json();
-          return json({ symbol, sectors: Array.isArray(data) ? data : [] }, corsHeaders);
         } catch (e) {
           return json({ error: e.message }, corsHeaders, 500);
         }
