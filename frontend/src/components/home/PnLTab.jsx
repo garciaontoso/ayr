@@ -387,6 +387,123 @@ function ByYearStrip({ byYear, currentYear, onYearClick }) {
   );
 }
 
+// Strategy color palette — keeps Opciones bucket visually consistent
+const STRATEGY_COLORS = {
+  CSP: '#10b981', CC: '#a855f7', BPS: '#34d399', BCS: '#f87171',
+  IC: '#eab308', LP: '#60a5fa', LC: '#5b9bd5', SP: '#10b981', SC: '#a855f7',
+  Other: '#94a3b8',
+};
+const STRATEGY_DESC = {
+  CSP: 'Cash-Secured Puts', CC: 'Covered Calls', BPS: 'Bull Put Spread',
+  BCS: 'Bear Call Spread', IC: 'Iron Condor', LP: 'Long Puts (compradas)',
+  LC: 'Long Calls (compradas)', SP: 'Short Put', SC: 'Short Call',
+  Other: 'Otros / sin categorizar',
+};
+
+function StrategyBadge({ strategy }) {
+  const c = STRATEGY_COLORS[strategy] || STRATEGY_COLORS.Other;
+  return <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 5, background: `${c}20`, border: `1px solid ${c}55`, color: c, fontSize: 10, fontWeight: 700, fontFamily: 'var(--fm)' }}>{strategy}</span>;
+}
+
+function BreakdownTable({ title, rows, valueKey, colorKey, extraKey, extraLabel, formatValue, onClick }) {
+  if (!rows || rows.length === 0) return null;
+  return (
+    <div style={cardBase}>
+      <div style={{ fontSize: 11, fontFamily: 'var(--fm)', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 10 }}>{title}</div>
+      <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: 'var(--fm)' }}>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} style={{ borderBottom: '1px solid var(--subtle-border)', cursor: onClick ? 'pointer' : 'default' }}
+                  onClick={onClick ? () => onClick(r) : undefined}>
+                <td style={{ padding: '6px 4px' }}>{colorKey ? <StrategyBadge strategy={r[colorKey]} /> : <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{r[Object.keys(r)[0]]}</span>}</td>
+                {extraKey && <td style={{ padding: '6px 4px', color: 'var(--text-tertiary)', fontSize: 10 }}>{r[extraKey]} {extraLabel}</td>}
+                <td style={{ padding: '6px 4px', textAlign: 'right', color: r[valueKey] >= 0 ? 'var(--gold)' : COLOR_NEG, fontWeight: 700 }}>
+                  {formatValue(r[valueKey])}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function OpenPremiumCard({ open_premium }) {
+  if (!open_premium) return null;
+  const tot = open_premium.total || 0;
+  return (
+    <div style={{ ...cardBase, borderColor: 'rgba(96,165,250,.3)', background: 'rgba(96,165,250,.04)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+        <div>
+          <div style={{ fontSize: 11, fontFamily: 'var(--fm)', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.6px' }}>Premium en posiciones abiertas</div>
+          <div style={{ fontSize: 9, color: 'var(--text-tertiary)', marginTop: 2, lineHeight: 1.5 }}>NO realizado · suma de credit/debit en grupos donde net_shares ≠ 0. Solo cuenta como income real cuando cierres.</div>
+        </div>
+        <div style={{ fontSize: 22, fontWeight: 800, color: tot >= 0 ? '#60a5fa' : COLOR_NEG, fontFamily: 'var(--fm)' }}>{fmtSignedCompact(tot)}</div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 9, color: 'var(--text-tertiary)', marginBottom: 4 }}>Por estrategia</div>
+          {(open_premium.by_strategy || []).slice(0, 6).map((s, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '3px 0' }}>
+              <StrategyBadge strategy={s.strategy} />
+              <span style={{ color: s.premium >= 0 ? 'var(--text-secondary)' : COLOR_NEG, fontFamily: 'var(--fm)', fontWeight: 600 }}>{fmtSignedCompact(s.premium)}</span>
+            </div>
+          ))}
+        </div>
+        <div>
+          <div style={{ fontSize: 9, color: 'var(--text-tertiary)', marginBottom: 4 }}>Top tickers</div>
+          {(open_premium.by_ticker || []).slice(0, 6).map((t, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '3px 0' }}>
+              <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{t.ticker}</span>
+              <span style={{ color: t.premium >= 0 ? 'var(--text-secondary)' : COLOR_NEG, fontFamily: 'var(--fm)', fontWeight: 600 }}>{fmtSignedCompact(t.premium)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StuckPositionsPanel({ stuck }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!stuck || stuck.length === 0) return null;
+  return (
+    <div style={{ ...cardBase, borderColor: 'rgba(255,159,10,.3)', background: 'rgba(255,159,10,.04)' }}>
+      <div onClick={() => setExpanded(!expanded)} style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <div style={{ fontSize: 11, fontFamily: 'var(--fm)', color: '#ff9f0a', textTransform: 'uppercase', letterSpacing: '.6px', fontWeight: 700 }}>⚠ {stuck.length} posiciones huérfanas</div>
+          <div style={{ fontSize: 9, color: 'var(--text-tertiary)', marginTop: 3, lineHeight: 1.5 }}>Grupos con expiry &gt; 14d en el pasado y net_shares ≠ 0. Probablemente expiraron worthless sin row de cierre, o assignment no registrado.</div>
+        </div>
+        <span style={{ color: 'var(--text-tertiary)', fontSize: 16 }}>{expanded ? '▾' : '▸'}</span>
+      </div>
+      {expanded && (
+        <div style={{ marginTop: 10, maxHeight: 260, overflowY: 'auto', fontSize: 10.5, fontFamily: 'var(--fm)' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
+              <th style={{ textAlign: 'left', padding: '5px 4px', color: 'var(--text-tertiary)', fontSize: 9 }}>TICKER</th>
+              <th style={{ textAlign: 'left', padding: '5px 4px', color: 'var(--text-tertiary)', fontSize: 9 }}>STRAT</th>
+              <th style={{ textAlign: 'left', padding: '5px 4px', color: 'var(--text-tertiary)', fontSize: 9 }}>STRIKE/EXP</th>
+              <th style={{ textAlign: 'right', padding: '5px 4px', color: 'var(--text-tertiary)', fontSize: 9 }}>PREMIUM</th>
+            </tr></thead>
+            <tbody>
+              {stuck.map((s, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid var(--subtle-border)' }}>
+                  <td style={{ padding: '4px', fontWeight: 600, color: 'var(--text-primary)' }}>{s.ticker}</td>
+                  <td style={{ padding: '4px' }}><StrategyBadge strategy={s.strategy} /></td>
+                  <td style={{ padding: '4px', color: 'var(--text-secondary)' }}>{s.opt_tipo} {s.strike} · {s.expiry}</td>
+                  <td style={{ padding: '4px', textAlign: 'right', color: s.open_premium >= 0 ? 'var(--gold)' : COLOR_NEG, fontWeight: 600 }}>{fmtSignedCompact(s.open_premium)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main tab ────────────────────────────────────────────────────────────────
 export default function PnLTab() {
   // STATE BEFORE EFFECTS — TDZ-safe
@@ -395,6 +512,10 @@ export default function PnLTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(null);
+  // 'all' | 'div' | 'opt' | 'stk' — filters the high-level view
+  const [filter, setFilter] = useState('all');
+  // Strategy sub-filter (when filter === 'opt')
+  const [selectedStrategy, setSelectedStrategy] = useState(null);
 
   const load = useCallback(async (y) => {
     setLoading(true);
@@ -421,6 +542,32 @@ export default function PnLTab() {
     setSelectedMonth(null);
   }, [year, load]);
 
+  // ── ALL useMemo declared BEFORE any early return (Rules of Hooks) ──────
+  const monthly = data?.monthly || [];
+  const options_by_strategy = data?.options_by_strategy || [];
+  const filteredMonthly = useMemo(() => {
+    if (filter !== 'opt' || !selectedStrategy) return monthly;
+    return monthly.map(m => {
+      const filteredLegs = (m.options_closed || []).filter(o => o.strategy === selectedStrategy);
+      const subPnl = filteredLegs.reduce((s, o) => s + (o.pnl || 0), 0);
+      return {
+        ...m, dividends_net: 0, stocks_realized_pnl: 0,
+        options_closed_pnl: subPnl, options_closed: filteredLegs, total_income: subPnl,
+      };
+    });
+  }, [monthly, filter, selectedStrategy]);
+  const viewMonthly = useMemo(() => {
+    if (filter === 'all') return monthly;
+    if (filter === 'opt') return filteredMonthly.map(m => ({ ...m, dividends_net: 0, stocks_realized_pnl: 0, total_income: m.options_closed_pnl }));
+    if (filter === 'div') return monthly.map(m => ({ ...m, options_closed_pnl: 0, stocks_realized_pnl: 0, options_closed: [], total_income: m.dividends_net }));
+    if (filter === 'stk') return monthly.map(m => ({ ...m, options_closed_pnl: 0, dividends_net: 0, options_closed: [], total_income: m.stocks_realized_pnl }));
+    return monthly;
+  }, [monthly, filter, filteredMonthly]);
+  const filteredOptionsByStrategy = useMemo(() => {
+    if (selectedStrategy) return options_by_strategy.filter(s => s.strategy === selectedStrategy);
+    return options_by_strategy;
+  }, [options_by_strategy, selectedStrategy]);
+
   if (loading && !data) {
     return (
       <div style={{ padding: 24, color: 'var(--text-tertiary)', fontSize: 13, textAlign: 'center' }}>
@@ -439,11 +586,55 @@ export default function PnLTab() {
   }
   if (!data) return null;
 
-  const { monthly = [], annual = {}, lifetime = {}, availableYears = [], byYear = [] } = data;
+  const { annual = {}, lifetime = {}, availableYears = [], byYear = [],
+          options_by_ticker = [], dividends_by_ticker = [],
+          open_premium = null, stuck_positions = [] } = data;
   const selectedDetail = selectedMonth != null ? monthly.find(m => m.month === selectedMonth) : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+      {/* Filter tabs — Todo / Dividendos / Opciones / Capital gains.
+          The whole view (KPIs + monthly bars + tables) reacts to selection. */}
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>
+        {[
+          { id: 'all', label: 'Todo',         color: 'var(--gold)' },
+          { id: 'div', label: 'Dividendos',   color: COLOR_DIV },
+          { id: 'opt', label: 'Opciones',     color: COLOR_OPT },
+          { id: 'stk', label: 'Capital gains',color: COLOR_STK },
+        ].map(f => {
+          const active = filter === f.id;
+          return (
+            <button key={f.id} onClick={() => { setFilter(f.id); setSelectedStrategy(null); setSelectedMonth(null); }}
+              style={{
+                padding: '6px 14px', borderRadius: 7, fontSize: 11, fontWeight: 700,
+                fontFamily: 'var(--fm)', cursor: 'pointer',
+                border: `1px solid ${active ? f.color : 'var(--border)'}`,
+                background: active ? `${f.color}20` : 'transparent',
+                color: active ? f.color : 'var(--text-tertiary)',
+                transition: 'all .15s',
+              }}>{f.label}</button>
+          );
+        })}
+        {/* Strategy sub-pills appear when Opciones is selected */}
+        {filter === 'opt' && options_by_strategy.length > 0 && (
+          <div style={{ display: 'flex', gap: 4, marginLeft: 12, paddingLeft: 12, borderLeft: '1px solid var(--border)' }}>
+            <button onClick={() => setSelectedStrategy(null)}
+              style={{ padding: '5px 10px', borderRadius: 6, fontSize: 10, fontWeight: 700, fontFamily: 'var(--fm)', cursor: 'pointer', border: `1px solid ${!selectedStrategy ? 'var(--gold)' : 'var(--border)'}`, background: !selectedStrategy ? 'var(--gold-dim)' : 'transparent', color: !selectedStrategy ? 'var(--gold)' : 'var(--text-tertiary)' }}>Todas</button>
+            {options_by_strategy.map(s => {
+              const active = selectedStrategy === s.strategy;
+              const c = STRATEGY_COLORS[s.strategy] || STRATEGY_COLORS.Other;
+              return (
+                <button key={s.strategy} onClick={() => setSelectedStrategy(active ? null : s.strategy)}
+                  title={STRATEGY_DESC[s.strategy] || s.strategy}
+                  style={{ padding: '5px 10px', borderRadius: 6, fontSize: 10, fontWeight: 700, fontFamily: 'var(--fm)', cursor: 'pointer', border: `1px solid ${active ? c : 'var(--border)'}`, background: active ? `${c}20` : 'transparent', color: active ? c : 'var(--text-tertiary)' }}>
+                  {s.strategy} <span style={{ opacity: .6 }}>{s.count_closed}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Year selector */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -497,12 +688,52 @@ export default function PnLTab() {
         />
       </div>
 
-      {/* Monthly stacked bars */}
+      {/* Monthly stacked bars — respects filter */}
       <MonthlyStackedBars
-        monthly={monthly}
+        monthly={viewMonthly}
         onMonthClick={setSelectedMonth}
         selectedMonth={selectedMonth}
       />
+
+      {/* Breakdowns — appear based on filter */}
+      {(filter === 'all' || filter === 'opt') && options_by_strategy.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+          <BreakdownTable
+            title={`Opciones por estrategia · ${year}`}
+            rows={filteredOptionsByStrategy}
+            valueKey="pnl"
+            colorKey="strategy"
+            extraKey="count_closed"
+            extraLabel="cerradas"
+            formatValue={fmtSignedCompact}
+            onClick={r => setSelectedStrategy(selectedStrategy === r.strategy ? null : r.strategy)}
+          />
+          {options_by_ticker.length > 0 && (
+            <BreakdownTable
+              title={`Opciones por ticker · ${year}`}
+              rows={options_by_ticker}
+              valueKey="pnl"
+              extraKey="count_closed"
+              extraLabel="cerradas"
+              formatValue={fmtSignedCompact}
+            />
+          )}
+        </div>
+      )}
+      {(filter === 'all' || filter === 'div') && dividends_by_ticker.length > 0 && (
+        <BreakdownTable
+          title={`Dividendos por ticker · ${year}`}
+          rows={dividends_by_ticker}
+          valueKey="gross"
+          formatValue={fmtSignedCompact}
+        />
+      )}
+
+      {/* Open premium card (always visible — critical for LEAPS visibility) */}
+      <OpenPremiumCard open_premium={open_premium} />
+
+      {/* Stuck positions panel */}
+      <StuckPositionsPanel stuck={stuck_positions} />
 
       {/* Detail panel for selected month */}
       {selectedDetail && (

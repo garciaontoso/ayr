@@ -13746,26 +13746,35 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           }
 
           // ── 2) Options realized P&L (closed = net shares 0) ─────────────
+          // Audit 2026-05-02 (3 critical fixes vs prior version):
+          //  1. Group by COALESCE(underlying, ticker) — was fragmenting RUT/RUTW
+          //     and SPX/SPXW where open used short symbol and close used full OCC.
+          //  2. Filter shares=0 ghost rows from the SELECT.
+          //  3. Fallback to coste flips sign (coste = -opt_credit_total in IB).
           const { results: optTrades } = await env.DB.prepare(
-            "SELECT ticker, fecha, shares, opt_expiry, opt_tipo, opt_strike, opt_credit_total, coste FROM cost_basis WHERE tipo='OPTION' ORDER BY fecha ASC, orden ASC"
+            "SELECT ticker, COALESCE(underlying, ticker) AS group_ticker, fecha, shares, opt_expiry, opt_tipo, opt_strike, opt_credit_total, coste FROM cost_basis WHERE tipo='OPTION' AND shares != 0 ORDER BY fecha ASC, orden ASC"
           ).all();
 
           const optGroups = new Map();
           for (const r of optTrades) {
-            const key = `${r.ticker}|${r.opt_expiry || ''}|${r.opt_strike || 0}|${r.opt_tipo || ''}`;
+            // Skip rows with all key fields missing — can't be grouped meaningfully
+            if (!r.group_ticker || !r.opt_expiry || !r.opt_strike || !r.opt_tipo) continue;
+            const key = `${r.group_ticker}|${r.opt_expiry}|${r.opt_strike}|${r.opt_tipo}`;
             if (!optGroups.has(key)) {
               optGroups.set(key, {
                 rows: [],
-                ticker: r.ticker,
+                ticker: r.group_ticker,
                 opt_tipo: r.opt_tipo,
                 opt_strike: r.opt_strike,
                 opt_expiry: r.opt_expiry,
                 latestFecha: r.fecha,
+                openFecha: r.fecha,
               });
             }
             const g = optGroups.get(key);
             g.rows.push(r);
             if ((r.fecha || '') > (g.latestFecha || '')) g.latestFecha = r.fecha;
+            if ((r.fecha || '') < (g.openFecha || '9999')) g.openFecha = r.fecha;
           }
 
           const optionsByYearMonth = {};
@@ -13773,13 +13782,61 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const optionsLifetimeTotal = { total: 0 };
           const optionsClosedDetailByYearMonth = {};
 
+          // Strategy inferrer from group leg structure. Best-effort, marks "Other"
+          // when uncertain. Per-leg granularity only — multi-leg strategies (BPS/IC)
+          // require external matching against options_trades and aren't reliable here.
+          const inferStrategy = (g) => {
+            const tipoKey = (g.opt_tipo || '').toUpperCase();
+            // Net direction: short if first non-zero share is negative
+            const firstSh = g.rows.find(r => (Number(r.shares) || 0) !== 0);
+            const isShort = firstSh && Number(firstSh.shares) < 0;
+            if (tipoKey === 'P' || tipoKey === 'PUT') return isShort ? 'CSP' : 'LP';
+            if (tipoKey === 'C' || tipoKey === 'CALL') return isShort ? 'CC' : 'LC';
+            // Composite tipos already labelled
+            if (['BPS','BCS','IC','CSP','CC','SP','SC','LC','LP'].includes(tipoKey)) return tipoKey;
+            return 'Other';
+          };
+
+          // Open-position premium tracking (still-open groups). Useful to show
+          // "premium awaiting realization" alongside realized income — critical
+          // for LEAPS visibility per user feedback.
+          const openByStrategy = {};
+          const openByTicker = {};
+          let openPremiumTotal = 0;
+          let stuckPositions = []; // groups with expired but unclosed
+          const today = new Date().toISOString().slice(0, 10);
+          // Strategy/ticker breakdowns per year
+          const byStrategyByYear = {}; // { year: { strategy: { count, pnl } } }
+          const byTickerByYear   = {}; // { year: { ticker:   { count, pnl } } }
+
           for (const g of optGroups.values()) {
             const netShares = g.rows.reduce((s, r) => s + (Number(r.shares) || 0), 0);
-            if (Math.abs(netShares) > 0.000001) continue; // still open
+            const strategy = inferStrategy(g);
+            // Still open?
+            if (Math.abs(netShares) > 0.000001) {
+              const openPnl = g.rows.reduce((s, r) => s + (Number(r.opt_credit_total) || 0), 0);
+              openPremiumTotal += openPnl;
+              openByStrategy[strategy] = (openByStrategy[strategy] || 0) + openPnl;
+              openByTicker[g.ticker] = (openByTicker[g.ticker] || 0) + openPnl;
+              // Stuck: expired >14d ago but never closed
+              if (g.opt_expiry && g.opt_expiry < today) {
+                const ageMs = Date.now() - new Date(g.opt_expiry + 'T00:00:00Z').getTime();
+                if (ageMs > 14 * 86400000) {
+                  stuckPositions.push({
+                    ticker: g.ticker, strategy, opt_tipo: g.opt_tipo,
+                    strike: g.opt_strike, expiry: g.opt_expiry, openFecha: g.openFecha,
+                    open_premium: Math.round(openPnl * 100) / 100,
+                    netShares,
+                  });
+                }
+              }
+              continue;
+            }
+            // Closed group P&L. Primary: SUM(opt_credit_total). Fallback: -SUM(coste)
+            // (coste sign is opposite to opt_credit_total in IB Flex rows).
             let pnl = g.rows.reduce((s, r) => s + (Number(r.opt_credit_total) || 0), 0);
             if (Math.abs(pnl) < 0.005 && g.rows.length > 0) {
-              // Older Excel rows lack opt_credit_total — fall back to coste.
-              pnl = g.rows.reduce((s, r) => s + (Number(r.coste) || 0), 0);
+              pnl = -g.rows.reduce((s, r) => s + (Number(r.coste) || 0), 0);
             }
             const yyyy = yearOf(g.latestFecha);
             const mIdx = monthOf(g.latestFecha) - 1;
@@ -13791,10 +13848,21 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
               optionsClosedDetailByYearMonth[yyyy][mIdx].push({
                 ticker: g.ticker,
                 opt_tipo: g.opt_tipo,
+                strategy,
                 strike: g.opt_strike,
                 expiry: g.opt_expiry,
+                openFecha: g.openFecha,
                 pnl: Math.round(pnl * 100) / 100,
               });
+              // Strategy / ticker breakdowns (per year)
+              if (!byStrategyByYear[yyyy]) byStrategyByYear[yyyy] = {};
+              if (!byTickerByYear[yyyy])   byTickerByYear[yyyy]   = {};
+              const sBucket = byStrategyByYear[yyyy][strategy] || { count: 0, pnl: 0 };
+              sBucket.count += 1; sBucket.pnl += pnl;
+              byStrategyByYear[yyyy][strategy] = sBucket;
+              const tBucket = byTickerByYear[yyyy][g.ticker] || { count: 0, pnl: 0 };
+              tBucket.count += 1; tBucket.pnl += pnl;
+              byTickerByYear[yyyy][g.ticker] = tBucket;
             }
             optionsLifetimeTotal.total += pnl;
           }
@@ -13861,6 +13929,26 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             const annualWHT    = (divByYearTotal[yyyy]?.wht   || 0);
             const annualOptPnl = (optionsByYearTotal[yyyy]    || 0);
             const annualEqPnl  = (realizedByYearTotal[yyyy]   || 0);
+            // Per-strategy and per-ticker breakdowns for options (year scope)
+            const stratMap = byStrategyByYear[yyyy] || {};
+            const tickMap  = byTickerByYear[yyyy] || {};
+            const options_by_strategy = Object.entries(stratMap)
+              .map(([strategy, v]) => ({ strategy, count_closed: v.count, pnl: Math.round(v.pnl * 100) / 100 }))
+              .sort((a, b) => b.pnl - a.pnl);
+            const options_by_ticker = Object.entries(tickMap)
+              .map(([ticker, v]) => ({ ticker, count_closed: v.count, pnl: Math.round(v.pnl * 100) / 100 }))
+              .sort((a, b) => b.pnl - a.pnl);
+            // Per-ticker dividends (year scope) — aggregate from monthly slot perTicker
+            const divTickAgg = {};
+            for (let i = 0; i < 12; i++) {
+              for (const [t, a] of (divRow[i].perTicker || new Map()).entries()) {
+                divTickAgg[t] = (divTickAgg[t] || 0) + a;
+              }
+            }
+            const dividends_by_ticker = Object.entries(divTickAgg)
+              .map(([ticker, gross]) => ({ ticker, gross: Math.round(gross * 100) / 100 }))
+              .sort((a, b) => b.gross - a.gross);
+
             return {
               year: yyyy,
               monthly,
@@ -13872,6 +13960,9 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
                 stocks_realized_pnl: Math.round(annualEqPnl * 100) / 100,
                 total_income: Math.round((annualNet + annualOptPnl + annualEqPnl) * 100) / 100,
               },
+              options_by_strategy,
+              options_by_ticker,
+              dividends_by_ticker,
             };
           };
 
@@ -13909,13 +14000,30 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             total_income: Math.round(((divByYearTotal[y]?.net || 0) + (optionsByYearTotal[y] || 0) + (realizedByYearTotal[y] || 0)) * 100) / 100,
           }));
 
+          // Open premium (still-open groups) by strategy / ticker — global, not year-scoped
+          // because positions themselves don't belong to a "realized year" yet.
+          const open_premium = {
+            total: Math.round(openPremiumTotal * 100) / 100,
+            by_strategy: Object.entries(openByStrategy)
+              .map(([strategy, v]) => ({ strategy, premium: Math.round(v * 100) / 100 }))
+              .sort((a, b) => b.premium - a.premium),
+            by_ticker: Object.entries(openByTicker)
+              .map(([ticker, v]) => ({ ticker, premium: Math.round(v * 100) / 100 }))
+              .sort((a, b) => b.premium - a.premium),
+          };
+
           return json({
             year: primary.year,
             monthly: primary.monthly,
             annual: primary.annual,
+            options_by_strategy: primary.options_by_strategy,
+            options_by_ticker: primary.options_by_ticker,
+            dividends_by_ticker: primary.dividends_by_ticker,
             lifetime,
             availableYears,
             byYear,
+            open_premium,
+            stuck_positions: stuckPositions.sort((a, b) => (a.expiry || '').localeCompare(b.expiry || '')),
           }, corsHeaders);
         } catch (e) {
           return json({ error: e.message, stack: (e.stack || "").slice(0, 500) }, corsHeaders, 500);
