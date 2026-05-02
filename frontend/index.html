@@ -13,19 +13,28 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.json" />
     <!-- ─── Defensa permanente contra página en blanco por SW residual ───
-         Des-registra CUALQUIER service worker antes de que el bundle JS
-         empiece a ejecutar. Evita la carrera entre el mount de React y
-         el "controllerchange" del SW que causó blank-screens recurrentes
-         en 2026-04-08 / 2026-04-19 / 2026-04-21.
+         Des-registra CUALQUIER service worker que controle navegación
+         antes de que el bundle JS empiece a ejecutar. Evita la carrera
+         entre el mount de React y el "controllerchange" del SW que causó
+         blank-screens recurrentes en 2026-04-08 / 2026-04-19 / 2026-04-21.
+
+         EXCEPCIÓN (2026-05-02): /sw-push.js es un SW dedicado solo a Web
+         Push (sin handler de fetch) y NO compite con el mount de React.
+         Lo preservamos para que iOS push funcione.
+
          Ejecuta SÍNCRONAMENTE — sin 'defer', sin 'async' — para que el
-         módulo bundle nunca arranque con un SW controlando.
+         módulo bundle nunca arranque con un SW de fetch activo.
     -->
     <script>
       (function() {
         if (!('serviceWorker' in navigator)) return;
         try {
           navigator.serviceWorker.getRegistrations().then(function(regs) {
-            for (var i = 0; i < regs.length; i++) regs[i].unregister().catch(function(){});
+            for (var i = 0; i < regs.length; i++) {
+              var url = (regs[i].active && regs[i].active.scriptURL) || '';
+              if (url.indexOf('/sw-push.js') !== -1) continue; // preserve push-only SW
+              regs[i].unregister().catch(function(){});
+            }
           }).catch(function(){});
           if (window.caches && caches.keys) {
             caches.keys().then(function(keys) {

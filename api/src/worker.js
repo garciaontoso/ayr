@@ -100,7 +100,13 @@ async function fmpQuote(tickers, env) {
         const ourTicker = fmpToOurs[q.symbol] || fromFMP(q.symbol) || q.symbol;
         result[ourTicker] = q;
       }
-    } catch (e) { /* batch failed, continue */ }
+    } catch (e) {
+      // Audit 2026-05-01: was silent. Now logged so callers can detect partial failure.
+      await logEvent(env, 'error', 'fmp.quote_batch_failed', {
+        batch_index: i, batch_size: batch.length, error: e.message?.slice(0, 200),
+      });
+      await errorBudget(env, 'fmp.quote_batch_failed', 10);
+    }
   }
   return result;
 }
@@ -2670,7 +2676,10 @@ async function evalOpenTradeRules(env, trade) {
     const fmp = await fmpQuote([trade.symbol, "^VIX"], env);
     underlying = fmp[trade.symbol]?.price;
     vix = fmp["^VIX"]?.price;
-  } catch (e) { console.error("autoclose fmp:", e.message); }
+  } catch (e) {
+    await logEvent(env, 'error', 'autoclose.fmp_failed', { error: e.message?.slice(0, 200) });
+    await errorBudget(env, 'autoclose.fmp_failed', 5);
+  }
 
   // VIX intradía change
   let vixChange = 0;
@@ -2693,7 +2702,10 @@ async function evalOpenTradeRules(env, trade) {
       });
       // sq.credit es credit/debit del closing trade. Mark del spread original = -closing
       mark = sq?.credit?.worst != null ? -Number(sq.credit.worst) : null;
-    } catch (e) { console.error("autoclose spread-quote:", e.message); }
+    } catch (e) {
+      await logEvent(env, 'error', 'autoclose.spread_quote_failed', { error: e.message?.slice(0, 200) });
+      await errorBudget(env, 'autoclose.spread_quote_failed', 5);
+    }
   }
   if (mark == null && underlying && vix && trade.strategy === 'BPS') {
     // Fallback BS+VIX
@@ -3093,7 +3105,11 @@ async function runBrainLite(env, { dryRun = false, forceSonnet = false } = {}) {
     vixPrev = q["^VIX"]?.previousClose;
     spy = q["SPY"]?.price;
     iwm = q["IWM"]?.price;
-  } catch(e) { console.error("brain market state:", e.message); }
+  } catch(e) {
+    // Audit 2026-05-01: when VIX null brain defaults to "neutral" regime — alert so we know.
+    await logEvent(env, 'critical', 'brain.market_state_failed', { error: e.message?.slice(0, 200) });
+    await errorBudget(env, 'brain.market_state_failed', 3);
+  }
 
   // 2) Fishing orders activas
   const { results: activeFishing } = await env.DB.prepare(
@@ -4920,9 +4936,16 @@ export default {
               if (res.ok) { pushedAny = true; }
               else if (res.status === 410 || res.status === 404) {
                 await env.DB.prepare("DELETE FROM push_subscriptions WHERE id = ?").bind(sub.id).run();
-              } else { failed++; }
-            } catch { failed++; }
+              } else {
+                failed++;
+                await logEvent(env, 'error', 'webpush.send_failed', { sub_id: sub.id, status: res.status });
+              }
+            } catch (e) {
+              failed++;
+              await logEvent(env, 'error', 'webpush.send_threw', { sub_id: sub.id, error: e.message?.slice(0, 200) });
+            }
           }
+          if (failed > 0) await errorBudget(env, 'webpush.send_failed', 5);
 
           // Telegram alert paralelo a web push (user request 2026-05-02)
           // Format: "🆕 Berkshire Hathaway nueva posición en AAPL · 0.0% → 4.5% (+4.50%) · Warren Buffett"
@@ -11322,8 +11345,13 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             const data = await resp.json();
             const rates = api.parse(data);
             if (rates) return json(rates, corsHeaders);
-          } catch(e) { console.error("FX API failed:", api.url, e.message); }
+          } catch(e) {
+            await logEvent(env, 'error', 'fx.api_failed', { url: api.url, error: e.message?.slice(0, 200) });
+          }
         }
+        // Audit 2026-05-01: total FX failure can shift NLV ±5%. Critical alert.
+        await logEvent(env, 'critical', 'fx.all_apis_failed', {});
+        await errorBudget(env, 'fx.all_apis_failed', 3);
         return json({ error: "All FX APIs failed" }, corsHeaders, 502);
       }
 

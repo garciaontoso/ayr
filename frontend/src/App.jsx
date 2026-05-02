@@ -1411,6 +1411,9 @@ function buildPositionsFromCB() {
   }, [dataLoaded, refreshLivePrices, isOffline]);
 
   // Request notification permission + Web Push subscription
+  // Uses dedicated /sw-push.js (push-only, no fetch handler) registered with
+  // explicit scope '/' so iOS PWA can subscribe without re-introducing the
+  // blank-screen race that previously killed the main fetch SW.
   useEffect(() => {
     if (!("Notification" in window)) return;
     const subscribeToPush = async () => {
@@ -1419,9 +1422,26 @@ function buildPositionsFromCB() {
           await Notification.requestPermission();
         }
         if (Notification.permission !== "granted") return;
-        if (localStorage.getItem("push-subscribed")) return;
-        const reg = await navigator.serviceWorker?.ready;
-        if (!reg?.pushManager) return;
+        if (!navigator.serviceWorker) return;
+
+        // Register the push-only SW (no-op if already registered)
+        let reg = await navigator.serviceWorker.getRegistration('/sw-push.js');
+        if (!reg) {
+          reg = await navigator.serviceWorker.register('/sw-push.js', { scope: '/' });
+        }
+        // Wait until it's active
+        if (reg.installing || reg.waiting) {
+          await new Promise(resolve => {
+            const sw = reg.installing || reg.waiting;
+            sw.addEventListener('statechange', () => { if (sw.state === 'activated') resolve(); });
+          });
+        }
+        if (!reg.pushManager) return;
+
+        // Skip if we already have a valid subscription stored locally
+        const existing = await reg.pushManager.getSubscription();
+        if (existing && localStorage.getItem("push-subscribed")) return;
+
         const VAPID_PUBLIC_KEY = "BLLKOH7cSIdsowyE_S1fK3fMsuZdq1QurvmoWq-Dg_CPd8XqrrhFtw4TK7DJtBM0PHPmfdh1-RToDFFXC5sMTv0";
         const urlBase64ToUint8Array = (base64String) => {
           const padding = "=".repeat((4 - base64String.length % 4) % 4);
@@ -1429,7 +1449,7 @@ function buildPositionsFromCB() {
           const raw = atob(base64);
           return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
         };
-        const sub = await reg.pushManager.subscribe({
+        const sub = existing || await reg.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
         });
