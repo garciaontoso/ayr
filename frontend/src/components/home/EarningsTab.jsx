@@ -29,7 +29,8 @@ const IMPORTANCE_LABEL = {
 // ── Componente principal ─────────────────────────────────────────
 export default function EarningsTab() {
   // ── State (declared FIRST to avoid TDZ) ──
-  const [view, setView] = useState('upcoming'); // 'upcoming' | 'recent'
+  const [view, setView] = useState('calendar'); // 'calendar' | 'upcoming' | 'recent'
+  const [selectedDay, setSelectedDay] = useState(null); // ISO date when a calendar cell is clicked
   const [upcoming, setUpcoming] = useState(null);
   const [recent, setRecent] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -134,62 +135,45 @@ export default function EarningsTab() {
   }
 
   return (
-    <div style={{ padding: 16, color: 'var(--text-primary)' }}>
-      {/* ── HEADER HERO ── */}
-      <div
-        style={{
-          padding: '20px 24px',
-          background: 'var(--subtle-bg)',
-          border: '1px solid var(--border)',
-          borderRadius: 12,
-          marginBottom: 16,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 16,
-        }}
-      >
-        <div>
-          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
-            Próximos 30 días
-          </div>
-          <div style={{ fontSize: 36, fontWeight: 700, fontFamily: 'var(--fm)', color: 'var(--text-primary)' }}>
-            {counts.total} earnings
-          </div>
-          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            {counts.critical > 0 && (
-              <span style={badgeStyle(IMPORTANCE_COLOR.critical)}>
-                {counts.critical} crítico{counts.critical !== 1 ? 's' : ''}
-              </span>
-            )}
-            {counts.high > 0 && (
-              <span style={badgeStyle(IMPORTANCE_COLOR.high)}>
-                {counts.high} alto{counts.high !== 1 ? 's' : ''}
-              </span>
-            )}
-            {lastUpdated && (
-              <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-                Actualizado: {lastUpdated.toLocaleString()}
-              </span>
-            )}
-          </div>
+    <div style={{ padding: 14, color: 'var(--text-primary)' }}>
+      {/* ── COMPACT HEADER (1-line) ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ fontSize: 17, fontWeight: 700, fontFamily: 'var(--fm)', color: 'var(--text-primary)' }}>
+            {counts.total}
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.5px' }}>
+            earnings · 30d
+          </span>
         </div>
-        <Button
-          onClick={handleRefresh}
-          loading={refreshing}
-          variant="primary"
-          size="md"
-        >
-          {refreshing ? 'Refrescando...' : '🔄 Refrescar calendar'}
-        </Button>
+        {counts.critical > 0 && (
+          <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 5, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', color: '#ef4444' }}>🔴 {counts.critical} críticos</span>
+        )}
+        {counts.high > 0 && (
+          <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 5, background: 'rgba(255,159,10,.1)', border: '1px solid rgba(255,159,10,.3)', color: '#ff9f0a' }}>🟡 {counts.high} altos</span>
+        )}
+        {lastUpdated && (
+          <span style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>
+            ↻ {lastUpdated.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        )}
+        <button onClick={handleRefresh} disabled={refreshing}
+          style={{ marginLeft: 'auto', padding: '5px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 11, cursor: refreshing ? 'wait' : 'pointer', fontFamily: 'var(--fb)' }}>
+          {refreshing ? 'Refrescando…' : '🔄 Refrescar'}
+        </button>
       </div>
 
-      {/* ── SUB-TABS ── */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '1px solid var(--border)' }}>
-        <SubTab label="📅 Próximos" active={view === 'upcoming'} onClick={() => setView('upcoming')} count={items.length} />
-        <SubTab label="🎯 Recientes (7d)" active={view === 'recent'} onClick={() => setView('recent')} count={recentItems.length} />
+      {/* ── COMPACT VIEW TABS ── */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 12, borderBottom: '1px solid var(--border)' }}>
+        <SubTab label="📅 Calendario" active={view === 'calendar'} onClick={() => setView('calendar')} count={items.length} />
+        <SubTab label="📋 Lista" active={view === 'upcoming'} onClick={() => setView('upcoming')} count={items.length} />
+        <SubTab label="🎯 Recientes 7d" active={view === 'recent'} onClick={() => setView('recent')} count={recentItems.length} />
       </div>
+
+      {/* ── CALENDAR VIEW ── */}
+      {view === 'calendar' && (
+        <CalendarView items={items} selectedDay={selectedDay} setSelectedDay={setSelectedDay} setModalTicker={setModalTicker} />
+      )}
 
       {/* ── LISTA UPCOMING ── */}
       {view === 'upcoming' && (
@@ -541,4 +525,132 @@ function badgeStyle(color) {
     fontFamily: 'var(--fm)',
     whiteSpace: 'nowrap',
   };
+}
+
+// ── Calendar view: 5-week mini grid with ticker chips per day ────────
+const DAY_LABELS = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+
+function CalendarView({ items, selectedDay, setSelectedDay, setModalTicker }) {
+  // Build 35-day grid starting from today's Monday
+  const grid = useMemo(() => {
+    const today = new Date(); today.setHours(0,0,0,0);
+    const dow = (today.getDay() + 6) % 7; // Mon=0..Sun=6
+    const start = new Date(today); start.setDate(start.getDate() - dow);
+    const cells = [];
+    for (let i = 0; i < 35; i++) {
+      const d = new Date(start); d.setDate(start.getDate() + i);
+      const iso = d.toISOString().slice(0, 10);
+      cells.push({ iso, day: d.getDate(), month: d.getMonth(), today: iso === today.toISOString().slice(0, 10), past: d < today });
+    }
+    return cells;
+  }, []);
+
+  // Bucket items by date
+  const byDate = useMemo(() => {
+    const m = {};
+    for (const it of items) {
+      const d = it.earnings_date;
+      if (!d) continue;
+      if (!m[d]) m[d] = [];
+      m[d].push(it);
+    }
+    return m;
+  }, [items]);
+
+  const dayItems = selectedDay ? (byDate[selectedDay] || []) : [];
+
+  // Importance ring color
+  const ringColor = (importance) => importance === 'critical' ? '#ef4444' : importance === 'high' ? '#ff9f0a' : 'var(--text-tertiary)';
+
+  return (
+    <>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+        {/* Day-of-week header */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid var(--border)' }}>
+          {DAY_LABELS.map(d => (
+            <div key={d} style={{ padding: '6px 8px', fontSize: 9, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.5px', fontFamily: 'var(--fm)', textAlign: 'center', fontWeight: 600 }}>
+              {d}
+            </div>
+          ))}
+        </div>
+        {/* 5-week grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
+          {grid.map((c, i) => {
+            const dayList = byDate[c.iso] || [];
+            const isSelected = selectedDay === c.iso;
+            const hasCritical = dayList.some(d => d.importance === 'critical');
+            const hasHigh = dayList.some(d => d.importance === 'high');
+            const accent = hasCritical ? '#ef4444' : hasHigh ? '#ff9f0a' : null;
+            return (
+              <div key={c.iso}
+                onClick={() => dayList.length > 0 && setSelectedDay(isSelected ? null : c.iso)}
+                style={{
+                  minHeight: 78,
+                  padding: '5px 6px 6px',
+                  borderRight: i % 7 === 6 ? 'none' : '1px solid var(--subtle-border)',
+                  borderBottom: i < 28 ? '1px solid var(--subtle-border)' : 'none',
+                  background: isSelected ? 'var(--gold-dim)' : c.today ? 'rgba(200,164,78,.06)' : 'transparent',
+                  opacity: c.past ? 0.4 : 1,
+                  cursor: dayList.length > 0 ? 'pointer' : 'default',
+                  position: 'relative',
+                  transition: 'background .15s',
+                  outline: isSelected ? '1.5px solid var(--gold)' : 'none',
+                }}
+                onMouseEnter={e => { if (dayList.length > 0 && !isSelected) e.currentTarget.style.background = 'var(--row-alt)'; }}
+                onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = c.today ? 'rgba(200,164,78,.06)' : 'transparent'; }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <span style={{ fontSize: 10, fontWeight: c.today ? 700 : 500, color: c.today ? 'var(--gold)' : 'var(--text-secondary)', fontFamily: 'var(--fm)' }}>
+                    {c.day}
+                  </span>
+                  {accent && <span style={{ width: 5, height: 5, borderRadius: 3, background: accent }} />}
+                </div>
+                {/* Ticker chips (max 3 visible, "+N" overflow) */}
+                {dayList.slice(0, 3).map(it => (
+                  <div key={it.ticker}
+                    style={{
+                      fontSize: 9, fontWeight: 700, fontFamily: 'var(--fm)',
+                      padding: '2px 4px', borderRadius: 3, marginBottom: 2,
+                      color: it.importance === 'critical' ? '#ef4444' : it.importance === 'high' ? '#ff9f0a' : 'var(--text-secondary)',
+                      background: it.importance === 'critical' ? 'rgba(239,68,68,.08)' : it.importance === 'high' ? 'rgba(255,159,10,.08)' : 'var(--subtle-bg)',
+                      border: `1px solid ${ringColor(it.importance)}33`,
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    }}>
+                    {it.ticker}
+                  </div>
+                ))}
+                {dayList.length > 3 && (
+                  <div style={{ fontSize: 9, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', marginTop: 2 }}>+{dayList.length - 3}</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Selected day expansion */}
+      {selectedDay && dayItems.length > 0 && (
+        <div style={{ marginTop: 12, background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 16px' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--fm)', color: 'var(--gold)', marginBottom: 10 }}>
+            {fmtDate(selectedDay)} · {dayItems.length} earnings
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {dayItems.map(it => (
+              <div key={it.ticker} onClick={() => setModalTicker(it.ticker)}
+                style={{ display: 'grid', gridTemplateColumns: '60px 1fr 80px 90px', alignItems: 'center', gap: 10, padding: '7px 10px', background: 'var(--subtle-bg)', borderRadius: 7, cursor: 'pointer' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--row-alt)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'var(--subtle-bg)'}>
+                <span style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--fm)', color: 'var(--text-primary)' }}>{it.ticker}</span>
+                <span style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</span>
+                <span style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>{it.earnings_time ? it.earnings_time.toUpperCase() : '—'}{it.eps_estimate != null ? ` · EPS ${fmtNum(it.eps_estimate)}` : ''}</span>
+                <span style={badgeStyle(IMPORTANCE_COLOR[it.importance])}>
+                  {fmtPct(it.weight_pct, 1).replace('+', '')} · {IMPORTANCE_LABEL[it.importance]}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
 }
