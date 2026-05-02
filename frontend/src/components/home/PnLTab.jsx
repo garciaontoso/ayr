@@ -12,9 +12,10 @@
 //
 // TDZ-safe: useState/useCallback declared BEFORE useEffect (CLAUDE.md rule).
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { API_URL } from '../../constants/index.js';
 import { _sf, fDol } from '../../utils/formatters.js';
+import { STRATEGY_HEX, STRATEGY_DESC } from '../../utils/strategyColors.js';
 
 // ── Style constants (hoisted) ───────────────────────────────────────────────
 const cardBase = {
@@ -411,20 +412,8 @@ function ByYearStrip({ byYear, currentYear, onYearClick }) {
   );
 }
 
-// Strategy color palette — keeps Opciones bucket visually consistent
-const STRATEGY_COLORS = {
-  CSP: '#10b981', CC: '#a855f7', BPS: '#34d399', BCS: '#f87171',
-  IC: '#eab308', LP: '#60a5fa', LC: '#5b9bd5', SP: '#10b981', SC: '#a855f7',
-  SCALP: '#ff9f0a', // index intraday/weekly — SPX/SPXW/NDX/RUTW ≤7 días
-  Other: '#94a3b8',
-};
-const STRATEGY_DESC = {
-  CSP: 'Cash-Secured Puts', CC: 'Covered Calls', BPS: 'Bull Put Spread',
-  BCS: 'Bear Call Spread', IC: 'Iron Condor', LP: 'Long Puts (compradas)',
-  LC: 'Long Calls (compradas)', SP: 'Short Put', SC: 'Short Call',
-  SCALP: 'Scalp/0DTE índices (SPX/SPXW/NDX/RUTW ≤7d)',
-  Other: 'Otros / sin categorizar',
-};
+// Strategy palette imported from shared utils/strategyColors.js (2026-05-02 audit)
+const STRATEGY_COLORS = STRATEGY_HEX;
 
 function StrategyBadge({ strategy }) {
   const c = STRATEGY_COLORS[strategy] || STRATEGY_COLORS.Other;
@@ -532,8 +521,11 @@ function OptionsTradesList({ monthly, selectedStrategy, scopedTitle }) {
   const winners = filtered.filter(t => (t.pnl || 0) > 0).length;
   const losers = filtered.filter(t => (t.pnl || 0) < 0).length;
 
-  const TH = ({ id, label, align = 'right' }) => (
-    <th onClick={() => { if (sortKey === id) setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortKey(id); setSortDir(id === 'closeFecha' || id === 'pnl' ? 'desc' : 'asc'); } }}
+  // TH defined as a callback (not a component) to avoid React remounting <th>
+  // every render. Audit 2026-05-02: was a component-in-component → stutter on
+  // every keystroke in the ticker filter input.
+  const renderTH = (id, label, align = 'right') => (
+    <th key={id} onClick={() => { if (sortKey === id) setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortKey(id); setSortDir(id === 'closeFecha' || id === 'pnl' ? 'desc' : 'asc'); } }}
       style={{ padding: '6px 8px', fontSize: 9, color: sortKey === id ? 'var(--gold)' : 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.5px', textAlign: align, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', fontWeight: 600 }}>
       {label} {sortKey === id ? (sortDir === 'asc' ? '▲' : '▼') : ''}
     </th>
@@ -560,16 +552,16 @@ function OptionsTradesList({ monthly, selectedStrategy, scopedTitle }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: 'var(--fm)' }}>
           <thead style={{ position: 'sticky', top: 0, background: 'var(--card)', zIndex: 1 }}>
             <tr style={{ borderBottom: '1px solid var(--border)' }}>
-              <TH id="closeFecha" label="Cierre" align="left" />
-              <TH id="ticker" label="Ticker" align="left" />
-              <TH id="strategy" label="Strat" align="left" />
-              <TH id="opt_tipo" label="Type" align="left" />
-              <TH id="strike" label="Strike" />
-              <TH id="expiry" label="Expiry" align="left" />
-              <TH id="openFecha" label="Apertura" align="left" />
-              <TH id="daysHeld" label="Días" />
-              <TH id="contracts" label="Cont" />
-              <TH id="pnl" label="P&L" />
+              {renderTH('closeFecha', 'Cierre', 'left')}
+              {renderTH('ticker', 'Ticker', 'left')}
+              {renderTH('strategy', 'Strat', 'left')}
+              {renderTH('opt_tipo', 'Type', 'left')}
+              {renderTH('strike', 'Strike')}
+              {renderTH('expiry', 'Expiry', 'left')}
+              {renderTH('openFecha', 'Apertura', 'left')}
+              {renderTH('daysHeld', 'Días')}
+              {renderTH('contracts', 'Cont')}
+              {renderTH('pnl', 'P&L')}
             </tr>
           </thead>
           <tbody>
@@ -926,11 +918,14 @@ export default function PnLTab() {
   // Strategy sub-filter (when filter === 'opt')
   const [selectedStrategy, setSelectedStrategy] = useState(null);
 
+  const abortRef = useRef(null);
   const load = useCallback(async (y) => {
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_URL}/api/pnl/monthly?year=${y}`);
+      const res = await fetch(`${API_URL}/api/pnl/monthly?year=${y}`, { signal: abortRef.current.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const j = await res.json();
       if (j.error) throw new Error(j.error);
@@ -940,11 +935,12 @@ export default function PnLTab() {
         setYear(j.availableYears[0]);
       }
     } catch (e) {
-      setError(e.message || 'Error cargando P&L');
+      if (e.name !== 'AbortError') setError(e.message || 'Error cargando P&L');
     } finally {
       setLoading(false);
     }
   }, []);
+  useEffect(() => () => { if (abortRef.current) abortRef.current.abort(); }, []);
 
   useEffect(() => {
     load(year);

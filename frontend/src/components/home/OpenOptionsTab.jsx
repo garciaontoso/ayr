@@ -11,6 +11,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { API_URL } from '../../constants/index.js';
 import { _sf, fDol } from '../../utils/formatters.js';
+import { STRATEGY_RGBA } from '../../utils/strategyColors.js';
 
 // ── Style constants (hoisted — no per-render realloc) ───────────────────────
 const cardBase = {
@@ -20,16 +21,9 @@ const cardBase = {
   padding: '14px 18px',
 };
 
-const STRATEGY_COLORS = {
-  BPS:  { bg: 'rgba(16,185,129,.15)',  border: 'rgba(16,185,129,.4)',  text: '#10b981' },
-  BCS:  { bg: 'rgba(239,68,68,.15)',   border: 'rgba(239,68,68,.4)',   text: '#ef4444' },
-  IC:   { bg: 'rgba(234,179,8,.15)',   border: 'rgba(234,179,8,.4)',   text: '#eab308' },
-  CSP:  { bg: 'rgba(96,165,250,.15)',  border: 'rgba(96,165,250,.4)',  text: '#60a5fa' },
-  CC:   { bg: 'rgba(168,85,247,.15)', border: 'rgba(168,85,247,.4)', text: '#a855f7' },
-  SP:   { bg: 'rgba(96,165,250,.15)',  border: 'rgba(96,165,250,.4)',  text: '#60a5fa' },
-  SC:   { bg: 'rgba(239,68,68,.15)',   border: 'rgba(239,68,68,.4)',   text: '#ef4444' },
-  OPT:  { bg: 'rgba(107,114,128,.15)', border: 'rgba(107,114,128,.4)', text: '#6b7280' },
-};
+// Strategy palette — single source of truth from utils/strategyColors.js
+// (audit 2026-05-02: was duplicated with conflicting colors vs PnLTab).
+const STRATEGY_COLORS = STRATEGY_RGBA;
 
 const SOURCE_LABELS = {
   d1:      'D1',

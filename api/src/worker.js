@@ -350,6 +350,18 @@ async function ensureScannerMigrations(env) {
 async function ensureMigrations(env) {
   if (_migrated) return;
   try {
+    // claude_usage — Claude API consumption ledger (added 2026-05-02 audit fix).
+    // Created here so logClaudeCall can INSERT on cold start without race.
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS claude_usage (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts TEXT NOT NULL,
+      endpoint TEXT,
+      model TEXT,
+      tokens_in INTEGER DEFAULT 0,
+      tokens_out INTEGER DEFAULT 0,
+      cost_usd REAL DEFAULT 0,
+      ticker TEXT
+    )`).run();
     // presupuesto table (budget items)
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS presupuesto (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -4008,6 +4020,7 @@ export default {
       "/api/options/open-portfolio",
       // HIGH additions (audit-overnight-3 2026-05-02):
       "/api/claude/usage",         // tokens + cost dashboard
+      "/api/reentry-watch/scan",   // Audit 2026-05-02: was unauthenticated, leaked all sells last 180d
       "/api/ib-cached-snapshot",   // NLV + ib_shares + ib_avg_cost for all positions
       "/api/ib-nlv-history",       // NLV time-series (account wealth trend)
       "/api/ib-nlv-save",          // POST that mutates nlv_history (sensitive financial data)
@@ -4015,6 +4028,7 @@ export default {
       "/api/tax-report",           // realized gains + dividend totals by ticker
       "/api/tax/optimization-report", // positions + WHT amounts by country
       "/api/options/orphans/cleanup",  // writes close rows for OTM-expired orphans
+      "/api/reentry-watch/scan",       // accepts GET+POST; protect both
       "/api/costbasis/all",        // all 8600+ cost_basis rows including prices
       "/api/ingresos",             // salary + income entries
       "/api/margin-interest",      // account IDs + margin interest history
@@ -13600,15 +13614,19 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const totalSellProceeds = sells.reduce((s, t) => s + Math.abs(t.coste || 0), 0);
           const totalBuyCost = buys.reduce((s, t) => s + Math.abs(t.coste || 0), 0);
 
-          // Closed-options P&L for `year` — group across ALL years by (ticker, expiry, strike, tipo),
+          // Closed-options P&L for `year` — group across ALL years by (COALESCE(underlying,ticker), expiry, strike, tipo),
           // emit P&L only when net shares == 0, credit it to the year of the latest close.
-          // Mirrors /api/pnl/monthly logic exactly.
+          // MIRRORS /api/pnl/monthly EXACTLY (audit 2026-05-02 found this had diverged $75K):
+          //   - COALESCE(underlying, ticker) for grouping (RUT/RUTW fix)
+          //   - shares != 0 filter (zero-share ghost rows)
+          //   - SUM(coste) PRIMARY, -SUM(opt_credit_total) FALLBACK
           const { results: optAll } = await env.DB.prepare(
-            "SELECT ticker, fecha, shares, opt_expiry, opt_tipo, opt_strike, opt_credit_total, coste, comision FROM cost_basis WHERE tipo='OPTION'"
+            "SELECT COALESCE(underlying, ticker) AS group_ticker, fecha, shares, opt_expiry, opt_tipo, opt_strike, opt_credit_total, coste FROM cost_basis WHERE tipo='OPTION' AND shares != 0"
           ).all();
           const optGroups = new Map();
           for (const r of optAll) {
-            const key = `${r.ticker}|${r.opt_expiry || ''}|${r.opt_strike || 0}|${r.opt_tipo || ''}`;
+            if (!r.group_ticker || !r.opt_expiry || !r.opt_strike || !r.opt_tipo) continue;
+            const key = `${r.group_ticker}|${r.opt_expiry}|${r.opt_strike}|${r.opt_tipo}`;
             let g = optGroups.get(key);
             if (!g) { g = { rows: [], latestFecha: r.fecha }; optGroups.set(key, g); }
             g.rows.push(r);
@@ -13620,9 +13638,9 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             if (Math.abs(netShares) > 0.000001) continue;
             const closeYear = String(g.latestFecha || "").slice(0, 4);
             if (closeYear !== year) continue;
-            let pnl = g.rows.reduce((s, r) => s + (Number(r.opt_credit_total) || 0), 0);
+            let pnl = g.rows.reduce((s, r) => s + (Number(r.coste) || 0), 0);
             if (Math.abs(pnl) < 0.005 && g.rows.length > 0) {
-              pnl = g.rows.reduce((s, r) => s + (Number(r.coste) || 0), 0);
+              pnl = -g.rows.reduce((s, r) => s + (Number(r.opt_credit_total) || 0), 0);
             }
             optionsIncome += pnl;
           }
@@ -16102,6 +16120,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       if (path === "/api/claude/usage" && request.method === "GET") {
         const days = Math.min(Math.max(parseInt(url.searchParams.get('days') || '30', 10), 1), 90);
         try {
+          // Table created in ensureMigrations now; CREATE IF NOT EXISTS kept as defense.
           await env.DB.prepare(`CREATE TABLE IF NOT EXISTS claude_usage (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ts TEXT NOT NULL,
@@ -16112,34 +16131,38 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             cost_usd REAL DEFAULT 0,
             ticker TEXT
           )`).run();
-          const today = await env.DB.prepare(
-            `SELECT COUNT(*) AS calls, COALESCE(SUM(tokens_in),0) AS tin, COALESCE(SUM(tokens_out),0) AS tout, COALESCE(SUM(cost_usd),0) AS cost
-             FROM claude_usage WHERE date(ts) = date('now')`
-          ).first();
-          const month = await env.DB.prepare(
-            `SELECT COUNT(*) AS calls, COALESCE(SUM(tokens_in),0) AS tin, COALESCE(SUM(tokens_out),0) AS tout, COALESCE(SUM(cost_usd),0) AS cost
-             FROM claude_usage WHERE strftime('%Y-%m', ts) = strftime('%Y-%m', 'now')`
-          ).first();
-          const window = await env.DB.prepare(
-            `SELECT COUNT(*) AS calls, COALESCE(SUM(tokens_in),0) AS tin, COALESCE(SUM(tokens_out),0) AS tout, COALESCE(SUM(cost_usd),0) AS cost
-             FROM claude_usage WHERE ts >= datetime('now', ? || ' days')`
-          ).bind(`-${days}`).first();
-          const byDay = await env.DB.prepare(
-            `SELECT date(ts) AS day, COUNT(*) AS calls, SUM(tokens_in) AS tin, SUM(tokens_out) AS tout, SUM(cost_usd) AS cost
-             FROM claude_usage WHERE ts >= datetime('now', ? || ' days') GROUP BY day ORDER BY day DESC`
-          ).bind(`-${days}`).all();
-          const byEndpoint = await env.DB.prepare(
-            `SELECT endpoint, COUNT(*) AS calls, SUM(tokens_in) AS tin, SUM(tokens_out) AS tout, SUM(cost_usd) AS cost
-             FROM claude_usage WHERE ts >= datetime('now', ? || ' days') GROUP BY endpoint ORDER BY cost DESC`
-          ).bind(`-${days}`).all();
-          const byModel = await env.DB.prepare(
-            `SELECT model, COUNT(*) AS calls, SUM(tokens_in) AS tin, SUM(tokens_out) AS tout, SUM(cost_usd) AS cost
-             FROM claude_usage WHERE ts >= datetime('now', ? || ' days') GROUP BY model ORDER BY cost DESC`
-          ).bind(`-${days}`).all();
-          const recent = await env.DB.prepare(
-            `SELECT ts, endpoint, model, tokens_in, tokens_out, cost_usd, ticker
-             FROM claude_usage ORDER BY ts DESC LIMIT 30`
-          ).all();
+          // Audit 2026-05-02: 6 sequential D1 queries → Promise.all gives ~5× speedup.
+          const dayBindArg = `-${days}`;
+          const [today, month, window, byDay, byEndpoint, byModel, recent] = await Promise.all([
+            env.DB.prepare(
+              `SELECT COUNT(*) AS calls, COALESCE(SUM(tokens_in),0) AS tin, COALESCE(SUM(tokens_out),0) AS tout, COALESCE(SUM(cost_usd),0) AS cost
+               FROM claude_usage WHERE date(ts) = date('now')`
+            ).first(),
+            env.DB.prepare(
+              `SELECT COUNT(*) AS calls, COALESCE(SUM(tokens_in),0) AS tin, COALESCE(SUM(tokens_out),0) AS tout, COALESCE(SUM(cost_usd),0) AS cost
+               FROM claude_usage WHERE strftime('%Y-%m', ts) = strftime('%Y-%m', 'now')`
+            ).first(),
+            env.DB.prepare(
+              `SELECT COUNT(*) AS calls, COALESCE(SUM(tokens_in),0) AS tin, COALESCE(SUM(tokens_out),0) AS tout, COALESCE(SUM(cost_usd),0) AS cost
+               FROM claude_usage WHERE ts >= datetime('now', ? || ' days')`
+            ).bind(dayBindArg).first(),
+            env.DB.prepare(
+              `SELECT date(ts) AS day, COUNT(*) AS calls, SUM(tokens_in) AS tin, SUM(tokens_out) AS tout, SUM(cost_usd) AS cost
+               FROM claude_usage WHERE ts >= datetime('now', ? || ' days') GROUP BY day ORDER BY day DESC`
+            ).bind(dayBindArg).all(),
+            env.DB.prepare(
+              `SELECT endpoint, COUNT(*) AS calls, SUM(tokens_in) AS tin, SUM(tokens_out) AS tout, SUM(cost_usd) AS cost
+               FROM claude_usage WHERE ts >= datetime('now', ? || ' days') GROUP BY endpoint ORDER BY cost DESC`
+            ).bind(dayBindArg).all(),
+            env.DB.prepare(
+              `SELECT model, COUNT(*) AS calls, SUM(tokens_in) AS tin, SUM(tokens_out) AS tout, SUM(cost_usd) AS cost
+               FROM claude_usage WHERE ts >= datetime('now', ? || ' days') GROUP BY model ORDER BY cost DESC`
+            ).bind(dayBindArg).all(),
+            env.DB.prepare(
+              `SELECT ts, endpoint, model, tokens_in, tokens_out, cost_usd, ticker
+               FROM claude_usage ORDER BY ts DESC LIMIT 30`
+            ).all(),
+          ]);
           return json({
             today: today || { calls: 0, tin: 0, tout: 0, cost: 0 },
             month: month || { calls: 0, tin: 0, tout: 0, cost: 0 },
