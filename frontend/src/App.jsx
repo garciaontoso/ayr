@@ -2363,7 +2363,9 @@ function buildPositionsFromCB() {
           </header>
           <main className="ar-analysis-main" style={{flex:1,padding:"24px 28px",overflowY:"auto"}}>
             <AnalysisContext.Provider value={analysisValue}>
-              <div style={{maxWidth:1280,margin:"0 auto",animation:anim?"fadeUp .4s cubic-bezier(.16,1,.3,1)":"none"}} key={tab}><ErrorBoundary><Suspense fallback={<Loading />}>{content[tab]?.()}</Suspense></ErrorBoundary></div>
+              <CostBasisContext.Provider value={costBasisContextValue}>
+                <div style={{maxWidth:1280,margin:"0 auto",animation:anim?"fadeUp .4s cubic-bezier(.16,1,.3,1)":"none"}} key={tab}><ErrorBoundary><Suspense fallback={<Loading />}>{content[tab]?.()}</Suspense></ErrorBoundary></div>
+              </CostBasisContext.Provider>
             </AnalysisContext.Provider>
           </main>
         </>
