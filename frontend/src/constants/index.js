@@ -111,7 +111,6 @@ export const HOME_TAB_GROUPS = [
       {id:"briefing",lbl:"Briefing",ico:"☀️"},
       {id:"portfolio",lbl:"Portfolio",ico:"💼"},
       {id:"open-options",lbl:"Opciones Abiertas",ico:"🎯"},
-      {id:"pnl",lbl:"P&L",ico:"💰"},
       {id:"tt",lbl:"TT",ico:"💎"},
       {id:"agentes",lbl:"Agentes",ico:"🤖"},
       {id:"dashboard",lbl:"Dashboard",ico:"📊"},
@@ -133,18 +132,18 @@ export const HOME_TAB_GROUPS = [
     id: "ingresos",
     lbl: "Ingresos",
     ico: "💰",
+    // Reorganized 2026-05-02: P&L unificado primero, herramientas después.
+    // Las antiguas pestañas dividendos/opciones-cs/opciones-roc/opciones-rop/
+    // opciones-leaps/opciones-resumen quedaron redundantes (mismo OpcionesTab
+    // con strategy=X) — ahora todas en P&L con filtro por estrategia.
+    // Componentes preservados pero des-ruteados; orphans queda como tool.
     tabs: [
-      {id:"dividendos",lbl:"Dividendos",ico:"💰"},
-      {id:"opt-optimizer",lbl:"Optimizer",ico:"⚡"},
-      {id:"opciones-cs",lbl:"Credit Spreads",ico:"🎯"},
-      {id:"opciones-roc",lbl:"ROC",ico:"📞"},
-      {id:"opciones-rop",lbl:"ROP",ico:"🛡"},
-      {id:"opciones-leaps",lbl:"LEAPS & Calls",ico:"📅"},
-      {id:"opciones-resumen",lbl:"Resumen",ico:"📊"},
-      {id:"opciones-orphans",lbl:"Sin loguear",ico:"⚠️"},
-      {id:"income",lbl:"Income",ico:"🥦"},
-      {id:"scanner",lbl:"Scanner",ico:"🎯"},
+      {id:"pnl",lbl:"P&L",ico:"💰"},                     // dashboard único
+      {id:"income",lbl:"Income Lab",ico:"🥦"},            // CC + lab tools
+      {id:"opt-optimizer",lbl:"Optimizer",ico:"⚡"},      // find new trades
+      {id:"scanner",lbl:"Scanner",ico:"🔍"},
       {id:"auto-trading",lbl:"Auto Trading",ico:"⚙️"},
+      {id:"opciones-orphans",lbl:"Sin loguear",ico:"⚠️"}, // edge-case cleanup
     ],
   },
   {
