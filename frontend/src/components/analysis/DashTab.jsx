@@ -418,12 +418,15 @@ export default function DashTab() {
           if (allocRows.length === 0) return null;
           const maxTotal = Math.max(...allocRows.map(r => r.total), 1);
           const BAR_H = 120;
+          // Semantic colors: shareholder returns (green/gold), balance sheet (blue),
+          // growth (purple), neutral (slate). Avoid red — all 5 buckets are legitimate
+          // uses of FCF; signaling "bad" via red would mislead.
           const SEGS = [
-            { key: 'divs',       label: 'Dividendos', color: '#c8a44e' },
-            { key: 'buybacks',   label: 'Buybacks',   color: '#ff9f0a' },
-            { key: 'debtPaydown',label: 'Deuda',      color: '#5b9bd5' },
-            { key: 'acquisitions',label: 'M&A',       color: '#bf5af2' },
-            { key: 'retained',   label: 'Retenido',   color: '#6b8e6b' },
+            { key: 'divs',       label: 'Dividendos', color: '#30d158' }, // verde brillante — cash directo al accionista
+            { key: 'buybacks',   label: 'Buybacks',   color: '#c8a44e' }, // gold — retorno indirecto al accionista
+            { key: 'debtPaydown',label: 'Deuda',      color: '#5b9bd5' }, // azul — balance sheet improvement
+            { key: 'acquisitions',label: 'M&A',       color: '#bf5af2' }, // púrpura — crecimiento, riesgo de value-destruction
+            { key: 'retained',   label: 'Retenido',   color: '#94a3b8' }, // slate — neutral, sin destino claro
           ];
           const latRow = allocRows[allocRows.length - 1];
           return (
