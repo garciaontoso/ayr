@@ -386,33 +386,69 @@ export default function OpenOptionsTab() {
         </div>
       )}
 
-      {/* KPI cards */}
+      {/* Strategy tabs — Total + one per strategy. Selected tab acts as filter
+          AND scopes the KPI cards below so totals reflect what's visible. */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap', borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>
+        {(() => {
+          const tabs = [{ id: '', label: 'Total', count: positions.length }, ...strategies.map(s => ({
+            id: s,
+            label: s,
+            count: positions.filter(p => p.strategy === s).length,
+          }))];
+          return tabs.map(t => {
+            const active = filterStrategy === t.id;
+            const sCol = t.id ? STRATEGY_COLORS[t.id] : null;
+            const accent = active ? (sCol?.text || 'var(--gold)') : 'var(--text-tertiary)';
+            const bg = active ? (sCol?.bg || 'var(--gold-dim)') : 'transparent';
+            const bd = active ? (sCol?.border || 'var(--gold)') : 'var(--border)';
+            return (
+              <button
+                key={t.id || 'all'}
+                onClick={() => setFilterStrategy(t.id)}
+                style={{
+                  padding: '6px 13px', borderRadius: 7, fontSize: 11, fontWeight: 700,
+                  fontFamily: 'var(--fm)', cursor: 'pointer',
+                  border: `1px solid ${bd}`, background: bg, color: accent,
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                }}>
+                {t.label}
+                <span style={{
+                  fontSize: 9, padding: '1px 6px', borderRadius: 4,
+                  background: 'var(--subtle-bg)', color: 'var(--text-tertiary)', fontWeight: 600,
+                }}>{t.count}</span>
+              </button>
+            );
+          });
+        })()}
+      </div>
+
+      {/* KPI cards — scoped to selected tab */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
         <KpiCard
-          label="Posiciones abiertas"
-          value={kpis.count ?? '—'}
-          sub={filtered.length !== (kpis.count || 0) ? `${filtered.length} filtradas` : undefined}
+          label={filterStrategy ? `Posiciones ${filterStrategy}` : 'Posiciones abiertas'}
+          value={visibleKpis.count}
+          sub={(filterAccount || filterDte || filterSymbol) ? `${visibleKpis.count} filtradas` : undefined}
         />
         <KpiCard
           label="Theta total / dia"
-          value={kpis.thetaDay != null ? fmtTheta(kpis.thetaDay) : '—'}
+          value={fmtTheta(visibleKpis.thetaDay)}
           sub="ingreso por decay diario"
           color="#30d158"
           highlight
         />
         <KpiCard
           label="Credit total recibido"
-          value={kpis.creditTotal != null ? fmtCredit(kpis.creditTotal) : '—'}
-          sub="suma todas las posiciones"
+          value={fmtCredit(visibleKpis.creditTotal)}
+          sub={filterStrategy ? `solo ${filterStrategy}` : 'suma todas las posiciones'}
           color="var(--gold)"
         />
         <KpiCard
           label="Delta neta"
-          value={kpis.deltaNet != null ? (kpis.deltaNet >= 0 ? '+' : '') + _sf(kpis.deltaNet, 1) : '—'}
+          value={(visibleKpis.deltaNet >= 0 ? '+' : '') + _sf(visibleKpis.deltaNet, 1)}
           sub="exposicion direccional"
-          color={Math.abs(kpis.deltaNet || 0) > 200 ? '#f59e0b' : 'var(--text-primary)'}
+          color={Math.abs(visibleKpis.deltaNet || 0) > 200 ? '#f59e0b' : 'var(--text-primary)'}
         />
-        {kpis.nextExpiry && (
+        {!filterStrategy && kpis.nextExpiry && (
           <KpiCard
             label="Proximo vencimiento"
             value={kpis.nextExpiry.dte + 'd'}
@@ -435,13 +471,6 @@ export default function OpenOptionsTab() {
             fontFamily: 'var(--fm)', width: 130, outline: 'none',
           }}
         />
-
-        {/* Strategy filter */}
-        <select value={filterStrategy} onChange={e => setFilterStrategy(e.target.value)}
-          style={{ padding: '6px 10px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--text-primary)', fontSize: 12, fontFamily: 'var(--fm)', cursor: 'pointer' }}>
-          <option value="">Todas estrategias</option>
-          {strategies.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
 
         {/* Account filter */}
         <select value={filterAccount} onChange={e => setFilterAccount(e.target.value)}
