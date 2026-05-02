@@ -27709,10 +27709,15 @@ async function sendWebPush(env, subscription, payloadText) {
 // ═══════════════════════════════════════════════════════════════
 
 function ytRequireToken(request, env) {
-  const auth = request.headers.get('Authorization') || '';
-  const token = auth.replace(/^Bearer\s+/i, '');
-  if (!token || token !== env.AYR_WORKER_TOKEN) {
-    return new Response('Unauthorized', { status: 401 });
+  // Accept both Authorization: Bearer (cron/curl) and X-AYR-Auth (browser via
+  // monkey patch in main.jsx). Mirrors the global PROTECTED_WRITE/READ gate.
+  // Returns JSON 401 (not plain text) so frontend r.json() doesn't blow up
+  // and surface a confusing "Unexpected token U..." parse error.
+  const authHeader = request.headers.get('X-AYR-Auth') || request.headers.get('Authorization') || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '');
+  if (!token || !env.AYR_WORKER_TOKEN || token !== env.AYR_WORKER_TOKEN) {
+    return new Response(JSON.stringify({ error: 'unauthorized', hint: 'Send X-AYR-Auth or Authorization: Bearer header' }),
+      { status: 401, headers: { 'Content-Type': 'application/json' } });
   }
   return null;
 }
