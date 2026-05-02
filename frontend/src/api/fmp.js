@@ -92,7 +92,20 @@ export async function fetchViaFMP(ticker, { forceRefresh = false } = {}) {
       eps: inc.epsDiluted || inc.eps || 0,
       epsBasic: inc.eps || 0,
       epsDiluted: inc.epsDiluted || inc.eps || 0,
-      dps: rat.dividendPerShare || 0,
+      // 2026-05-03: FMP /ratios in stable schema dropped dividendPerShare for
+      // some tickers. Fallback chain: ratios.dps → derived from dividendsPaid
+      // ÷ shares (per-year exact) → derived from netIncome × payoutRatio ÷
+      // shares (less precise but always available when ratios.payoutRatio is).
+      dps: (() => {
+        if (rat.dividendPerShare != null && rat.dividendPerShare > 0) return rat.dividendPerShare;
+        const sh = inc.weightedAverageShsOutDil || inc.weightedAverageShsOut;
+        const divPaid = Math.abs(cf.commonDividendsPaid || cf.dividendsPaid || cf.netDividendsPaid || 0);
+        if (divPaid > 0 && sh > 0) return Math.round((divPaid / sh) * 10000) / 10000;
+        const payoutR = rat.dividendPayoutRatio || rat.payoutRatio;
+        const ni = inc.netIncome;
+        if (payoutR > 0 && ni > 0 && sh > 0) return Math.round(((ni * payoutR) / sh) * 10000) / 10000;
+        return 0;
+      })(),
       sharesOut: M(inc.weightedAverageShsOutDil || inc.weightedAverageShsOut),
       totalDebt: M((bal.totalDebt || 0) || ((bal.longTermDebt || 0) + (bal.shortTermDebt || 0))),
       cash: M(bal.cashAndCashEquivalents || bal.cashAndShortTermInvestments || 0),
@@ -103,11 +116,26 @@ export async function fetchViaFMP(ticker, { forceRefresh = false } = {}) {
       interestExpense: M(inc.interestExpense || 0),
       depreciation: M(inc.depreciationAndAmortization || cf.depreciationAndAmortization || 0),
       taxProvision: M(inc.incomeTaxExpense || 0),
-      // Capital allocation fields (all sign-positive = cash outflow)
+      // Capital allocation fields (all sign-positive = cash outflow).
+      // 2026-05-03: FMP API renamed several fields in /stable migration:
+      //   dividendsPaid → commonDividendsPaid (signed, negative = paid out)
+      //   debtRepayment → netDebtIssuance / longTermNetDebtIssuance (signed:
+      //     positive = issued more debt, negative = net repaid). For capital
+      //     allocation we only count NET REPAYMENTS (when issuance < 0).
       buybacks: Math.abs(M(cf.commonStockRepurchased || 0)),
       dividendsPaid: Math.abs(M(cf.commonDividendsPaid || cf.dividendsPaid || cf.netDividendsPaid || 0)),
-      debtRepayment: Math.abs(M((cf.debtRepayment || 0) + (cf.commonStockIssued || 0))),
+      debtRepayment: (() => {
+        // Legacy field still present for older snapshots
+        if (cf.debtRepayment != null) return Math.abs(M(cf.debtRepayment));
+        // New schema: only count NEGATIVE issuance as paydown
+        const issuance = (cf.longTermNetDebtIssuance != null ? cf.longTermNetDebtIssuance
+                       : (cf.netDebtIssuance != null ? cf.netDebtIssuance : null));
+        if (issuance != null && issuance < 0) return Math.abs(M(issuance));
+        return 0;
+      })(),
       acquisitions: Math.abs(M(cf.acquisitionsNet || 0)),
+      // sharesOut already populated above — duplicated here to make CAGR easy.
+      sharesOutDiluted: M(inc.weightedAverageShsOutDil || inc.weightedAverageShsOut || 0),
     };
   });
 

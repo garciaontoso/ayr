@@ -12,6 +12,16 @@ export function useAnalysisMetrics({ fin, cfg, setSsd, fmpExtra }) {
   // ─── Computed Metrics ────────────────────────────
   const comp = useMemo(()=>{
     const c = {};
+    // 2026-05-03: build a year→FMP keyMetrics index so EV, EBITDA and ratios
+    // can be sourced from FMP's per-year TTM calculation (more reliable than
+    // our hand-built numbers, which can diverge with non-standard EBITDA defs).
+    const kmByYear = {};
+    if (fmpExtra?.keyMetrics && Array.isArray(fmpExtra.keyMetrics)) {
+      fmpExtra.keyMetrics.forEach(k => {
+        const yr = k?.fiscalYear || (k?.date ? +k.date.slice(0,4) : null);
+        if (yr) kmByYear[yr] = k;
+      });
+    }
     YEARS.forEach(y=>{
       const d = fin[y]; if(!d) return;
       const dPrev = fin[y-1] || null;
@@ -19,6 +29,10 @@ export function useAnalysisMetrics({ fin, cfg, setSsd, fmpExtra }) {
       const nd = d.totalDebt - d.cash;
       const ebitda = d.operatingIncome + d.depreciation;
       const ev = (cfg.price * (d.sharesOut||1)) + nd;
+      // FMP's pre-computed EV/EBITDA TTM (more reliable than our recomputation).
+      // Keep the hand-built `eve` as fallback so years without keyMetrics still work.
+      const km = kmByYear[y];
+      const eveFMP = +km?.evToEBITDA || +km?.enterpriseValueOverEBITDA;
       // ROE/ROIC con avg equity (estándar GuruFocus/Morningstar/CFA, no Buffett "ending")
       const avgEquity = dPrev?.equity ? (d.equity + dPrev.equity) / 2 : d.equity;
       const ndPrev = dPrev ? (dPrev.totalDebt - dPrev.cash) : null;
@@ -44,7 +58,8 @@ export function useAnalysisMetrics({ fin, cfg, setSsd, fmpExtra }) {
         nd2ocf: d.ocf>0 ? div(nd, d.ocf) : null,
         nd2rev: div(nd, d.revenue),
         int2ocf: div(d.interestExpense, d.ocf),
-        eve: ebitda>0 ? div(ev, ebitda) : null,
+        eve: (Number.isFinite(eveFMP) && eveFMP > 0) ? eveFMP
+             : (ebitda > 0 ? div(ev, ebitda) : null),
         pb: div(cfg.price, div(d.equity, d.sharesOut)),
         bvps: div(d.equity, d.sharesOut),
         fcfps: div(fcf, d.sharesOut),
@@ -64,7 +79,7 @@ export function useAnalysisMetrics({ fin, cfg, setSsd, fmpExtra }) {
       };
     });
     return c;
-  },[fin, cfg.price, cfg.taxRate]);
+  },[fin, cfg.price, cfg.taxRate, fmpExtra?.keyMetrics]);
 
   const latestDataYear = YEARS.find(y => fin[y]?.revenue > 0) || YEARS[0];
   const prevDataYear = YEARS.find(y => y < latestDataYear && fin[y]?.revenue > 0) || YEARS[1];

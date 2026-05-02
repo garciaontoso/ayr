@@ -15246,6 +15246,21 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
                 const cachedIncome = JSON.parse(cached.income || "[]");
                 // Don't serve cached data with empty income (likely a failed FMP fetch)
                 if (cachedIncome.length === 0) throw new Error("cached income empty — re-fetch");
+                // Schema validation 2026-05-03: FMP migrated their API and renamed
+                // multiple fields (dividendsPaid → commonDividendsPaid, debtRepayment
+                // → netDebtIssuance, etc). Old cached rows lack the new field names
+                // → frontend reads 0 for divs/debt → FCF Allocation says "all retained",
+                // payout 0%, MoS broken. We detect stale-schema cache by sniffing the
+                // raw cashflow JSON for the new field names and force a re-fetch if
+                // missing. Bump REQUIRED_CF_KEYS whenever FMP adds/renames fields.
+                const REQUIRED_CF_KEYS = ['commonDividendsPaid', 'netCashProvidedByOperatingActivities'];
+                const cfRaw = cached.cashflow || '';
+                const missingFields = REQUIRED_CF_KEYS.filter(k => !cfRaw.includes(`"${k}"`));
+                if (missingFields.length > 0 && cfRaw.length > 100) {
+                  // Cashflow data is non-empty but missing modern fields → stale schema
+                  console.warn(`[fundamentals] ${symbol} cache missing fields ${missingFields.join(',')} — refetching`);
+                  throw new Error('stale schema');
+                }
                 return json({
                   symbol: cached.symbol,
                   income: cachedIncome,

@@ -7,10 +7,45 @@ import { YEARS } from '../../constants/index.js';
 export default function MOSTab() {
   const { DATA_YEARS, L, LD, cfg, comp, dcf, fin, fmpExtra, latestDataYear } = useAnalysis();
     // ═══ RULE #1: Sticker Price ═══
+    // Phil Town: use the LOWEST of several historical growth rates as FGR
+    // (Future Growth Rate). Original code used BVPS CAGR only, which goes
+    // NEGATIVE for buyback-heavy companies (ZTS, AAPL, etc.) — buybacks
+    // shrink equity even when business is growing. Result was Sticker Price
+    // collapsed to ~$3 → MoS hugely negative even on quality compounders.
+    //
+    // Fix 2026-05-03: take the MIN of {EPS, Revenue, OCF, BVPS} CAGRs over 5y,
+    // ignoring negatives. Then floor at 5% (sane for any growing business)
+    // and cap at 20% (Phil Town's recommended max).
     const epsTTM = LD.eps || 0;
-    const bvps0 = comp[latestDataYear]?.bvps, bvps5 = comp[YEARS[5]]?.bvps;
-    const bvpsCAGR = (bvps0>0 && bvps5>0) ? Math.pow(bvps0/bvps5, 1/5)-1 : null;
-    const fgr = bvpsCAGR != null ? Math.min(Math.max(bvpsCAGR, 0.01), 0.20) : 0.08;
+    const cagr = (latest, prior, n) =>
+      (latest > 0 && prior > 0 && n > 0) ? Math.pow(latest / prior, 1 / n) - 1 : null;
+
+    // 5-year history endpoints (oldest in DATA_YEARS = base, latest = current)
+    const dyrs = (DATA_YEARS || []).filter(y => fin[y]?.revenue > 0);
+    const yLatest = dyrs[0];
+    const yBase = dyrs[Math.min(5, dyrs.length - 1)];
+    const n5 = (yLatest != null && yBase != null) ? Math.max(1, yLatest - yBase) : 5;
+
+    const epsCAGR  = cagr(fin[yLatest]?.eps,        fin[yBase]?.eps,        n5);
+    const revCAGR  = cagr(fin[yLatest]?.revenue,    fin[yBase]?.revenue,    n5);
+    const ocfCAGR  = cagr(fin[yLatest]?.ocf,        fin[yBase]?.ocf,        n5);
+    const bvps0 = comp[latestDataYear]?.bvps;
+    const bvps5 = comp[YEARS[5]]?.bvps;
+    const bvpsCAGR = (bvps0 > 0 && bvps5 > 0) ? Math.pow(bvps0 / bvps5, 1 / 5) - 1 : null;
+    // Analyst consensus EPS growth (FMP estimates), if available
+    const estimates = fmpExtra?.estimates || [];
+    const epsAnalystGrowth = (() => {
+      if (!Array.isArray(estimates) || estimates.length < 2) return null;
+      const sorted = [...estimates].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+      const f = +sorted[0]?.epsAvg, l = +sorted[sorted.length - 1]?.epsAvg;
+      const yrs = sorted.length - 1;
+      return (f > 0 && l > 0 && yrs > 0) ? Math.pow(l / f, 1 / yrs) - 1 : null;
+    })();
+
+    const candidates = [epsCAGR, revCAGR, ocfCAGR, bvpsCAGR, epsAnalystGrowth]
+      .filter(v => Number.isFinite(v) && v > 0);
+    const fgrRaw = candidates.length ? Math.min(...candidates) : 0.08;
+    const fgr = Math.min(Math.max(fgrRaw, 0.05), 0.20);  // floor 5%, cap 20%
     const futureEPS = epsTTM > 0 ? epsTTM * Math.pow(1 + fgr, 10) : null;
     // Historical P/Es from FMP key-metrics (uses each year's actual closing price ÷ EPS).
     // Previous version used `comp[y]?.price` which was always undefined, falling back to
@@ -67,9 +102,19 @@ export default function MOSTab() {
             <MethodBadge label="RULE #1" color="#ff9f0a" icon="📖"/>
             <div style={{fontSize:14,fontWeight:600,color:"var(--text-primary)"}}>Sticker Price — Fórmula de Phil Town</div>
           </div>
+          {/* Growth rate comparison — show user where FGR comes from so
+              they trust the number. Sticker Price collapses without this. */}
+          <div style={{padding:"8px 10px",background:"var(--row-alt)",borderRadius:8,marginBottom:10,fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)",lineHeight:1.6}}>
+            <span style={{fontWeight:700,color:"var(--gold)",marginRight:8}}>FGR={fP(fgr)}</span>
+            <span style={{color:"var(--text-tertiary)"}}>
+              EPS:{epsCAGR!=null?fP(epsCAGR):'—'} · Rev:{revCAGR!=null?fP(revCAGR):'—'} · OCF:{ocfCAGR!=null?fP(ocfCAGR):'—'} · BVPS:{bvpsCAGR!=null?fP(bvpsCAGR):'—'}
+              {epsAnalystGrowth!=null && <> · Analistas:{fP(epsAnalystGrowth)}</>}
+              <span style={{color:"var(--gold)",marginLeft:6}}>(menor positivo, suelo 5%, techo 20%)</span>
+            </span>
+          </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:12}}>
             {[
-              {l:"EPS TTM",v:fC(epsTTM)},{l:"FGR (BVPS CAGR 5a)",v:fP(fgr)},{l:"Future EPS (10a)",v:fC(futureEPS)},
+              {l:"EPS TTM",v:fC(epsTTM)},{l:"FGR (CAGR 5a, mínimo)",v:fP(fgr)},{l:"Future EPS (10a)",v:fC(futureEPS)},
               {l:"Future P/E (2×FGR)",v:f2(futurePE)+"x"},{l:"Sticker Price",v:fC(stickerPrice),c:"#ff9f0a"},{l:"MOS Price (50%)",v:fC(mosPrice),c:"var(--gold)"},
             ].map((x,i)=>(
               <div key={i} style={{padding:"10px",borderRadius:8,background:"var(--row-alt)",textAlign:"center"}}>
@@ -99,6 +144,9 @@ export default function MOSTab() {
 
         {/* ══════ RESUMEN COMBINADO ══════ */}
         <Card glow style={{marginBottom:16}}>
+          <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:".05em",textTransform:"uppercase",textAlign:"center",marginBottom:8}}>
+            Promedio de los {validMethods.length} métodos válidos abajo (DCF + Sticker + Graham + EV/EBITDA + FMP DCF + Analistas)
+          </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:16,alignItems:"center"}}>
             <div style={{textAlign:"center"}}>
               <div style={{fontSize:9,color:"var(--text-tertiary)",fontWeight:700,fontFamily:"var(--fm)"}}>VALOR INTRÍNSECO MEDIO</div>
@@ -107,7 +155,7 @@ export default function MOSTab() {
             </div>
             <div style={{width:1,height:50,background:"var(--border)"}}/>
             <div style={{textAlign:"center"}}>
-              <div style={{fontSize:9,color:"var(--text-tertiary)",fontWeight:700,fontFamily:"var(--fm)"}}>MARGIN OF SAFETY</div>
+              <div style={{fontSize:9,color:"var(--text-tertiary)",fontWeight:700,fontFamily:"var(--fm)"}}>MOS MEDIA (todos los métodos)</div>
               <div style={{fontSize:32,fontWeight:800,color:avgMOS>0.30?"var(--green)":avgMOS>0?"var(--yellow)":"var(--red)",fontFamily:"var(--fm)",marginTop:4}}>{fP(avgMOS)}</div>
               <div style={{fontSize:10,color:"var(--text-tertiary)",marginTop:2}}>Precio: {fC(cfg.price)}</div>
             </div>

@@ -76,12 +76,20 @@ export default function GrowthTab() {
                   {l:"Dividend Growth",k:"dividendsPerShareGrowth"},
                   {l:"Book Value Growth",k:"bookValueperShareGrowth"},
                   {l:"Operating CF Growth",k:"operatingCashFlowGrowth"},
+                  // Shares Outstanding — INVERSE color: negative (buyback) = green,
+                  // positive (dilution) = red. Critical for valuing buyback-heavy
+                  // companies like ZTS where equity shrinks even with growing biz.
+                  {l:"Shares Outstanding (Diluted)",k:"weightedAverageSharesDilutedGrowth",inverse:true},
                 ].map((row,i)=>(
                   <tr key={row.k} style={{background:i%2?"var(--row-alt)":"transparent"}}>
                     <td style={{position:"sticky",left:0,background:i%2?"var(--card)":"var(--bg)",padding:"6px 12px",color:"var(--text-primary)",fontWeight:500,borderBottom:"1px solid var(--table-border)",fontSize:11}}>{row.l}</td>
                     {fmpExtra.finGrowth.slice(0,6).map((g,j)=>{
                       const v = g[row.k];
-                      const color = v==null?"var(--text-tertiary)":v>=0.10?"var(--green)":v>=0.05?"var(--yellow)":v>=0?"var(--orange)":"var(--red)";
+                      // For "shares outstanding": negative (buyback) is GOOD, positive (dilution) is BAD
+                      const color = v==null?"var(--text-tertiary)":
+                        row.inverse
+                          ? (v<=-0.03?"var(--green)":v<=0?"var(--yellow)":v<=0.02?"var(--orange)":"var(--red)")
+                          : (v>=0.10?"var(--green)":v>=0.05?"var(--yellow)":v>=0?"var(--orange)":"var(--red)");
                       return <td key={j} style={{padding:"6px 6px",textAlign:"right",borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)",color,fontWeight:600}}>
                         {v!=null?`${v>=0?"+":""}${_sf(v*100,1)}%`:"—"}
                       </td>;

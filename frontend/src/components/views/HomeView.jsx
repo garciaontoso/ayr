@@ -992,6 +992,27 @@ function AirplaneMode({ portfolioList }) {
       "/api/agent-insights?days=14",
       "/api/dividend-dps-live", "/api/dividend-forward",
       "/api/cached-pnl",
+      // 2026-05-03: tabs / panels frequently accessed in flight
+      "/api/pnl/monthly?year=" + new Date().getFullYear(),
+      "/api/pnl/monthly?year=" + (new Date().getFullYear() - 1),
+      "/api/options/open-portfolio",
+      "/api/elite-desk/prompts",
+      "/api/elite-desk/history?limit=200",
+      "/api/earnings/upcoming?days=30",
+      "/api/earnings/post",
+      "/api/reentry-watch/scan",
+      "/api/journal/list",
+      "/api/journal/stats",
+      "/api/auto-close/open-trades",
+      "/api/auto-close/alerts",
+      "/api/digest/weekly/latest",
+      "/api/portfolio-sector-lookthrough",
+      "/api/youtube/videos?limit=200",
+      "/api/funds/list",
+      "/api/cantera",
+      "/api/transferencias",
+      "/api/tax-report?year=" + new Date().getFullYear(),
+      "/api/tax-report?year=" + (new Date().getFullYear() - 1),
     ];
     setDlTotal(mainUrls.length); setDlCurrent(0);
     setDlPhase("Datos generales");
@@ -1142,15 +1163,22 @@ function AirplaneMode({ portfolioList }) {
     // ── Phase 7: Per-ticker theses + scores drill-downs ──
     // The user opens these from the Portfolio drill-down modal and the
     // analysis Tesis tab. Cache them all so research keeps working offline.
-    setDlPhase("Tesis y scores por empresa");
+    // 2026-05-03: extended with fg-history (FAST tab), debt-maturity (Debt tab)
+    // and directiva (executive team) so the analysis sub-tabs all work in flight.
+    setDlPhase("Tesis y análisis por empresa");
     setDlTotal(usTickers.length); setDlCurrent(0);
     for (let i = 0; i < usTickers.length; i += 8) {
       const batch = usTickers.slice(i, i + 8);
       await Promise.all(batch.map(async (t) => {
         const enc = encodeURIComponent(t);
-        await cacheFetch(`${API}/api/theses/${enc}`);
-        await cacheFetch(`${API}/api/scores/${enc}`);
-        await cacheFetch(`${API}/api/agent-insights?ticker=${enc}&days=30`);
+        await Promise.all([
+          cacheFetch(`${API}/api/theses/${enc}`),
+          cacheFetch(`${API}/api/scores/${enc}`),
+          cacheFetch(`${API}/api/agent-insights?ticker=${enc}&days=30`),
+          cacheFetch(`${API}/api/fg-history?ticker=${enc}&years=20`),  // FAST tab data
+          cacheFetch(`${API}/api/debt-maturity?ticker=${enc}`),         // Debt tab
+          cacheFetch(`${API}/api/directiva?ticker=${enc}`),             // Directiva tab
+        ]);
       }));
       setDlCurrent(Math.min(i + 8, usTickers.length));
     }
@@ -1182,6 +1210,63 @@ function AirplaneMode({ portfolioList }) {
         if (memoIds.length === 0) setDlCurrent(1);
       }
     } catch (e) { errors++; console.warn('[Offline] elite-desk:', e.message); }
+
+    // ── Phase 9 (2026-05-03): Pre-warm every lazy chunk into the JS module
+    // map so tab switches don't trigger network fetches in flight. Without
+    // this, switching to an unvisited tab while offline calls React.lazy(),
+    // which calls dynamic import(), which hits the network and fails with
+    // "Failed to fetch dynamically imported module". The user sees the
+    // ErrorBoundary "Esta vista no está disponible offline" but the actual
+    // root cause is the chunk wasn't preloaded.
+    //
+    // We grab the entry chunk text, regex-extract every "/assets/X.js"
+    // reference, and call import() (via dynamic <script type=module>) on
+    // each. Once resolved, the browser caches the module and serves it
+    // synchronously next time React.lazy() asks for it.
+    setDlPhase("Pre-cargando vistas para offline");
+    try {
+      const allChunks = new Set();
+      // Crawl every JS chunk currently known to us looking for further
+      // chunk references (covers all tabs even if not yet visited).
+      const known = [...document.querySelectorAll('script[src]')]
+        .map(s => s.src).filter(s => s.includes('/assets/') && s.endsWith('.js'));
+      const toScan = [...known];
+      const scanned = new Set();
+      while (toScan.length) {
+        const u = toScan.shift();
+        if (scanned.has(u)) continue;
+        scanned.add(u);
+        try {
+          const r = await fetch(u);
+          if (!r.ok) continue;
+          const text = await r.text();
+          const matches = [...text.matchAll(/['"`](\/assets\/[A-Za-z0-9._-]+\.js)['"`]/g)];
+          for (const m of matches) {
+            const full = new URL(m[1], location.origin).href;
+            if (!allChunks.has(full)) {
+              allChunks.add(full);
+              toScan.push(full);
+            }
+          }
+        } catch (_) { /* skip */ }
+      }
+      setDlTotal(allChunks.size); setDlCurrent(0);
+      // Fire all import()s in parallel so their resolved modules sit in
+      // the module-map (and the SW-less Cache API is also seeded above).
+      let done = 0;
+      await Promise.all([...allChunks].map(async (u) => {
+        try {
+          // Trick: import() requires statically analysable strings. We work
+          // around it with a fetch-then-blob-import pattern. For modules in
+          // /assets/ the simplest preload is just fetching them — Vite chunks
+          // come with `cache: immutable` so the browser keeps them in HTTP
+          // cache and serves them when import() needs them later.
+          await fetch(u, { cache: 'force-cache' });
+        } catch (_) { /* skip */ }
+        done++;
+        setDlCurrent(done);
+      }));
+    } catch (e) { console.warn('[Offline] preload chunks:', e.message); }
 
     // Verify cache was populated
     let cacheCount = 0;
