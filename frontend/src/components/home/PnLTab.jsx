@@ -492,6 +492,110 @@ function OpenPremiumCard({ open_premium }) {
   );
 }
 
+// Drill-down table: every closed options trade across the year, filterable by
+// strategy. Click any row → highlights ticker. Sortable by close date / P&L.
+// Helps user answer "de dónde viene esa pérdida/ganancia" — exactly what they
+// need to understand SCALP -$X or CSP +$Y.
+function OptionsTradesList({ monthly, selectedStrategy, scopedTitle }) {
+  const [sortKey, setSortKey] = useState('closeFecha');
+  const [sortDir, setSortDir] = useState('desc');
+  const [tickerFilter, setTickerFilter] = useState('');
+
+  const allTrades = useMemo(() => {
+    const out = [];
+    for (const m of monthly) {
+      for (const o of (m.options_closed || [])) {
+        if (selectedStrategy && o.strategy !== selectedStrategy) continue;
+        out.push({ ...o, month: m.month });
+      }
+    }
+    return out;
+  }, [monthly, selectedStrategy]);
+
+  const filtered = useMemo(() => {
+    if (!tickerFilter) return allTrades;
+    const q = tickerFilter.toLowerCase();
+    return allTrades.filter(t => (t.ticker || '').toLowerCase().includes(q));
+  }, [allTrades, tickerFilter]);
+
+  const sorted = useMemo(() => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      const av = a[sortKey] ?? '';
+      const bv = b[sortKey] ?? '';
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+      return String(av).localeCompare(String(bv)) * dir;
+    });
+  }, [filtered, sortKey, sortDir]);
+
+  const totalPnl = filtered.reduce((s, t) => s + (t.pnl || 0), 0);
+  const winners = filtered.filter(t => (t.pnl || 0) > 0).length;
+  const losers = filtered.filter(t => (t.pnl || 0) < 0).length;
+
+  const TH = ({ id, label, align = 'right' }) => (
+    <th onClick={() => { if (sortKey === id) setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortKey(id); setSortDir(id === 'closeFecha' || id === 'pnl' ? 'desc' : 'asc'); } }}
+      style={{ padding: '6px 8px', fontSize: 9, color: sortKey === id ? 'var(--gold)' : 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.5px', textAlign: align, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', fontWeight: 600 }}>
+      {label} {sortKey === id ? (sortDir === 'asc' ? '▲' : '▼') : ''}
+    </th>
+  );
+
+  if (allTrades.length === 0) return null;
+
+  return (
+    <div style={cardBase}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10, flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontSize: 12, fontFamily: 'var(--fm)', color: 'var(--text-primary)', fontWeight: 700 }}>
+            {scopedTitle || 'Trades cerrados'} · {filtered.length}
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2 }}>
+            ↑ {winners} winners · ↓ {losers} losers · Net <b style={{ color: totalPnl >= 0 ? '#30d158' : '#ef4444' }}>{fmtSignedCompact(totalPnl)}</b>
+          </div>
+        </div>
+        <input value={tickerFilter} onChange={e => setTickerFilter(e.target.value)}
+          placeholder="Filtrar ticker..."
+          style={{ marginLeft: 'auto', padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--text-primary)', fontSize: 11, fontFamily: 'var(--fm)', width: 130, outline: 'none' }} />
+      </div>
+      <div style={{ maxHeight: 360, overflowY: 'auto', overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: 'var(--fm)' }}>
+          <thead style={{ position: 'sticky', top: 0, background: 'var(--card)', zIndex: 1 }}>
+            <tr style={{ borderBottom: '1px solid var(--border)' }}>
+              <TH id="closeFecha" label="Cierre" align="left" />
+              <TH id="ticker" label="Ticker" align="left" />
+              <TH id="strategy" label="Strat" align="left" />
+              <TH id="opt_tipo" label="Type" align="left" />
+              <TH id="strike" label="Strike" />
+              <TH id="expiry" label="Expiry" align="left" />
+              <TH id="openFecha" label="Apertura" align="left" />
+              <TH id="daysHeld" label="Días" />
+              <TH id="contracts" label="Cont" />
+              <TH id="pnl" label="P&L" />
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((t, i) => (
+              <tr key={i} style={{ borderBottom: '1px solid var(--subtle-border)', background: i % 2 ? 'var(--row-alt)' : 'transparent' }}>
+                <td style={{ padding: '5px 8px', color: 'var(--text-secondary)', fontSize: 10 }}>{t.closeFecha?.slice(5) || '—'}</td>
+                <td style={{ padding: '5px 8px', fontWeight: 700, color: 'var(--text-primary)' }}>{t.ticker}</td>
+                <td style={{ padding: '5px 8px' }}><StrategyBadge strategy={t.strategy} /></td>
+                <td style={{ padding: '5px 8px', color: t.opt_tipo === 'P' ? '#60a5fa' : t.opt_tipo === 'C' ? '#a855f7' : 'var(--text-tertiary)', fontSize: 10, fontWeight: 700 }}>{t.opt_tipo || '—'}</td>
+                <td style={{ padding: '5px 8px', textAlign: 'right', color: 'var(--text-secondary)' }}>{t.strike}</td>
+                <td style={{ padding: '5px 8px', color: 'var(--text-tertiary)', fontSize: 10 }}>{t.expiry?.slice(5) || '—'}</td>
+                <td style={{ padding: '5px 8px', color: 'var(--text-tertiary)', fontSize: 10 }}>{t.openFecha?.slice(5) || '—'}</td>
+                <td style={{ padding: '5px 8px', textAlign: 'right', color: 'var(--text-tertiary)', fontSize: 10 }}>{t.daysHeld != null ? t.daysHeld + 'd' : '—'}</td>
+                <td style={{ padding: '5px 8px', textAlign: 'right', color: 'var(--text-tertiary)', fontSize: 10 }}>{t.contracts || '—'}</td>
+                <td style={{ padding: '5px 8px', textAlign: 'right', fontWeight: 800, color: t.pnl >= 0 ? '#30d158' : '#ef4444' }}>
+                  {(t.pnl >= 0 ? '+' : '') + fmtSignedCompact(t.pnl)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function StuckPositionsPanel({ stuck }) {
   const [expanded, setExpanded] = useState(false);
   if (!stuck || stuck.length === 0) return null;
@@ -752,6 +856,18 @@ export default function PnLTab() {
           rows={dividends_by_ticker}
           valueKey="gross"
           formatValue={fmtSignedCompact}
+        />
+      )}
+
+      {/* Drill-down: every closed options trade for the selected scope.
+          Visible when filter is "Opciones" or "Todo". Filter by strategy
+          and ticker, sort by any column. Helps answer "de dónde viene
+          ese P&L que veo en el bucket SCALP/CSP/etc". */}
+      {(filter === 'all' || filter === 'opt') && (
+        <OptionsTradesList
+          monthly={monthly}
+          selectedStrategy={filter === 'opt' ? selectedStrategy : null}
+          scopedTitle={selectedStrategy ? `Trades ${selectedStrategy} · ${year}` : `Todos los trades de opciones · ${year}`}
         />
       )}
 

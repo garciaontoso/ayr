@@ -13862,6 +13862,9 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
               if (!optionsClosedDetailByYearMonth[yyyy]) optionsClosedDetailByYearMonth[yyyy] = Array.from({length:12}, () => []);
               optionsByYearMonth[yyyy][mIdx] += pnl;
               optionsByYearTotal[yyyy] = (optionsByYearTotal[yyyy] || 0) + pnl;
+              const daysHeld = (g.openFecha && g.latestFecha)
+                ? Math.round((new Date(g.latestFecha + 'T00:00:00Z') - new Date(g.openFecha + 'T00:00:00Z')) / 86400000)
+                : null;
               optionsClosedDetailByYearMonth[yyyy][mIdx].push({
                 ticker: g.ticker,
                 opt_tipo: g.opt_tipo,
@@ -13869,6 +13872,9 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
                 strike: g.opt_strike,
                 expiry: g.opt_expiry,
                 openFecha: g.openFecha,
+                closeFecha: g.latestFecha,
+                daysHeld,
+                contracts: g.rows.reduce((s, r) => s + Math.abs(Number(r.shares) || 0), 0) / 2,
                 pnl: Math.round(pnl * 100) / 100,
               });
               // Strategy / ticker breakdowns (per year)
