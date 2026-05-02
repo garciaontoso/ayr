@@ -12,9 +12,12 @@ export default function MOSTab() {
     const bvpsCAGR = (bvps0>0 && bvps5>0) ? Math.pow(bvps0/bvps5, 1/5)-1 : null;
     const fgr = bvpsCAGR != null ? Math.min(Math.max(bvpsCAGR, 0.01), 0.20) : 0.08;
     const futureEPS = epsTTM > 0 ? epsTTM * Math.pow(1 + fgr, 10) : null;
+    // Historical P/Es from FMP key-metrics (uses each year's actual closing price ÷ EPS).
+    // Previous version used `comp[y]?.price` which was always undefined, falling back to
+    // current price → "P/E ratios all measured against today's price" (meaningless).
     const historicalPEs = DATA_YEARS.map(y => {
-      const e = fin[y]?.eps; const p = comp[y]?.price || cfg.price;
-      return (e>0 && p) ? p/e : null;
+      const km = fmpExtra.keyMetrics?.find(k => k.date?.startsWith(String(y)));
+      return km?.peRatio;
     }).filter(v=>v!=null&&v>0&&v<100);
     const maxHistPE = historicalPEs.length ? Math.max(...historicalPEs) : 30;
     const futurePE = Math.min(fgr * 100 * 2, maxHistPE);

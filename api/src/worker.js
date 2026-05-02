@@ -13553,10 +13553,15 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       }
 
       // GET /api/tax-report?year=2025 — tax summary from cost_basis + dividendos
+      // DEPRECATED 2026-05-02: prefer /api/pnl/monthly for accurate FIFO realized P&L
+      // and proper closed-options grouping. This endpoint is kept for IncomeLabTab
+      // backwards compat and now returns numbers consistent with /api/pnl/monthly:
+      //   - options.income uses closed-group P&L (was: SUM(ABS(coste)) inflated 25×)
+      //   - totalCommissions includes OPTION commissions (was: EQUITY only)
       if (path === "/api/tax-report" && request.method === "GET") {
         const year = url.searchParams.get("year") || String(new Date().getFullYear());
         try {
-          // Realized gains/losses from trades
+          // Equity trades — gross flows (legacy fields kept for IncomeLabTab "VENTAS" label)
           const trades = await env.DB.prepare(
             "SELECT ticker, fecha, tipo, shares, precio, comision, coste FROM cost_basis WHERE fecha LIKE ? AND tipo='EQUITY'"
           ).bind(year + "%").all();
@@ -13564,19 +13569,46 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const buys = (trades.results || []).filter(t => (t.shares || 0) > 0);
           const totalSellProceeds = sells.reduce((s, t) => s + Math.abs(t.coste || 0), 0);
           const totalBuyCost = buys.reduce((s, t) => s + Math.abs(t.coste || 0), 0);
-          const totalCommissions = (trades.results || []).reduce((s, t) => s + Math.abs(t.comision || 0), 0);
 
-          // Option income
-          const opts = await env.DB.prepare(
-            "SELECT SUM(ABS(coste)) as total FROM cost_basis WHERE fecha LIKE ? AND tipo='OPTION' AND coste > 0"
-          ).bind(year + "%").first();
+          // Closed-options P&L for `year` — group across ALL years by (ticker, expiry, strike, tipo),
+          // emit P&L only when net shares == 0, credit it to the year of the latest close.
+          // Mirrors /api/pnl/monthly logic exactly.
+          const { results: optAll } = await env.DB.prepare(
+            "SELECT ticker, fecha, shares, opt_expiry, opt_tipo, opt_strike, opt_credit_total, coste, comision FROM cost_basis WHERE tipo='OPTION'"
+          ).all();
+          const optGroups = new Map();
+          for (const r of optAll) {
+            const key = `${r.ticker}|${r.opt_expiry || ''}|${r.opt_strike || 0}|${r.opt_tipo || ''}`;
+            let g = optGroups.get(key);
+            if (!g) { g = { rows: [], latestFecha: r.fecha }; optGroups.set(key, g); }
+            g.rows.push(r);
+            if ((r.fecha || '') > (g.latestFecha || '')) g.latestFecha = r.fecha;
+          }
+          let optionsIncome = 0;
+          for (const g of optGroups.values()) {
+            const netShares = g.rows.reduce((s, r) => s + (Number(r.shares) || 0), 0);
+            if (Math.abs(netShares) > 0.000001) continue;
+            const closeYear = String(g.latestFecha || "").slice(0, 4);
+            if (closeYear !== year) continue;
+            let pnl = g.rows.reduce((s, r) => s + (Number(r.opt_credit_total) || 0), 0);
+            if (Math.abs(pnl) < 0.005 && g.rows.length > 0) {
+              pnl = g.rows.reduce((s, r) => s + (Number(r.coste) || 0), 0);
+            }
+            optionsIncome += pnl;
+          }
 
-          // Dividends received — use bruto_usd when available (IB Flex rows), else bruto
+          // Commissions: EQUITY + OPTION trades within `year`
+          const { results: optYearTrades } = await env.DB.prepare(
+            "SELECT comision FROM cost_basis WHERE fecha LIKE ? AND tipo='OPTION'"
+          ).bind(year + "%").all();
+          const totalCommissions =
+            (trades.results || []).reduce((s, t) => s + Math.abs(t.comision || 0), 0) +
+            (optYearTrades || []).reduce((s, t) => s + Math.abs(t.comision || 0), 0);
+
+          // Dividends — canonical dividendos table, USD-normalized
           const divs = await env.DB.prepare(
             "SELECT SUM(CASE WHEN bruto_usd > 0 THEN bruto_usd ELSE bruto END) as gross, COUNT(*) as count FROM dividendos WHERE fecha LIKE ?"
           ).bind(year + "%").first();
-
-          // Dividends by ticker
           const divByTicker = await env.DB.prepare(
             "SELECT ticker, SUM(CASE WHEN bruto_usd > 0 THEN bruto_usd ELSE bruto END) as total, COUNT(*) as payments FROM dividendos WHERE fecha LIKE ? GROUP BY ticker ORDER BY total DESC"
           ).bind(year + "%").all();
@@ -13584,8 +13616,10 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           return json({
             year,
             trades: { sells: sells.length, buys: buys.length, totalSellProceeds, totalBuyCost, totalCommissions },
-            options: { income: opts?.total || 0 },
+            options: { income: Math.round(optionsIncome * 100) / 100 },
             dividends: { gross: divs?.gross || 0, count: divs?.count || 0, byTicker: divByTicker.results || [] },
+            _deprecated: true,
+            _replacement: "/api/pnl/monthly",
           }, corsHeaders);
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
       }
