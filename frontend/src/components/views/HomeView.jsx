@@ -1155,6 +1155,34 @@ function AirplaneMode({ portfolioList }) {
       setDlCurrent(Math.min(i + 8, usTickers.length));
     }
 
+    // ── Phase 8: Elite Desk catalog + memos ──
+    // Cache the prompts list (catalog), the history list (so the panel renders),
+    // and every existing memo body (so MemoRender works without network).
+    // We DO NOT trigger /api/elite-desk/run here — that costs money and the
+    // user generates memos explicitly from the UI.
+    setDlPhase("Elite Desk memos");
+    setDlTotal(1); setDlCurrent(0);
+    try {
+      await cacheFetch(`${API}/api/elite-desk/prompts`);
+      // Pre-fetch a wider history so we can filter to specific limits offline.
+      const histResp = await fetch(`${API}/api/elite-desk/history?limit=200`);
+      if (histResp.ok) {
+        // Cache under the exact keys the UI requests (limit=30 is the default)
+        await cache.put(`${API}/api/elite-desk/history?limit=200`, histResp.clone());
+        await cache.put(`${API}/api/elite-desk/history?limit=30`, histResp.clone());
+        await cache.put(`${API}/api/elite-desk/history?limit=50`, histResp.clone());
+        const histJ = await histResp.json();
+        const memoIds = (histJ.memos || []).map(m => m.id);
+        setDlTotal(memoIds.length || 1);
+        for (let i = 0; i < memoIds.length; i += 8) {
+          const batch = memoIds.slice(i, i + 8);
+          await Promise.all(batch.map(id => cacheFetch(`${API}/api/elite-desk/memo/${id}`)));
+          setDlCurrent(Math.min(i + 8, memoIds.length));
+        }
+        if (memoIds.length === 0) setDlCurrent(1);
+      }
+    } catch (e) { errors++; console.warn('[Offline] elite-desk:', e.message); }
+
     // Verify cache was populated
     let cacheCount = 0;
     try {

@@ -24842,9 +24842,10 @@ const ELITE_PROMPTS_PUBLIC = Object.entries(ELITE_PROMPTS).map(([id, p]) => ({
 async function buildEliteContext(env, ctxType, ctxValue) {
   const lines = [];
   if (ctxType === 'portfolio') {
-    // Aggregate by ticker × account, value, weight, sector
+    // Aggregate by ticker, value, weight, sector. cartera table doesn't have
+    // account column (account is in cost_basis/positions/dividendos only).
     const { results: positions } = await env.DB.prepare(
-      `SELECT ticker, account, shares, last_price, fx, divisa, categoria, estrategia, sector, pais
+      `SELECT ticker, shares, last_price, fx, divisa, categoria, estrategia, sector, pais
        FROM cartera ORDER BY ticker LIMIT 200`
     ).all();
     let totalUSD = 0;
