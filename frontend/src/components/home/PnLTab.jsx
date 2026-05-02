@@ -730,6 +730,187 @@ function StuckPositionsPanel({ stuck, onCleanup }) {
   );
 }
 
+// ── Hero header — gold gradient card with primary year KPIs ────────────
+function HeroHeader({ year, annual, lifetime, prevYearTotal }) {
+  const total = annual.total_income || 0;
+  const yoyPct = prevYearTotal > 0 ? ((total - prevYearTotal) / prevYearTotal) * 100 : null;
+  const yoyColor = yoyPct == null ? 'var(--text-tertiary)' : yoyPct >= 0 ? '#30d158' : '#ef4444';
+  return (
+    <div style={{ background: 'var(--card)', border: '1px solid rgba(200,164,78,.2)', borderRadius: 14, padding: '18px 22px', position: 'relative', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', top: 0, left: '20%', right: '20%', height: 1, background: 'linear-gradient(90deg, transparent, var(--gold), transparent)', opacity: .3 }}/>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 24, flexWrap: 'wrap' }}>
+        {/* Total INCOME */}
+        <div style={{ flex: '1 1 240px' }}>
+          <div style={{ fontSize: 11, fontFamily: 'var(--fm)', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 4 }}>
+            INCOME REALIZADO {year}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 38, fontWeight: 800, fontFamily: 'var(--fm)', color: total >= 0 ? 'var(--gold)' : '#ef4444', lineHeight: 1 }}>
+              {fmtSignedCompact(total)}
+            </div>
+            {yoyPct != null && (
+              <span style={{ fontSize: 12, fontWeight: 700, color: yoyColor, padding: '3px 10px', borderRadius: 6, background: `${yoyColor}15`, fontFamily: 'var(--fm)' }}>
+                {yoyPct >= 0 ? '+' : ''}{yoyPct.toFixed(0)}% vs {year - 1}
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6, fontFamily: 'var(--fm)' }}>
+            Lifetime: <b style={{ color: 'var(--gold)' }}>{fmtSignedCompact(lifetime.total_income)}</b>
+            {' · '}
+            <span>Realized only — no paper gains</span>
+          </div>
+        </div>
+        {/* 3 source mini-cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(110px, 1fr))', gap: 8, flex: '1 1 360px' }}>
+          {[
+            { l: 'DIVIDENDOS', v: annual.dividends_net || 0, c: COLOR_DIV, sub: `WHT -${fmtSignedCompact(annual.wht_total)}` },
+            { l: 'OPCIONES', v: annual.options_closed_pnl || 0, c: COLOR_OPT, sub: 'cerradas' },
+            { l: 'STOCKS', v: annual.stocks_realized_pnl || 0, c: COLOR_STK, sub: 'FIFO realized' },
+          ].map((m, i) => (
+            <div key={i} style={{ padding: '10px 12px', background: `${m.c}11`, borderRadius: 10, border: `1px solid ${m.c}22` }}>
+              <div style={{ fontSize: 9, fontFamily: 'var(--fm)', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.5px' }}>{m.l}</div>
+              <div style={{ fontSize: 19, fontWeight: 800, fontFamily: 'var(--fm)', color: m.v >= 0 ? m.c : '#ef4444', marginTop: 2 }}>{fmtSignedCompact(m.v)}</div>
+              <div style={{ fontSize: 9, color: 'var(--text-tertiary)', fontFamily: 'var(--fb)', marginTop: 1 }}>{m.sub}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Calendar heatmap — 12 months grid with color intensity by income ──
+function CalendarHeatmap({ monthly, onMonthClick, selectedMonth }) {
+  const peak = Math.max(...monthly.map(m => Math.abs(m.total_income || 0)), 1);
+  return (
+    <div style={cardBase}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ fontSize: 11, fontFamily: 'var(--fm)', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.6px' }}>Calendario · click un mes para drill down</div>
+        <div style={{ display: 'flex', gap: 8, fontSize: 9, color: 'var(--text-tertiary)' }}>
+          <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#30d158', borderRadius: 2, marginRight: 4, verticalAlign: 'middle' }}/>Positivo</span>
+          <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#ef4444', borderRadius: 2, marginRight: 4, verticalAlign: 'middle' }}/>Negativo</span>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+        {monthly.map((m, i) => {
+          const v = m.total_income || 0;
+          const intensity = Math.min(Math.abs(v) / peak, 1);
+          const isSelected = selectedMonth === m.month;
+          const baseColor = v >= 0 ? '48,209,88' : '239,68,68';
+          const bg = `rgba(${baseColor}, ${0.05 + intensity * 0.45})`;
+          const border = `rgba(${baseColor}, ${0.2 + intensity * 0.4})`;
+          return (
+            <div key={m.month}
+              onClick={() => onMonthClick(isSelected ? null : m.month)}
+              style={{
+                padding: '14px 12px', borderRadius: 10, cursor: 'pointer',
+                background: bg, border: `1px solid ${border}`,
+                outline: isSelected ? '2px solid var(--gold)' : 'none',
+                transition: 'all .15s',
+              }}
+              onMouseEnter={e => { if (!isSelected) e.currentTarget.style.transform = 'translateY(-2px)'; }}
+              onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; }}>
+              <div style={{ fontSize: 10, fontFamily: 'var(--fm)', color: isSelected ? 'var(--gold)' : 'var(--text-tertiary)', fontWeight: isSelected ? 700 : 600, textTransform: 'uppercase', letterSpacing: '.5px' }}>{MONTH_LABELS[i]}</div>
+              <div style={{ fontSize: 18, fontWeight: 800, fontFamily: 'var(--fm)', color: v >= 0 ? '#30d158' : '#ef4444', marginTop: 4 }}>
+                {v === 0 ? '—' : fmtSignedCompact(v)}
+              </div>
+              {v !== 0 && (
+                <div style={{ fontSize: 9, color: 'var(--text-tertiary)', marginTop: 3, fontFamily: 'var(--fb)', display: 'flex', gap: 6 }}>
+                  {m.dividends_net !== 0 && <span title="Dividendos" style={{ color: COLOR_DIV }}>D {fmtSignedCompact(m.dividends_net)}</span>}
+                  {m.options_closed_pnl !== 0 && <span title="Opciones" style={{ color: COLOR_OPT }}>O {fmtSignedCompact(m.options_closed_pnl)}</span>}
+                  {m.stocks_realized_pnl !== 0 && <span title="Stocks" style={{ color: COLOR_STK }}>S {fmtSignedCompact(m.stocks_realized_pnl)}</span>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Ranking — best/worst trades + top tickers ───────────────────────────
+function RankingView({ monthly, options_by_ticker, dividends_by_ticker, year }) {
+  // Flatten all trades to find best/worst
+  const allTrades = useMemo(() => {
+    const out = [];
+    for (const m of monthly) {
+      for (const o of (m.options_closed || [])) {
+        out.push({ ...o, month: m.month });
+      }
+    }
+    return out;
+  }, [monthly]);
+  const top10 = [...allTrades].sort((a, b) => (b.pnl || 0) - (a.pnl || 0)).slice(0, 10);
+  const worst10 = [...allTrades].sort((a, b) => (a.pnl || 0) - (b.pnl || 0)).slice(0, 10);
+  const totalDivByTicker = dividends_by_ticker.slice(0, 15);
+  const totalOptByTicker = options_by_ticker.slice(0, 15);
+
+  const TradeRow = ({ t }) => (
+    <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr 90px 90px 80px', gap: 8, padding: '6px 0', fontSize: 11, fontFamily: 'var(--fm)', alignItems: 'center', borderBottom: '1px solid var(--subtle-border)' }}>
+      <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{t.ticker}</span>
+      <span><StrategyBadge strategy={t.strategy} /></span>
+      <span style={{ color: 'var(--text-tertiary)', fontSize: 10 }}>{t.opt_tipo} {t.strike}</span>
+      <span style={{ color: 'var(--text-tertiary)', fontSize: 10 }}>{t.expiry?.slice(5)}</span>
+      <span style={{ textAlign: 'right', fontWeight: 800, color: (t.pnl || 0) >= 0 ? '#30d158' : '#ef4444' }}>
+        {(t.pnl >= 0 ? '+' : '') + fmtSignedCompact(t.pnl)}
+      </span>
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Best/Worst trades */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 12 }}>
+        <div style={{ ...cardBase, borderColor: 'rgba(48,209,88,.25)', background: 'rgba(48,209,88,.02)' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#30d158', fontFamily: 'var(--fm)', marginBottom: 10 }}>🏆 TOP 10 GANADORES · {year}</div>
+          {top10.length === 0 ? <div style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>Sin trades cerrados</div> :
+            top10.map((t, i) => <TradeRow key={i} t={t} />)}
+        </div>
+        <div style={{ ...cardBase, borderColor: 'rgba(239,68,68,.25)', background: 'rgba(239,68,68,.02)' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#ef4444', fontFamily: 'var(--fm)', marginBottom: 10 }}>💀 TOP 10 PERDEDORES · {year}</div>
+          {worst10.length === 0 || worst10[0].pnl >= 0 ? <div style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>Sin pérdidas</div> :
+            worst10.filter(t => (t.pnl || 0) < 0).map((t, i) => <TradeRow key={i} t={t} />)}
+        </div>
+      </div>
+      {/* Top tickers */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
+        {totalDivByTicker.length > 0 && (
+          <div style={cardBase}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: COLOR_DIV, fontFamily: 'var(--fm)', marginBottom: 10 }}>💰 TOP TICKERS DIVIDENDOS · {year}</div>
+            {totalDivByTicker.map((t, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: 11, fontFamily: 'var(--fm)', borderBottom: '1px solid var(--subtle-border)' }}>
+                <span style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                  <span style={{ color: 'var(--text-tertiary)', fontSize: 9 }}>#{i + 1}</span>
+                  <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{t.ticker}</span>
+                </span>
+                <span style={{ color: COLOR_DIV, fontWeight: 700 }}>{fmtSignedCompact(t.gross)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {totalOptByTicker.length > 0 && (
+          <div style={cardBase}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: COLOR_OPT, fontFamily: 'var(--fm)', marginBottom: 10 }}>🎯 TOP TICKERS OPCIONES · {year}</div>
+            {totalOptByTicker.map((t, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: 11, fontFamily: 'var(--fm)', borderBottom: '1px solid var(--subtle-border)' }}>
+                <span style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                  <span style={{ color: 'var(--text-tertiary)', fontSize: 9 }}>#{i + 1}</span>
+                  <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{t.ticker}</span>
+                  <span style={{ color: 'var(--text-tertiary)', fontSize: 9 }}>{t.count_closed}</span>
+                </span>
+                <span style={{ color: t.pnl >= 0 ? '#30d158' : '#ef4444', fontWeight: 700 }}>
+                  {(t.pnl >= 0 ? '+' : '') + fmtSignedCompact(t.pnl)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main tab ────────────────────────────────────────────────────────────────
 export default function PnLTab() {
   // STATE BEFORE EFFECTS — TDZ-safe
@@ -738,7 +919,9 @@ export default function PnLTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(null);
-  // 'all' | 'div' | 'opt' | 'stk' — filters the high-level view
+  // Sub-tab: 'dashboard' | 'calendar' | 'estrategias' | 'ranking' | 'pendiente'
+  const [section, setSection] = useState(() => localStorage.getItem('pnl_section') || 'dashboard');
+  // 'all' | 'div' | 'opt' | 'stk' — filters the high-level view (within Estrategias section)
   const [filter, setFilter] = useState('all');
   // Strategy sub-filter (when filter === 'opt')
   const [selectedStrategy, setSelectedStrategy] = useState(null);
@@ -771,6 +954,11 @@ export default function PnLTab() {
   // ── ALL useMemo declared BEFORE any early return (Rules of Hooks) ──────
   const monthly = data?.monthly || [];
   const options_by_strategy = data?.options_by_strategy || [];
+  const byYearForMemo = data?.byYear || [];
+  const prevYearTotal = useMemo(() => {
+    const prev = byYearForMemo.find(y => y.year === year - 1);
+    return prev?.total_income || 0;
+  }, [byYearForMemo, year]);
   const filteredMonthly = useMemo(() => {
     if (filter !== 'opt' || !selectedStrategy) return monthly;
     return monthly.map(m => {
@@ -817,59 +1005,19 @@ export default function PnLTab() {
           open_premium = null, stuck_positions = [] } = data;
   const selectedDetail = selectedMonth != null ? monthly.find(m => m.month === selectedMonth) : null;
 
+  const setSectionPersist = (s) => { setSection(s); try { localStorage.setItem('pnl_section', s); } catch {} };
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-      {/* Filter tabs — Todo / Dividendos / Opciones / Capital gains.
-          The whole view (KPIs + monthly bars + tables) reacts to selection. */}
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>
-        {[
-          { id: 'all', label: 'Todo',         color: 'var(--gold)' },
-          { id: 'div', label: 'Dividendos',   color: COLOR_DIV },
-          { id: 'opt', label: 'Opciones',     color: COLOR_OPT },
-          { id: 'stk', label: 'Capital gains',color: COLOR_STK },
-        ].map(f => {
-          const active = filter === f.id;
-          return (
-            <button key={f.id} onClick={() => { setFilter(f.id); setSelectedStrategy(null); setSelectedMonth(null); }}
-              style={{
-                padding: '6px 14px', borderRadius: 7, fontSize: 11, fontWeight: 700,
-                fontFamily: 'var(--fm)', cursor: 'pointer',
-                border: `1px solid ${active ? f.color : 'var(--border)'}`,
-                background: active ? `${f.color}20` : 'transparent',
-                color: active ? f.color : 'var(--text-tertiary)',
-                transition: 'all .15s',
-              }}>{f.label}</button>
-          );
-        })}
-        {/* Strategy sub-pills appear when Opciones is selected */}
-        {filter === 'opt' && options_by_strategy.length > 0 && (
-          <div style={{ display: 'flex', gap: 4, marginLeft: 12, paddingLeft: 12, borderLeft: '1px solid var(--border)' }}>
-            <button onClick={() => setSelectedStrategy(null)}
-              style={{ padding: '5px 10px', borderRadius: 6, fontSize: 10, fontWeight: 700, fontFamily: 'var(--fm)', cursor: 'pointer', border: `1px solid ${!selectedStrategy ? 'var(--gold)' : 'var(--border)'}`, background: !selectedStrategy ? 'var(--gold-dim)' : 'transparent', color: !selectedStrategy ? 'var(--gold)' : 'var(--text-tertiary)' }}>Todas</button>
-            {options_by_strategy.map(s => {
-              const active = selectedStrategy === s.strategy;
-              const c = STRATEGY_COLORS[s.strategy] || STRATEGY_COLORS.Other;
-              return (
-                <button key={s.strategy} onClick={() => setSelectedStrategy(active ? null : s.strategy)}
-                  title={STRATEGY_DESC[s.strategy] || s.strategy}
-                  style={{ padding: '5px 10px', borderRadius: 6, fontSize: 10, fontWeight: 700, fontFamily: 'var(--fm)', cursor: 'pointer', border: `1px solid ${active ? c : 'var(--border)'}`, background: active ? `${c}20` : 'transparent', color: active ? c : 'var(--text-tertiary)' }}>
-                  {s.strategy} <span style={{ opacity: .6 }}>{s.count_closed}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Year selector */}
+      {/* Year selector + lifetime */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', textTransform: 'uppercase', letterSpacing: '.6px' }}>Año:</span>
+        <span style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Año:</span>
         {(availableYears.length ? availableYears : [year]).map(y => (
           <button key={y}
             onClick={() => setYear(y)}
             style={{
-              padding: '6px 14px', borderRadius: 8,
+              padding: '5px 12px', borderRadius: 7,
               border: `1px solid ${y === year ? 'var(--gold)' : 'var(--border)'}`,
               background: y === year ? 'var(--gold-dim)' : 'transparent',
               color: y === year ? 'var(--gold)' : 'var(--text-secondary)',
@@ -880,139 +1028,176 @@ export default function PnLTab() {
           </button>
         ))}
         {loading && <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>actualizando...</span>}
-        <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>
-          Lifetime: <b style={{ color: 'var(--gold)' }}>{fmtSignedCompact(lifetime.total_income)}</b>
-        </span>
       </div>
 
-      {/* KPI cards */}
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        <KpiCard
-          label={`Income total ${annual.year || year}`}
-          value={fmtSignedCompact(annual.total_income)}
-          color={annual.total_income >= 0 ? 'var(--gold)' : COLOR_NEG}
-          sub={`${MONTH_LABELS[(new Date().getMonth())]} YTD`}
-          highlight
-        />
-        <KpiCard
-          label="Dividendos (neto)"
-          value={fmtSignedCompact(annual.dividends_net)}
-          color={COLOR_DIV}
-          sub={`Bruto ${fmtSignedCompact(annual.dividends_gross)} · WHT -${fmtSignedCompact(annual.wht_total)}`}
-        />
-        <KpiCard
-          label="Opciones cerradas"
-          value={fmtSignedCompact(annual.options_closed_pnl)}
-          color={annual.options_closed_pnl >= 0 ? COLOR_OPT : COLOR_NEG}
-          sub="P&L neto (premia − coste cierre)"
-        />
-        <KpiCard
-          label="Capital gains realized"
-          value={fmtSignedCompact(annual.stocks_realized_pnl)}
-          color={annual.stocks_realized_pnl >= 0 ? COLOR_STK : COLOR_NEG}
-          sub="FIFO matching"
-        />
+      {/* HERO HEADER */}
+      <HeroHeader year={year} annual={annual} lifetime={lifetime} prevYearTotal={prevYearTotal} />
+
+      {/* SUB-TAB STRIP */}
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        {[
+          { id: 'dashboard', lbl: '📊 Dashboard' },
+          { id: 'calendar',  lbl: '📅 Calendario' },
+          { id: 'estrategias', lbl: '🎯 Estrategias' },
+          { id: 'ranking',   lbl: '🏆 Ranking' },
+          { id: 'pendiente', lbl: '⚠️ Pendiente' },
+        ].map(t => (
+          <button key={t.id} onClick={() => setSectionPersist(t.id)}
+            style={{
+              padding: '6px 14px', borderRadius: 8,
+              border: `1px solid ${section === t.id ? 'var(--gold)' : 'transparent'}`,
+              background: section === t.id ? 'var(--gold-dim)' : 'transparent',
+              color: section === t.id ? 'var(--gold)' : 'var(--text-tertiary)',
+              fontSize: 11, fontWeight: section === t.id ? 700 : 500, cursor: 'pointer',
+              fontFamily: 'var(--fb)', transition: 'all .15s',
+            }}>
+            {t.lbl}
+          </button>
+        ))}
       </div>
 
-      {/* Monthly stacked bars — respects filter */}
-      <MonthlyStackedBars
-        monthly={viewMonthly}
-        onMonthClick={setSelectedMonth}
-        selectedMonth={selectedMonth}
-      />
-
-      {/* Breakdowns — appear based on filter */}
-      {(filter === 'all' || filter === 'opt') && options_by_strategy.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
-          <BreakdownTable
-            title={`Opciones por estrategia · ${year}`}
-            rows={filteredOptionsByStrategy}
-            valueKey="pnl"
-            colorKey="strategy"
-            extraKey="count_closed"
-            extraLabel="cerradas"
-            formatValue={fmtSignedCompact}
-            onClick={r => setSelectedStrategy(selectedStrategy === r.strategy ? null : r.strategy)}
+      {/* ── DASHBOARD section ── */}
+      {section === 'dashboard' && (<>
+        <MonthlyStackedBars
+          monthly={viewMonthly}
+          onMonthClick={setSelectedMonth}
+          selectedMonth={selectedMonth}
+        />
+        {selectedDetail && (
+          <MonthDetail
+            month={selectedDetail.month}
+            divs={selectedDetail.tickers_div || []}
+            options={selectedDetail.options_closed || []}
           />
-          {options_by_ticker.length > 0 && (
+        )}
+        <MonthlyTable
+          monthly={monthly}
+          selectedMonth={selectedMonth}
+          setSelectedMonth={setSelectedMonth}
+        />
+        <ByYearStrip
+          byYear={byYear}
+          currentYear={year}
+          onYearClick={setYear}
+        />
+      </>)}
+
+      {/* ── CALENDARIO section ── */}
+      {section === 'calendar' && (<>
+        <CalendarHeatmap monthly={monthly} onMonthClick={setSelectedMonth} selectedMonth={selectedMonth} />
+        {selectedDetail && (
+          <MonthDetail
+            month={selectedDetail.month}
+            divs={selectedDetail.tickers_div || []}
+            options={selectedDetail.options_closed || []}
+          />
+        )}
+      </>)}
+
+      {/* ── ESTRATEGIAS section (filter pills + breakdowns + drill-down) ── */}
+      {section === 'estrategias' && (<>
+        {/* Filter tabs */}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>
+          {[
+            { id: 'all', label: 'Todo',         color: 'var(--gold)' },
+            { id: 'div', label: 'Dividendos',   color: COLOR_DIV },
+            { id: 'opt', label: 'Opciones',     color: COLOR_OPT },
+            { id: 'stk', label: 'Capital gains',color: COLOR_STK },
+          ].map(f => {
+            const active = filter === f.id;
+            return (
+              <button key={f.id} onClick={() => { setFilter(f.id); setSelectedStrategy(null); setSelectedMonth(null); }}
+                style={{
+                  padding: '6px 14px', borderRadius: 7, fontSize: 11, fontWeight: 700,
+                  fontFamily: 'var(--fm)', cursor: 'pointer',
+                  border: `1px solid ${active ? f.color : 'var(--border)'}`,
+                  background: active ? `${f.color}20` : 'transparent',
+                  color: active ? f.color : 'var(--text-tertiary)',
+                  transition: 'all .15s',
+                }}>{f.label}</button>
+            );
+          })}
+          {filter === 'opt' && options_by_strategy.length > 0 && (
+            <div style={{ display: 'flex', gap: 4, marginLeft: 12, paddingLeft: 12, borderLeft: '1px solid var(--border)' }}>
+              <button onClick={() => setSelectedStrategy(null)}
+                style={{ padding: '5px 10px', borderRadius: 6, fontSize: 10, fontWeight: 700, fontFamily: 'var(--fm)', cursor: 'pointer', border: `1px solid ${!selectedStrategy ? 'var(--gold)' : 'var(--border)'}`, background: !selectedStrategy ? 'var(--gold-dim)' : 'transparent', color: !selectedStrategy ? 'var(--gold)' : 'var(--text-tertiary)' }}>Todas</button>
+              {options_by_strategy.map(s => {
+                const active = selectedStrategy === s.strategy;
+                const c = STRATEGY_COLORS[s.strategy] || STRATEGY_COLORS.Other;
+                return (
+                  <button key={s.strategy} onClick={() => setSelectedStrategy(active ? null : s.strategy)}
+                    title={STRATEGY_DESC[s.strategy] || s.strategy}
+                    style={{ padding: '5px 10px', borderRadius: 6, fontSize: 10, fontWeight: 700, fontFamily: 'var(--fm)', cursor: 'pointer', border: `1px solid ${active ? c : 'var(--border)'}`, background: active ? `${c}20` : 'transparent', color: active ? c : 'var(--text-tertiary)' }}>
+                    {s.strategy} <span style={{ opacity: .6 }}>{s.count_closed}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </>)}
+
+      {/* ── ESTRATEGIAS section continued: breakdowns + drill-down ── */}
+      {section === 'estrategias' && (<>
+        {(filter === 'all' || filter === 'opt') && options_by_strategy.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
             <BreakdownTable
-              title={`Opciones por ticker · ${year}`}
-              rows={options_by_ticker}
+              title={`Opciones por estrategia · ${year}`}
+              rows={filteredOptionsByStrategy}
               valueKey="pnl"
+              colorKey="strategy"
               extraKey="count_closed"
               extraLabel="cerradas"
               formatValue={fmtSignedCompact}
+              onClick={r => setSelectedStrategy(selectedStrategy === r.strategy ? null : r.strategy)}
             />
-          )}
-        </div>
-      )}
-      {(filter === 'all' || filter === 'div') && dividends_by_ticker.length > 0 && (
-        <BreakdownTable
-          title={`Dividendos por ticker · ${year}`}
-          rows={dividends_by_ticker}
-          valueKey="gross"
-          formatValue={fmtSignedCompact}
-        />
-      )}
+            {options_by_ticker.length > 0 && (
+              <BreakdownTable
+                title={`Opciones por ticker · ${year}`}
+                rows={options_by_ticker}
+                valueKey="pnl"
+                extraKey="count_closed"
+                extraLabel="cerradas"
+                formatValue={fmtSignedCompact}
+              />
+            )}
+          </div>
+        )}
+        {(filter === 'all' || filter === 'div') && dividends_by_ticker.length > 0 && (
+          <BreakdownTable
+            title={`Dividendos por ticker · ${year}`}
+            rows={dividends_by_ticker}
+            valueKey="gross"
+            formatValue={fmtSignedCompact}
+          />
+        )}
+        {(filter === 'all' || filter === 'opt') && (
+          <OptionsTradesList
+            monthly={monthly}
+            selectedStrategy={filter === 'opt' ? selectedStrategy : null}
+            scopedTitle={selectedStrategy ? `Trades ${selectedStrategy} · ${year}` : `Todos los trades de opciones · ${year}`}
+          />
+        )}
+      </>)}
 
-      {/* Drill-down: every closed options trade for the selected scope.
-          Visible when filter is "Opciones" or "Todo". Filter by strategy
-          and ticker, sort by any column. Helps answer "de dónde viene
-          ese P&L que veo en el bucket SCALP/CSP/etc". */}
-      {(filter === 'all' || filter === 'opt') && (
-        <OptionsTradesList
+      {/* ── RANKING section ── */}
+      {section === 'ranking' && (
+        <RankingView
           monthly={monthly}
-          selectedStrategy={filter === 'opt' ? selectedStrategy : null}
-          scopedTitle={selectedStrategy ? `Trades ${selectedStrategy} · ${year}` : `Todos los trades de opciones · ${year}`}
+          options_by_ticker={options_by_ticker}
+          dividends_by_ticker={dividends_by_ticker}
+          year={year}
         />
       )}
 
-      {/* Open premium card (always visible — critical for LEAPS visibility) */}
-      <OpenPremiumCard open_premium={open_premium} />
+      {/* ── PENDIENTE section ── */}
+      {section === 'pendiente' && (<>
+        <OpenPremiumCard open_premium={open_premium} />
+        <StuckPositionsPanel stuck={stuck_positions} onCleanup={() => load(year)} />
+      </>)}
 
-      {/* Stuck positions panel */}
-      <StuckPositionsPanel stuck={stuck_positions} onCleanup={() => load(year)} />
-
-      {/* Detail panel for selected month */}
-      {selectedDetail && (
-        <MonthDetail
-          month={selectedDetail.month}
-          divs={selectedDetail.tickers_div || []}
-          options={selectedDetail.options_closed || []}
-        />
-      )}
-
-      {/* Monthly table */}
-      <MonthlyTable
-        monthly={monthly}
-        selectedMonth={selectedMonth}
-        setSelectedMonth={setSelectedMonth}
-      />
-
-      {/* Multi-year comparison */}
-      <ByYearStrip
-        byYear={byYear}
-        currentYear={year}
-        onYearClick={setYear}
-      />
-
-      {/* Lifetime card */}
-      <div style={cardBase}>
-        <div style={{ fontSize: 11, fontFamily: 'var(--fm)', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 10 }}>
-          Lifetime · todos los años
-        </div>
-        <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', fontSize: 12, fontFamily: 'var(--fm)' }}>
-          <LifetimeStat label="Income total" value={lifetime.total_income} color="var(--gold)" />
-          <LifetimeStat label="Dividendos neto" value={lifetime.dividends_net} color={COLOR_DIV} />
-          <LifetimeStat label="WHT pagado" value={-lifetime.wht_total} />
-          <LifetimeStat label="Opciones cerradas" value={lifetime.options_closed_pnl} color={COLOR_OPT} />
-          <LifetimeStat label="Capital gains" value={lifetime.stocks_realized_pnl} color={COLOR_STK} />
-        </div>
-      </div>
-
-      <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textAlign: 'center', fontFamily: 'var(--fb)', padding: '8px 0' }}>
-        Datos: cost_basis (FIFO equity) + cost_basis (opciones cerradas SUM(shares)=0) + dividendos.
-        El antiguo /api/tax-report tenía signo invertido en 5/7 años — esta tab usa /api/pnl/monthly que sí matchea correcto.
+      <div style={{ fontSize: 9, color: 'var(--text-tertiary)', textAlign: 'center', fontFamily: 'var(--fb)', padding: '8px 0' }}>
+        Realized only · cost_basis FIFO equity + closed-options groups + dividendos
       </div>
     </div>
   );
