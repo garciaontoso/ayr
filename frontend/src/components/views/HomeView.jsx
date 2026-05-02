@@ -62,6 +62,7 @@ const OptionsOptimizerTab    = lazy(() => import('../home/OptionsOptimizerTab'))
 const DecisionJournalTab     = lazy(() => import('../home/DecisionJournalTab'));
 const ResearchAgentTab       = lazy(() => import('../home/ResearchAgentTab'));
 const ScannerTab             = lazy(() => import('../home/ScannerTab'));
+const EliteDeskTab           = lazy(() => import('../home/EliteDeskTab'));
 const OpenOptionsTab         = lazy(() => import('../home/OpenOptionsTab'));
 const PnLTab                 = lazy(() => import('../home/PnLTab'));
 
@@ -1825,6 +1826,7 @@ export default function HomeView() {
         {homeTab==="scanner" && <ScannerTab />}
         {homeTab==="open-options" && <OpenOptionsTab />}
         {homeTab==="pnl" && <PnLTab />}
+        {homeTab==="elite-desk" && <EliteDeskTab />}
       </Suspense>
     </ErrorBoundary>
 

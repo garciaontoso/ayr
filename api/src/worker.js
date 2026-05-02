@@ -362,6 +362,26 @@ async function ensureMigrations(env) {
       cost_usd REAL DEFAULT 0,
       ticker TEXT
     )`).run();
+    // elite_memos — Elite Desk persona memos (added 2026-05-03).
+    // Stores generated memos so the UI can show history and avoid regenerating
+    // the same (prompt_id, ctx_key) within 24h. ctx_key is a deterministic hash
+    // of the input context (ticker / sector / "portfolio").
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS elite_memos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      prompt_id TEXT NOT NULL,
+      ctx_key TEXT NOT NULL,
+      ctx_type TEXT NOT NULL,
+      ctx_value TEXT,
+      ctx_label TEXT,
+      output_md TEXT NOT NULL,
+      tokens_in INTEGER DEFAULT 0,
+      tokens_out INTEGER DEFAULT 0,
+      cost_usd REAL DEFAULT 0,
+      generated_at TEXT NOT NULL,
+      pinned INTEGER DEFAULT 0
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_elite_memos_pid_ctx ON elite_memos(prompt_id, ctx_key)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_elite_memos_generated ON elite_memos(generated_at DESC)`).run();
     // presupuesto table (budget items)
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS presupuesto (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3998,6 +4018,8 @@ export default {
       "/api/positions/sync-ib", "/api/positions/import", "/api/positions/reconcile",
       "/api/refresh-", "/api/enrich-", "/api/holdings/enrich",
       "/api/telegram/test",
+      "/api/elite-desk/run",       // generates a Claude Opus memo — costs $$
+      "/api/elite-desk/memo",      // DELETE memos
     ];
     // GET sensibles: data financiera privada del usuario.
     const PROTECTED_READ = [
@@ -4041,6 +4063,7 @@ export default {
       "/api/journal",              // decision journal (cubre /list, /stats, /add, /:id/review)
       "/api/deep-dividend",        // todos los sub-endpoints (list, dashboard, get, calibration, extractions, delete)
       "/api/alert-rules",          // alertas custom del usuario
+      "/api/elite-desk",           // Elite Desk persona memos (history, get, list)
     ];
     // Health/public: SIEMPRE abierto (sin auth)
     const PUBLIC_PATHS = [
@@ -15923,6 +15946,157 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         }
       }
 
+      // ═══════════════════════════════════════════════════════════════
+      // 🎓 ELITE DESK — 10 elite-firm Claude personas (added 2026-05-03)
+      //
+      // User shared 10 prompts from @intelligentcryptocurrency on Instagram
+      // (Goldman / Morgan Stanley / Bridgewater / JPMorgan / BlackRock /
+      // Citadel / Harvard / Bain / Renaissance / McKinsey). Each is a Claude
+      // Opus persona that generates a structured research memo using YOUR
+      // real data (portfolio, ticker, sector) instead of generic analysis.
+      //
+      // Endpoints:
+      //   GET  /api/elite-desk/prompts  → list catalog (firm, title, ctx_type)
+      //   POST /api/elite-desk/run      → generate memo (calls Opus, costs $)
+      //   GET  /api/elite-desk/history  → past memos
+      //   GET  /api/elite-desk/memo/:id → full memo by id
+      //   DELETE /api/elite-desk/memo/:id
+      // ═══════════════════════════════════════════════════════════════
+
+      if (path === "/api/elite-desk/prompts" && request.method === "GET") {
+        await ensureMigrations(env);
+        return json({ prompts: ELITE_PROMPTS_PUBLIC }, corsHeaders);
+      }
+
+      if (path === "/api/elite-desk/history" && request.method === "GET") {
+        await ensureMigrations(env);
+        const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 200);
+        const promptId = url.searchParams.get('prompt_id');
+        let q = `SELECT id, prompt_id, ctx_type, ctx_label, generated_at, cost_usd, pinned, length(output_md) AS chars
+                 FROM elite_memos`;
+        const binds = [];
+        if (promptId) { q += ' WHERE prompt_id = ?'; binds.push(promptId); }
+        q += ' ORDER BY generated_at DESC LIMIT ?';
+        binds.push(limit);
+        const { results } = await env.DB.prepare(q).bind(...binds).all();
+        return json({ memos: results || [] }, corsHeaders);
+      }
+
+      const memoMatch = path.match(/^\/api\/elite-desk\/memo\/(\d+)$/);
+      if (memoMatch && request.method === "GET") {
+        await ensureMigrations(env);
+        const id = parseInt(memoMatch[1], 10);
+        const memo = await env.DB.prepare(
+          `SELECT * FROM elite_memos WHERE id = ?`
+        ).bind(id).first();
+        if (!memo) return json({ error: 'not found' }, corsHeaders, 404);
+        return json({ memo }, corsHeaders);
+      }
+      if (memoMatch && request.method === "DELETE") {
+        await ensureMigrations(env);
+        const id = parseInt(memoMatch[1], 10);
+        await env.DB.prepare(`DELETE FROM elite_memos WHERE id = ?`).bind(id).run();
+        return json({ ok: true, deleted: id }, corsHeaders);
+      }
+      const memoPinMatch = path.match(/^\/api\/elite-desk\/memo\/(\d+)\/pin$/);
+      if (memoPinMatch && request.method === "POST") {
+        await ensureMigrations(env);
+        const id = parseInt(memoPinMatch[1], 10);
+        const b = await parseBody(request);
+        await env.DB.prepare(`UPDATE elite_memos SET pinned = ? WHERE id = ?`)
+          .bind(b.pinned ? 1 : 0, id).run();
+        return json({ ok: true }, corsHeaders);
+      }
+
+      if (path === "/api/elite-desk/run" && request.method === "POST") {
+        await ensureMigrations(env);
+        const body = await parseBody(request);
+        const promptId = (body.prompt_id || '').trim();
+        const ctxType = (body.ctx_type || '').trim();      // 'ticker' | 'sector' | 'portfolio'
+        const ctxValue = (body.ctx_value || '').trim();    // 'AAPL' / 'Healthcare' / ''
+        const force = !!body.force;                        // skip 24h cache
+        const tpl = ELITE_PROMPTS[promptId];
+        if (!tpl) return json({ error: 'unknown prompt_id' }, corsHeaders, 400);
+        if (!tpl.ctx_types.includes(ctxType)) {
+          return json({ error: `prompt ${promptId} requires one of: ${tpl.ctx_types.join(', ')}` }, corsHeaders, 400);
+        }
+        const ctxKey = `${ctxType}:${ctxValue || 'all'}`;
+
+        // Cache check — within 24h, return existing memo unless force=true
+        if (!force) {
+          const cached = await env.DB.prepare(
+            `SELECT * FROM elite_memos
+             WHERE prompt_id = ? AND ctx_key = ?
+               AND generated_at >= datetime('now', '-1 day')
+             ORDER BY generated_at DESC LIMIT 1`
+          ).bind(promptId, ctxKey).first();
+          if (cached) {
+            return json({ memo: cached, cached: true }, corsHeaders);
+          }
+        }
+
+        // Build context block from D1 + FMP
+        let ctxBlock;
+        try {
+          ctxBlock = await buildEliteContext(env, ctxType, ctxValue);
+        } catch (e) {
+          return json({ error: 'context build failed: ' + e.message }, corsHeaders, 500);
+        }
+
+        const userPayload = `${tpl.user_template}\n\n## DATOS REALES DEL USUARIO\n\n${ctxBlock}`;
+
+        let result;
+        try {
+          // Use callClaudeText (NOT callAgentClaude) — Elite Desk returns prose
+          // markdown, not JSON; callAgentClaude parses & throws on non-JSON.
+          result = await callClaudeText(env, tpl.system, userPayload, {
+            model: 'claude-opus-4-7',
+            maxTokens: 6000,
+            temperature: 0.3,
+          });
+        } catch (e) {
+          return json({ error: 'Claude call failed: ' + e.message }, corsHeaders, 500);
+        }
+
+        const md = result?.text || '';
+        const tin = result?.usage?.input_tokens || 0;
+        const tout = result?.usage?.output_tokens || 0;
+        const cost = claudeCostUsd('claude-opus-4-7', tin, tout);
+
+        await logClaudeCall(env, {
+          endpoint: '/api/elite-desk/run',
+          model: 'claude-opus-4-7',
+          tokens_in: tin,
+          tokens_out: tout,
+          ticker: ctxType === 'ticker' ? ctxValue : null,
+        });
+
+        const ctxLabel = ctxType === 'portfolio' ? 'Mi cartera completa'
+                       : ctxType === 'sector'    ? `Sector: ${ctxValue}`
+                                                 : `Ticker: ${ctxValue}`;
+        const insert = await env.DB.prepare(
+          `INSERT INTO elite_memos (prompt_id, ctx_key, ctx_type, ctx_value, ctx_label, output_md, tokens_in, tokens_out, cost_usd, generated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+        ).bind(promptId, ctxKey, ctxType, ctxValue, ctxLabel, md, tin, tout, cost).run();
+
+        return json({
+          memo: {
+            id: insert.meta.last_row_id,
+            prompt_id: promptId,
+            ctx_key: ctxKey,
+            ctx_type: ctxType,
+            ctx_value: ctxValue,
+            ctx_label: ctxLabel,
+            output_md: md,
+            tokens_in: tin,
+            tokens_out: tout,
+            cost_usd: cost,
+            generated_at: new Date().toISOString(),
+          },
+          cached: false,
+        }, corsHeaders);
+      }
+
       // ─── CARTERA (portfolio positions from D1) ──────────────
 
       // GET /api/cartera — portfolio positions for Google Sheet / AI analysis
@@ -24346,6 +24520,467 @@ async function callAgentClaude(env, systemPrompt, userContent, opts = {}) {
   const obj = extractBalanced(cleaned, '{', '}');
   if (obj) try { return JSON.parse(obj); } catch (_) {}
   throw new Error(`JSON parse failed — raw: ${cleaned.slice(0, 300)}`);
+}
+
+// ───────────────────────────────────────────────────────────────────
+// 🎓 ELITE DESK helpers (added 2026-05-03)
+//
+// callClaudeText: prose-returning sibling of callAgentClaude. The latter
+// auto-parses JSON and throws on prose; Elite Desk memos are markdown so
+// we need a raw-text variant. Same retry budget (429/5xx/529).
+// ───────────────────────────────────────────────────────────────────
+
+async function callClaudeText(env, systemPrompt, userContent, opts = {}) {
+  const model = opts.model || "claude-opus-4-7";
+  const maxTokens = opts.maxTokens || 6000;
+  const bodyObj = {
+    model,
+    max_tokens: maxTokens,
+    system: systemPrompt,
+    messages: [{ role: "user", content: typeof userContent === "string" ? userContent : JSON.stringify(userContent) }],
+  };
+  if (opts.temperature != null) bodyObj.temperature = opts.temperature;
+  const body = JSON.stringify(bodyObj);
+  const RETRYABLE = new Set([429, 500, 502, 503, 504, 529]);
+  const BACKOFF_MS = [5000, 15000, 30000];
+  let resp = null;
+  let lastErr = null;
+  for (let attempt = 0; attempt <= BACKOFF_MS.length; attempt++) {
+    try {
+      resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": env.ANTHROPIC_API_KEY || "",
+          "anthropic-version": "2023-06-01",
+        },
+        body,
+      });
+      if (resp.ok) break;
+      if (!RETRYABLE.has(resp.status) || attempt === BACKOFF_MS.length) {
+        const errText = await resp.text();
+        throw new Error(`Claude API error ${resp.status}: ${errText.slice(0, 300)}`);
+      }
+      console.warn(`[callClaudeText] ${resp.status} attempt ${attempt + 1}, retrying in ${BACKOFF_MS[attempt]}ms`);
+      await new Promise(r => setTimeout(r, BACKOFF_MS[attempt]));
+    } catch (e) {
+      lastErr = e;
+      if (attempt === BACKOFF_MS.length) throw e;
+      await new Promise(r => setTimeout(r, BACKOFF_MS[attempt]));
+    }
+  }
+  if (!resp || !resp.ok) throw lastErr || new Error("callClaudeText: all retries exhausted");
+  const result = await resp.json();
+  return {
+    text: result.content?.[0]?.text || "",
+    usage: result.usage || { input_tokens: 0, output_tokens: 0 },
+  };
+}
+
+// ELITE_PROMPTS — 10 firm-persona templates from @intelligentcryptocurrency.
+// Each entry has:
+//   firm:       short brand name shown on the card
+//   title:      what the prompt produces
+//   icon:       emoji for the card
+//   color:      hex for card accent
+//   ctx_types:  which contexts make sense ('ticker' / 'sector' / 'portfolio')
+//   needs_existing: optional id of an existing tab that already does this
+//                   (Harvard→deep-dividend, McKinsey→macro). UI shows a
+//                   "Open existing" button instead of running the new memo.
+//   system:     Claude system prompt (the persona)
+//   user_template: user message — the structured ask + format spec
+//
+// Cost: each run is one Opus call (~$0.05-0.10). Cached 24h per (prompt, ctx).
+const ELITE_PROMPTS = {
+  goldman_screener: {
+    firm: 'Goldman Sachs',
+    title: 'Stock Screener',
+    icon: '🏦',
+    color: '#7BAFD4',
+    ctx_types: ['portfolio'],
+    system: 'You are a senior equity analyst at Goldman Sachs with 20 years of experience screening stocks for high-net-worth clients. You produce institutional-grade equity research screening reports. Use the user real portfolio + holdings data when present. Respond in Spanish, output Markdown.',
+    user_template: `I need a complete stock screening framework for my investment goals.
+
+Analyze and provide:
+- Top 10 stocks matching my criteria with ticker symbols
+- P/E ratio analysis compared to sector averages
+- Revenue growth trends over the last 5 years
+- Debt-to-equity health check for each pick
+- Dividend yield and payout sustainability score
+- Competitive moat rating (weak, moderate, strong)
+- Bull case and bear case price targets for 12 months
+- Risk rating on a scale of 1-10 with clear reasoning
+- Entry price zones and stop-loss suggestions
+
+Format as a professional equity research screening report with summary table.`,
+  },
+  morgan_dcf: {
+    firm: 'Morgan Stanley',
+    title: 'DCF Valuation Deep Dive',
+    icon: '📐',
+    color: '#0066CC',
+    ctx_types: ['ticker'],
+    system: 'You are a VP-level investment banker at Morgan Stanley who builds valuation models for Fortune 500 M&A deals. Output structured DCF memos with explicit math and assumptions. Use the real fundamentals provided. Respond in Spanish, output Markdown with tables.',
+    user_template: `I need a full discounted cash flow analysis for the specific stock provided in DATOS REALES.
+
+Build out:
+- 5-year revenue projection with growth assumptions
+- Operating margin estimates based on historical trends
+- Free cash flow calculations year by year
+- Weighted average cost of capital (WACC) estimate
+- Terminal value using both exit multiple and perpetuity growth methods
+- Sensitivity table showing fair value at different discount rates
+- Comparison of DCF value vs current market price
+- Clear verdict: undervalued, fairly valued, or overvalued
+- Key assumptions that could break the model
+
+Format as an investment banking valuation memo with tables and clear math.`,
+  },
+  bridgewater_risk: {
+    firm: 'Bridgewater (Dalio)',
+    title: 'Risk Analysis Framework',
+    icon: '⚖️',
+    color: '#D4AF37',
+    ctx_types: ['portfolio'],
+    system: 'You are a senior risk analyst at Bridgewater Associates trained by Ray Dalio principles of radical transparency in investing. Use the actual portfolio data provided to compute correlations and concentration. Respond in Spanish, output Markdown with heat-map style summary tables.',
+    user_template: `I need a complete risk assessment of my current portfolio.
+
+Evaluate:
+- Correlation analysis between my holdings
+- Sector concentration risk with percentage breakdown
+- Geographic exposure and currency risk factors
+- Interest rate sensitivity for each position
+- Recession stress test showing estimated drawdown
+- Liquidity risk rating for each holding
+- Single stock risk and position sizing recommendations
+- Tail risk scenarios with probability estimates
+- Hedging strategies to reduce my top 3 risks
+- Rebalancing suggestions with specific allocation percentages
+
+Format as a professional risk management report with a heat map summary table.`,
+  },
+  jpmorgan_earnings: {
+    firm: 'JPMorgan',
+    title: 'Earnings Breakdown',
+    icon: '📊',
+    color: '#A71930',
+    ctx_types: ['ticker'],
+    system: 'You are a senior equity research analyst at JPMorgan Chase who writes earnings previews for institutional investors. Use the real fundamentals + earnings history when available. Respond in Spanish, output Markdown with a decision summary at the top.',
+    user_template: `I need a complete earnings analysis before the company reports.
+
+Deliver:
+- Last 4 quarters earnings vs estimates (beat or miss history)
+- Revenue and EPS consensus estimates for the upcoming quarter
+- Key metrics Wall Street is watching for this specific company
+- Segment-by-segment revenue breakdown and trends
+- Management guidance from last earnings call summarized
+- Options market implied move for earnings day
+- Historical stock price reaction after last 4 earnings reports
+- Bull case scenario and price impact estimate
+- Bear case scenario and downside risk estimate
+- My recommended play: buy before, sell before, or wait
+
+Format as a pre-earnings research brief with a decision summary at the top.`,
+  },
+  blackrock_portfolio: {
+    firm: 'BlackRock',
+    title: 'Portfolio Construction',
+    icon: '🏛️',
+    color: '#000000',
+    ctx_types: ['portfolio'],
+    system: 'You are a senior portfolio strategist at BlackRock managing multi-asset portfolios worth $500M+ for institutional clients. Build implementable allocation plans with specific tickers. Respond in Spanish, output Markdown with allocation tables.',
+    user_template: `I need a custom investment portfolio built from scratch for my situation. Use my CURRENT holdings (provided in DATOS REALES) as the starting point and propose adjustments.
+
+Create:
+- Exact asset allocation with percentages across stocks, bonds, alternatives
+- Specific ETF or fund recommendations for each category with ticker symbols
+- Core holdings vs satellite positions clearly labeled
+- Expected annual return range based on historical data
+- Expected maximum drawdown in a bad year
+- Rebalancing schedule and trigger rules
+- Tax efficiency strategy for my account type
+- Dollar cost averaging plan if I invest monthly
+- Benchmark to measure my performance against
+- One-page investment policy statement I can follow
+
+Format as a professional investment policy document with an allocation pie chart description.`,
+  },
+  citadel_technical: {
+    firm: 'Citadel',
+    title: 'Technical Analysis System',
+    icon: '📈',
+    color: '#00A8CC',
+    ctx_types: ['ticker'],
+    system: 'You are a senior quantitative trader at Citadel who combines technical analysis with statistical models to time entries and exits. Use the historical price data provided to read trends and key levels. Respond in Spanish, output Markdown with a clear trade plan summary.',
+    user_template: `I need a full technical analysis breakdown of the stock provided.
+
+Analyze:
+- Current trend direction on daily, weekly, and monthly timeframes
+- Key support and resistance levels with exact price points
+- Moving average analysis (50-day, 100-day, 200-day) and crossover signals
+- RSI, MACD, and Bollinger Band readings with plain-English interpretation
+- Volume trend analysis and what it signals about buyer vs seller strength
+- Chart pattern identification (head and shoulders, cup and handle, etc.)
+- Fibonacci retracement levels for potential bounce zones
+- Ideal entry price, stop-loss level, and profit target
+- Risk-to-reward ratio for the current setup
+- Confidence rating: strong buy, buy, neutral, sell, strong sell
+
+Format as a technical analysis report card with a clear trade plan summary.`,
+  },
+  harvard_dividend: {
+    firm: 'Harvard Endowment',
+    title: 'Dividend Strategy',
+    icon: '🎓',
+    color: '#A51C30',
+    ctx_types: ['portfolio'],
+    needs_existing: 'deep-dividend',
+    system: 'You are the chief investment strategist for Harvards $50B endowment fund specializing in income-generating equity strategies. Build implementable dividend portfolios. Respond in Spanish, output Markdown with income projection tables.',
+    user_template: `I need a dividend income portfolio that generates reliable passive income.
+
+Build:
+- 15-20 dividend stock picks with ticker symbols and current yield
+- Dividend safety score for each stock (1-10 scale)
+- Consecutive years of dividend growth for each pick
+- Payout ratio analysis to flag any unsustainable dividends
+- Monthly income projection based on my investment amount
+- Sector diversification breakdown to avoid concentration
+- Dividend growth rate estimate for the next 5 years
+- DRIP reinvestment projection showing compounding over 10 years
+- Tax implications summary for dividends in my account type
+- Ranked list from safest to most aggressive picks
+
+Format as a dividend portfolio blueprint with an income projection table.`,
+  },
+  bain_competitive: {
+    firm: 'Bain & Co.',
+    title: 'Competitive Advantage Analysis',
+    icon: '🥇',
+    color: '#CC0000',
+    ctx_types: ['sector', 'ticker'],
+    system: 'You are a senior partner at Bain & Company conducting competitive strategy analysis for a major investment fund evaluating an industry. Produce structured deck-style memos. Respond in Spanish, output Markdown with comparison tables.',
+    user_template: `I need a full competitive landscape report to find the best stock to buy in a sector (or in the sector that contains the ticker provided).
+
+Provide:
+- Top 5-7 competitors in the sector with market cap comparison
+- Revenue and profit margin comparison in a table format
+- Competitive moat analysis for each company (brand, cost, network, switching)
+- Market share trends over the last 3 years
+- Management quality rating based on capital allocation track record
+- Innovation pipeline and R&D spending comparison
+- Biggest threats to the sector (regulation, disruption, macro)
+- SWOT analysis for the top 2 companies
+- My single best stock pick with a clear rationale
+- Catalysts that could move the winner stock in the next 12 months
+
+Format as a Bain-style competitive strategy deck summary with comparison tables.`,
+  },
+  renaissance_patterns: {
+    firm: 'Renaissance Tech',
+    title: 'Pattern Finder',
+    icon: '🧬',
+    color: '#7B68EE',
+    ctx_types: ['ticker'],
+    system: 'You are a quantitative researcher at Renaissance Technologies using data-driven methods to find statistical edges in the stock market. When provided real history, base every claim on that data; otherwise be explicit about hypothetical reasoning. Respond in Spanish, output Markdown with data tables and pattern summaries.',
+    user_template: `I need you to identify hidden patterns and anomalies in a stocks behavior.
+
+Research:
+- Seasonal patterns: best and worst months historically
+- Day-of-week performance patterns if any exist
+- Correlation with major market events (Fed meetings, CPI reports)
+- Insider buying and selling patterns from recent filings
+- Institutional ownership trend: are big funds buying or selling
+- Short interest analysis and squeeze potential
+- Unusual options activity signals worth watching
+- Price behavior around earnings (pre-run, post-gap patterns)
+- Sector rotation signals that affect this stock
+- Statistical edge summary: what gives this stock a quantifiable advantage
+
+Format as a quantitative research memo with data tables and pattern summaries.`,
+  },
+  mckinsey_macro: {
+    firm: 'McKinsey',
+    title: 'Macro Impact Assessment',
+    icon: '🌐',
+    color: '#003C71',
+    ctx_types: ['portfolio'],
+    needs_existing: 'macro',
+    system: 'You are a senior partner at McKinseys Global Institute who advises sovereign wealth funds on how macroeconomic trends affect equity markets. Produce executive briefings with action plans. Respond in Spanish, output Markdown.',
+    user_template: `I need a macro analysis showing how current economic conditions affect my portfolio.
+
+Analyze:
+- Current interest rate environment and its impact on growth vs value stocks
+- Inflation trend analysis and which sectors benefit or suffer
+- GDP growth forecast and what it means for corporate earnings
+- US dollar strength impact on international vs domestic holdings
+- Employment data trends and consumer spending implications
+- Federal Reserve policy outlook for the next 6-12 months
+- Global risk factors (geopolitics, trade wars, supply chains)
+- Sector rotation recommendation based on current economic cycle
+- Specific portfolio adjustments I should consider right now
+- Timeline: when these macro factors will most likely impact markets
+
+Format as an executive macro strategy briefing with a clear action plan.`,
+  },
+};
+
+// Lighter version for the catalog endpoint (no system/user_template — those
+// are big and only needed server-side when actually running).
+const ELITE_PROMPTS_PUBLIC = Object.entries(ELITE_PROMPTS).map(([id, p]) => ({
+  id,
+  firm: p.firm,
+  title: p.title,
+  icon: p.icon,
+  color: p.color,
+  ctx_types: p.ctx_types,
+  needs_existing: p.needs_existing || null,
+}));
+
+// buildEliteContext — assembles a markdown block of REAL user data to inject
+// into the prompt. Keeps personas grounded in actual portfolio/ticker/sector
+// state (vs generic ChatGPT advice).
+async function buildEliteContext(env, ctxType, ctxValue) {
+  const lines = [];
+  if (ctxType === 'portfolio') {
+    // Aggregate by ticker × account, value, weight, sector
+    const { results: positions } = await env.DB.prepare(
+      `SELECT ticker, account, shares, last_price, fx, divisa, categoria, estrategia, sector, pais
+       FROM cartera ORDER BY ticker LIMIT 200`
+    ).all();
+    let totalUSD = 0;
+    const rows = [];
+    for (const p of (positions || [])) {
+      const fxMult = p.divisa === "GBX" ? (p.fx || 1) / 100 : (p.fx || 1);
+      const valor = (p.last_price || 0) * (p.shares || 0) * fxMult;
+      totalUSD += valor;
+      rows.push({ ticker: p.ticker, sector: p.sector || '?', pais: p.pais || '?',
+                  cat: p.categoria || '?', strat: p.estrategia || '?',
+                  valor: Math.round(valor), divisa: p.divisa });
+    }
+    rows.sort((a, b) => b.valor - a.valor);
+    rows.forEach(r => { r.peso = totalUSD > 0 ? Math.round(r.valor / totalUSD * 1000) / 10 : 0; });
+    lines.push(`### Portfolio (${rows.length} posiciones, valor total ~$${(totalUSD/1000).toFixed(0)}K)`);
+    lines.push('');
+    lines.push('| Ticker | Sector | País | Estrategia | Peso% | Valor USD |');
+    lines.push('|---|---|---|---|---|---|');
+    for (const r of rows.slice(0, 50)) {
+      lines.push(`| ${r.ticker} | ${r.sector} | ${r.pais} | ${r.strat} | ${r.peso}% | $${r.valor.toLocaleString()} |`);
+    }
+    if (rows.length > 50) lines.push(`| _(...${rows.length - 50} more...)_ | | | | | |`);
+
+    // Sector concentration
+    const bySec = {};
+    for (const r of rows) { bySec[r.sector] = (bySec[r.sector] || 0) + r.valor; }
+    lines.push('');
+    lines.push('### Concentración por sector');
+    Object.entries(bySec).sort((a,b) => b[1]-a[1]).forEach(([s, v]) => {
+      const pct = totalUSD > 0 ? (v/totalUSD*100).toFixed(1) : '0';
+      lines.push(`- ${s}: $${Math.round(v).toLocaleString()} (${pct}%)`);
+    });
+    return lines.join('\n');
+  }
+
+  if (ctxType === 'ticker') {
+    const t = (ctxValue || '').toUpperCase();
+    if (!t) return '_(sin ticker)_';
+    lines.push(`### Ticker: ${t}`);
+    // Position info
+    const pos = await env.DB.prepare(
+      `SELECT ticker, shares, last_price, fx, divisa, sector, pais, categoria, estrategia
+       FROM cartera WHERE ticker = ?`
+    ).bind(t).first();
+    if (pos) {
+      const fxMult = pos.divisa === "GBX" ? (pos.fx || 1) / 100 : (pos.fx || 1);
+      const valor = (pos.last_price || 0) * (pos.shares || 0) * fxMult;
+      lines.push('');
+      lines.push(`Tengo **${pos.shares} shares** a precio actual ~$${pos.last_price} (${pos.divisa}) ` +
+                 `→ ~$${Math.round(valor).toLocaleString()} USD. Sector: ${pos.sector || '?'}, País: ${pos.pais || '?'}.`);
+    } else {
+      lines.push('');
+      lines.push('_No tengo esta posición actualmente — análisis hipotético._');
+    }
+
+    // Recent dividends
+    const { results: divs } = await env.DB.prepare(
+      `SELECT fecha, bruto, dps_gross FROM dividendos WHERE ticker = ?
+       ORDER BY fecha DESC LIMIT 6`
+    ).bind(t).all();
+    if (divs && divs.length) {
+      lines.push('');
+      lines.push('### Últimos 6 dividendos');
+      for (const d of divs) {
+        lines.push(`- ${d.fecha}: $${d.bruto?.toFixed(2) || '?'} bruto · DPS $${d.dps_gross?.toFixed(4) || '?'}`);
+      }
+    }
+
+    // Trade history (last 10)
+    const { results: trades } = await env.DB.prepare(
+      `SELECT fecha, tipo, shares, precio, coste FROM cost_basis
+       WHERE ticker = ? OR underlying = ?
+       ORDER BY fecha DESC LIMIT 10`
+    ).bind(t, t).all();
+    if (trades && trades.length) {
+      lines.push('');
+      lines.push('### Últimos 10 trades');
+      for (const tr of trades) {
+        lines.push(`- ${tr.fecha} ${tr.tipo} ${tr.shares} @ $${tr.precio} (coste $${tr.coste})`);
+      }
+    }
+
+    // FMP fundamentals snapshot (best-effort, don't crash if missing)
+    try {
+      if (env.FMP_KEY) {
+        const r = await fetch(`https://financialmodelingprep.com/api/v3/profile/${encodeURIComponent(t)}?apikey=${env.FMP_KEY}`);
+        if (r.ok) {
+          const profile = (await r.json())?.[0];
+          if (profile) {
+            lines.push('');
+            lines.push('### Profile FMP');
+            lines.push(`- Precio actual: $${profile.price}`);
+            lines.push(`- Market cap: $${profile.mktCap ? (profile.mktCap/1e9).toFixed(1) + 'B' : '?'}`);
+            lines.push(`- Sector: ${profile.sector || '?'}`);
+            lines.push(`- Industry: ${profile.industry || '?'}`);
+            lines.push(`- Beta: ${profile.beta || '?'}`);
+            lines.push(`- Empleados: ${profile.fullTimeEmployees?.toLocaleString() || '?'}`);
+            if (profile.description) lines.push(`- Descripción: ${profile.description.slice(0, 400)}`);
+          }
+        }
+      }
+    } catch (_) { /* swallow */ }
+
+    return lines.join('\n');
+  }
+
+  if (ctxType === 'sector') {
+    const s = (ctxValue || '').trim();
+    if (!s) return '_(sin sector)_';
+    lines.push(`### Sector: ${s}`);
+    // My exposure to this sector
+    const { results: positions } = await env.DB.prepare(
+      `SELECT ticker, shares, last_price, fx, divisa, pais
+       FROM cartera WHERE sector = ?`
+    ).bind(s).all();
+    let totalSec = 0;
+    const items = [];
+    for (const p of (positions || [])) {
+      const fxMult = p.divisa === "GBX" ? (p.fx || 1) / 100 : (p.fx || 1);
+      const valor = (p.last_price || 0) * (p.shares || 0) * fxMult;
+      totalSec += valor;
+      items.push({ ticker: p.ticker, valor: Math.round(valor), pais: p.pais });
+    }
+    lines.push('');
+    lines.push(`Mi exposición actual al sector **${s}**: ${items.length} posiciones, ~$${Math.round(totalSec).toLocaleString()} USD.`);
+    if (items.length) {
+      items.sort((a,b) => b.valor - a.valor);
+      lines.push('');
+      for (const i of items.slice(0, 20)) {
+        lines.push(`- ${i.ticker} (${i.pais}): $${i.valor.toLocaleString()}`);
+      }
+    }
+    return lines.join('\n');
+  }
+
+  return `_(contexto desconocido: ${ctxType})_`;
 }
 
 async function storeInsights(env, agentName, fecha, insights) {

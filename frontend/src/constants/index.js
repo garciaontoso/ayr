@@ -179,6 +179,7 @@ export const HOME_TAB_GROUPS = [
     lbl: "Research",
     ico: "🔍",
     tabs: [
+      {id:"elite-desk",lbl:"Elite Desk",ico:"🎓"},
       {id:"cantera",lbl:"Cantera",ico:"🎯"},
       {id:"cartas-sabios",lbl:"Cartas Sabios",ico:"📜"},
       {id:"research",lbl:"Watchlist",ico:"👁"},
