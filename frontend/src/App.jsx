@@ -172,6 +172,17 @@ export default function ARApp() {
   const [cfg, setCfg] = useState({ticker:"",name:"",price:0,currency:"USD",beta:1.0,riskFree:4.0,marketPremium:5.5,taxRate:28,manualDiscount:0,manualGrowth:0,useWACC:true});
   const [tab, setTab] = useState("dash");
   const [anim, setAnim] = useState(false);
+  // Custom tab order — persists per-user in localStorage. Default = TABS array order.
+  // Drag any analysis tab horizontally to reorder; new tabs added later auto-append.
+  const [tabOrder, setTabOrder] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('ayr-tab-order') || 'null');
+      if (Array.isArray(saved) && saved.length) return saved;
+    } catch {}
+    return TABS.map(t => t.id);
+  });
+  const [tabDragging, setTabDragging] = useState(null);
+  const [tabDragOver, setTabDragOver] = useState(null);
   const [fgMode, setFgMode] = useState("eps_adj");
   const [fgPE, setFgPE] = useState(15);
   const [fgGrowth, setFgGrowth] = useState(8);
@@ -2349,13 +2360,69 @@ function buildPositionsFromCB() {
               />
               {notesSaved && <span style={{fontSize:9,color:"var(--green)",fontFamily:"var(--fm)",paddingTop:4,flexShrink:0,animation:"fadeUp .3s"}}>Guardado</span>}
             </div>}
-            {/* Row 2: Analysis Tabs */}
+            {/* Row 2: Analysis Tabs — draggable to reorder. Order persists
+                in localStorage 'ayr-tab-order'. Right-click any tab to reset
+                to default order. */}
             <div ref={tabsRef} className="ar-tabs-scroll" style={{display:"flex",gap:2,padding:"0 24px",overflowX:"auto",overflowY:"hidden",borderTop:"1px solid var(--row-border)"}}>
-              {TABS.map(t=>(
-                <button key={t.id} className="ar-tab-btn" data-active={tab===t.id?"true":"false"} onClick={()=>setTab(t.id)}
-                  style={{display:"flex",alignItems:"center",gap:4,padding:"7px 12px",border:"none",background:"transparent",cursor:"pointer",color:tab===t.id?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:tab===t.id?700:500,fontFamily:"var(--fb)",transition:"color .2s",flexShrink:0}}
-                  onMouseEnter={e=>{if(tab!==t.id) e.currentTarget.style.color="var(--text-secondary)";}}
-                  onMouseLeave={e=>{if(tab!==t.id) e.currentTarget.style.color="var(--text-tertiary)";}}>
+              {(() => {
+                // Compose ordered list: saved order first (intersected with current TABS),
+                // then any tabs added since last save appended at the end.
+                const byId = new Map(TABS.map(t => [t.id, t]));
+                const seen = new Set();
+                const ordered = [];
+                for (const id of tabOrder) {
+                  const t = byId.get(id);
+                  if (t && !seen.has(id)) { ordered.push(t); seen.add(id); }
+                }
+                for (const t of TABS) if (!seen.has(t.id)) ordered.push(t);
+                return ordered;
+              })().map(t => (
+                <button key={t.id} className="ar-tab-btn" data-active={tab===t.id?"true":"false"}
+                  draggable={true}
+                  onClick={() => setTab(t.id)}
+                  onDragStart={e => {
+                    setTabDragging(t.id);
+                    e.dataTransfer.effectAllowed = 'move';
+                    try { e.dataTransfer.setData('text/plain', t.id); } catch {}
+                  }}
+                  onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (tabDragging && tabDragging !== t.id) setTabDragOver(t.id); }}
+                  onDragLeave={() => { if (tabDragOver === t.id) setTabDragOver(null); }}
+                  onDrop={e => {
+                    e.preventDefault();
+                    const src = tabDragging || e.dataTransfer.getData('text/plain');
+                    if (!src || src === t.id) { setTabDragging(null); setTabDragOver(null); return; }
+                    const allIds = TABS.map(x => x.id);
+                    const merged = [...new Set([...tabOrder, ...allIds])].filter(id => allIds.includes(id));
+                    const without = merged.filter(id => id !== src);
+                    const targetIdx = without.indexOf(t.id);
+                    const newOrder = [...without.slice(0, targetIdx), src, ...without.slice(targetIdx)];
+                    setTabOrder(newOrder);
+                    try { localStorage.setItem('ayr-tab-order', JSON.stringify(newOrder)); } catch {}
+                    setTabDragging(null); setTabDragOver(null);
+                  }}
+                  onDragEnd={() => { setTabDragging(null); setTabDragOver(null); }}
+                  onContextMenu={e => {
+                    e.preventDefault();
+                    if (window.confirm('Restablecer orden de pestañas al original?')) {
+                      const def = TABS.map(x => x.id);
+                      setTabOrder(def);
+                      try { localStorage.removeItem('ayr-tab-order'); } catch {}
+                    }
+                  }}
+                  title="Arrastra para reordenar · click derecho para restablecer"
+                  style={{
+                    display:"flex",alignItems:"center",gap:4,padding:"7px 12px",border:"none",
+                    background: tabDragOver === t.id ? "rgba(200,164,78,.18)" : "transparent",
+                    borderLeft: tabDragOver === t.id ? "2px solid var(--gold)" : "2px solid transparent",
+                    cursor: tabDragging ? "grabbing" : "grab",
+                    color: tab===t.id?"var(--gold)":"var(--text-tertiary)",
+                    fontSize:11, fontWeight: tab===t.id?700:500, fontFamily:"var(--fb)",
+                    transition:"color .2s, background .15s, border-color .15s",
+                    flexShrink:0,
+                    opacity: tabDragging === t.id ? 0.4 : 1,
+                  }}
+                  onMouseEnter={e => { if(tab!==t.id && tabDragging !== t.id) e.currentTarget.style.color = "var(--text-secondary)"; }}
+                  onMouseLeave={e => { if(tab!==t.id) e.currentTarget.style.color = "var(--text-tertiary)"; }}>
                   <span style={{fontSize:10,opacity:tab===t.id?1:.5}}>{t.ico}</span>{t.lbl}
                 </button>
               ))}
