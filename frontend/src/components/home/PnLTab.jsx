@@ -596,18 +596,114 @@ function OptionsTradesList({ monthly, selectedStrategy, scopedTitle }) {
   );
 }
 
-function StuckPositionsPanel({ stuck }) {
+function StuckPositionsPanel({ stuck, onCleanup }) {
   const [expanded, setExpanded] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysis, setAnalysis] = useState(null); // dry-run result
+  const [applying, setApplying] = useState(false);
+  const [applyResult, setApplyResult] = useState(null);
+
   if (!stuck || stuck.length === 0) return null;
+
+  const runAnalysis = async (dryRun = true) => {
+    if (dryRun) setAnalyzing(true); else setApplying(true);
+    try {
+      const r = await fetch(API_URL + '/api/options/orphans/cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dryRun }),
+      });
+      const d = await r.json();
+      if (dryRun) setAnalysis(d); else { setApplyResult(d); setAnalysis(null); if (onCleanup) onCleanup(); }
+    } catch (e) {
+      if (dryRun) setAnalysis({ error: e.message }); else setApplyResult({ error: e.message });
+    } finally {
+      setAnalyzing(false); setApplying(false);
+    }
+  };
+
   return (
     <div style={{ ...cardBase, borderColor: 'rgba(255,159,10,.3)', background: 'rgba(255,159,10,.04)' }}>
-      <div onClick={() => setExpanded(!expanded)} style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <div style={{ fontSize: 11, fontFamily: 'var(--fm)', color: '#ff9f0a', textTransform: 'uppercase', letterSpacing: '.6px', fontWeight: 700 }}>⚠ {stuck.length} posiciones huérfanas</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+        <div onClick={() => setExpanded(!expanded)} style={{ cursor: 'pointer', flex: 1, minWidth: 240 }}>
+          <div style={{ fontSize: 11, fontFamily: 'var(--fm)', color: '#ff9f0a', textTransform: 'uppercase', letterSpacing: '.6px', fontWeight: 700 }}>{expanded ? '▾' : '▸'} ⚠ {stuck.length} posiciones huérfanas</div>
           <div style={{ fontSize: 9, color: 'var(--text-tertiary)', marginTop: 3, lineHeight: 1.5 }}>Grupos con expiry &gt; 14d en el pasado y net_shares ≠ 0. Probablemente expiraron worthless sin row de cierre, o assignment no registrado.</div>
         </div>
-        <span style={{ color: 'var(--text-tertiary)', fontSize: 16 }}>{expanded ? '▾' : '▸'}</span>
+        {!analysis && !applyResult && (
+          <button onClick={() => runAnalysis(true)} disabled={analyzing}
+            style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #ff9f0a', background: 'transparent', color: '#ff9f0a', fontSize: 10, fontWeight: 700, cursor: analyzing ? 'wait' : 'pointer', fontFamily: 'var(--fm)' }}>
+            {analyzing ? 'Analizando…' : '🔍 Analizar con FMP price'}
+          </button>
+        )}
       </div>
+
+      {/* Dry-run analysis result */}
+      {analysis && !analysis.error && (
+        <div style={{ marginTop: 12, padding: 12, background: 'var(--row-alt)', borderRadius: 8, border: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8, fontFamily: 'var(--fm)' }}>Análisis con precio histórico FMP</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 12 }}>
+            <div><div style={{ fontSize: 9, color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>OTM Worthless</div><div style={{ fontSize: 18, fontWeight: 700, color: '#30d158', fontFamily: 'var(--fm)' }}>{analysis.would_close}</div><div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>Auto-cerrables a $0</div></div>
+            <div><div style={{ fontSize: 9, color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>ITM (probable assign)</div><div style={{ fontSize: 18, fontWeight: 700, color: '#ff9f0a', fontFamily: 'var(--fm)' }}>{analysis.itm_skipped?.length || 0}</div><div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>Manual review (NO se tocan)</div></div>
+            <div><div style={{ fontSize: 9, color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>Sin precio</div><div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>{analysis.no_price?.length || 0}</div><div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>SPX/RUT/legacy tickers</div></div>
+          </div>
+          {analysis.itm_skipped?.length > 0 && (
+            <details style={{ marginBottom: 10 }}>
+              <summary style={{ cursor: 'pointer', fontSize: 10, color: '#ff9f0a', fontFamily: 'var(--fm)' }}>Ver {analysis.itm_skipped.length} ITM (probables asignaciones)</summary>
+              <table style={{ width: '100%', fontSize: 10, fontFamily: 'var(--fm)', marginTop: 6 }}>
+                <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
+                  {['Ticker','Tipo','Strike/Exp','Precio expiry','Intrinsic','NetSh','Hint'].map(h => <th key={h} style={{ padding: '3px 6px', fontSize: 9, color: 'var(--text-tertiary)', textAlign: h === 'Ticker' || h === 'Hint' ? 'left' : 'right' }}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {analysis.itm_skipped.slice(0, 30).map((it, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid var(--subtle-border)' }}>
+                      <td style={{ padding: '3px 6px', color: 'var(--text-primary)', fontWeight: 600 }}>{it.ticker}</td>
+                      <td style={{ padding: '3px 6px', textAlign: 'right', color: it.tipo === 'P' ? '#60a5fa' : '#a855f7' }}>{it.tipo}</td>
+                      <td style={{ padding: '3px 6px', textAlign: 'right', color: 'var(--text-secondary)' }}>{it.strike} · {it.expiry?.slice(5)}</td>
+                      <td style={{ padding: '3px 6px', textAlign: 'right', color: 'var(--text-secondary)' }}>${it.price_at_expiry?.toFixed(2)}</td>
+                      <td style={{ padding: '3px 6px', textAlign: 'right', color: '#ff9f0a' }}>${it.intrinsic?.toFixed(2)}</td>
+                      <td style={{ padding: '3px 6px', textAlign: 'right', color: 'var(--text-tertiary)' }}>{it.netShares}</td>
+                      <td style={{ padding: '3px 6px', color: 'var(--text-tertiary)', fontSize: 9 }}>{it.hint}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+          )}
+          {analysis.no_price?.length > 0 && (
+            <details style={{ marginBottom: 10 }}>
+              <summary style={{ cursor: 'pointer', fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>Ver {analysis.no_price.length} sin precio (ignorables)</summary>
+              <div style={{ fontSize: 9, color: 'var(--text-tertiary)', marginTop: 4, fontFamily: 'var(--fm)' }}>
+                {analysis.no_price.slice(0, 30).map((n, i) => (
+                  <span key={i} style={{ marginRight: 8 }}>{n.ticker} {n.expiry?.slice(5)} K={n.strike}</span>
+                ))}
+              </div>
+            </details>
+          )}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button onClick={() => runAnalysis(false)} disabled={applying || analysis.would_close === 0}
+              style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #30d158', background: 'rgba(48,209,88,.1)', color: '#30d158', fontSize: 11, fontWeight: 700, cursor: applying ? 'wait' : 'pointer', fontFamily: 'var(--fm)' }}>
+              {applying ? 'Aplicando…' : `✓ Aplicar ${analysis.would_close} cierres OTM`}
+            </button>
+            <button onClick={() => setAnalysis(null)} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-tertiary)', fontSize: 10, cursor: 'pointer', fontFamily: 'var(--fb)' }}>Cancelar</button>
+            <span style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>Solo cierra OTM con buffer 0.5%. ITM y sin-precio quedan para review manual.</span>
+          </div>
+        </div>
+      )}
+      {analysis?.error && (
+        <div style={{ marginTop: 12, padding: 10, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, color: '#ef4444', fontSize: 11 }}>Error: {analysis.error}</div>
+      )}
+      {applyResult && (
+        <div style={{ marginTop: 12, padding: 12, background: 'rgba(48,209,88,.06)', border: '1px solid rgba(48,209,88,.3)', borderRadius: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#30d158', fontFamily: 'var(--fm)' }}>✓ Cleanup aplicado</div>
+          <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 4 }}>
+            {applyResult.worthless_closed} cierres insertados · {applyResult.itm_skipped?.length || 0} ITM pendientes · {applyResult.errors?.length || 0} errores
+          </div>
+          {applyResult.errors?.length > 0 && (
+            <pre style={{ fontSize: 9, color: '#ef4444', marginTop: 8, maxHeight: 100, overflow: 'auto' }}>{JSON.stringify(applyResult.errors, null, 2)}</pre>
+          )}
+        </div>
+      )}
+
       {expanded && (
         <div style={{ marginTop: 10, maxHeight: 260, overflowY: 'auto', fontSize: 10.5, fontFamily: 'var(--fm)' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -875,7 +971,7 @@ export default function PnLTab() {
       <OpenPremiumCard open_premium={open_premium} />
 
       {/* Stuck positions panel */}
-      <StuckPositionsPanel stuck={stuck_positions} />
+      <StuckPositionsPanel stuck={stuck_positions} onCleanup={() => load(year)} />
 
       {/* Detail panel for selected month */}
       {selectedDetail && (

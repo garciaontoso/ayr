@@ -4014,6 +4014,7 @@ export default {
       "/api/ib-flex",              // raw IB Flex XML — account IDs + all trades
       "/api/tax-report",           // realized gains + dividend totals by ticker
       "/api/tax/optimization-report", // positions + WHT amounts by country
+      "/api/options/orphans/cleanup",  // writes close rows for OTM-expired orphans
       "/api/costbasis/all",        // all 8600+ cost_basis rows including prices
       "/api/ingresos",             // salary + income entries
       "/api/margin-interest",      // account IDs + margin interest history
@@ -14050,6 +14051,158 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           }, corsHeaders);
         } catch (e) {
           return json({ error: e.message, stack: (e.stack || "").slice(0, 500) }, corsHeaders, 500);
+        }
+      }
+
+      // POST /api/options/orphans/cleanup — auto-classify and close orphan option groups.
+      //
+      // Orphan = option group where SUM(shares) ≠ 0 AND opt_expiry < today-14d.
+      // For each orphan, fetch the underlying close price on expiry date from FMP
+      // and classify:
+      //   - WORTHLESS (OTM with 0.5% buffer) → safe to insert $0 close row
+      //   - ASSIGNED (ITM) → returned in result but NOT auto-closed (would require
+      //     writing fake EQUITY rows; user must review manually)
+      //   - NO_PRICE → FMP didn't return a price for that ticker/date
+      //
+      // Body: { dryRun?: boolean (default true) }
+      // Returns: { worthless_closed, would_close, itm_skipped, no_price, dryRun }
+      if (path === "/api/options/orphans/cleanup" && request.method === "POST") {
+        try {
+          const body = await parseBody(request).catch(() => ({}));
+          const dryRun = body.dryRun !== false; // default true
+          const today = new Date().toISOString().slice(0, 10);
+          const cutoffMs = Date.now() - 14 * 86400000;
+
+          // Re-compute orphans (same logic as /api/pnl/monthly stuck_positions)
+          const { results: optTrades } = await env.DB.prepare(
+            "SELECT id, ticker, COALESCE(underlying, ticker) AS group_ticker, fecha, shares, opt_expiry, opt_tipo, opt_strike, opt_credit_total, coste, account, exec_id FROM cost_basis WHERE tipo='OPTION' AND shares != 0 ORDER BY fecha ASC"
+          ).all();
+          const groups = new Map();
+          for (const r of optTrades) {
+            if (!r.group_ticker || !r.opt_expiry || !r.opt_strike || !r.opt_tipo) continue;
+            const key = `${r.group_ticker}|${r.opt_expiry}|${r.opt_strike}|${r.opt_tipo}`;
+            if (!groups.has(key)) groups.set(key, { rows: [], ticker: r.group_ticker, expiry: r.opt_expiry, strike: r.opt_strike, tipo: r.opt_tipo, account: r.account });
+            groups.get(key).rows.push(r);
+          }
+          const orphans = [];
+          for (const g of groups.values()) {
+            const netShares = g.rows.reduce((s, r) => s + (Number(r.shares) || 0), 0);
+            if (Math.abs(netShares) < 0.000001) continue;
+            const expiryMs = new Date(g.expiry + 'T00:00:00Z').getTime();
+            if (expiryMs >= cutoffMs) continue;
+            orphans.push({ ...g, netShares });
+          }
+
+          // Batch-fetch historical prices: group by ticker, get price on each expiry date.
+          const FMP_KEY = env.FMP_KEY;
+          if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
+
+          const tickerToOrphans = new Map();
+          for (const o of orphans) {
+            // Use OCC underlying when ticker looks like full OCC string
+            const sym = o.ticker.includes(' ') ? o.ticker.split(' ')[0] : o.ticker;
+            const fmpSym = (typeof toFMP === 'function') ? toFMP(sym) : sym;
+            if (!tickerToOrphans.has(fmpSym)) tickerToOrphans.set(fmpSym, []);
+            tickerToOrphans.get(fmpSym).push(o);
+          }
+
+          const priceCache = new Map(); // `${fmpSym}|${date}` → close
+          for (const [fmpSym, orphList] of tickerToOrphans.entries()) {
+            // Single API call per ticker — fetch from earliest expiry to latest
+            const dates = orphList.map(o => o.expiry).sort();
+            const fromDate = dates[0];
+            const toDate = dates[dates.length - 1];
+            try {
+              const url = `${FMP_BASE}/historical-price-eod/light?symbol=${encodeURIComponent(fmpSym)}&from=${fromDate}&to=${toDate}&apikey=${FMP_KEY}`;
+              const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+              if (!r.ok) continue;
+              const data = await r.json();
+              const arr = Array.isArray(data) ? data : (data.historical || []);
+              for (const row of arr) {
+                if (row.date && (row.close != null || row.price != null)) {
+                  priceCache.set(`${fmpSym}|${row.date.slice(0, 10)}`, row.close ?? row.price);
+                }
+              }
+            } catch {}
+          }
+
+          // Classify each orphan
+          const result = { worthless_closed: 0, would_close: 0, itm_skipped: [], no_price: [], errors: [] };
+          const inserts = [];
+          for (const o of orphans) {
+            const sym = o.ticker.includes(' ') ? o.ticker.split(' ')[0] : o.ticker;
+            const fmpSym = (typeof toFMP === 'function') ? toFMP(sym) : sym;
+            // Find nearest available price on or before expiry (markets closed weekends/holidays)
+            let price = null;
+            for (let offset = 0; offset >= -7 && price == null; offset--) {
+              const d = new Date(o.expiry + 'T00:00:00Z');
+              d.setDate(d.getDate() + offset);
+              const k = `${fmpSym}|${d.toISOString().slice(0, 10)}`;
+              if (priceCache.has(k)) price = priceCache.get(k);
+            }
+            if (price == null) {
+              result.no_price.push({ ticker: o.ticker, strike: o.strike, expiry: o.expiry, tipo: o.tipo });
+              continue;
+            }
+            const strike = Number(o.strike);
+            // OTM (worthless): PUT with price > strike OR CALL with price < strike, with 0.5% buffer
+            const tipoUpper = (o.tipo || '').toUpperCase();
+            const isPut = tipoUpper === 'P' || tipoUpper === 'PUT';
+            const isCall = tipoUpper === 'C' || tipoUpper === 'CALL';
+            const otmBuffer = 0.005;
+            let isWorthless = false;
+            if (isPut && price > strike * (1 + otmBuffer)) isWorthless = true;
+            else if (isCall && price < strike * (1 - otmBuffer)) isWorthless = true;
+            if (isWorthless) {
+              // Insert close row: shares opposite sign of netShares, coste=0, opt_credit_total=0
+              const closeShares = -o.netShares;
+              const execId = `auto-worthless|${o.ticker}|${o.expiry}|${o.strike}|${o.tipo}`;
+              inserts.push({
+                ticker: o.ticker, fecha: o.expiry, shares: closeShares,
+                strike: o.strike, expiry: o.expiry, tipo: o.tipo,
+                account: o.account, execId, price, strike_num: strike,
+              });
+            } else {
+              result.itm_skipped.push({
+                ticker: o.ticker, strike: o.strike, expiry: o.expiry, tipo: o.tipo,
+                price_at_expiry: price, intrinsic: isPut ? Math.max(0, strike - price) : Math.max(0, price - strike),
+                netShares: o.netShares,
+                hint: isPut ? 'Put ITM — likely assigned, recibiste shares' : 'Call ITM — likely assigned/exercised',
+              });
+            }
+          }
+
+          if (dryRun) {
+            result.would_close = inserts.length;
+            return json({ dryRun: true, ...result }, corsHeaders);
+          }
+
+          // Apply inserts
+          for (const ins of inserts) {
+            try {
+              await env.DB.prepare(
+                `INSERT INTO cost_basis (ticker, fecha, tipo, shares, precio, comision, coste, opt_strike, opt_expiry, opt_tipo, opt_credit_total, underlying, account, exec_id)
+                 VALUES (?, ?, 'OPTION', ?, 0, 0, 0, ?, ?, ?, 0, ?, ?, ?)
+                 ON CONFLICT(exec_id) DO NOTHING`
+              ).bind(
+                ins.ticker, ins.fecha, ins.shares,
+                ins.strike_num, ins.expiry, ins.tipo,
+                ins.ticker.includes(' ') ? ins.ticker.split(' ')[0] : ins.ticker,
+                ins.account, ins.execId
+              ).run();
+              result.worthless_closed += 1;
+            } catch (e) {
+              result.errors.push({ ticker: ins.ticker, expiry: ins.expiry, error: e.message?.slice(0, 200) });
+            }
+          }
+          await logEvent(env, 'critical', 'orphans.cleanup_applied', {
+            worthless_closed: result.worthless_closed,
+            itm_skipped: result.itm_skipped.length,
+            no_price: result.no_price.length,
+          });
+          return json({ dryRun: false, ...result }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message, stack: (e.stack || '').slice(0, 500) }, corsHeaders, 500);
         }
       }
 
