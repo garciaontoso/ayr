@@ -1,4 +1,23 @@
-# A&R v4.4 — Data Integrity Overhaul + Reconcile + UX Polish
+# A&R v4.5 — Audit Forense Completo + 4 Tabs Nuevas + 50 Fixes Overnight
+
+## v4.5 (2026-05-02 — Sesión Master 17h)
+- **4 tabs nuevas**: 🎯 Opciones Abiertas, 📋 Cost Basis (analysis 2ª), 👥 Directiva (analysis), 💰 P&L (Cartera)
+- **7 endpoints nuevos**: /api/pnl/monthly (FIFO), /api/directiva (FMP+Haiku), /api/options/open-portfolio, /api/reentry-watch/scan, /api/reconcile/portfolio-check, /api/debt-maturity, /api/earnings/archive/reextract
+- **8 agentes overnight + 7 deep-audit por tab** (X1-X7) → 13 audit reports
+- **NAV corregido $3.40M→$1.38M real** (75 positions reconciled to IB live)
+- **9,124 phantom dups** borrados de cost_basis (21,882→12,758) + UNIQUE INDEX exec_id
+- **AHRT $64K bug**: cbCalc fallback peligroso → fixed
+- **IB Bridge OPT fields stripping** → fixed (96 positions, 4 cuentas, OPT greeks)
+- **Tax 2025 -$1.15M (signo invertido)** → +$87K real con FIFO nuevo
+- **777 dividendos bruto=0 backfilled** + 1,083 WHT bleed fixed (+$652 2025)
+- **23 endpoints protegidos** (12 WRITE + 11 READ que leakaban)
+- **Telegram smart-money** alerts paralelo a web push
+- **Mac sync-funds.sh** auth fixed (broken desde Apr 20)
+
+### 10 Bugs recurrentes documentados con root cause permanente
+Lecciones detalladas en memoria `session_2026-05-02_FINAL_overnight.md`.
+
+
 
 ## ⚠️ REGLAS DURAS DE DATA INTEGRITY (no romper)
 
