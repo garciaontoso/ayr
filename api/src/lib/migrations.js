@@ -225,6 +225,27 @@ export async function ensureMigrations(env) {
     try { await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_errors_ts ON errors_log(ts DESC)`).run(); } catch(_){}
     try { await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_errors_resolved ON errors_log(resolved, ts DESC)`).run(); } catch(_){}
 
+    // ── Expert Analyses (2026-05-03) ────────────────────────────────────
+    // Reportes narrativos escritos por Claude Code session (gratis, no API).
+    // Distintos del Claude tab que llama API → cuesta. Aquí guardamos:
+    //   · ssd_data — JSON con todos los structured fields que la pestaña
+    //     Claude actual lee (moat, verdict, divSafetyScore, etc.) pero
+    //     escritos por mí en lugar de comprar a Anthropic API
+    //   · narrative — markdown narrativo "como analista experto" extenso
+    //     que valora calidad/deuda/dividendo/valoración/riesgos/tesis
+    //   · updated_at — para mostrar fecha en UI y saber cuándo refrescar
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS expert_analyses (
+      ticker TEXT PRIMARY KEY,
+      ssd_data TEXT,
+      narrative TEXT,
+      verdict TEXT,
+      score INTEGER,
+      version INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+    try { await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_expert_anal_updated ON expert_analyses(updated_at DESC)`).run(); } catch(_){}
+
     // Presupuesto: excluded gasto IDs, last payment, custom months
     try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN excluded_gastos TEXT DEFAULT NULL`).run(); } catch(e) { /* already exists */ }
     try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN last_payment TEXT DEFAULT NULL`).run(); } catch(e) { /* already exists */ }

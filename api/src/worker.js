@@ -6851,6 +6851,68 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // ratings (igual que FAST Graphs sidebar muestra "S&P AA-"). Fallback
       // graceful al FMP Quality Rating si el plan FMP no incluye S&P.
       // Cache en agent_memory 24h.
+      // ═══════════════════════════════════════════════════════════════
+      // EXPERT ANALYSES — narrativa escrita por Claude Code session ($0)
+      // ═══════════════════════════════════════════════════════════════
+      // GET /api/expert-analysis?ticker=X → devuelve {ssd_data, narrative, updated_at}
+      // GET /api/expert-analysis/list → resumen de todos los tickers con análisis
+      // POST /api/expert-analysis/upload → upsert (auth required)
+
+      if (path === "/api/expert-analysis" && request.method === "GET") {
+        await ensureMigrations(env);
+        const sym = (url.searchParams.get('ticker') || '').toUpperCase();
+        if (!sym) return json({ error: 'Missing ?ticker=' }, corsHeaders, 400);
+        const row = await env.DB.prepare(
+          "SELECT ticker, ssd_data, narrative, verdict, score, version, created_at, updated_at FROM expert_analyses WHERE ticker = ?"
+        ).bind(sym).first();
+        if (!row) return json({ ok: true, ticker: sym, exists: false }, corsHeaders);
+        let ssd = null;
+        try { ssd = JSON.parse(row.ssd_data || 'null'); } catch {}
+        return json({
+          ok: true, exists: true, ticker: row.ticker,
+          ssd, narrative: row.narrative,
+          verdict: row.verdict, score: row.score, version: row.version,
+          created_at: row.created_at, updated_at: row.updated_at,
+        }, corsHeaders);
+      }
+
+      if (path === "/api/expert-analysis/list" && request.method === "GET") {
+        await ensureMigrations(env);
+        const { results } = await env.DB.prepare(
+          "SELECT ticker, verdict, score, version, updated_at FROM expert_analyses ORDER BY updated_at DESC"
+        ).all();
+        return json({ ok: true, count: (results || []).length, items: results || [] }, corsHeaders);
+      }
+
+      if (path === "/api/expert-analysis/upload" && request.method === "POST") {
+        await ensureMigrations(env);
+        const unauth = (isAllowed && origin) ? null : ytRequireToken(request, env);
+        if (unauth) return unauth;
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, corsHeaders, 400); }
+        const sym = String(body.ticker || '').toUpperCase();
+        if (!sym) return json({ error: 'ticker required' }, corsHeaders, 400);
+        const ssdJson = body.ssd ? JSON.stringify(body.ssd) : null;
+        const narrative = body.narrative || null;
+        const verdict = body.verdict || (body.ssd?.verdict ?? null);
+        const score = body.score ?? body.ssd?.overallScore ?? null;
+        // Get current version to increment
+        const cur = await env.DB.prepare("SELECT version FROM expert_analyses WHERE ticker = ?").bind(sym).first();
+        const newVersion = cur ? (cur.version || 1) + 1 : 1;
+        await env.DB.prepare(`
+          INSERT INTO expert_analyses (ticker, ssd_data, narrative, verdict, score, version, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+          ON CONFLICT(ticker) DO UPDATE SET
+            ssd_data = excluded.ssd_data,
+            narrative = excluded.narrative,
+            verdict = excluded.verdict,
+            score = excluded.score,
+            version = excluded.version,
+            updated_at = datetime('now')
+        `).bind(sym, ssdJson, narrative, verdict, score, newVersion).run();
+        return json({ ok: true, ticker: sym, version: newVersion, updated_at: new Date().toISOString() }, corsHeaders);
+      }
+
       if (path === "/api/credit-rating" && request.method === "GET") {
         await ensureMigrations(env);
         const sym = (url.searchParams.get('symbol') || '').toUpperCase();
