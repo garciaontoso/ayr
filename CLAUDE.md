@@ -19,6 +19,18 @@ Lecciones detalladas en memoria `session_2026-05-02_FINAL_overnight.md`.
 
 
 
+## 📚 Bug Patterns Catalog
+Lista viva de bugs recurrentes con causa raíz + fix + prevención: `docs/bug-patterns.md`.
+**Cuando arregles un bug nuevo, AÑADE entrada al final.** Antes de tocar
+algo, consulta "Patrones obligatorios" y "Patrones prohibidos" allí. Es
+la memoria del proyecto contra regresiones.
+
+Sistema Anti-Fallo desplegado 2026-05-03 (3 capas):
+- **Capa 1**: `/api/audit/portfolio` + `/api/audit/full` — escanean
+  positions / cost_basis / dividendos / financials
+- **Capa 2**: pestaña 🎯 Radar → 🩺 Audit en frontend con auto-fix
+- **Capa 3**: cron diario 08:00 UTC + Telegram alert si regresión
+
 ## ⚠️ REGLAS DURAS DE DATA INTEGRITY (no romper)
 
 ### Tablas canonical (UN SOLO source of truth por tipo)
