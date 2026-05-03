@@ -17323,7 +17323,10 @@ OUTPUT: JSON array EXACTO con un objeto por item del input, en el mismo orden. S
         const totalCompensation = normalizedExecs.reduce((s, e) => s + (e.pay_usd || 0), 0);
 
         // 6. Insider activity last 12 months — open-market P/S only
+        // 2026-05-03: also expose the raw transaction list (top N most recent)
+        // so the Directiva tab can render a "Trades de la directiva" panel.
         let insiderBuyValue = 0, insiderSellValue = 0, insiderBuyCount = 0, insiderSellCount = 0;
+        const insiderTransactions = [];
         for (const t of insiderRaw) {
           const txDate = (t.transactionDate || "").slice(0, 10);
           if (!txDate || txDate < cutoff12mISO) continue;
@@ -17334,7 +17337,23 @@ OUTPUT: JSON array EXACTO con un objeto por item del input, en el mismo orden. S
           const value = shares * price;
           if (code === "P") { insiderBuyValue += value; insiderBuyCount++; }
           if (code === "S") { insiderSellValue += value; insiderSellCount++; }
+          insiderTransactions.push({
+            date: txDate,
+            type: code === 'P' ? 'BUY' : 'SELL',
+            type_raw: t.transactionType || code,
+            insider_name: t.reportingName || t.filingId || '—',
+            insider_role: t.typeOfOwner || t.relationship || '—',
+            shares: Math.round(shares),
+            price: Math.round(price * 100) / 100,
+            value_usd: Math.round(value),
+            shares_owned_after: Number(t.securitiesOwned) || null,
+            sec_link: t.link || null,
+          });
         }
+        // Sort by date desc, keep last 30
+        insiderTransactions.sort((a, b) => b.date.localeCompare(a.date));
+        const insiderTransactionsTop = insiderTransactions.slice(0, 30);
+
         const insiderSummary = {
           buy_count: insiderBuyCount,
           sell_count: insiderSellCount,
@@ -17425,6 +17444,7 @@ Análisis (1 párrafo): ¿Es buen equipo de gestión? Tenure razonable? Skin in 
           executives: normalizedExecs,
           total_compensation_usd: Math.round(totalCompensation),
           insider_activity_12m: insiderSummary,
+          insider_transactions: insiderTransactionsTop,
           ai_assessment: aiAssessment || "(análisis IA no disponible — revisa tenure y skin in the game manualmente)",
           green_flags: greenFlags,
           red_flags: redFlags,

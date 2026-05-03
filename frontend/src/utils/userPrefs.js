@@ -21,6 +21,8 @@ const SCOPED_KEYS = [
   'ayr-col-order-*',     // per-tab column order
   'ayr-col-vis-*',       // per-tab column visibility
   'ayr-cols-*',
+  'ayr-row-order-*',     // per-analysis-tab row (metric) order
+  'ayr-section-order-*', // per-tab section (card block) order
   'ayr-theme',
   'ayr-currency',
   'ayr-zoom',

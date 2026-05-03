@@ -1,15 +1,30 @@
+import { useState, useRef } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Badge, Card } from '../ui';
 import { _sf, n, fP, fX, fC, fM, div } from '../../utils/formatters.js';
 import { R } from '../../utils/ratings.js';
+import { getPref, setPref, removePref } from '../../utils/userPrefs.js';
+
+const PREF_KEY = 'ayr-row-order-valuation';
+const DEFAULT_ORDER = ["eve","pb","bvps","fcfps","fcfPayout","ePayout"];
+
+function savedOrder() {
+  try { const v = getPref(PREF_KEY); return v ? JSON.parse(v) : null; } catch { return null; }
+}
 
 export default function ValuationTab() {
   const { DATA_YEARS, DISPLAY_YEARS, L, LD, advancedMetrics, cfg, comp, comps, dcf, fmpExtra, setComps } = useAnalysis();
+  const [rowOrder, setRowOrder] = useState(() => savedOrder() || DEFAULT_ORDER);
+  const dragKey = useRef(null);
+  const [dragOver, setDragOver] = useState(null);
+
     const yrs = DISPLAY_YEARS || DATA_YEARS;
-    const metrics = [
+    const ALL_METRICS = [
       {k:"eve",l:"EV / EBITDA",r:R.eve,f:fX},{k:"pb",l:"Precio / Book",f:fX},{k:"bvps",l:"Book Value / Acción",f:v=>fC(v)},
       {k:"fcfps",l:"FCF / Acción",f:v=>fC(v)},{k:"fcfPayout",l:"FCF Payout",f:fP},{k:"ePayout",l:"Earnings Payout",f:fP},
     ];
+    const metricMap = Object.fromEntries(ALL_METRICS.map(m => [m.k, m]));
+    const metrics = [...new Set([...rowOrder, ...DEFAULT_ORDER])].filter(k => metricMap[k]).map(k => metricMap[k]);
     return (
       <div>
         <h2 style={{margin:"0 0 4px",fontSize:20,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fd)"}}>◎ Valoración por Múltiplos</h2>
@@ -37,12 +52,41 @@ export default function ValuationTab() {
               <th style={{position:"sticky",left:0,background:"var(--surface)",padding:"10px 14px",textAlign:"left",color:"var(--gold)",fontWeight:600,borderBottom:"2px solid var(--table-border)",minWidth:160,fontFamily:"var(--fm)",fontSize:10}}>MÚLTIPLO</th>
               {yrs.map(y=><th key={y} style={{padding:"10px 6px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid var(--table-border)",minWidth:72,fontFamily:"var(--fm)",fontSize:10}}>{y}</th>)}
             </tr></thead>
-            <tbody>{metrics.map((m,i)=>(
-              <tr key={m.k} style={{background:i%2?"var(--row-alt)":"transparent"}}>
-                <td style={{position:"sticky",left:0,background:i%2?"var(--card)":"var(--bg)",padding:"7px 14px",color:"var(--text-primary)",fontWeight:500,borderBottom:"1px solid var(--table-border)"}}>{m.l}</td>
+            <tbody>{metrics.map((m,i)=>{
+              const isDragTarget = dragOver === m.k;
+              return (
+              <tr key={m.k}
+                draggable={true}
+                onDragStart={e => { dragKey.current = m.k; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', m.k); } catch {} }}
+                onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragKey.current && dragKey.current !== m.k) setDragOver(m.k); }}
+                onDragLeave={() => { if (dragOver === m.k) setDragOver(null); }}
+                onDrop={e => {
+                  e.preventDefault();
+                  const src = dragKey.current || e.dataTransfer.getData('text/plain');
+                  if (!src || src === m.k) { dragKey.current = null; setDragOver(null); return; }
+                  const keys = metrics.map(x => x.k);
+                  const without = keys.filter(k => k !== src);
+                  const targetIdx = without.indexOf(m.k);
+                  const newOrder = [...without.slice(0, targetIdx), src, ...without.slice(targetIdx)];
+                  setRowOrder(newOrder);
+                  setPref(PREF_KEY, JSON.stringify(newOrder));
+                  dragKey.current = null; setDragOver(null);
+                }}
+                onDragEnd={() => { dragKey.current = null; setDragOver(null); }}
+                onContextMenu={e => {
+                  e.preventDefault();
+                  if (window.confirm('Restablecer orden de filas al original?')) { setRowOrder(DEFAULT_ORDER); removePref(PREF_KEY); }
+                }}
+                title="Arrastra para reordenar · click derecho para restablecer"
+                style={{background:i%2?"var(--row-alt)":"transparent", cursor:"grab", transition:"background .15s, border-left .1s",
+                  borderLeft: isDragTarget ? "3px solid var(--gold)" : "3px solid transparent",
+                  opacity: dragKey.current === m.k ? 0.4 : 1}}>
+                <td style={{position:"sticky",left:0,background:i%2?"var(--card)":"var(--bg)",padding:"7px 14px",color:"var(--text-primary)",fontWeight:500,borderBottom:"1px solid var(--table-border)",userSelect:"none"}}>
+                  <span style={{display:"inline-block",marginRight:6,opacity:.35,fontSize:9,letterSpacing:1,verticalAlign:"middle",fontFamily:"var(--fm)"}}>⋮⋮</span>{m.l}</td>
                 {yrs.map(y=><td key={y} style={{padding:"7px 6px",textAlign:"right",color:"var(--text-primary)",borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)"}}>{m.f(comp[y]?.[m.k])}</td>)}
               </tr>
-            ))}</tbody>
+              );
+            })}</tbody>
           </table>
         </Card>
 

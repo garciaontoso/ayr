@@ -1,20 +1,34 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Badge, AreaSparkline, Card, MetricHistoryChart } from '../ui';
 import { _sf, n, fP, fX, fM, div } from '../../utils/formatters.js';
 import { R } from '../../utils/ratings.js';
+import { getPref, setPref, removePref } from '../../utils/userPrefs.js';
+
+const PREF_KEY = 'ayr-row-order-quality';
+const DEFAULT_ORDER = ["gm","om","nm","roe","roic","fcfm","cfm","ocfCapex"];
+
+function savedOrder() {
+  try { const v = getPref(PREF_KEY); return v ? JSON.parse(v) : null; } catch { return null; }
+}
 
 export default function QualityTab() {
   const { DATA_YEARS, CHART_YEARS, DISPLAY_YEARS, L, comp, fmpExtra } = useAnalysis();
   // Click any metric card or table row to show a big year-by-year line chart
   // at the top of the tab. Click ✕ or the same metric again to close.
   const [selectedKey, setSelectedKey] = useState(null);
+  const [rowOrder, setRowOrder] = useState(() => savedOrder() || DEFAULT_ORDER);
+  const dragKey = useRef(null);
+  const [dragOver, setDragOver] = useState(null);
+
     const yrs = DISPLAY_YEARS || DATA_YEARS;
-    const metrics = [
+    const ALL_METRICS = [
       {k:"gm",l:"Margen Bruto",r:R.gm,f:fP},{k:"om",l:"Margen Operativo",r:R.om,f:fP},{k:"nm",l:"Margen Neto",r:R.nm,f:fP},
       {k:"roe",l:"ROE",r:R.roe,f:fP},{k:"roic",l:"ROIC",r:R.roic,f:fP},{k:"fcfm",l:"Margen FCF",r:R.fcfm,f:fP},
       {k:"cfm",l:"OCF / Ventas",f:fP},{k:"ocfCapex",l:"OCF / CapEx",f:fX},
     ];
+    const metricMap = Object.fromEntries(ALL_METRICS.map(m => [m.k, m]));
+    const metrics = [...new Set([...rowOrder, ...DEFAULT_ORDER])].filter(k => metricMap[k]).map(k => metricMap[k]);
     const selected = metrics.find(m => m.k === selectedKey);
     return (
       <div>
@@ -63,10 +77,37 @@ export default function QualityTab() {
             </tr></thead>
             <tbody>{metrics.map((m,i)=>{
               const isActive = selectedKey === m.k;
+              const isDragTarget = dragOver === m.k;
               return (
-                <tr key={m.k} onClick={() => setSelectedKey(isActive ? null : m.k)} title="Click para ver evolución anual"
-                  style={{background: isActive ? "var(--gold-dim)" : (i%2?"var(--row-alt)":"transparent"), cursor:"pointer", transition:"background .15s"}}>
-                  <td style={{position:"sticky",left:0,background: isActive ? "var(--gold-dim)" : (i%2?"var(--card)":"var(--bg)"),padding:"7px 14px",color: isActive ? "var(--gold)" : "var(--text-primary)",fontWeight:500,borderBottom:"1px solid var(--table-border)"}}>📈 {m.l}</td>
+                <tr key={m.k}
+                  draggable={true}
+                  onDragStart={e => { dragKey.current = m.k; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', m.k); } catch {} }}
+                  onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragKey.current && dragKey.current !== m.k) setDragOver(m.k); }}
+                  onDragLeave={() => { if (dragOver === m.k) setDragOver(null); }}
+                  onDrop={e => {
+                    e.preventDefault();
+                    const src = dragKey.current || e.dataTransfer.getData('text/plain');
+                    if (!src || src === m.k) { dragKey.current = null; setDragOver(null); return; }
+                    const keys = metrics.map(x => x.k);
+                    const without = keys.filter(k => k !== src);
+                    const targetIdx = without.indexOf(m.k);
+                    const newOrder = [...without.slice(0, targetIdx), src, ...without.slice(targetIdx)];
+                    setRowOrder(newOrder);
+                    setPref(PREF_KEY, JSON.stringify(newOrder));
+                    dragKey.current = null; setDragOver(null);
+                  }}
+                  onDragEnd={() => { dragKey.current = null; setDragOver(null); }}
+                  onContextMenu={e => {
+                    e.preventDefault();
+                    if (window.confirm('Restablecer orden de filas al original?')) { setRowOrder(DEFAULT_ORDER); removePref(PREF_KEY); }
+                  }}
+                  title="Arrastra para reordenar · click derecho para restablecer"
+                  style={{background: isActive ? "var(--gold-dim)" : (i%2?"var(--row-alt)":"transparent"), cursor:"grab", transition:"background .15s, border-left .1s",
+                    borderLeft: isDragTarget ? "3px solid var(--gold)" : "3px solid transparent",
+                    opacity: dragKey.current === m.k ? 0.4 : 1}}>
+                  <td onClick={() => setSelectedKey(isActive ? null : m.k)} title="Click para ver evolución anual"
+                    style={{position:"sticky",left:0,background: isActive ? "var(--gold-dim)" : (i%2?"var(--card)":"var(--bg)"),padding:"7px 14px",color: isActive ? "var(--gold)" : "var(--text-primary)",fontWeight:500,borderBottom:"1px solid var(--table-border)",cursor:"pointer",userSelect:"none"}}>
+                    <span style={{display:"inline-block",marginRight:6,opacity:.35,fontSize:9,letterSpacing:1,verticalAlign:"middle",fontFamily:"var(--fm)"}}>⋮⋮</span>📈 {m.l}</td>
                   <td style={{padding:"7px",textAlign:"center",borderBottom:"1px solid var(--table-border)"}}>{m.r?<Badge val={L[m.k]} rules={m.r}/>:"—"}</td>
                   {yrs.map(y=><td key={y} style={{padding:"7px 6px",textAlign:"right",color:"var(--text-primary)",borderBottom:"1px solid var(--table-border)",fontFamily:"var(--fm)"}}>{m.f(comp[y]?.[m.k])}</td>)}
                 </tr>

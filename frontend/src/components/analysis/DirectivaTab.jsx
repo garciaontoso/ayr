@@ -205,6 +205,57 @@ export default function DirectivaTab() {
         </div>
       </Card>
 
+      {/* Trades de la directiva — detalle con fechas (Form 4 / FMP /insider-trading) */}
+      {Array.isArray(data.insider_transactions) && data.insider_transactions.length > 0 && (
+        <Card title={`Trades de la directiva (${data.insider_transactions.length} más recientes, 12m)`} icon="📅">
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+              <thead>
+                <tr style={{borderBottom:'1px solid var(--border)',color:'var(--text-secondary)',fontSize:10,textTransform:'uppercase',letterSpacing:.8}}>
+                  <th style={{padding:'6px 8px',textAlign:'left'}}>Fecha</th>
+                  <th style={{padding:'6px 8px',textAlign:'left'}}>Insider</th>
+                  <th style={{padding:'6px 8px',textAlign:'left'}}>Cargo</th>
+                  <th style={{padding:'6px 8px',textAlign:'center'}}>Tipo</th>
+                  <th style={{padding:'6px 8px',textAlign:'right'}}>Acciones</th>
+                  <th style={{padding:'6px 8px',textAlign:'right'}}>Precio</th>
+                  <th style={{padding:'6px 8px',textAlign:'right'}}>Valor</th>
+                  <th style={{padding:'6px 8px',textAlign:'center'}}>SEC</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.insider_transactions.map((tx, i) => {
+                  const isBuy = tx.type === 'BUY';
+                  return (
+                    <tr key={i} style={{borderBottom:'1px solid var(--subtle-border)'}}>
+                      <td style={{padding:'6px 8px',color:'var(--text-secondary)',fontFamily:'var(--fm)',fontSize:11}}>{tx.date}</td>
+                      <td style={{padding:'6px 8px',color:'var(--text-primary)',fontWeight:500,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={tx.insider_name}>{tx.insider_name}</td>
+                      <td style={{padding:'6px 8px',color:'var(--text-tertiary)',fontSize:11,maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={tx.insider_role}>{tx.insider_role}</td>
+                      <td style={{padding:'6px 8px',textAlign:'center'}}>
+                        <span style={{
+                          fontSize:9,fontWeight:700,padding:'2px 7px',borderRadius:10,
+                          background: isBuy ? 'rgba(48,209,88,.15)' : 'rgba(255,69,58,.15)',
+                          color: isBuy ? '#30d158' : '#ff453a',
+                          border: `1px solid ${isBuy ? 'rgba(48,209,88,.3)' : 'rgba(255,69,58,.3)'}`,
+                        }}>{isBuy ? 'COMPRA' : 'VENTA'}</span>
+                      </td>
+                      <td style={{padding:'6px 8px',textAlign:'right',fontFamily:'var(--fm)',color:'var(--text-secondary)'}}>{tx.shares?.toLocaleString('es-ES') || '—'}</td>
+                      <td style={{padding:'6px 8px',textAlign:'right',fontFamily:'var(--fm)',color:'var(--text-secondary)'}}>{tx.price ? `$${tx.price.toFixed(2)}` : '—'}</td>
+                      <td style={{padding:'6px 8px',textAlign:'right',fontFamily:'var(--fm)',color: isBuy ? '#30d158' : '#ff453a',fontWeight:600}}>{tx.value_usd ? fmtUSD(tx.value_usd) : '—'}</td>
+                      <td style={{padding:'6px 8px',textAlign:'center'}}>
+                        {tx.sec_link ? (
+                          <a href={tx.sec_link} target="_blank" rel="noopener noreferrer"
+                            style={{color:'var(--gold)',fontSize:11,textDecoration:'none'}}>📄</a>
+                        ) : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
       {/* Compensation bar chart top 5 */}
       {topPaid.length > 0 && (
         <Card title={`Top ${topPaid.length} compensación · total ${fmtUSD(totalComp)}`} icon="💰">

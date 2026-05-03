@@ -1,9 +1,26 @@
+import { useState, useRef } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Card } from '../ui';
 import { _sf, n, fP, div } from '../../utils/formatters.js';
 import { YEARS } from '../../constants/index.js';
+import { getPref, setPref, removePref } from '../../utils/userPrefs.js';
+
+// ── Section drag-and-drop order ─────────────────────────────────────────────
+const DIV_SECTION_ORDER_KEY = 'ayr-section-order-dividends';
+const DIV_DEFAULT_ORDER = ['hero', 'keyMetrics', 'ssdNotes', 'growth', 'payout', 'financials', 'payment'];
+function loadDivSectionOrder() {
+  try { const v = getPref(DIV_SECTION_ORDER_KEY); return v ? JSON.parse(v) : null; } catch { return null; }
+}
 
 export default function DividendsTab() {
+  // All state before render logic — TDZ safety
+  const [sectionOrder, setSectionOrder] = useState(() => loadDivSectionOrder() || DIV_DEFAULT_ORDER);
+  const [dragOver, setDragOver] = useState(null);
+  const dragKey = useRef(null);
+  const [showTip, setShowTip] = useState(() => {
+    try { return !localStorage.getItem('ayr-reorder-tip-seen'); } catch { return false; }
+  });
+
   const { DATA_YEARS, L, LD, advancedMetrics, cfg, comp, divAnalysis, fin, fmpExtra, ssd } = useAnalysis();
     const S = ssd;
     const da = divAnalysis;
