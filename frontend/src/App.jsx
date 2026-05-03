@@ -2297,13 +2297,15 @@ function buildPositionsFromCB() {
       )}
 
       {viewMode==="home" ? (
-        <main style={{flex:1,padding:"10px 36px 32px",overflowY:"auto"}}>
+        // 2026-05-03: padding 10/36/32 → 8/14/14 — el usuario quería más
+        // espacio útil. El contenedor interno limita a 1800 (HomeView.jsx).
+        <main style={{flex:1,padding:"8px 14px 14px",overflowY:"auto"}}>
           <HomeContext.Provider value={homeContextValue}>
             <HomeView />
           </HomeContext.Provider>
         </main>
       ) : viewMode==="costbasis" ? (
-        <main style={{flex:1,padding:"32px 36px",overflowY:"auto"}}>
+        <main style={{flex:1,padding:"12px 14px",overflowY:"auto"}}>
           <CostBasisContext.Provider value={costBasisContextValue}>
             <ErrorBoundary>
               <Suspense fallback={<Loading />}>
@@ -2317,7 +2319,7 @@ function buildPositionsFromCB() {
           {/* ═══ ANALYSIS HEADER ═══ */}
           <header style={{position:"sticky",top:0,zIndex:20,background:"var(--header-bg)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",borderBottom:"1px solid var(--border)"}}>
             {/* Row 1: Back + Config */}
-            <div className="ar-analysis-header" style={{display:"flex",alignItems:"center",gap:10,padding:"8px 24px 4px",flexWrap:"wrap"}}>
+            <div className="ar-analysis-header" style={{display:"flex",alignItems:"center",gap:10,padding:"6px 14px 3px",flexWrap:"wrap"}}>
               <button onClick={goHome} style={{padding:"5px 12px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:11,cursor:"pointer",fontFamily:"var(--fm)",fontWeight:600,flexShrink:0}}>← Inicio</button>
               {/* Company logo */}
               <div style={{width:28,height:28,borderRadius:7,overflow:"hidden",background:"var(--card)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
@@ -2373,7 +2375,7 @@ function buildPositionsFromCB() {
               </div>
             </div>
             {/* Row 1.5: Position Notes (buy thesis) */}
-            {cfg.ticker && <div style={{padding:"2px 24px 0",display:"flex",alignItems:"flex-start",gap:8}}>
+            {cfg.ticker && <div style={{padding:"2px 14px 0",display:"flex",alignItems:"flex-start",gap:8}}>
               <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,paddingTop:4,flexShrink:0}}>Notas</span>
               <textarea
                 value={positionNotes}
@@ -2390,7 +2392,7 @@ function buildPositionsFromCB() {
             {/* Row 2: Analysis Tabs — draggable to reorder. Order persists
                 in localStorage 'ayr-tab-order'. Right-click any tab to reset
                 to default order. */}
-            <div ref={tabsRef} className="ar-tabs-scroll" style={{display:"flex",gap:2,padding:"0 24px",overflowX:"auto",overflowY:"hidden",borderTop:"1px solid var(--row-border)"}}>
+            <div ref={tabsRef} className="ar-tabs-scroll" style={{display:"flex",gap:2,padding:"0 14px",overflowX:"auto",overflowY:"hidden",borderTop:"1px solid var(--row-border)"}}>
               {(() => {
                 // Compose ordered list: saved order first (intersected with current TABS),
                 // then any tabs added since last save appended at the end.
@@ -2455,10 +2457,13 @@ function buildPositionsFromCB() {
               ))}
             </div>
           </header>
-          <main className="ar-analysis-main" style={{flex:1,padding:"24px 28px",overflowY:"auto"}}>
+          {/* 2026-05-03: padding reducido 24/28 → 10/14 + maxWidth 1280 → 1700
+              para aprovechar pantallas anchas. Antes había mucho aire alrededor
+              de tablas y gráficos especialmente en FAST. */}
+          <main className="ar-analysis-main" style={{flex:1,padding:"10px 14px",overflowY:"auto"}}>
             <AnalysisContext.Provider value={analysisValue}>
               <CostBasisContext.Provider value={costBasisContextValue}>
-                <div style={{maxWidth:1280,margin:"0 auto",animation:anim?"fadeUp .4s cubic-bezier(.16,1,.3,1)":"none"}} key={tab}><ErrorBoundary><Suspense fallback={<Loading />}>{content[tab]?.()}</Suspense></ErrorBoundary></div>
+                <div style={{maxWidth:1700,margin:"0 auto",animation:anim?"fadeUp .4s cubic-bezier(.16,1,.3,1)":"none"}} key={tab}><ErrorBoundary><Suspense fallback={<Loading />}>{content[tab]?.()}</Suspense></ErrorBoundary></div>
               </CostBasisContext.Provider>
             </AnalysisContext.Provider>
           </main>

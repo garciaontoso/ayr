@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Badge, BarChart, Card, TrustBadge } from '../ui';
 import MetricHistoryChart from '../ui/MetricHistoryChart.jsx';
@@ -8,13 +8,29 @@ import { useFreshness } from '../../hooks/useFreshness.js';
 import { API_URL } from '../../constants/index.js';
 import { getPref, setPref, removePref } from '../../utils/userPrefs.js';
 
+// FAST se incrustó dentro de Resumen el 2026-05-03 a petición del usuario.
+// La pestaña ⚡FAST top-level sigue existiendo como código (no la borro)
+// pero está oculta en TABS para no duplicar. Lazy-load porque pesa 90KB.
+const FastTab = lazy(() => import('./FastTab.jsx'));
+
 const SECTION_ORDER_KEY = 'ayr-section-order-resumen';
 const DEFAULT_SECTION_ORDER = [
-  'header', 'metrics', 'range52', 'charts', 'roicWacc',
+  'fast', 'header', 'metrics', 'range52', 'charts', 'roicWacc',
   'earnings', 'scores', 'fcfCoverage', 'fcfAlloc', 'aiRisk', 'debtMaturity',
 ];
 function loadSectionOrder() {
   try { const v = getPref(SECTION_ORDER_KEY); return v ? JSON.parse(v) : null; } catch { return null; }
+}
+
+// Per-user horizontal order of KPI cards inside the metrics grid.
+// Stored as a list of metric labels; new metrics introduced later are appended.
+const METRIC_ORDER_KEY = 'ayr-metric-order-resumen';
+const DEFAULT_METRIC_ORDER = [
+  'FCF','M. Bruto','M. Operativo','ROE','ROIC','Deuda/FCF','EV/EBITDA',
+  'Piotroski','Div Yield','WACC','Ventas','EPS','DPS',
+];
+function loadMetricOrder() {
+  try { const v = getPref(METRIC_ORDER_KEY); return v ? JSON.parse(v) : null; } catch { return null; }
 }
 
 export default function DashTab() {
@@ -58,6 +74,11 @@ export default function DashTab() {
       'ROIC':        { get: y => comp[y]?.roic,  fmt: v => fP(v),                  color: '#c8a44e', sub: '%' },
       'Deuda/FCF':   { get: y => comp[y]?.d2fcf, fmt: v => v == null ? '—' : _sf(v,1)+'x', color: '#5b9bd5', sub: 'x' },
       'EV/EBITDA':   { get: y => comp[y]?.eve,   fmt: v => v == null ? '—' : _sf(v,1)+'x', color: '#5b9bd5', sub: 'x' },
+      'Ventas':      { get: y => fin[y]?.revenue, fmt: v => fM(v),                color: '#64d2ff', sub: 'M USD' },
+      'EPS':         { get: y => fin[y]?.eps,     fmt: v => v == null ? '—' : '$'+_sf(v,2), color: '#bf5af2', sub: 'USD' },
+      'DPS':         { get: y => fin[y]?.dps,     fmt: v => v == null ? '—' : '$'+_sf(v,2), color: '#ff9f0a', sub: 'USD' },
+      'OCF':         { get: y => fin[y]?.ocf,     fmt: v => fM(v),                color: '#34d399', sub: 'M USD' },
+      'Net Income':  { get: y => fin[y]?.netIncome, fmt: v => fM(v),              color: '#34d399', sub: 'M USD' },
     };
     // ── Drag handlers ─────────────────────────────────────────────────────
     const onSecDragStart = (id, e) => { dragKey.current = id; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', id); } catch {} };
@@ -78,6 +99,15 @@ export default function DashTab() {
 
     // ── Section content map ────────────────────────────────────────────────
     const SECTIONS = {
+      // ⚡ FAST embebido — primer bloque al abrir Resumen. Es el análisis
+      // de valoración precio vs métrica que antes vivía en pestaña aparte.
+      // Lo dejé arrastrable como cualquier otra sección por si el usuario
+      // quiere moverlo. La pestaña FAST top-level está oculta (no borrada).
+      fast: (
+        <Suspense fallback={<Card><div style={{textAlign:'center',padding:30,color:'var(--text-tertiary)',fontSize:11}}>⚡ Cargando FAST…</div></Card>}>
+          <FastTab />
+        </Suspense>
+      ),
       header: (
         <Card glow>
           <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
