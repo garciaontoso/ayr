@@ -6847,6 +6847,82 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // BUY RADAR — empresas concretas a comprar a precio objetivo (2026-05-03)
       // ═══════════════════════════════════════════════════════════════
 
+      // GET /api/credit-rating?symbol=X — devuelve S&P/Moody's/Fitch credit
+      // ratings (igual que FAST Graphs sidebar muestra "S&P AA-"). Fallback
+      // graceful al FMP Quality Rating si el plan FMP no incluye S&P.
+      // Cache en agent_memory 24h.
+      if (path === "/api/credit-rating" && request.method === "GET") {
+        await ensureMigrations(env);
+        const sym = (url.searchParams.get('symbol') || '').toUpperCase();
+        if (!sym) return json({ error: 'Missing ?symbol=' }, corsHeaders, 400);
+        const cacheKey = `credit_rating:${sym}`;
+        try {
+          const cached = await env.DB.prepare(
+            "SELECT value, updated_at FROM agent_memory WHERE key = ?"
+          ).bind(cacheKey).first();
+          if (cached?.value && cached.updated_at) {
+            const age = Date.now() - new Date(cached.updated_at).getTime();
+            if (age < 24 * 3600 * 1000) {
+              return json({ ok: true, cached: true, ...JSON.parse(cached.value) }, corsHeaders);
+            }
+          }
+        } catch {}
+        // Try FMP /credit-ratings (Premium plan endpoint)
+        const FMP_KEY_LOCAL = env.FMP_KEY;
+        const result = { symbol: sym, sp: null, moody: null, fitch: null, fmp_quality: null };
+        try {
+          const r = await fetch(`https://financialmodelingprep.com/stable/grades-historical?symbol=${encodeURIComponent(sym)}&apikey=${FMP_KEY_LOCAL}&limit=1`, {
+            signal: AbortSignal.timeout(15000),
+          });
+          if (r.ok) {
+            const arr = await r.json().catch(() => []);
+            // grades-historical no es S&P credit pero sí da analyst grades
+            if (Array.isArray(arr) && arr[0]) {
+              result.fmp_grade = arr[0].newGrade || arr[0].grade || null;
+              result.fmp_grade_company = arr[0].gradingCompany || null;
+            }
+          }
+        } catch {}
+        // FMP Quality Rating siempre disponible
+        try {
+          const r2 = await fetch(`https://financialmodelingprep.com/stable/ratings-snapshot?symbol=${encodeURIComponent(sym)}&apikey=${FMP_KEY_LOCAL}`, {
+            signal: AbortSignal.timeout(15000),
+          });
+          if (r2.ok) {
+            const arr2 = await r2.json().catch(() => []);
+            if (Array.isArray(arr2) && arr2[0]) {
+              result.fmp_quality = {
+                rating: arr2[0].rating,
+                score: arr2[0].overallScore,
+              };
+            }
+          }
+        } catch {}
+        // Try /credit-ratings (some FMP plans expose this for S&P/Moody's)
+        try {
+          const r3 = await fetch(`https://financialmodelingprep.com/stable/credit-ratings?symbol=${encodeURIComponent(sym)}&apikey=${FMP_KEY_LOCAL}`, {
+            signal: AbortSignal.timeout(15000),
+          });
+          if (r3.ok) {
+            const arr3 = await r3.json().catch(() => []);
+            if (Array.isArray(arr3) && arr3[0]) {
+              result.sp = arr3[0].spRating || arr3[0].standardPoorRating || null;
+              result.moody = arr3[0].moodysRating || arr3[0].moodyRating || null;
+              result.fitch = arr3[0].fitchRating || null;
+              result.raw = arr3[0];
+            }
+          }
+        } catch {}
+        // Persist cache
+        try {
+          await env.DB.prepare(
+            `INSERT INTO agent_memory (key, value, updated_at) VALUES (?, ?, datetime('now'))
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`
+          ).bind(cacheKey, JSON.stringify(result)).run();
+        } catch {}
+        return json({ ok: true, cached: false, ...result }, corsHeaders);
+      }
+
       if (path === "/api/buy-radar/list" && request.method === "GET") {
         await ensureMigrations(env);
         const { results } = await env.DB.prepare(
