@@ -3,6 +3,12 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 import AuthGate from './AuthGate.jsx'
+import { loadServerPrefs } from './utils/userPrefs.js'
+
+// Hydrate cross-device preferences from D1 BEFORE first render. Non-blocking
+// (returns void if endpoint unreachable). Restores tab order, column visibility,
+// year order, category dots, etc set on a different device.
+loadServerPrefs();
 // bundle-bust 2026-04-21 — fix recurring página en blanco (SW controllerchange reload loop)
 console.debug('A&R bundle', 'no-sw-2026-04-21');
 

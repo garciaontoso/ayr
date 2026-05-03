@@ -65,11 +65,69 @@ export function getPref(key, fallback = null) {
 }
 
 export function setPref(key, value) {
-  try { localStorage.setItem(scopedKey(key), value); } catch {}
+  const sk = scopedKey(key);
+  try { localStorage.setItem(sk, value); } catch {}
+  // Fire-and-forget server sync so prefs follow the user across devices.
+  // /api/preferences requires keys to match [a-z0-9_]+, so we encode the
+  // raw scoped key into a safe form preserving full uniqueness.
+  syncToServer(sk, value).catch(() => {});
 }
 
 export function removePref(key) {
-  try { localStorage.removeItem(scopedKey(key)); } catch {}
+  const sk = scopedKey(key);
+  try { localStorage.removeItem(sk); } catch {}
+  syncToServer(sk, null).catch(() => {});
+}
+
+// ─── Cross-device sync via /api/preferences (D1 agent_memory) ────────────
+// 2026-05-03: prefs were localStorage-only → did not follow user across
+// devices/incognito. Now we mirror to D1. Async, fire-and-forget, no UI block.
+import { API_URL } from '../constants/index.js';
+
+function safeKey(k) {
+  // /api/preferences regex is [a-z0-9_]+. Encode anything else.
+  return 'p_' + (k || '').toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 56);
+}
+
+async function syncToServer(scopedK, value) {
+  if (!API_URL) return;
+  try {
+    await fetch(`${API_URL}/api/preferences`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: safeKey(scopedK), value: { raw_key: scopedK, v: value } }),
+    });
+  } catch {}
+}
+
+let _serverPrefsLoaded = false;
+export async function loadServerPrefs() {
+  // Call once at app startup. Hydrates localStorage with whatever the user
+  // saved on a previous device. Doesn't overwrite existing local values
+  // (user might have made local-only changes since last server sync) unless
+  // the local copy is missing.
+  if (_serverPrefsLoaded) return;
+  _serverPrefsLoaded = true;
+  try {
+    const r = await fetch(`${API_URL}/api/preferences`);
+    if (!r.ok) return;
+    const j = await r.json();
+    const prefs = j.preferences || {};
+    let restored = 0;
+    for (const [_safeK, payload] of Object.entries(prefs)) {
+      if (!payload || typeof payload !== 'object' || !payload.raw_key) continue;
+      const localKey = payload.raw_key;
+      const value = payload.v;
+      // Only set if missing locally
+      const existing = localStorage.getItem(localKey);
+      if (existing == null && value != null) {
+        try { localStorage.setItem(localKey, typeof value === 'string' ? value : JSON.stringify(value)); restored++; } catch {}
+      }
+    }
+    if (restored > 0) console.info(`[prefs] restored ${restored} from server`);
+  } catch (e) {
+    // Silent — falls back to localStorage-only mode
+  }
 }
 
 // Year-order helpers
