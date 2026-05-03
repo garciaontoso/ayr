@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } from "react";
+import { useThemeStore } from './state/themeStore';
 import { _sf, fmtNumD, fmtPctFrac, fmtMul, fmtBnUsd } from './utils/formatters';
 import { CURRENCIES, DISPLAY_CCYS, DEFAULT_FX, YEARS, _CURRENT_YEAR, TABS, API_URL, HOME_TABS } from './constants/index.js';
 import { convertCcy, fetchFxRates } from './utils/currency.js';
@@ -229,14 +230,13 @@ export default function ARApp() {
   const [fmpExtra, setFmpExtra] = useState({ rating: {}, dcf: {}, estimates: [], priceTarget: {}, keyMetrics: [], finGrowth: [], grades: {}, ownerEarnings: [], revSegments: [], geoSegments: [], peers: [], earnings: [], ptSummary: {}, profile: {} });
   const [showSettings, setShowSettings] = useState(false);
   const [privacyMode, setPrivacyMode] = useState(() => localStorage.getItem("ayr_privacy") === "1");
-  const [theme, setTheme] = useState(() => localStorage.getItem("ayr_theme") || "dark");
+  const theme = useThemeStore((s) => s.theme);
+  const toggleTheme = useThemeStore((s) => s.toggle);
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     document.body.style.background = "var(--bg)";
     document.body.style.color = "var(--text-primary)";
-    localStorage.setItem("ayr_theme", theme);
   }, [theme]);
-  const toggleTheme = () => setTheme(t => t === "dark" ? "light" : "dark");
 
   // ── IB Integration state ──
   const [ibData, setIbData] = useState({ positions: [], ledger: {}, summary: {}, trades: [], loaded: false, loading: false, lastSync: null, errors: {} });
