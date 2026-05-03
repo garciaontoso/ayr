@@ -6,8 +6,20 @@ import { useDraggableOrder } from '../../hooks/useDraggableOrder.js';
 import BuyWizard from '../ui/BuyWizard.jsx';
 import FiveFiltersBars from '../ui/FiveFiltersBars.jsx';
 import { API_URL } from '../../constants/index.js';
+import {
+  PASTORES_DIVIDENDO,
+  PASTORES_TAB_ID,
+  PASTORES_TAB_NAME,
+  priceZone,
+  zoneColors,
+} from '../../data/pastoresDividendo.js';
 
 const WL_KEY = "ayr_wl_tabs";
+
+// Map for quick lookup of ranges when the Pastores tab is active.
+const PASTORES_BY_TICKER = Object.fromEntries(
+  PASTORES_DIVIDENDO.map(r => [r.ticker, r])
+);
 
 // Sort pill definitions (id stable for persistence)
 const WATCHLIST_SORT_OPTIONS = [
@@ -25,10 +37,30 @@ export default function WatchlistTab() {
     displayCcy, privacyMode, hide, openScoresModal,
   } = useHome();
 
-  // Persistent tabs in localStorage
+  // Persistent tabs in localStorage. Seeds the curated "Pastores del Dividendo"
+  // tab on first mount with all tickers from the data file. The tab can still
+  // be deleted/renamed by the user — we only add it once.
   const [tabs, setTabs] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(WL_KEY)) || [{ id: "all", name: "Todas", tickers: null }]; }
-    catch { return [{ id: "all", name: "Todas", tickers: null }]; }
+    let initial;
+    try {
+      initial = JSON.parse(localStorage.getItem(WL_KEY)) || [{ id: "all", name: "Todas", tickers: null }];
+    } catch {
+      initial = [{ id: "all", name: "Todas", tickers: null }];
+    }
+    const hasPastores = initial.some(t => t.id === PASTORES_TAB_ID);
+    const seenSeed = (() => { try { return localStorage.getItem('ayr_wl_pastores_seeded') === '1'; } catch { return false; } })();
+    if (!hasPastores && !seenSeed) {
+      initial = [...initial, {
+        id: PASTORES_TAB_ID,
+        name: PASTORES_TAB_NAME,
+        tickers: PASTORES_DIVIDENDO.map(r => r.ticker),
+      }];
+      try {
+        localStorage.setItem(WL_KEY, JSON.stringify(initial));
+        localStorage.setItem('ayr_wl_pastores_seeded', '1');
+      } catch {}
+    }
+    return initial;
   });
   const [activeTab, setActiveTab] = useState("all");
   const [quickFilter, setQuickFilter] = useState("");
@@ -261,6 +293,41 @@ export default function WatchlistTab() {
           })}
         </div>
       </div>
+
+      {/* Pastores del Dividendo — buy-zone reference banner */}
+      {currentTab.id === PASTORES_TAB_ID && (
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--gold)", marginBottom: 8, fontFamily: "var(--fm)", letterSpacing: 0.5 }}>
+            🎯 RANGOS DE COMPRA · {PASTORES_DIVIDENDO.length} EMPRESAS
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(220px,1fr))", gap: 8 }}>
+            {PASTORES_DIVIDENDO.map(p => {
+              const live = (allItems || []).find(x => x.ticker === p.ticker);
+              const price = live?.lastPrice;
+              const zone = priceZone(price, p.buyLow, p.buyHigh);
+              const c = zoneColors(zone);
+              const cur = p.currency === 'EUR' ? '€' : p.currency === 'GBP' ? '£' : '$';
+              const lo = p.buyLow != null ? p.buyLow.toFixed(2) : '—';
+              const hi = p.buyHigh != null ? p.buyHigh.toFixed(2) : '—';
+              const px = price != null ? price.toFixed(2) : '—';
+              return (
+                <div key={p.ticker} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: c.bg, border: `1px solid ${c.fg}33`, borderRadius: 8 }}>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: c.fg, fontFamily: "var(--fm)", padding: "2px 5px", borderRadius: 4, background: `${c.fg}22`, minWidth: 56, textAlign: "center" }}>{c.label}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+                    <div style={{ fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>
+                      {cur}{lo}–{cur}{hi} · ahora <span style={{ color: c.fg, fontWeight: 700 }}>{cur}{px}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 9, color: "var(--text-tertiary)", marginTop: 8, fontStyle: "italic" }}>
+            🟢 ≤ rango bajo · 🟡 dentro del rango · 🔴 por encima · S/D = sin precio. Unilever y Reckitt sin rango aún — fíjalos cuando quieras.
+          </div>
+        </div>
+      )}
 
       {/* Items */}
       {sorted.length === 0 && (
