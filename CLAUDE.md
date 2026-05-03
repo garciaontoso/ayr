@@ -19,6 +19,12 @@ Lecciones detalladas en memoria `session_2026-05-02_FINAL_overnight.md`.
 
 
 
+## 🎯 LEER PRIMERO — Plan profesionalización 12 semanas
+Ver `docs/ROADMAP-PRO.md` para el plan completo. Estamos en **Semana 1**:
+error tracking propio + Zod + Vitest + CI. Cualquier sesión nueva debe
+leer ese fichero primero, ver qué está hecho ✅ y qué está EN CURSO 🚧,
+y continuar por ahí en lugar de empezar features nuevas.
+
 ## 📚 Bug Patterns Catalog
 Lista viva de bugs recurrentes con causa raíz + fix + prevención: `docs/bug-patterns.md`.
 **Cuando arregles un bug nuevo, AÑADE entrada al final.** Antes de tocar
@@ -30,6 +36,18 @@ Sistema Anti-Fallo desplegado 2026-05-03 (3 capas):
   positions / cost_basis / dividendos / financials
 - **Capa 2**: pestaña 🎯 Radar → 🩺 Audit en frontend con auto-fix
 - **Capa 3**: cron diario 08:00 UTC + Telegram alert si regresión
+
+## 🛠 Validators centralizados
+`frontend/src/validators/index.js` — schemas para Position, Trade,
+Fundamentals + isReit helper. Uso: `const { value, isValid, issue } =
+validatePosition(p);`. Devuelven graceful fallback en lugar de NaN/crash.
+TODO: cablear en PortfolioTab/DashTab/FastTab incrementalmente.
+
+## 🚦 Pre-deploy guard
+`scripts/pre-deploy-check.sh` ejecuta `/api/audit/full`, compara con
+`.audit-baseline.json` y bloquea deploy si DELTA_RED > 0. Override:
+`ALLOW_REGRESSION=1 bash scripts/pre-deploy-check.sh`. TODO: integrar
+como pre-step en el comando deploy npm.
 
 ## ⚠️ REGLAS DURAS DE DATA INTEGRITY (no romper)
 

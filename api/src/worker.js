@@ -468,6 +468,27 @@ async function ensureMigrations(env) {
     )`).run();
     try { await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_buy_radar_sort ON buy_radar(sort_order ASC)`).run(); } catch(_){}
 
+    // ── Error tracking propio (2026-05-03) ──────────────────────────────
+    // Reemplaza Sentry/Bugsnag con almacén local en D1. Frontend hace POST
+    // a /api/error-log con stack + contexto. Después leemos vía dashboard
+    // para ver qué se rompe en producción sin necesidad de SaaS externo.
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS errors_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts TEXT DEFAULT (datetime('now')),
+      severity TEXT DEFAULT 'error',
+      message TEXT,
+      stack TEXT,
+      url TEXT,
+      user_agent TEXT,
+      context TEXT,
+      ticker TEXT,
+      tab TEXT,
+      build_id TEXT,
+      resolved INTEGER DEFAULT 0
+    )`).run();
+    try { await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_errors_ts ON errors_log(ts DESC)`).run(); } catch(_){}
+    try { await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_errors_resolved ON errors_log(resolved, ts DESC)`).run(); } catch(_){}
+
     // Presupuesto: excluded gasto IDs, last payment, custom months
     try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN excluded_gastos TEXT DEFAULT NULL`).run(); } catch(e) { /* already exists */ }
     try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN last_payment TEXT DEFAULT NULL`).run(); } catch(e) { /* already exists */ }
