@@ -22,12 +22,18 @@ export default function DataAuditTab() {
   const [filter, setFilter] = useState('all');  // all | red | yellow | green
   const [expanded, setExpanded] = useState({});
 
+  const [fullAudit, setFullAudit] = useState(null);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetch(`${API_URL}/api/audit/portfolio`);
-      const d = await r.json();
-      setData(d);
+      const [r1, r2] = await Promise.all([
+        fetch(`${API_URL}/api/audit/portfolio`),
+        fetch(`${API_URL}/api/audit/full`),
+      ]);
+      const [d1, d2] = await Promise.all([r1.json(), r2.json()]);
+      setData(d1);
+      setFullAudit(d2);
     } catch (e) {
       console.error('audit failed', e);
     }
@@ -150,10 +156,54 @@ export default function DataAuditTab() {
         })}
       </div>
 
+      {/* Audit FULL — issues por categoría más allá de positions */}
+      {fullAudit?.summary && (
+        <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 12, padding: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--fd)', marginBottom: 8 }}>
+            🔬 Audit completo · {fullAudit.summary.total_issues} issues en otras tablas
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(180px,1fr))', gap: 8 }}>
+            {Object.entries(fullAudit.summary.by_category || {}).map(([cat, n]) => {
+              const issues = fullAudit.issues?.[cat] || [];
+              const hasRed = issues.some(i => i.sev === 'red');
+              const color = n === 0 ? SEV_COLOR.green : hasRed ? SEV_COLOR.red : SEV_COLOR.yellow;
+              return (
+                <div key={cat} style={{ padding: '8px 10px', background: `${color}10`, border: `1px solid ${color}33`, borderRadius: 8 }}>
+                  <div style={{ fontSize: 9, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{cat}</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color, fontFamily: 'var(--fm)' }}>{n}</div>
+                  <div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>issues</div>
+                </div>
+              );
+            })}
+          </div>
+          {/* Issues detallados por categoría */}
+          {Object.entries(fullAudit.issues || {}).map(([cat, list]) => {
+            if (!list.length) return null;
+            return (
+              <details key={cat} style={{ marginTop: 10 }}>
+                <summary style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)', cursor: 'pointer', fontFamily: 'var(--fm)', padding: '4px 0' }}>
+                  {cat} · {list.length} issues
+                </summary>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 6, maxHeight: 280, overflowY: 'auto' }}>
+                  {list.slice(0, 50).map((it, j) => (
+                    <div key={j} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10, fontFamily: 'var(--fm)', padding: '3px 8px', background: 'rgba(0,0,0,.15)', borderRadius: 4 }}>
+                      <span style={{ fontSize: 10 }}>{it.sev === 'red' ? '🔴' : '🟡'}</span>
+                      <span style={{ width: 90, fontWeight: 700, color: 'var(--text-primary)' }}>{it.ticker}</span>
+                      <span style={{ flex: 1, color: 'var(--text-secondary)' }}>{it.msg}</span>
+                    </div>
+                  ))}
+                  {list.length > 50 && <div style={{ fontSize: 10, color: 'var(--text-tertiary)', fontStyle: 'italic', padding: 6 }}>... y {list.length - 50} más</div>}
+                </div>
+              </details>
+            );
+          })}
+        </div>
+      )}
+
       {/* Footer info */}
       <div style={{ fontSize: 10, color: 'var(--text-tertiary)', fontStyle: 'italic', textAlign: 'center' }}>
-        🟢 todos los campos OK · 🟡 algún campo vacío o stale · 🔴 datos críticos faltantes (mktCap, sector, financials)
-        <br />Click "🔧 Auto-fix sectores" sincroniza positions.sector con FMP para los mismatches.
+        🟢 todos los campos OK · 🟡 algún campo vacío o stale · 🔴 datos críticos faltantes
+        <br />🩺 Cron automático diario 10:00 Madrid · Telegram alert si hay regresión vs día anterior
       </div>
     </div>
   );

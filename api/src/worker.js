@@ -8674,6 +8674,102 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return json({ ok: true, summary, audit, generated_at: new Date().toISOString() }, corsHeaders);
       }
 
+      // GET /api/audit/full — audit holístico que mira positions, cost_basis,
+      // dividendos, fundamentals (financial years). Devuelve issues por
+      // categoría para que el frontend pueda mostrarlos en cada tab.
+      // Categorías: portfolio, cost_basis, dividendos, financials.
+      if (path === "/api/audit/full" && request.method === "GET") {
+        await ensureMigrations(env);
+        const issues = { portfolio: [], cost_basis: [], dividendos: [], financials: [] };
+        // ── 1. Portfolio (mismo cálculo que /api/audit/portfolio) ──
+        const { results: positions } = await env.DB.prepare(
+          `SELECT * FROM positions WHERE list='portfolio' AND COALESCE(shares,0) > 0`
+        ).all();
+        for (const pos of (positions || [])) {
+          if (!pos.sector) issues.portfolio.push({ ticker: pos.ticker, sev: 'yellow', field: 'sector', msg: 'sector vacío' });
+        }
+        // ── 2. Cost basis ── detect:
+        //   · DIVIDENDS rows with shares populated (legacy bug — should be 0)
+        //   · Trades sin exec_id (no se pueden dedupe)
+        //   · Trades con account NULL (multi-account inconsistente)
+        //   · DIVIDENDS sin gross/net (legacy backfill incompleto)
+        try {
+          const { results: cb } = await env.DB.prepare(
+            `SELECT ticker, tipo, shares, exec_id, account, COUNT(*) as n
+             FROM cost_basis
+             GROUP BY ticker, tipo, (CASE WHEN shares > 0 THEN 1 ELSE 0 END), (CASE WHEN exec_id IS NULL THEN 1 ELSE 0 END), (CASE WHEN account IS NULL THEN 1 ELSE 0 END)`
+          ).all();
+          // Agrupado por bug pattern
+          const dividendsWithShares = await env.DB.prepare(
+            `SELECT ticker, COUNT(*) as n FROM cost_basis WHERE tipo IN ('DIVIDENDS','DIVIDEND','DIV') AND COALESCE(shares,0) > 0 GROUP BY ticker`
+          ).all();
+          for (const r of (dividendsWithShares.results || [])) {
+            issues.cost_basis.push({ ticker: r.ticker, sev: 'yellow', field: 'dividends_with_shares', msg: `${r.n} filas DIVIDENDS con shares poblado (bug legacy — debería ser 0)` });
+          }
+          const noExecId = await env.DB.prepare(
+            `SELECT ticker, COUNT(*) as n FROM cost_basis WHERE tipo IN ('EQUITY','OPTION','OPT') AND exec_id IS NULL GROUP BY ticker`
+          ).all();
+          for (const r of (noExecId.results || [])) {
+            if (r.n > 0) issues.cost_basis.push({ ticker: r.ticker, sev: 'yellow', field: 'no_exec_id', msg: `${r.n} trades sin exec_id (riesgo de dup en re-import)` });
+          }
+          const nullAccount = await env.DB.prepare(
+            `SELECT ticker, COUNT(*) as n FROM cost_basis WHERE tipo IN ('EQUITY','OPTION','OPT') AND account IS NULL GROUP BY ticker`
+          ).all();
+          for (const r of (nullAccount.results || [])) {
+            issues.cost_basis.push({ ticker: r.ticker, sev: 'yellow', field: 'null_account', msg: `${r.n} trades con account=NULL (afecta multi-account agg)` });
+          }
+        } catch (e) { console.warn('[audit-full] cost_basis check failed:', e.message); }
+
+        // ── 3. Dividendos ── detect:
+        //   · shares=0 + dps>1.0 (claro bug de extracción)
+        //   · gross=0 con net>0 (legacy bleed pre-WHT fix)
+        try {
+          const sharesZero = await env.DB.prepare(
+            `SELECT ticker, COUNT(*) as n FROM dividendos WHERE COALESCE(shares,0) = 0 AND COALESCE(dps,dps_gross,dps_net) > 1.0 GROUP BY ticker`
+          ).all();
+          for (const r of (sharesZero.results || [])) {
+            issues.dividendos.push({ ticker: r.ticker, sev: 'red', field: 'shares_zero', msg: `${r.n} divs con shares=0 + dps>1 (bug extracción)` });
+          }
+          const grossMissing = await env.DB.prepare(
+            `SELECT ticker, COUNT(*) as n FROM dividendos WHERE COALESCE(dps_gross,0) = 0 AND COALESCE(dps_net,dps,0) > 0 GROUP BY ticker`
+          ).all();
+          for (const r of (grossMissing.results || [])) {
+            if (r.n > 5) issues.dividendos.push({ ticker: r.ticker, sev: 'yellow', field: 'gross_missing', msg: `${r.n} divs sin dps_gross (legacy bleed pre-2026)` });
+          }
+        } catch (e) { console.warn('[audit-full] dividendos check failed:', e.message); }
+
+        // ── 4. Financials (fundamentals) ── detect tickers con datos < 5 años
+        try {
+          const { results: funds } = await env.DB.prepare(
+            `SELECT symbol, income, key_metrics FROM fundamentals`
+          ).all();
+          for (const f of (funds || [])) {
+            try {
+              const inc = JSON.parse(f.income || '[]');
+              if (inc.length < 5) issues.financials.push({ ticker: f.symbol, sev: 'yellow', field: 'short_history', msg: `Sólo ${inc.length} años de income statement (esperamos 10)` });
+              if (inc.length > 0 && (!inc[0].weightedAverageShsOut || inc[0].weightedAverageShsOut === 0)) {
+                issues.financials.push({ ticker: f.symbol, sev: 'yellow', field: 'shares_out_missing', msg: 'sharesOut faltante en último año' });
+              }
+            } catch {}
+          }
+        } catch (e) { console.warn('[audit-full] financials check failed:', e.message); }
+
+        // Summary
+        const allIssues = [...issues.portfolio, ...issues.cost_basis, ...issues.dividendos, ...issues.financials];
+        const summary = {
+          total_issues: allIssues.length,
+          red: allIssues.filter(i => i.sev === 'red').length,
+          yellow: allIssues.filter(i => i.sev === 'yellow').length,
+          by_category: {
+            portfolio: issues.portfolio.length,
+            cost_basis: issues.cost_basis.length,
+            dividendos: issues.dividendos.length,
+            financials: issues.financials.length,
+          },
+        };
+        return json({ ok: true, summary, issues, generated_at: new Date().toISOString() }, corsHeaders);
+      }
+
       // POST /api/audit/portfolio/auto-fix — sincroniza positions.sector con
       // el sector real de FMP para todas las filas con mismatch. Quick win
       // para que la tabla Portfolio deje de mostrar sectores wrong.
