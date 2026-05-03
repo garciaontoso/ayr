@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } from "react";
-import { _sf, fmtNumD, fmtPctFrac, fmtMul, fmtBnUsd } from './utils/formatters.js';
+import { _sf, fmtNumD, fmtPctFrac, fmtMul, fmtBnUsd } from './utils/formatters';
 import { CURRENCIES, DISPLAY_CCYS, DEFAULT_FX, YEARS, _CURRENT_YEAR, TABS, API_URL, HOME_TABS } from './constants/index.js';
 import { convertCcy, fetchFxRates } from './utils/currency.js';
 import { storageAvailable, saveCompanyToStorage, loadCompanyFromStorage, loadPortfolioIndex, removeCompanyFromStorage } from './utils/storage.js';
@@ -2608,7 +2608,7 @@ function buildPositionsFromCB() {
               const inputs = d.inputs || {};
               const qInputs = inputs.quality || {};
               const sInputs = inputs.safety || {};
-              // Migrated to shared helpers in utils/formatters.js.
+              // Migrated to shared helpers in utils/formatters.
               // fmt falls back to the raw value for non-numbers (e.g. string labels), so keep a tiny wrapper.
               const fmt = (v, decimals=2) => (typeof v === 'number' ? fmtNumD(v, decimals) : (v == null ? "—" : v));
               const fmtPct = fmtPctFrac;          // fraction → "X.X%"

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { API_URL } from '../../constants/index.js';
 import { Button } from '../ui';
-import { fmtUSD, fmtPct } from '../../utils/formatters.js';
+import { fmtUSD, fmtPct } from '../../utils/formatters';
 
 const CCY_FLAG = { USD: '🇺🇸', EUR: '🇪🇺', CNY: '🇨🇳', HKD: '🇭🇰', JPY: '🇯🇵', GBP: '🇬🇧', GBX: '🇬🇧', CHF: '🇨🇭', AUD: '🇦🇺', CAD: '🇨🇦', BRL: '🇧🇷', MXN: '🇲🇽', Other: '🌍' };
 const CCY_COLOR = { USD: '#10b981', EUR: '#3b82f6', CNY: '#ef4444', HKD: '#a855f7', JPY: '#ec4899', GBP: '#f59e0b', GBX: '#f59e0b', CHF: '#06b6d4', AUD: '#f97316', CAD: '#8b5cf6', Other: '#6b7280' };

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { _sf, fDol } from '../utils/formatters.js';
+import { _sf, fDol } from '../utils/formatters';
 
 describe('Formatters', () => {
   it('_sf formats numbers with decimals', () => {

@@ -18,7 +18,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { calcAltmanZ } from '../../src/calculators/altmanZ.js';
-import { isReit } from '../../src/validators/index.js';
+import { isReit } from '../../src/validators/index';
 
 describe('calcAltmanZ — clasificación por zonas', () => {
   it('empresa sana (Apple-like) → Z > 3.0 (Safe Zone)', () => {

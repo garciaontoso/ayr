@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext';
 import { API_URL } from '../../constants';
-import { fmtBytes } from '../../utils/formatters.js';
+import { fmtBytes } from '../../utils/formatters';
 
 /**
  * 🗄 Archivo Multianual

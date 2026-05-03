@@ -1,4 +1,5 @@
-import { div } from '../utils/formatters.js';
+import { div } from '../utils/formatters';
+import type { WaccInputs, WaccResult } from '../types';
 
 // 2026-05-03: WACC sanity-floor cost of debt to risk-free rate.
 // Reason: companies that issued debt mid-year show interestExpense / totalDebt
@@ -6,7 +7,7 @@ import { div } from '../utils/formatters.js';
 // coupons 4-5%). Combined with market-equity weighting that's already low
 // for buyback-heavy names, WACC collapsed below 4% → DCF intrinsic value
 // exploded ($1229 vs FMP $142). Floor pre-tax cost of debt at riskFreeRate.
-export function calcWACC(data) {
+export function calcWACC(data: WaccInputs): WaccResult {
   const {equity, totalDebt, interestExpense, taxRate=0.25, beta=1.0, riskFreeRate=0.04, marketPremium=0.055} = data;
   const E = equity || 1;
   const D = totalDebt || 0;

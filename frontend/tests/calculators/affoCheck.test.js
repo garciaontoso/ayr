@@ -14,7 +14,7 @@
 //      esperado por DashTab cuando se implemente.)
 
 import { describe, it, expect } from 'vitest';
-import { isReit } from '../../src/validators/index.js';
+import { isReit } from '../../src/validators/index';
 
 describe('isReit — REIT detection', () => {
   it('sector="Real Estate" → true', () => {

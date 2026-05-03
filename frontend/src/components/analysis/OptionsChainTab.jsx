@@ -1,6 +1,6 @@
 import { useState, useEffect, useContext } from 'react';
 import AnalysisContext from '../../context/AnalysisContext';
-import { _sf } from '../../utils/formatters.js';
+import { _sf } from '../../utils/formatters';
 import { API_URL } from '../../constants/index.js';
 
 export default function OptionsChainTab() {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calcGrowthRate } from '../growthRate.js';
+import { calcGrowthRate } from '../growthRate';
 
 describe('calcGrowthRate', () => {
   it('calculates sustainable growth rate', () => {

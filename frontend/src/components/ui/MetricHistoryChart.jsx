@@ -9,7 +9,7 @@
 //   format   — fn(v) → string; same formatter used in cards/tables
 //   color    — hex string (default mid-green)
 //   onClose  — optional callback for the "← cerrar" button
-import { _sf } from '../../utils/formatters.js';
+import { _sf } from '../../utils/formatters';
 
 export default function MetricHistoryChart({ label, years, values, format, color = '#34d399', onClose }) {
   const validVals = values.filter(v => v != null && Number.isFinite(v));

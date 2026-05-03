@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { _sf, fDol } from '../utils/formatters.js';
+import { _sf, fDol } from '../utils/formatters';
 
 // These tests re-run the exact assertions from the OLD src/__tests__/formatters.test.js
 // to ensure backward compat. The main formatters test suite lives in

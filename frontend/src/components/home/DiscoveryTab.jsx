@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { API_URL } from '../../constants/index.js';
-import { _sf } from '../../utils/formatters.js';
+import { _sf } from '../../utils/formatters';
 
 // ── Tier badge colours ──────────────────────────────────────────
 const TIER_META = {

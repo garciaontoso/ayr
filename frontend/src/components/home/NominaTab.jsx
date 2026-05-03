@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useHome } from '../../context/HomeContext';
-import { _sf, fC } from '../../utils/formatters.js';
+import { _sf, fC } from '../../utils/formatters';
 import { EmptyState } from '../ui/EmptyState.jsx';
 
 /* ═══════════════════════════════════════════════════════════════

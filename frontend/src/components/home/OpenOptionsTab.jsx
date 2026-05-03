@@ -10,7 +10,7 @@
 
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { API_URL } from '../../constants/index.js';
-import { _sf, fDol } from '../../utils/formatters.js';
+import { _sf, fDol } from '../../utils/formatters';
 import { STRATEGY_RGBA } from '../../utils/strategyColors.js';
 
 // ── Style constants (hoisted — no per-render realloc) ───────────────────────

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calcAltmanZ } from '../altmanZ.js';
+import { calcAltmanZ } from '../altmanZ';
 
 describe('calcAltmanZ', () => {
   it('returns null score with no data', () => {

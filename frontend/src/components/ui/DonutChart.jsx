@@ -1,4 +1,4 @@
-import { clamp } from '../../utils/formatters.js';
+import { clamp } from '../../utils/formatters';
 
 const DonutChart = ({value, max=100, size=130, strokeW=10, color, label, sublabel}) => {
   const pct = clamp(value/max, 0, 1);

@@ -1,6 +1,6 @@
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Card } from '../ui';
-import { _sf, n, fP, fC, fM, div, cagrFn } from '../../utils/formatters.js';
+import { _sf, n, fP, fC, fM, div, cagrFn } from '../../utils/formatters';
 import { YEARS } from '../../constants/index.js';
 
 export default function GrowthTab() {

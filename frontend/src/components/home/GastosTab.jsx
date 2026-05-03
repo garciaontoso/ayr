@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useHome } from '../../context/HomeContext';
-import { _sf, fDol } from '../../utils/formatters.js';
+import { _sf, fDol } from '../../utils/formatters';
 import { CURRENCIES, API_URL } from '../../constants/index.js';
 import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
 

@@ -1,6 +1,6 @@
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Badge, Card } from '../ui';
-import { _sf, n, fP, fC, fM, div, cagrFn } from '../../utils/formatters.js';
+import { _sf, n, fP, fC, fM, div, cagrFn } from '../../utils/formatters';
 import { R } from '../../utils/ratings.js';
 import { YEARS } from '../../constants/index.js';
 

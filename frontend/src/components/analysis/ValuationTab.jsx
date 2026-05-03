@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Badge, Card } from '../ui';
-import { _sf, n, fP, fX, fC, fM, div } from '../../utils/formatters.js';
+import { _sf, n, fP, fX, fC, fM, div } from '../../utils/formatters';
 import { R } from '../../utils/ratings.js';
 import { getPref, setPref, removePref } from '../../utils/userPrefs.js';
 

@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { calcWACC } from '../calculators/wacc.js';
-import { calcPiotroski } from '../calculators/piotroski.js';
-import { calcAltmanZ } from '../calculators/altmanZ.js';
-import { calcGrowthRate } from '../calculators/growthRate.js';
-import { calcDividendAnalysis } from '../calculators/dividendAnalysis.js';
+import { calcWACC } from '../calculators/wacc';
+import { calcPiotroski } from '../calculators/piotroski';
+import { calcAltmanZ } from '../calculators/altmanZ';
+import { calcGrowthRate } from '../calculators/growthRate';
+import { calcDividendAnalysis } from '../calculators/dividendAnalysis';
 
 // ── Integration: run all 5 calculators on the same synthetic company ──────────
 // Company: "AcmeCorp" — solid financials, pays dividends, growing

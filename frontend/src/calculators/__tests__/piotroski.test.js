@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calcPiotroski } from '../piotroski.js';
+import { calcPiotroski } from '../piotroski';
 
 const makePeriod = (overrides = {}) => ({
   netIncome: 100, equity: 800, totalDebt: 200, cash: 150,

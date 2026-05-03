@@ -1,12 +1,12 @@
 import { useMemo, useCallback, useEffect } from 'react';
-import { n, div, _sf } from '../utils/formatters.js';
+import { n, div, _sf } from '../utils/formatters';
 import { rate, R } from '../utils/ratings.js';
 import { YEARS } from '../constants/index.js';
-import { calcWACC } from '../calculators/wacc.js';
-import { calcPiotroski } from '../calculators/piotroski.js';
-import { calcAltmanZ } from '../calculators/altmanZ.js';
-import { calcGrowthRate } from '../calculators/growthRate.js';
-import { calcDividendAnalysis } from '../calculators/dividendAnalysis.js';
+import { calcWACC } from '../calculators/wacc';
+import { calcPiotroski } from '../calculators/piotroski';
+import { calcAltmanZ } from '../calculators/altmanZ';
+import { calcGrowthRate } from '../calculators/growthRate';
+import { calcDividendAnalysis } from '../calculators/dividendAnalysis';
 import { isChronoAsc } from '../utils/userPrefs.js';
 
 export function useAnalysisMetrics({ fin, cfg, setSsd, fmpExtra }) {

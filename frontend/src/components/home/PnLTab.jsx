@@ -14,7 +14,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { API_URL } from '../../constants/index.js';
-import { _sf, fDol } from '../../utils/formatters.js';
+import { _sf, fDol } from '../../utils/formatters';
 import { STRATEGY_HEX, STRATEGY_DESC } from '../../utils/strategyColors.js';
 
 // ── Style constants (hoisted) ───────────────────────────────────────────────

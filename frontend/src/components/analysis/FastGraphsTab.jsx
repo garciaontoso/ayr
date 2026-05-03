@@ -1,5 +1,5 @@
 import { useAnalysis } from '../../context/AnalysisContext';
-import { n, fP, fC, div } from '../../utils/formatters.js';
+import { n, fP, fC, div } from '../../utils/formatters';
 import { YEARS } from '../../constants/index.js';
 
 export default function FastGraphsTab() {

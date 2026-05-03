@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Card } from '../ui';
-import { _sf, n, fP, div } from '../../utils/formatters.js';
+import { _sf, n, fP, div } from '../../utils/formatters';
 import { YEARS } from '../../constants/index.js';
 import { getPref, setPref, removePref } from '../../utils/userPrefs.js';
 

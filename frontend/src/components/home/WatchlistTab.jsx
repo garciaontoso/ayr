@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useHome } from '../../context/HomeContext';
-import { _sf } from '../../utils/formatters.js';
+import { _sf } from '../../utils/formatters';
 import { EmptyState } from '../ui/EmptyState.jsx';
 import { useDraggableOrder } from '../../hooks/useDraggableOrder.js';
 import BuyWizard from '../ui/BuyWizard.jsx';

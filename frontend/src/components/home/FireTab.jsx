@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useHome } from '../../context/HomeContext';
-import { _sf, fDol } from '../../utils/formatters.js';
+import { _sf, fDol } from '../../utils/formatters';
 import { EmptyState } from '../ui/EmptyState.jsx';
 import { useFireMetrics, FIRE_SWR } from '../../hooks/useFireMetrics.js';
 import { useFxRates } from '../../hooks/useFxRates.js';

@@ -6,7 +6,7 @@ import {
   fmtPctSigned as fmtPct,
   fmtNumD as fmtNum,
   fmtDateESLong as fmtDate,
-} from '../../utils/formatters.js';
+} from '../../utils/formatters';
 function daysLabel(n) {
   if (n == null) return '';
   if (n === 0) return 'hoy';

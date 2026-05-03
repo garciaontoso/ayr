@@ -13,7 +13,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext';
-import { n, fP, fC, div } from '../../utils/formatters.js';
+import { n, fP, fC, div } from '../../utils/formatters';
 import { API_URL } from '../../constants/index.js';
 import AnalystScorecard from './AnalystScorecard.jsx';
 import FGScoresPanel from './FGScoresPanel.jsx';

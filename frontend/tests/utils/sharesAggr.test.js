@@ -9,7 +9,7 @@
 //   • SELL siempre cuenta como venta (sea por tipo='SELL' o shares<0).
 
 import { describe, it, expect } from 'vitest';
-import { aggregateShares, aggregateSharesByAccount } from '../../src/utils/sharesAggr.js';
+import { aggregateShares, aggregateSharesByAccount } from '../../src/utils/sharesAggr';
 
 describe('aggregateShares — caso simple', () => {
   it('3 trades EQUITY de 50 shares → 150', () => {

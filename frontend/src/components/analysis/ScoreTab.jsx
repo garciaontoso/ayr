@@ -1,6 +1,6 @@
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Badge, DonutChart, GaugeVerdict, Card } from '../ui';
-import { _sf, n, f2, fP, fX, div } from '../../utils/formatters.js';
+import { _sf, n, f2, fP, fX, div } from '../../utils/formatters';
 import { R } from '../../utils/ratings.js';
 
 export default function ScoreTab() {

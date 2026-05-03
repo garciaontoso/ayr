@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calcDividendAnalysis } from '../dividendAnalysis.js';
+import { calcDividendAnalysis } from '../dividendAnalysis';
 
 const makeYears = (count) => Array.from({ length: count }, (_, i) => String(2024 - i));
 

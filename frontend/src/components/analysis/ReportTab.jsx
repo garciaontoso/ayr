@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext.jsx';
-import { _sf } from '../../utils/formatters.js';
+import { _sf } from '../../utils/formatters';
 
 // ── A&R Professional Report ──
 function ARReport() {

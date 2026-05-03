@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useHome } from '../../context/HomeContext';
-import { _sf } from '../../utils/formatters.js';
+import { _sf } from '../../utils/formatters';
 import { API_URL } from '../../constants/index.js';
 
 const VERDICT_COLORS = { STRONG_BUY:"#30d158", BUY:"#30d158", ACCUMULATE:"#34c759", HOLD:"var(--gold)", TRIM:"#ff9f0a", SELL:"#ff453a", EXIT:"#ff453a", AVOID:"#ff453a" };

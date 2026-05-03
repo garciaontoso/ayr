@@ -1,6 +1,6 @@
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Badge, BarChart, Card, SensitivityTable } from '../ui';
-import { _sf, n, f1, fP, fC, fM, div } from '../../utils/formatters.js';
+import { _sf, n, f1, fP, fC, fM, div } from '../../utils/formatters';
 import { R } from '../../utils/ratings.js';
 
 export default function DCFTab() {

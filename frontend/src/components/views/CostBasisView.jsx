@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useCostBasis } from '../../context/CostBasisContext';
-import { _sf } from '../../utils/formatters.js';
+import { _sf } from '../../utils/formatters';
 import { CURRENCIES } from '../../constants/index.js';
 
 export default function CostBasisView() {

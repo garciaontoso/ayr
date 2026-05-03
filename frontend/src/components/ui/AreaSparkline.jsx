@@ -1,4 +1,4 @@
-import { n } from '../../utils/formatters.js';
+import { n } from '../../utils/formatters';
 
 const AreaSparkline = ({data, color="var(--gold)", w=160, h=40}) => {
   const valid = data.filter(v=>n(v)!=null);

@@ -1,6 +1,6 @@
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Badge, Card } from '../ui';
-import { n, fC, fM, div } from '../../utils/formatters.js';
+import { n, fC, fM, div } from '../../utils/formatters';
 import { YEARS } from '../../constants/index.js';
 
 export default function TenCapTab() {

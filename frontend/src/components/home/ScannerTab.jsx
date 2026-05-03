@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { _sf } from '../../utils/formatters.js';
+import { _sf } from '../../utils/formatters';
 import { API_URL } from '../../constants/index.js';
 
 // ─── Mock data ─────────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Card } from '../ui';
-import { n, f2, fP, fC, div } from '../../utils/formatters.js';
+import { n, f2, fP, fC, div } from '../../utils/formatters';
 import { R } from '../../utils/ratings.js';
 import { YEARS } from '../../constants/index.js';
 

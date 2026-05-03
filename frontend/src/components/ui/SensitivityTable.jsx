@@ -1,4 +1,4 @@
-import { fC } from '../../utils/formatters.js';
+import { fC } from '../../utils/formatters';
 
 const SensitivityTable = ({dcfFn, baseGrowth, baseDiscount}) => {
   const growths = [baseGrowth-2, baseGrowth-1, baseGrowth, baseGrowth+1, baseGrowth+2];

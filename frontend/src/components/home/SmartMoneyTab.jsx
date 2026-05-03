@@ -19,7 +19,7 @@ import { useHome } from '../../context/HomeContext';
 import { API_URL } from '../../constants/index.js';
 import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
 import { useDraggableOrder } from '../../hooks/useDraggableOrder.js';
-import { fmtPctFrac, fmtPctFracSigned } from '../../utils/formatters.js';
+import { fmtPctFrac, fmtPctFracSigned } from '../../utils/formatters';
 
 const SUB_VIEWS = [
   { id: 'alerts', lbl: '🔔 Alerts', desc: 'Cambios materiales último Q' },

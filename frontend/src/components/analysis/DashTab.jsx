@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Badge, BarChart, Card, TrustBadge } from '../ui';
 import MetricHistoryChart from '../ui/MetricHistoryChart.jsx';
-import { _sf, n, f1, f2, fP, fX, fC, fM, div } from '../../utils/formatters.js';
+import { _sf, n, f1, f2, fP, fX, fC, fM, div } from '../../utils/formatters';
 import { R } from '../../utils/ratings.js';
 import { useFreshness } from '../../hooks/useFreshness.js';
 import { API_URL } from '../../constants/index.js';

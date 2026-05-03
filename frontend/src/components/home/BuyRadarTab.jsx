@@ -12,7 +12,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { API_URL } from '../../constants/index.js';
 import { useHome } from '../../context/HomeContext';
-import { _sf } from '../../utils/formatters.js';
+import { _sf } from '../../utils/formatters';
 import { EmptyState } from '../ui/EmptyState.jsx';
 
 async function postJSON(path, body) {

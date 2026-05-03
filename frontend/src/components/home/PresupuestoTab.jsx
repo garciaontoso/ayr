@@ -476,7 +476,7 @@ export default function PresupuestoTab() {
   };
 
   const sym = CURRENCIES[displayCcy]?.symbol || displayCcy;
-  // Kept local: depend on closure state (privacyMode, convertFromEur, sym) — cannot live in utils/formatters.js.
+  // Kept local: depend on closure state (privacyMode, convertFromEur, sym) — cannot live in utils/formatters.
   const fmt = (v) => privacyMode ? '•••' : `${sym}${convertFromEur(v).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
   const fmtEur = (v) => privacyMode ? '•••' : `€${v.toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 

@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { API_URL } from '../../constants/index.js';
-import { _sf } from '../../utils/formatters.js';
+import { _sf } from '../../utils/formatters';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const pct  = v => (v == null || isNaN(v)) ? '—' : _sf(v, 1) + '%';

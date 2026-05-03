@@ -1,4 +1,4 @@
-// sharesAggr.js — agregación canonical de shares desde un array de trades.
+// sharesAggr.ts — agregación canonical de shares desde un array de trades.
 //
 // Defensiva contra varios bugs catalogados (docs/bug-patterns.md):
 //   • Bug #002 (PG 150 vs 250): nunca confiar en running balance per-account
@@ -18,6 +18,8 @@
 //   • Si el trade tiene tipo=='SELL' o tipo=='SLD', se cuenta como venta
 //     incluso si shares fuera positivo (defensivo ante schemas inconsistentes).
 
+import type { Trade } from '../types';
+
 const DIVIDEND_TYPES = new Set(['DIVIDENDS', 'DIVIDEND', 'DIV']);
 const SELL_TYPES = new Set(['SELL', 'SLD', 'CLOSE', 'CLS']);
 const EQUITY_TYPES = new Set(['EQUITY', 'STOCK', 'STK', 'BUY']);
@@ -25,10 +27,12 @@ const EQUITY_TYPES = new Set(['EQUITY', 'STOCK', 'STK', 'BUY']);
 /**
  * Suma neta de shares para un ticker dado un array de trades.
  *
- * @param {Array<{tipo?: string, type?: string, shares?: number, account?: string|null}>} trades
- * @returns {number} buys − sells (puede ser 0 o negativo si vendió en corto)
+ * @param trades Array de trades (legacy puede traer `type` en lugar de `tipo`).
+ * @returns buys − sells (puede ser 0 o negativo si vendió en corto).
  */
-export function aggregateShares(trades) {
+export function aggregateShares(
+  trades: ReadonlyArray<Trade & { type?: string }> | null | undefined
+): number {
   if (!Array.isArray(trades) || trades.length === 0) return 0;
   let buys = 0;
   let sells = 0;
@@ -59,19 +63,21 @@ export function aggregateShares(trades) {
 /**
  * Suma neta de shares POR cuenta (NULL agrupa todas las legacy sin account).
  *
- * @param {Array} trades
- * @returns {Record<string, number>} {accountId: netShares, ...}
+ * @param trades Array de trades.
+ * @returns Mapping {accountId: netShares, ...}; key '__NULL__' agrupa los sin account.
  */
-export function aggregateSharesByAccount(trades) {
+export function aggregateSharesByAccount(
+  trades: ReadonlyArray<Trade & { type?: string }> | null | undefined
+): Record<string, number> {
   if (!Array.isArray(trades) || trades.length === 0) return {};
-  const buckets = {};
+  const buckets: Record<string, Array<Trade & { type?: string }>> = {};
   for (const t of trades) {
     if (!t) continue;
     const acct = t.account == null ? '__NULL__' : String(t.account);
     if (!buckets[acct]) buckets[acct] = [];
     buckets[acct].push(t);
   }
-  const out = {};
+  const out: Record<string, number> = {};
   for (const [acct, list] of Object.entries(buckets)) {
     out[acct] = aggregateShares(list);
   }

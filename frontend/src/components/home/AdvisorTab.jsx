@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useHome } from '../../context/HomeContext';
-import { _sf, _sl } from '../../utils/formatters.js';
+import { _sf, _sl } from '../../utils/formatters';
 import { API_URL } from '../../constants/index.js';
 import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
 

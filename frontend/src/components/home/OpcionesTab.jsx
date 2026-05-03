@@ -23,7 +23,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { API_URL } from '../../constants/index.js';
-import { fmtUsdCompact as fmtUsd, fmtPctFrac, fmtNumD as fmtNum, fmtDateES as fmtDate } from '../../utils/formatters.js';
+import { fmtUsdCompact as fmtUsd, fmtPctFrac, fmtNumD as fmtNum, fmtDateES as fmtDate } from '../../utils/formatters';
 
 // ─── Constants ──────────────────────────────────────────────────────
 const STRATEGY_META = {

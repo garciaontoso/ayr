@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Card, MetricHistoryChart } from '../ui';
-import { _sf, fM, fC, n, div } from '../../utils/formatters.js';
+import { _sf, fM, fC, n, div } from '../../utils/formatters';
 import { getPref, setPref, removePref } from '../../utils/userPrefs.js';
 
 const PREF_KEY = 'ayr-row-order-data';

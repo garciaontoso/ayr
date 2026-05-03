@@ -2,14 +2,14 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { useDraggableOrder } from '../../hooks/useDraggableOrder.js';
 import { useFreshness } from '../../hooks/useFreshness.js';
-import { _sf, fDol, fmtMC } from '../../utils/formatters.js';
+import { _sf, fDol, fmtMC } from '../../utils/formatters';
 import { EmptyState, LoadingSkeleton } from '../ui/EmptyState.jsx';
 import { TrustBadge } from '../ui/TrustBadge.jsx';
 import FiveFiltersBars from '../ui/FiveFiltersBars.jsx';
 import BuyWizard from '../ui/BuyWizard.jsx';
 import { API_URL } from '../../constants/index.js';
 import { getPref, setPref } from '../../utils/userPrefs.js';
-import { safeParseFundamentals } from '../../validators/schemas.js';
+import { safeParseFundamentals } from '../../validators/schemas';
 
 // 5 colores de categoría que el usuario asigna a cada ticker (per-user).
 // Click cell → ciclo o dropdown picker. Persistente vía userPrefs `ayr-cat-{ticker}`.

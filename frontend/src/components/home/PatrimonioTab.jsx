@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useHome } from '../../context/HomeContext';
-import { _sf, fDol } from '../../utils/formatters.js';
+import { _sf, fDol } from '../../utils/formatters';
 import { API_URL } from '../../constants/index.js';
 import { EmptyState } from '../ui/EmptyState.jsx';
 import { Toast } from '../ui';

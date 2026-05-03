@@ -1,7 +1,7 @@
 // Zod runtime schemas — guardián contra drifts del schema FMP.
 //
 // Filosofía:
-//   1. Estos schemas COMPLEMENTAN el validator manual de `validators/index.js`.
+//   1. Estos schemas COMPLEMENTAN el validator manual de `validators/index.ts`.
 //      No lo reemplazan. El manual sigue siendo la capa de fallback graceful;
 //      Zod es la capa de **observabilidad** que detecta cuando FMP cambia
 //      la forma del payload sin avisar.
@@ -23,6 +23,7 @@
 //   // value siempre se devuelve (raw o parsed). isValid sólo informa.
 
 import { z } from 'zod';
+import type { ZodIssue } from 'zod';
 import { API_URL } from '../constants/index.js';
 
 // ── Schemas ─────────────────────────────────────────────────────────────
@@ -89,10 +90,10 @@ export const FundamentalsBulkSchema = z.record(z.string(), FundamentalsResponseS
 
 // ── Throttle: no re-reportar el mismo ticker en 60s ─────────────────────
 
-const _recentReports = new Map();  // ticker → timestamp_ms
+const _recentReports = new Map<string, number>();  // ticker → timestamp_ms
 const REPORT_THROTTLE_MS = 60_000;
 
-function _shouldReport(ticker) {
+function _shouldReport(ticker: string): boolean {
   const now = Date.now();
   const last = _recentReports.get(ticker) || 0;
   if (now - last < REPORT_THROTTLE_MS) return false;
@@ -108,17 +109,20 @@ function _shouldReport(ticker) {
 }
 
 // Fire-and-forget: reportar drift al worker sin bloquear el flujo del caller.
-function _reportDrift(ticker, issues) {
+function _reportDrift(ticker: string, issues: ReadonlyArray<ZodIssue> | null | undefined): void {
   if (!_shouldReport(ticker)) return;
   try {
     // Trim issues a 5 max y stringify para D1 (TEXT column)
-    const trimmedIssues = (issues || []).slice(0, 5).map(i => ({
-      path: Array.isArray(i.path) ? i.path.join('.') : String(i.path || ''),
-      code: i.code || '',
-      message: i.message || '',
-      expected: i.expected || undefined,
-      received: i.received || undefined,
-    }));
+    const trimmedIssues = (issues || []).slice(0, 5).map((i) => {
+      const issue = i as ZodIssue & { expected?: unknown; received?: unknown };
+      return {
+        path: Array.isArray(issue.path) ? issue.path.join('.') : String(issue.path || ''),
+        code: issue.code || '',
+        message: issue.message || '',
+        expected: issue.expected ?? undefined,
+        received: issue.received ?? undefined,
+      };
+    });
     fetch(`${API_URL}/api/error-log`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -138,16 +142,24 @@ function _reportDrift(ticker, issues) {
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
+export interface SafeParseResult {
+  value: unknown;
+  isValid: boolean;
+  issues: ReadonlyArray<ZodIssue> | Array<{ message: string }>;
+}
+
 /**
  * Parsea la respuesta de /api/fundamentals/bulk para un ticker.
  * Si el schema cambia (drift FMP), log + report fire-and-forget pero
  * SIEMPRE devuelve los datos raw para que el flujo siga.
  *
- * @param {object} data Respuesta del worker para un ticker (no el bulk completo)
- * @param {string} ticker Symbol — para logging y throttling
- * @returns {{value: object, isValid: boolean, issues: Array}}
+ * @param data Respuesta del worker para un ticker (no el bulk completo)
+ * @param ticker Symbol — para logging y throttling
  */
-export function safeParseFundamentals(data, ticker = '?') {
+export function safeParseFundamentals(
+  data: unknown,
+  ticker: string = '?'
+): SafeParseResult {
   if (!data || typeof data !== 'object') {
     return { value: data, isValid: false, issues: [{ message: 'data is not object' }] };
   }
@@ -162,14 +174,19 @@ export function safeParseFundamentals(data, ticker = '?') {
   return { value: result.data, isValid: true, issues: [] };
 }
 
+export interface SafeParseBulkResult {
+  value: unknown;
+  validCount: number;
+  invalidCount: number;
+}
+
 /**
  * Parsea el bulk completo. Itera por ticker llamando a safeParseFundamentals.
  * Útil para cablear directo en `loadFundamentals` sin loop manual.
  *
- * @param {object} bulk Mapa ticker → fundamentals data
- * @returns {{value: object, validCount: number, invalidCount: number}}
+ * @param bulk Mapa ticker → fundamentals data
  */
-export function safeParseFundamentalsBulk(bulk) {
+export function safeParseFundamentalsBulk(bulk: unknown): SafeParseBulkResult {
   if (!bulk || typeof bulk !== 'object') {
     return { value: bulk, validCount: 0, invalidCount: 0 };
   }
@@ -187,12 +204,12 @@ export function safeParseFundamentalsBulk(bulk) {
 
 /**
  * Test manual — sólo se llama si lo invocas desde consola del navegador:
- *   import('./validators/schemas.js').then(m => m.__testSchemas())
+ *   import('./validators/schemas.ts').then(m => m.__testSchemas())
  * No se ejecuta automáticamente. Útil para verificar que los schemas
  * se cargan y validan bien tras editar este archivo.
  */
-export function __testSchemas() {
-  const results = [];
+export function __testSchemas(): void {
+  const results: Array<{ test: string; pass: boolean; error?: string }> = [];
 
   // Caso 1: shape válido mínimo → debe pasar
   try {
@@ -203,7 +220,7 @@ export function __testSchemas() {
     });
     results.push({ test: 'minimal-valid', pass: true });
   } catch (e) {
-    results.push({ test: 'minimal-valid', pass: false, error: e.message });
+    results.push({ test: 'minimal-valid', pass: false, error: (e as Error).message });
   }
 
   // Caso 2: ratios con string en lugar de number → debe fallar
@@ -214,7 +231,7 @@ export function __testSchemas() {
       keyMetrics: [],
     });
     results.push({ test: 'string-instead-of-number', pass: false, error: 'should have thrown' });
-  } catch (e) {
+  } catch (_e) {
     results.push({ test: 'string-instead-of-number', pass: true });
   }
 
@@ -226,7 +243,7 @@ export function __testSchemas() {
       keyMetrics: [],
     });
     results.push({ test: 'profile-missing-symbol', pass: false, error: 'should have thrown' });
-  } catch (e) {
+  } catch (_e) {
     results.push({ test: 'profile-missing-symbol', pass: true });
   }
 
@@ -239,7 +256,7 @@ export function __testSchemas() {
     });
     results.push({ test: 'passthrough-extra-fields', pass: true });
   } catch (e) {
-    results.push({ test: 'passthrough-extra-fields', pass: false, error: e.message });
+    results.push({ test: 'passthrough-extra-fields', pass: false, error: (e as Error).message });
   }
 
   // Caso 5: safeParseFundamentals devuelve raw aunque falle
@@ -251,5 +268,4 @@ export function __testSchemas() {
   });
 
   console.table(results);
-  return results;
 }

@@ -1,5 +1,5 @@
 import { useHome } from '../../context/HomeContext';
-import { _sf } from '../../utils/formatters.js';
+import { _sf } from '../../utils/formatters';
 import { InlineLoading, EmptyState } from '../ui/EmptyState.jsx';
 
 // Mapping de ticker FMP/D1 (formato bolsa:ticker) a ticker interno IB.

@@ -1,4 +1,4 @@
-import { n, f0 } from '../../utils/formatters.js';
+import { n, f0 } from '../../utils/formatters';
 
 const BarChart = ({data, labels, color="var(--gold)", height=140, showValues=true, formatFn=f0}) => {
   const valid = data.map((v,i) => ({v:n(v),l:labels[i]})).filter(x=>x.v!=null);

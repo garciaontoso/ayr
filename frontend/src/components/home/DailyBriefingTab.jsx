@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { API_URL } from '../../constants/index.js';
-import { fmtUSD, fmtPct, fmtPctSigned } from '../../utils/formatters.js';
+import { fmtUSD, fmtPct, fmtPctSigned } from '../../utils/formatters';
 import { VerdictBadge } from '../ui/VerdictBadge.jsx';
 
 // ─── Helpers ───────────────────────────────────────────────────────────

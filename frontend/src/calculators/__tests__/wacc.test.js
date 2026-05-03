@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calcWACC } from '../wacc.js';
+import { calcWACC } from '../wacc';
 
 describe('calcWACC', () => {
   it('calculates WACC with typical inputs', () => {
