@@ -146,8 +146,8 @@ export default function DashTab() {
                 background:fmpExtra.rating.overallScore>=4?'rgba(48,209,88,.1)':fmpExtra.rating.overallScore>=3?'rgba(255,214,10,.1)':'rgba(255,69,58,.1)',
                 border:`1px solid ${fmpExtra.rating.overallScore>=4?'rgba(48,209,88,.25)':fmpExtra.rating.overallScore>=3?'rgba(255,214,10,.25)':'rgba(255,69,58,.25)'}`,
                 whiteSpace:'nowrap'}}
-                title={`FMP rating ${fmpExtra.rating.rating} (${fmpExtra.rating.overallScore}/5)${fmpExtra.grades?.consensus?` · Consensus: ${fmpExtra.grades.consensus}`:''}${fmpExtra.dcf?.dcf>0?` · DCF FMP: ${fC(fmpExtra.dcf.dcf)} ${fmpExtra.dcf.dcf>cfg.price?'↑':'↓'}${f1(Math.abs((1-cfg.price/fmpExtra.dcf.dcf)*100))}%`:''}`}>
-                FMP {fmpExtra.rating.rating}
+                title={`FMP Quality Rating ${fmpExtra.rating.rating} (${fmpExtra.rating.overallScore}/5 estrellas)\n\nNo confundir con S&P Credit Rating (AAA/AA/A/BBB...): ese es rating de deuda corporativa, esto es composite quality FMP basado en DCF + ROE + ROA + D/E + P/E + P/B.${fmpExtra.grades?.consensus?`\n\nConsensus analistas: ${fmpExtra.grades.consensus}`:''}${fmpExtra.dcf?.dcf>0?`\n\nDCF FMP: ${fC(fmpExtra.dcf.dcf)} ${fmpExtra.dcf.dcf>cfg.price?'↑':'↓'}${f1(Math.abs((1-cfg.price/fmpExtra.dcf.dcf)*100))}%`:''}`}>
+                FMP Quality {fmpExtra.rating.rating} ({fmpExtra.rating.overallScore}/5)
                 {fmpExtra.grades?.consensus && <span style={{opacity:.7}}>· {fmpExtra.grades.consensus}</span>}
               </span>
             )}
