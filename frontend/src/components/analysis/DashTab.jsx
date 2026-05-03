@@ -184,52 +184,12 @@ export default function DashTab() {
             );
           })()}
 
-          {/* Price chart 10Y */}
-          {chartMetric === 'price' && (() => {
-            const priceData = priceChartData;
-            if (!priceData || priceData.length < 10) return null;
-            const weekly = priceData.filter((_,i) => i % 5 === 0);
-            const prices = weekly.map(p=>p.close);
-            const minP = Math.min(...prices) * 0.95;
-            const maxP = Math.max(...prices) * 1.02;
-            const range = maxP - minP || 1;
-            const W = 900; const H = 300;
-            const PAD = 45;
-            const points = weekly.map((p,i) => `${PAD+(i/(weekly.length-1))*(W-PAD)},${H - ((p.close-minP)/range)*H}`).join(" ");
-            const lastP = prices[prices.length-1];
-            const firstP = prices[0];
-            const chg = ((lastP - firstP) / firstP * 100);
-            const col = chg >= 0 ? "#34d399" : "#f87171";
-            const years = []; let lastYr = "";
-            weekly.forEach((p,i) => { const yr = p.date?.slice(0,4); if(yr !== lastYr) { years.push({x:PAD+(i/(weekly.length-1))*(W-PAD), yr}); lastYr=yr; }});
-            // Price grid lines
-            const gridLines = 5;
-            const gridPrices = Array.from({length:gridLines+1},(_,i) => minP + (range * i / gridLines));
-            return <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:16,padding:"16px 16px 8px",marginTop:14}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                <div style={{display:"flex",alignItems:"baseline",gap:10}}>
-                  <span style={{fontSize:13,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fd)"}}>Precio</span>
-                  <span style={{fontSize:20,fontWeight:800,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{cfg?.currency==="EUR"?"€":cfg?.currency==="GBP"?"£":"$"}{_sf(lastP,2)}</span>
-                </div>
-                <div style={{display:"flex",gap:12,alignItems:"center"}}>
-                  <span style={{fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>10 años</span>
-                  <span style={{fontSize:14,fontWeight:700,color:col,fontFamily:"var(--fm)",padding:"3px 10px",borderRadius:6,background:`${col}15`}}>{chg>=0?"+":""}{_sf(chg,0)}%</span>
-                </div>
-              </div>
-              <svg viewBox={`0 0 ${W} ${H+25}`} style={{width:"100%",height:"auto"}}>
-                <defs><linearGradient id="priceGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={col} stopOpacity=".2"/><stop offset="100%" stopColor={col} stopOpacity="0"/></linearGradient></defs>
-                {/* Grid lines */}
-                {gridPrices.map((p,i) => {const yPos = H - ((p-minP)/range)*H; return <g key={i}><line x1={PAD} y1={yPos} x2={W} y2={yPos} stroke="var(--subtle-border)" strokeWidth="0.5"/><text x={PAD-4} y={yPos+3} fill="var(--text-tertiary)" fontSize="8" fontFamily="var(--fm)" textAnchor="end">{Math.round(p)}</text></g>;})}
-                {/* Year lines */}
-                {years.map((y,i) => <g key={i}><line x1={y.x} y1={0} x2={y.x} y2={H} stroke="var(--subtle-bg2)" strokeWidth="0.5"/><text x={y.x} y={H+16} fill="var(--text-tertiary)" fontSize="9" fontFamily="var(--fm)" textAnchor="middle">{y.yr}</text></g>)}
-                {/* Area + Line */}
-                <polygon points={`${PAD},${H} ${points} ${W-1},${H}`} fill="url(#priceGrad)"/>
-                <polyline points={points} fill="none" stroke={col} strokeWidth="2" strokeLinejoin="round"/>
-                {/* Current price dot */}
-                {(() => {const lx = PAD+((weekly.length-1)/(weekly.length-1))*(W-PAD); const ly = H-((lastP-minP)/range)*H; return <circle cx={lx} cy={ly} r="3.5" fill={col} stroke="var(--bg)" strokeWidth="1.5"/>;})()}
-              </svg>
-            </div>;
-          })()}
+          {/* Price chart 10Y eliminado 2026-05-03 a petición del usuario.
+              Razón: el chart grande ocupaba mucho espacio justo encima del
+              FAST que ahora vive en Resumen como primer bloque, y FAST ya
+              tiene su propio gráfico de precio + valoración. Si en algún
+              momento se quiere recuperar, está versionado en git
+              commit f268327 (último commit que lo tenía vivo). */}
         </Card>
       ),
 
