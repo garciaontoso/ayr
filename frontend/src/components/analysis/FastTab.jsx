@@ -820,10 +820,30 @@ export default function FastTab() {
     y: d.y,
     pct: Math.min(d.dps / d.eps, 1.5),
   }));
-  // Escala eje derecho común para ambas series (mapea % → y pixel).
-  // Yield axis: 0–10% mapeado a top 50% del chart (invertido: 0% abajo, 10% arriba).
-  // Payout axis: 0–100% mapeado al mismo rango visual (reutiliza eje derecho con segundo tick set).
-  const YIELD_AXIS_MAX = 0.10;
+  // Escala eje derecho — auto-ajustada al yield real del ticker (estilo
+  // FAST Graphs). Antes estaba fija a 0-10% lo que hacía que ZTS (yield
+  // 1.86%) se viese aplastado abajo y la línea roja no cuadrase con los
+  // ticks del eje. Ahora calculamos el max histórico y redondeamos a un
+  // tope "limpio".
+  // 2026-05-03: bug reportado por usuario — "el porcentaje de dividendo
+  // pero no cuadra con lo que marca mi línea".
+  const YIELD_AXIS_MAX = (() => {
+    const yields = yieldPoints.map(p => p.yld);
+    if (cfg?.price > 0 && latestDPS > 0) yields.push(latestDPS / cfg.price);
+    const maxYld = yields.length ? Math.max(...yields) : 0.05;
+    // Headroom 20% + redondeo a "nice number" arriba
+    const padded = maxYld * 1.2;
+    if (padded <= 0.02) return 0.02;   // 2%
+    if (padded <= 0.04) return 0.04;
+    if (padded <= 0.06) return 0.06;
+    if (padded <= 0.08) return 0.08;
+    if (padded <= 0.10) return 0.10;
+    if (padded <= 0.15) return 0.15;
+    if (padded <= 0.20) return 0.20;
+    return 0.25;  // tope para REITs / high-yield extreme
+  })();
+  // Ticks dinámicos — 5 valores equiespaciados (0, 25%, 50%, 75%, 100% del max)
+  const YIELD_AXIS_TICKS = [0, 0.25, 0.50, 0.75, 1.0].map(p => p * YIELD_AXIS_MAX);
   const PAYOUT_AXIS_MAX = 1.00;
   const yldYScale = (yld) => {
     const clipped = Math.max(0, Math.min(yld, YIELD_AXIS_MAX));
@@ -1480,10 +1500,10 @@ export default function FastTab() {
               {/* Eje derecho — doble escala: yield (0–10% rojo) + payout (0–100% amarillo).
                   Ambas escalas ocupan el mismo rango vertical. Ticks yield cada 2%,
                   payout cada 25%. Estilo FAST Graphs right axis. */}
-              {[0, 0.02, 0.04, 0.06, 0.08, 0.10].map((y, i) => (
+              {YIELD_AXIS_TICKS.map((y, i) => (
                 <text key={'yaxR'+i} x={PADL+chartW+4} y={yldYScale(y)+3}
                   fontSize={8} fill="#dc2626" fontFamily="monospace" fontWeight={600} textAnchor="start">
-                  {(y*100).toFixed(0)}%
+                  {(y*100).toFixed(YIELD_AXIS_MAX <= 0.04 ? 1 : 0)}%
                 </text>
               ))}
               {[0.25, 0.50, 0.75, 1.00].map((p, i) => (
