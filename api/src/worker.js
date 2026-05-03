@@ -448,6 +448,26 @@ async function ensureMigrations(env) {
     // App config key-value store
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS app_config (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT DEFAULT (datetime('now')))`).run();
 
+    // ── Buy Radar (2026-05-03) ─────────────────────────────────────────────
+    // Pestaña "Radar" arriba del todo: empresas concretas que el usuario quiere
+    // comprar a un precio objetivo, esperando caída. Cuando precio_actual <=
+    // target_price se dispara alerta vía /api/alert-rules (Telegram / push).
+    // Distinto de la "Cantera/Radar" sub-vista (esa son 100 candidatos
+    // sugeridos automáticamente por priority_score).
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS buy_radar (
+      ticker TEXT PRIMARY KEY,
+      name TEXT,
+      target_price REAL NOT NULL,
+      currency TEXT DEFAULT 'USD',
+      reason TEXT,
+      alert_id INTEGER,
+      alert_active INTEGER DEFAULT 1,
+      sort_order INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+    try { await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_buy_radar_sort ON buy_radar(sort_order ASC)`).run(); } catch(_){}
+
     // Presupuesto: excluded gasto IDs, last payment, custom months
     try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN excluded_gastos TEXT DEFAULT NULL`).run(); } catch(e) { /* already exists */ }
     try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN last_payment TEXT DEFAULT NULL`).run(); } catch(e) { /* already exists */ }
@@ -8482,6 +8502,99 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // ═══════════════════════════════════════════════════════════════
       // Cantera (Farm Team) — pre-portfolio radar (2026-04-17)
+      // ═══════════════════════════════════════════════════════════════
+
+      // ═══════════════════════════════════════════════════════════════
+      // BUY RADAR — empresas concretas a comprar a precio objetivo (2026-05-03)
+      // ═══════════════════════════════════════════════════════════════
+
+      if (path === "/api/buy-radar/list" && request.method === "GET") {
+        await ensureMigrations(env);
+        const { results } = await env.DB.prepare(
+          `SELECT * FROM buy_radar ORDER BY sort_order ASC, created_at ASC`
+        ).all();
+        return json({ ok: true, count: (results || []).length, items: results || [] }, corsHeaders);
+      }
+
+      if (path === "/api/buy-radar/add" && request.method === "POST") {
+        await ensureMigrations(env);
+        const unauth = (isAllowed && origin) ? null : ytRequireToken(request, env);
+        if (unauth) return unauth;
+        let body;
+        try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const ticker = String(body.ticker || '').trim().toUpperCase();
+        const target = Number(body.target_price);
+        if (!ticker) return json({ error: "ticker required" }, corsHeaders, 400);
+        if (!Number.isFinite(target) || target <= 0) return json({ error: "target_price must be > 0" }, corsHeaders, 400);
+        const name = body.name || null;
+        const ccy = String(body.currency || 'USD').toUpperCase();
+        const reason = body.reason || null;
+        await env.DB.prepare(`
+          INSERT INTO buy_radar (ticker, name, target_price, currency, reason, alert_active, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, 1, datetime('now'), datetime('now'))
+          ON CONFLICT(ticker) DO UPDATE SET
+            name = COALESCE(excluded.name, name),
+            target_price = excluded.target_price,
+            currency = excluded.currency,
+            reason = COALESCE(excluded.reason, reason),
+            updated_at = datetime('now')
+        `).bind(ticker, name, target, ccy, reason).run();
+        return json({ ok: true, ticker, target_price: target }, corsHeaders);
+      }
+
+      if (path === "/api/buy-radar/update" && request.method === "POST") {
+        await ensureMigrations(env);
+        const unauth = (isAllowed && origin) ? null : ytRequireToken(request, env);
+        if (unauth) return unauth;
+        let body;
+        try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const ticker = String(body.ticker || '').trim().toUpperCase();
+        if (!ticker) return json({ error: "ticker required" }, corsHeaders, 400);
+        const sets = [];
+        const binds = [];
+        if (Number.isFinite(Number(body.target_price)) && Number(body.target_price) > 0) { sets.push('target_price = ?'); binds.push(Number(body.target_price)); }
+        if (body.currency != null) { sets.push('currency = ?'); binds.push(String(body.currency).toUpperCase()); }
+        if (body.reason != null) { sets.push('reason = ?'); binds.push(body.reason || null); }
+        if (body.name != null) { sets.push('name = ?'); binds.push(body.name || null); }
+        if (body.alert_active != null) { sets.push('alert_active = ?'); binds.push(body.alert_active ? 1 : 0); }
+        if (Number.isFinite(Number(body.sort_order))) { sets.push('sort_order = ?'); binds.push(Number(body.sort_order)); }
+        if (!sets.length) return json({ error: "no fields to update" }, corsHeaders, 400);
+        sets.push("updated_at = datetime('now')");
+        binds.push(ticker);
+        await env.DB.prepare(`UPDATE buy_radar SET ${sets.join(', ')} WHERE ticker = ?`).bind(...binds).run();
+        return json({ ok: true, ticker }, corsHeaders);
+      }
+
+      if (path === "/api/buy-radar/delete" && request.method === "POST") {
+        await ensureMigrations(env);
+        const unauth = (isAllowed && origin) ? null : ytRequireToken(request, env);
+        if (unauth) return unauth;
+        let body;
+        try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const ticker = String(body.ticker || '').trim().toUpperCase();
+        if (!ticker) return json({ error: "ticker required" }, corsHeaders, 400);
+        await env.DB.prepare(`DELETE FROM buy_radar WHERE ticker = ?`).bind(ticker).run();
+        return json({ ok: true, ticker }, corsHeaders);
+      }
+
+      if (path === "/api/buy-radar/reorder" && request.method === "POST") {
+        await ensureMigrations(env);
+        const unauth = (isAllowed && origin) ? null : ytRequireToken(request, env);
+        if (unauth) return unauth;
+        let body;
+        try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const order = Array.isArray(body.tickers) ? body.tickers : [];
+        if (!order.length) return json({ error: "tickers array required" }, corsHeaders, 400);
+        for (let i = 0; i < order.length; i++) {
+          const t = String(order[i] || '').trim().toUpperCase();
+          if (!t) continue;
+          await env.DB.prepare(`UPDATE buy_radar SET sort_order = ?, updated_at = datetime('now') WHERE ticker = ?`).bind(i, t).run();
+        }
+        return json({ ok: true, count: order.length }, corsHeaders);
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      // CANTERA — radar de candidatos (100 sugerencias automáticas)
       // ═══════════════════════════════════════════════════════════════
 
       if (path === "/api/cantera/list" && request.method === "GET") {

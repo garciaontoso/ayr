@@ -102,6 +102,18 @@ export const API_URL = "https://api.onto-so.com";
 //   Gastos 💸 (kept) · Mi Nomina was 💸 → 🧾
 //   Earnings was 📊 → 📅 (calendar metaphor matches its content)
 export const HOME_TAB_GROUPS = [
+  // 2026-05-03: nuevo grupo "Radar" en primera posición — empresas concretas
+  // que el usuario quiere comprar a un precio objetivo. Distinto de la
+  // Cantera (sugerencias automáticas) y de los watchlists. Cuando el precio
+  // de la acción cae al objetivo se dispara alerta Telegram/push.
+  {
+    id: "radar",
+    lbl: "Radar",
+    ico: "🎯",
+    tabs: [
+      {id:"buy-radar",lbl:"Comprar",ico:"🎯"},
+    ],
+  },
   {
     id: "cartera",
     lbl: "Cartera",
