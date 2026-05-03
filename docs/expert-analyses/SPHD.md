@@ -335,3 +335,249 @@ Verizon (VZ), AT&T (T), and T-Mobile usually included. These have been:
 - 2020 fue **terrible para SPHD** (-10%) mientras SCHD subió +15%. SPHD's high yield value names crashed harder.
 - 2023-2024 SPHD también underperforms en bull markets.
 - SPHD gana específicamente en 2014-2016 cycles but loses recently.
+
+---
+
+## Análisis profundo: el rebalance semestral
+
+### How SPHD rebalances
+
+SPHD's underlying index (S&P 500 Low Vol High Div) rebalances **twice a year**:
+- **End of January**: full reconstitution.
+- **End of July**: full reconstitution.
+
+This means: every 6 months, the 50 names can change significantly. If a stock cuts its dividend, it likely exits at next rebalance. If a stock's price drops sharply (high yield), it may enter.
+
+### Pros of semi-annual
+
+- **Adaptive**: captures changing yield landscape.
+- **Cuts losers**: stocks that suspend dividends exit.
+- **Lower turnover** than monthly rebalances (lower transaction costs).
+
+### Cons of semi-annual
+
+- **Slow to react**: cuts in February don't trigger removal until July.
+- **Lag in adapting**: by the time the index updates, the situation may have changed.
+
+For SPHD, this means **dividend cut exposure** during rebalance window. Several SPHD holdings (e.g., AT&T) cut dividends but remained in SPHD until next rebalance.
+
+---
+
+## Análisis profundo: SPHD distribution detail
+
+### Monthly distribution mechanics
+
+SPHD declares a distribution monthly (typically last week). The amount varies based on:
+1. Distributions received from underlying holdings.
+2. Cash position.
+3. Annual budget management.
+
+Typical monthly distribution: $0.18/share = $2.16/year.
+
+### Tax characteristics
+
+- **Qualified dividend portion**: ~95% (most qualified).
+- **Ordinary income**: ~5%.
+- **Return of capital**: minimal (vs YYY which has significant ROC).
+
+For US taxpayers: qualified portion taxed at long-term cap gains rate (15-20% top bracket).
+
+For Chinese fiscal residents:
+- WHT US 10% retained.
+- Reportable to Chinese tax authorities.
+
+### Distribution sustainability
+
+Unlike YYY (where distributions partially funded by ROC), SPHD's distributions are **fully funded by underlying dividends**. NAV doesn't decay structurally.
+
+If underlying companies cut dividends en masse (recession scenario), SPHD's distribution could decline 10-20%. But this would be temporary.
+
+---
+
+## Análisis profundo: ¿SPHD encaja en una cartera A&R?
+
+### The "income overlay" strategy
+
+For investors who want $X monthly cash flow:
+- SPHD provides 4.4% yield with monthly distribution.
+- Predictable. Low maintenance.
+
+vs alternatives:
+- SCHD: 3.5% yield, quarterly. Lower frequency.
+- JEPI: 7.5% yield, monthly. Higher but more risk.
+- Individual high-yield stocks: 5-7% but stock-picking required.
+
+If you specifically need **monthly income exceeding 4%**, SPHD is reasonable.
+
+### The "diversifier" strategy
+
+SPHD complements SCHD because:
+- Different sector mix (SCHD light utilities, SPHD heavy utilities).
+- Different yield profile (SPHD higher yield, SCHD higher growth).
+- Combined: diversified dividend exposure.
+
+50% SCHD + 50% SPHD = balanced dividend portfolio with 4% yield, moderate growth, diversified sectors.
+
+### When to avoid SPHD
+
+- Long horizon focus on total return: SCHD wins.
+- Want growth: SPHD lags.
+- Tax-efficient accounts: SPHD's small AFFE matters less in tax-advantaged accounts.
+- Cost-sensitive: SCHD 5x cheaper.
+
+---
+
+## Comparison datos detallados
+
+### Top 10 holdings comparison (typical)
+
+| SPHD top 10 | SCHD top 10 |
+|---|---|
+| AT&T (T) | Cisco (CSCO) |
+| Verizon (VZ) | AbbVie (ABBV) |
+| Altria (MO) | Texas Instruments (TXN) |
+| Bristol-Myers Squibb (BMY) | Verizon (VZ) |
+| Realty Income (O) | Coca-Cola (KO) |
+| AbbVie (ABBV) | Home Depot (HD) |
+| Phillip Morris (PM) | Pepsi (PEP) |
+| Pfizer (PFE) | Lockheed Martin (LMT) |
+| Duke Energy (DUK) | Bristol-Myers (BMY) |
+| Southern Company (SO) | Pfizer (PFE) |
+
+**Overlap**: ~50% (5 of 10 names common). Both ETFs share quality dividend names but differ in weighting.
+
+### Sector allocation comparison
+
+| Sector | SPHD | SCHD | Difference |
+|---|---|---|---|
+| Utilities | 22% | 6% | SPHD heavier 16pp |
+| REITs | 13% | 0% | SPHD heavier |
+| Consumer Defensive | 16% | 13% | Similar |
+| Healthcare | 9% | 17% | SCHD heavier 8pp |
+| Financials | 11% | 16% | SCHD heavier 5pp |
+| Tech | 0% | 10% | SCHD heavier |
+| Energy | 11% | 8% | SPHD heavier |
+
+The overlay is **fundamentally different**. SPHD's heavy utility/REIT/energy exposure produces higher yield but slower growth than SCHD's healthcare/financials/tech mix.
+
+
+---
+
+## Análisis profundo: low volatility factor history
+
+### What "low volatility" means
+
+Low volatility (or "low vol") is one of the academic factors that has been documented to outperform on **risk-adjusted basis**:
+- Stocks with lower historical volatility tend to deliver similar or better returns.
+- Sharpe ratio better than market.
+- Less downside in bear markets.
+
+### Low Vol research history
+
+- 1972 paper by Robert Haugen first documented it.
+- Re-discovered in 1990s by various researchers.
+- Popularized in 2000s by ETFs (USMV iShares MSCI USA Min Vol Factor, SPLV).
+
+### Why low vol works
+
+Theories:
+1. **Investor irrationality**: investors chase high-flying volatile stocks, neglect boring ones. Boring outperforms.
+2. **Constraint on shorting**: can't short losers, so they get bid up; longs are limited.
+3. **Lottery preference**: individual investors prefer "lottery" stocks with high upside potential.
+4. **Beta anomaly**: high-beta stocks underperform low-beta on risk-adjusted basis.
+
+### How well does low vol work
+
+Academic research:
+- 1971-2020 period: low vol factor outperformed market by 2-3% annually on risk-adjusted basis.
+- Most consistent factor along with momentum and quality.
+- Recently (2014-2024) mixed performance — period favored growth.
+
+For SPHD specifically:
+- 2013-2024: SPHD ~9% CAGR vs S&P 500 ~12% CAGR.
+- Low vol tilt didn't fully compensate for sector mix issues.
+
+### When does low vol fail
+
+- **Strong bull markets** (high momentum, growth tech, etc.): low vol lags by 5-10% annually.
+- **Deflationary scares**: high yield stocks (utilities, REITs) get smashed.
+- **Rate spikes**: rate-sensitive low vol names (utilities, REITs) suffer.
+
+### When does low vol shine
+
+- **Bear markets**: lower drawdowns (10-15% less than market).
+- **Choppy/sideways markets**: less destruction than market.
+- **Inflation eras**: defensive sectors with pricing power.
+
+For SPHD: low vol benefit has been **partially captured** but offset by yield concentration in sectors that themselves underperformed.
+
+---
+
+## Comparison: SPHD vs USMV (iShares MSCI USA Min Vol Factor ETF)
+
+If you specifically want low volatility exposure (not yield), USMV is alternative:
+- USMV expense: 0.15%.
+- USMV yield: 1.8%.
+- USMV 5y CAGR: 12% (similar to S&P 500).
+- USMV beta: 0.85.
+
+USMV provides cleaner low vol factor exposure without yield concentration.
+
+For dividend portfolio:
+- SPHD: yield + low vol (lower returns).
+- USMV: low vol only (higher returns).
+- SCHD: dividend growth (best returns).
+
+**For income**: SPHD wins.
+**For total return**: SCHD wins.
+**For purest low vol**: USMV wins.
+
+---
+
+## ¿SPHD encaja en una cartera A&R?
+
+### When SPHD makes sense
+
+1. Retiree with $1M+ portfolio needing $40-50k annual income from equity portion.
+2. Conservative investor uncomfortable with volatility.
+3. Dividend-and-income only mandate (not total return).
+
+### When SPHD doesn't make sense
+
+1. Long-term accumulator with 20+ year horizon.
+2. Investor who can tolerate volatility for higher returns.
+3. Tax-deferred account holder (where tax efficiency doesn't matter).
+
+### Recommended sizing
+
+If SPHD belongs in portfolio:
+- 5-10% allocation max.
+- Always combine with SCHD (50/50 or 60/40 SCHD/SPHD).
+- Combined yield ~4%, growth ~5-7%.
+
+### Portfolio thought experiment
+
+Three retirees, each with $1M portfolio, all need $40k income:
+
+**Retiree A: 100% SPHD**
+- Yield: 4.4% × $1M = $44k income.
+- Total return expectation: 8% (yield + capital appreciation).
+- Volatility: Low (beta 0.63).
+- 10-year wealth (assuming 8% returns): $2.16M.
+
+**Retiree B: 100% SCHD**
+- Yield: 3.5% × $1M = $35k income (short by $5k).
+- Total return expectation: 12% (yield + capital appreciation).
+- Volatility: Medium-low (beta 0.66).
+- 10-year wealth: $3.11M.
+- Need to sell $5k worth of shares annually = ~0.5% drag.
+
+**Retiree C: 50/50 SCHD/SPHD**
+- Yield: ~3.95% × $1M = $39.5k income.
+- Total return expectation: 10%.
+- Volatility: Low.
+- 10-year wealth: $2.59M.
+
+**Conclusion**: Retiree B (SCHD only) ends up with most wealth despite needing to top up income. Retiree A (SPHD) sacrifices growth for predictability. Retiree C (mix) is balanced.
+
+For most retirees, **SCHD-heavy is mathematically better**, but psychological comfort of SPHD's higher yield + monthly cash flow has value too.

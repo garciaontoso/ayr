@@ -442,3 +442,182 @@ Wendy's price journey:
 **5-year chart**: staircase down with multiple "support lines" broken. Technical setup is bearish.
 
 For value investors looking for setup: stocks like Wendy's that have crashed from peak and dropped through multiple support levels often need **catalyst** to bottom. Without comp sales recovery + leverage reduction, no catalyst evident.
+
+---
+
+## Análisis profundo: el case study comparison con MCD
+
+### The McDonald's contrast
+
+McDonald's is the **gold standard** of QSR dividend stocks. Comparing with Wendy's illustrates the difference:
+
+| Métrica | MCD | WEN | Difference |
+|---|---|---|---|
+| Years subiendo dividendo | 47 (Aristocrat) | 0 (post-cut 2025) | Massive |
+| Yield | 2.5% | 8.0% | WEN higher (yield trap) |
+| Net Debt/EBITDA | 1.2x | 7.3x | MCD safer |
+| Operating margin | 45% | 24% | MCD double |
+| ROE | 165% | 141% | Both engineered |
+| Stock 5y total return | +50% | -50% | MCD massive |
+| Brand power | Top global | Top-3 USA | MCD dominant |
+
+**Lesson**: MCD demonstrates that QSR can be excellent dividend stock. WEN demonstrates that not all QSR are equal.
+
+The differences come from:
+- **Scale**: MCD has 40,000+ restaurants vs WEN's 7,200. Scale benefits.
+- **International**: MCD is global, WEN mostly USA.
+- **Brand**: MCD universally recognized, WEN regional.
+- **Real estate**: MCD massive real estate empire. WEN smaller.
+- **Operating efficiency**: MCD machine-like, WEN average.
+- **Capital allocation**: MCD disciplined dividends, WEN levered + activist-driven.
+
+### The "QSR brand premium"
+
+Major QSR brands (in order of brand power):
+1. **McDonald's (MCD)**: top-tier
+2. **Domino's Pizza (DPZ)**: strong tech-enabled
+3. **Yum Brands (YUM)**: KFC + Taco Bell + Pizza Hut diversified
+4. **Restaurant Brands (QSR)**: Burger King + Tim Hortons + Popeyes
+5. **Wendy's (WEN)**: USA-focused
+6. **Chipotle (CMG)**: Mexican fast-casual
+7. **Starbucks (SBUX)**: coffee category leader
+
+Wendy's is mid-tier, not top-tier. This **structural disadvantage** affects long-term competitive position.
+
+---
+
+## Análisis profundo: key opportunities NOT being executed
+
+### Why hasn't Wendy's expanded internationally more?
+
+McDonald's has 40,000 restaurants globally. Wendy's has only ~1,000 international. Why?
+
+1. **Capital constraints**: levered balance sheet limits international expansion capex.
+2. **Franchisee finding**: international markets prefer MCD or local concepts.
+3. **Brand recognition lower internationally**.
+4. **Trian focus on US ROI**: pressure for US-focused returns.
+
+This is a **structural underutilization** of brand. International could be 30%+ of revenue if executed; today is 6%.
+
+### The breakfast missed opportunity
+
+Wendy's launched breakfast March 2020 (worst possible timing — COVID). Today breakfast is ~10% of USA sales. McDonald's breakfast is ~25% of USA sales.
+
+If Wendy's breakfast scaled to 20% of sales:
+- Additional revenue: ~$200-250M annually.
+- Additional EBITDA: ~$50-60M annually (lower margin than core).
+- Stock impact: meaningful.
+
+But execution has been mediocre. Marketing lacking. Menu innovation slow.
+
+### Loyalty / app underdeveloped
+
+McDonald's app + loyalty program (MyMcDonald's Rewards) is **market-leading**:
+- ~150M active users globally.
+- $25B+ in app sales annually.
+- Drives 15-20% of total sales.
+
+Wendy's app + loyalty:
+- ~30-40M active users.
+- ~5-10% of sales via app.
+
+Underdeveloped. Could be much more meaningful if invested.
+
+### Real estate monetization
+
+Wendy's owns ~$2B+ in real estate. Could:
+- Spin off as REIT (similar to McDonald's structure).
+- Sell-leaseback for cash.
+- Generate $1.5-2B in proceeds for debt reduction or dividends.
+
+Hasn't been executed because Trian + management prefer current cash flow structure. Missed value creation.
+
+---
+
+## Análisis profundo: the "death spiral" risk
+
+### What dividend cuts often signal
+
+Historical pattern: when company cuts dividend significantly (>30%), stock typically:
+- Drops 20-30% at announcement.
+- Continues underperforming for 2-3 years post-cut.
+- Eventually recovers if underlying business stabilizes.
+
+For Wendy's specifically:
+- Cut announced 2025: stock dropped from $11 to $7 (-36%).
+- Subsequent: stock has stayed below $8.
+- Recovery uncertain.
+
+### Could there be a second cut?
+
+Triggers for second cut:
+1. **EBITDA falling 15%+** (recession, comp sales decline).
+2. **Interest rates spiking** (refinancing more expensive).
+3. **Major franchisee bankruptcy** (chain disruption).
+4. **Same-store sales -3% sustained**.
+5. **Trian Partners signaling distress**.
+
+If second cut happens:
+- Stock easily another -25% to ~$5.
+- Yield "stays high" but on ever-lower price.
+- Yield trap continues.
+
+### What stops the death spiral
+
+To recover, Wendy's would need:
+- **Comp sales positive +3% sustained**.
+- **Operational improvements** in margin.
+- **Debt reduction**.
+- **Strategic clarity**: clear direction vs activist pressure.
+
+None of these are imminent. Recovery scenario is **3-5 years out, conditional on multiple positives aligning**.
+
+### Lessons for dividend investing
+
+WEN cautionary tale teaches:
+1. **Yield 8%+ on QSR is yield trap signal**.
+2. **High leverage + cyclical = recipe for cuts**.
+3. **Activist capital structures often hurt long-term**.
+4. **Low growth + high yield = unsustainable**.
+
+For dividend portfolio: be cautious of names with:
+- Net Debt/EBITDA >5x.
+- Activist shareholder dominance.
+- Slowing same-store sales.
+- Recent dividend cuts.
+
+WEN ticks all boxes. **Avoid going forward**.
+
+---
+
+## Final framework and action plan
+
+### If you currently own WEN
+
+1. **Sell**, replacing with MCD or similar quality QSR.
+2. Use any tax loss strategically.
+3. Reallocate proceeds to:
+   - 50% MCD: $200/share, ~2.5% yield, dividend grower.
+   - 30% PEP/KO: ~3% yield, defensive consumers.
+   - 20% other quality dividend names.
+
+This swap improves dividend safety, growth potential, and total return.
+
+### If considering WEN as new position
+
+**Don't**. Multiple superior alternatives exist.
+
+If you must have QSR exposure for "dividend play":
+- MCD: dominant, dividend Aristocrat, premium valuation deserved.
+- DPZ: tech-forward, highest growth.
+- QSR: cheaper than MCD, still quality.
+- WEN: AVOID.
+
+### Lessons from WEN holding
+
+If WEN was a learning experience:
+- Recognized yield trap signals earlier.
+- Understand activist downside.
+- Appreciate the difference between $8 yield vs $80B market cap MCD with 2.5% yield.
+
+For future dividend selection: prioritize **moat + growth + safety** over yield. SCHD does this automatically. Individual stocks require this discipline.

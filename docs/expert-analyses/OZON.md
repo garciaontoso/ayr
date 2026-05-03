@@ -305,3 +305,194 @@ Si tu posición OZON es 1% portfolio y la marcas a 0% en mental accounting:
 - "Found money" si eventualmente hay buyout: parcial recovery.
 
 **Recomendación final**: trata OZON como "lottery ticket gratis" — no lo cuentes en cálculos de portfolio, no lo monitores activamente, deja en cuenta IB. Si algún día emerge buyout opportunity, evaluar entonces.
+
+---
+
+## Análisis profundo: e-commerce ruso post-2022
+
+### How Russian e-commerce has continued to grow despite war
+
+Despite international sanctions and Russia's economic isolation, Russian e-commerce has **continued growing**:
+- 2021: ~$30B GMV total Russian e-commerce.
+- 2024: ~$80B GMV total Russian e-commerce.
+- Growth driver: domestic consumption + domestic substitution for Western brands.
+
+How this is possible:
+1. **Sanctions targeted finance, not retail directly**: Russian consumers can still buy products.
+2. **Western brands left**: Apple, McDonald's, IKEA, Nike, Adidas exited. **Domestic alternatives + Asian (Chinese) imports filled the gap**.
+3. **Consumer spending shifted online**: Russian retail moved from physical stores to e-commerce as Western retail closed.
+4. **Government support**: State subsidies for domestic e-commerce.
+
+### Wildberries vs Ozon competition
+
+Wildberries (private, founded 2004) is the dominant Russian e-commerce player:
+- AUM: ~$30-40B annual GMV.
+- Market share: ~50%.
+- Strategy: **price-aggressive**, low margins, massive volume.
+- Ownership: Tatyana Bakalchuk (founder) ~99%.
+
+Ozon competes by:
+- Premium positioning (slightly higher prices, better service).
+- Stronger logistics infrastructure.
+- More tech-forward (better app, more features).
+- Fintech integration (Ozon Bank/Card).
+
+The competition has been brutal but Ozon has **maintained ~25% market share** despite being smaller. Both are growing, but Wildberries grows faster.
+
+### Russian fintech post-Visa/MasterCard exit
+
+In March 2022, Visa and Mastercard suspended operations in Russia. This created opportunity:
+- **Ozon Card / Ozon Bank**: launched as domestic alternative.
+- **MIR card system**: government-backed Russian payment system.
+- **SBP (Faster Payments)**: national instant payment system.
+
+Ozon's fintech was perfectly positioned. By 2024, Ozon Bank had:
+- ~10M+ active users.
+- ~$5B in deposits.
+- Significant revenue contribution to overall Ozon revenue.
+
+This is the **growth area** for Ozon — diversifying from pure e-commerce into financial services.
+
+### Logistics scale-up despite challenges
+
+Despite import sanctions, Ozon expanded fulfillment:
+- 80+ centers (from 50 in 2021).
+- 35,000+ pickup points.
+- Same-day delivery in major cities.
+
+Sources of equipment:
+- Chinese manufacturers (KION, Geek+).
+- Domestic Russian assemblers.
+- Pre-2022 European imports still operational.
+
+This scale advantage is **defensive moat** vs Wildberries.
+
+---
+
+## Análisis profundo: el reto político-económico ruso
+
+### Russia's economic situation 2024-2026
+
+Russia's economy has been **resilient** despite expectations:
+- GDP growth: +3-4% in 2023-2024 (vs predicted -8% by Western analysts).
+- Reasons: high oil prices, military spending, capital controls, parallel imports.
+- Inflation: 8-12% (high but managed).
+- Currency (RUB): -25% vs USD since 2022.
+
+Implications for Ozon:
+- **Domestic demand strong**.
+- **Inflation hedge**: e-commerce platforms benefit from rising prices.
+- **Cost pressures**: import equipment, foreign tech expensive.
+
+### Sanctions evolution
+
+Sanctions have:
+- **Stabilized in 2024-2026**: no major new packages targeting consumer/retail.
+- **Tightened on financial sector**: SWIFT exclusion, secondary sanctions.
+- **Loosened on certain categories**: humanitarian goods, food.
+
+Ozon's exposure:
+- **Direct sanctions**: minimal (consumer-focused).
+- **Indirect impact**: parent company structure, ADR trading, legal entity.
+
+### War timeline impact
+
+Most analysts assume:
+- **War continues** into 2026-2028.
+- **No quick resolution**.
+- **Sanctions remain** for 5-10+ years post-war.
+- **Russia gradually reintegrates** with global system but slowly.
+
+For Ozon investors:
+- **Positions remain frozen** for years.
+- **Operational success continues** but doesn't help foreign holders.
+- **Eventual resolution** likely via partial buyout or extended dormancy.
+
+---
+
+## Lessons from other suspended Russian ADRs
+
+### Yandex N.V. case study
+
+Yandex (Russian "Google") was suspended on NASDAQ in March 2022. Resolution:
+- Spinoff of Russian operations (sold to Russian-controlled entity for ~$5.4B in 2024).
+- Foreign holders received: ~$5/share cash (vs pre-war price ~$50).
+- Loss for foreign holders: ~85-90%.
+
+For Ozon: similar resolution likely. Expected payout if buyout: $3-8 per share (vs nominal $11.60). 30-50% recovery.
+
+### Other suspended Russian ADRs
+
+- **Mail.ru/VK**: still suspended, no resolution.
+- **Polymetal International**: managed restructuring 2023, foreign holders mostly preserved (gold mining business outside Russia retained).
+- **MTS (Mobile TeleSystems)**: suspended; MTS continues operating in Russia.
+- **Norilsk Nickel**: suspended; major mining company.
+- **Rosneft, Gazprom**: never had ADRs.
+
+Pattern: most have remained suspended with **no resolution timeline**.
+
+### Why Ozon might be different
+
+Reasons Ozon could have better resolution:
+- **Pure consumer business** (vs natural resources, financial services).
+- **Less sanctions exposure**.
+- **Public profile** lower than Sberbank or Gazprom.
+- **Founders + Sistema** want clean structure long-term.
+
+Reasons it might not:
+- **Russian government** prefers to keep companies under domestic control.
+- **Cyprus parent** complications.
+- **Foreign holders** as "hostile" jurisdiction.
+
+Probability of any positive resolution in 2026-2027: ~40-50%.
+
+---
+
+## Action items for OZON holders
+
+### Track these signals
+
+1. **Russian government policy on foreign delisting**: any announcement of buyout mechanisms.
+2. **Re-domiciliation completion**: completion of Cyprus → Kaliningrad.
+3. **Yandex-style precedent**: if other ADRs get resolved, Ozon may follow.
+4. **Geopolitical thaw**: any sanctions easing.
+5. **Russian elections / political changes**: 2030 cycle could bring change.
+
+### Don't make decisions you can't reverse
+
+- Don't tax-loss harvest at zero (you may regret if buyout emerges).
+- Don't try to sell to grey market without legal counsel.
+- Don't sign over rights to consolidators offering "cents on the dollar" deals.
+
+### Best practice
+
+**Treat OZON as zero in mental accounting**:
+- Don't include in net worth calculations.
+- Don't include in dividend yield calculations.
+- Don't include in portfolio rebalancing decisions.
+
+If something positive happens later, it's bonus. If not, you've lost nothing in your planning.
+
+### Tax considerations
+
+For US/EU holders:
+- Some tax authorities allow tax-loss recognition on suspended securities (consult CPA).
+- Russian tax (foreign exchange controls) prevent realization in any case.
+- Reportable as paper loss potentially.
+
+For Chinese fiscal residents:
+- Less clear regulatory framework.
+- Generally suspended securities don't trigger taxable events.
+- Maintain documentation in case of future resolution.
+
+---
+
+## Summary: structural takeaways
+
+1. Ozon's operational story (Russia's "Amazon") continues but is **completely inaccessible** to foreign holders.
+2. The 2022 suspension is **structural**, not a market correction.
+3. Resolution is possible but uncertain (~40-50% probability of any meaningful payout in 5-7 years).
+4. If resolution comes, expect **30-50% recovery** of nominal value.
+5. **No action recommended** for current holders other than passive holding.
+6. **Definitely don't add** to position.
+7. **Trim position to zero in mental accounting** for portfolio planning.

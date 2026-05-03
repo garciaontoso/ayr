@@ -314,3 +314,258 @@ Pero:
 ---
 
 *Análisis preparado por agente Opus 4.7 de A&R. Datos FMP a fecha 2026-05-03. UnitedHealth está en uno de los moments más turbulentos de su historia. La inversión long-term tiene sentido pero requiere tolerancia a volatilidad alta. No constituye recomendación de inversión personalizada.*
+
+---
+
+## Análisis profundo: el modelo Medicare Advantage (la fuente del estrés)
+
+### What is Medicare Advantage?
+
+Medicare Advantage (MA) is a private alternative to traditional Medicare that:
+- US government (CMS - Centers for Medicare & Medicaid Services) pays insurance companies a per-member fee monthly.
+- The insurance company manages the member's healthcare.
+- Members typically get lower out-of-pocket costs + extra benefits (vision, dental, gym).
+
+In return for taking on financial risk (managing care within the per-member fee), insurance companies can profit if they manage costs efficiently. UnitedHealthcare has the **largest MA membership** with 9M+ members.
+
+### How does MA become profitable?
+
+1. **Risk adjustment**: CMS pays more for sicker members (with supporting documentation).
+2. **Care coordination**: prevents expensive ER visits, hospital readmissions.
+3. **Negotiated rates**: with hospitals and providers.
+4. **Member retention**: reduce cost of acquisition.
+
+When everything works: 5-7% margins on MA premiums.
+
+### What has gone wrong
+
+**The "MLR pressure" of 2024-2025** has multiple drivers:
+
+1. **Higher utilization**:
+- Post-COVID, members deferred care during pandemic.
+- Now using care at higher rates than baseline.
+- Cardiac procedures, joint replacements, oncology screenings.
+
+2. **GLP-1 medication explosion**:
+- Ozempic, Wegovy: $1,000-1,500/month per patient.
+- ~3-5% of MA members starting on these.
+- Annual cost per qualifying member: $12k-18k.
+- UnitedHealthcare manages ~9M MA members → potential cost: $5-8B annually if scaling.
+
+3. **Member acuity higher**:
+- Members enrolled were sicker than risk-adjusted models predicted.
+- Coding has been criticized by DOJ as potentially over-aggressive.
+
+4. **Hospital labor inflation**:
+- Nursing staff costs up 25%+ since 2020.
+- Medical labor strikes (Kaiser, others).
+- Hospitals passing costs to insurers.
+
+### MLR specifically
+
+UnitedHealthcare MLR by year:
+- 2020: 81%
+- 2021: 82%
+- 2022: 83%
+- 2023: 84%
+- 2024: 85%
+- 2025: 87% (projected)
+
+Each 1% MLR increase = ~$4B less profit at $400B revenue. Going from 81% to 87% = ~$24B in lost profit (some captured by reduced reserves, but significant impact).
+
+### What the regulator is doing
+
+CMS has multiple levers:
+1. **Annual rate updates**: set tarifas anually. 2025 rate was below industry expectations (-0.16% vs +1-2% expected).
+2. **Risk adjustment changes**: tightening models to reduce MA "upcoding".
+3. **Star ratings**: lower ratings = lower bonuses for MA plans.
+4. **Quality bonuses**: linked to outcomes, not coding.
+
+Trump administration: Republicans have been more friendly to MA historically. But Trump's "vouchers" idea + budget concerns make outlook uncertain.
+
+---
+
+## Análisis profundo: Optum Health, the growth engine
+
+### What is Optum Health?
+
+Optum Health is the **healthcare services arm** of UNH, vertically integrated to deliver care. It includes:
+
+1. **Primary care clinics**: ~3,000+ clinics employing 90,000 physicians.
+2. **Urgent care centers**: 200+ MedExpress, GoHealth.
+3. **Ambulatory surgery**: hundreds of facilities.
+4. **Mental health**: Refresh Mental Health (acquired 2022).
+5. **Home health and care**: through Naviguard (acquired 2018).
+6. **Ambulatory care**: SurgeryPartners stake.
+7. **OptumServe**: government healthcare contracts.
+8. **Naviguard PBM**.
+
+### Why Optum Health matters
+
+Optum Health is **growing 15-20% annually** vs UnitedHealthcare's 5-8%. It's:
+- Higher margin (10%+ EBITDA vs 7% for insurance).
+- Capital-intensive but recurring.
+- Synergistic with UnitedHealthcare (vertical integration).
+
+By 2030, Optum Health could be larger than UnitedHealthcare in earnings.
+
+### The vertical integration debate
+
+Pros for UNH:
+- Captures more of healthcare dollar.
+- Better data → better outcomes.
+- Lower costs (in theory).
+
+Cons (from regulators/critics):
+- **Conflict of interest**: when UnitedHealthcare denies a claim, the doctor might be Optum employed → captive.
+- **Antitrust concerns**: too much market power.
+- **Data privacy**: combining insurance data + provider data.
+
+### FTC Investigation
+
+Federal Trade Commission has been investigating UNH's vertical integration since 2024:
+- Specific concerns: market power in physician practice consolidation.
+- Optum has acquired ~3,000 physician practices since 2018.
+- Competitors complain UNH steers patients to its own providers.
+
+Possible outcomes:
+- **Behavioral remedies**: data sharing requirements, conflict-of-interest separation.
+- **Structural separation**: divest some of Optum (extreme).
+- **Civil fines**: large ($1B+).
+
+Probability of significant adverse outcome: 20-30% over next 2 years.
+
+---
+
+## Análisis profundo: el asesinato del CEO and aftermath
+
+### The events of December 2024
+
+Brian Thompson, CEO of UnitedHealthcare division (insurance arm), was shot and killed in NYC on December 4, 2024. The shooter, Luigi Mangione, left a manifesto critical of the insurance industry.
+
+Subsequent events:
+- Public reaction was **bizarre and disturbing** — many on social media showed varying levels of sympathy for the shooter, criticizing UNH's claim denial practices.
+- Mangione was arrested 5 days later in Pennsylvania.
+- Trial proceedings ongoing 2025.
+
+### Implications for UNH
+
+1. **Brand damage**: hard to quantify. Surveys show UNH has historically high brand awareness, now negative.
+2. **Employee morale**: difficult internally.
+3. **Political pressure**: bipartisan attacks on insurance industry post-event.
+4. **Recruitment**: harder to attract top talent.
+5. **Customer trust**: erosion difficult to measure but real.
+
+### CEO transition
+
+In May 2025, CEO Andrew Witty announced retirement. Stephen Hemsley (UNH's CEO from 2006-2017, current Board Chair) returned as **interim CEO**.
+
+Hemsley's return signals:
+- **Stability concern** at top of organization.
+- **Crisis management** mode.
+- **Transition to next generation** but slowly.
+
+Effective leadership at UNH is critical for navigating regulatory + reputational + operational challenges. The next 12-18 months are pivotal.
+
+---
+
+## Análisis profundo: Optum Rx (the PBM unit)
+
+### What is a PBM?
+
+A **Pharmacy Benefit Manager (PBM)** is a middleman in the prescription drug supply chain. They:
+1. Negotiate prices with drug manufacturers (rebates).
+2. Manage formularies (which drugs are covered).
+3. Process prescriptions for health plans.
+4. Operate mail-order and specialty pharmacies.
+
+Top 3 PBMs control ~85% of USA prescriptions:
+- **Caremark (CVS Health)**: largest.
+- **Express Scripts (Cigna)**: second.
+- **OptumRx (UnitedHealth)**: third.
+
+### Optum Rx specifics
+
+- Processes ~1.5 billion prescriptions annually.
+- Revenue: ~$130B (largely pass-through from drug costs).
+- Net revenue (after rebates back to clients): ~$10B.
+- EBITDA margin: ~6-7%.
+
+### Regulatory pressure on PBMs
+
+PBMs are under intense scrutiny:
+1. **Insulin pricing** scandal: PBMs accused of inflating insulin prices via rebate structure.
+2. **Spread pricing**: cobrar al plan más de lo que pagan a la pharmacy.
+3. **Vertical integration**: PBMs owning pharmacies + insurance.
+4. **Lack of transparency**: rebate structures hidden.
+
+Multiple bills in Congress targeting PBM practices:
+- **Pharmacy Benefit Manager Reform Act** (bipartisan, multiple iterations).
+- **Inflation Reduction Act** (already passed — drug price negotiation for Medicare).
+
+Possible outcomes for Optum Rx:
+- Forced spread-pricing transparency: -5-10% margin.
+- Mandatory rebate pass-through: -10-15% margin.
+- Forced separation from health insurance: structural divestiture.
+
+This is **significant tail risk** for UNH's earnings.
+
+---
+
+## Análisis profundo: financial scenarios
+
+### Best case (FY28-30)
+
+Hipótesis bull:
+- MLR stabilizes at 84-85% (returns to "normal").
+- Optum Health continues 15-20% growth.
+- No major regulatory action (FTC, DOJ, PBM legislation).
+- Stable macro / no recession.
+
+Outcomes:
+- Revenue: $550-600B by 2030.
+- Net income: $25-30B by 2030.
+- EPS: $30-35.
+- Stock at P/E 18x: $540-630.
+
+**Reward**: +75% to +100% from current $313.
+
+### Base case (FY28-30)
+
+Hipótesis base:
+- MLR remains ~85-86% (modestly elevated).
+- Optum continues but slower.
+- Some regulatory action but manageable.
+- Recession in 2026-2027 but recovery.
+
+Outcomes:
+- Revenue: $500-550B by 2030.
+- Net income: $18-22B.
+- EPS: $22-25.
+- Stock at P/E 14x: $310-350.
+
+**Reward**: 0 to +12% from current.
+
+### Bear case (FY28-30)
+
+Hipótesis bear:
+- MLR continues climbing (87-89%).
+- DOJ forces structural separation of Optum.
+- PBM legislation passes with material impact.
+- Recession + provider strikes + further ramos.
+
+Outcomes:
+- Revenue: $480-520B by 2030.
+- Net income: $10-15B.
+- EPS: $12-17.
+- Stock at P/E 10x: $120-170.
+
+**Risk**: -45% to -60% from current.
+
+### Probability weighted
+
+- Bull: 25%
+- Base: 50%
+- Bear: 25%
+
+**Expected value**: ~$320-380. Slight upside on average. The volatility around this expected value is the issue.

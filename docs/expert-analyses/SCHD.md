@@ -345,3 +345,218 @@ SCHD pareja muy bien con **VYM** (Vanguard High Dividend Yield) o **DGRO** (iSha
 - 30 days later, switch back if desired.
 
 Esto puede generar $1,000-$5,000 en tax benefits per year for high-net-worth investors.
+
+---
+
+## Análisis profundo: el split de 2024 (3-por-1)
+
+### Why the split?
+
+In October 2024, Charles Schwab announced a 3-for-1 stock split for SCHD. This was the second split (first was 2-for-1 in 2022). After both splits, current shares represent a fraction of the original 2011 IPO shares.
+
+### Why companies do splits
+
+- **Lower per-share price**: makes affordable for small investors.
+- **Psychological**: $30 share looks cheaper than $90 share.
+- **Liquidity**: more shares trading.
+
+### What it means for holders
+
+- **No change in value**: 100 shares at $90 became 300 shares at $30. Same total value.
+- **Same dividend**: 100 shares at $2.65 dividend = $300 shares at $0.88 dividend. Same dollar amount.
+- **Adjusted history**: charts and historical data are split-adjusted.
+
+### Practical implications
+
+For new buyers post-split: lower entry barrier ($30 vs $90).
+For existing holders: just more shares of equal value.
+
+### Future splits?
+
+Unlikely soon. SCHD typically splits when share price exceeds $100. At current $32, room to grow before another split.
+
+---
+
+## Análisis profundo: SCHD as part of a 3-fund portfolio
+
+### The classic 3-fund portfolio
+
+A common portfolio construction:
+1. **US Equity** (40-60%)
+2. **International Equity** (20-30%)
+3. **Bonds** (20-40%)
+
+Where does SCHD fit?
+
+### As US Equity exposure
+
+SCHD covers:
+- USA only (no international).
+- Dividend tilt.
+- Quality factor.
+
+It's NOT a "total US market" fund. SCHD has 100 stocks vs Total Market 4,000+. Misses tech mega-caps. Misses small-cap.
+
+For 3-fund portfolio:
+- **Total US Market** (VTI): broader exposure, lower yield, no tilt.
+- **SCHD**: tilt to dividend/quality, slightly lower returns long-term, lower volatility.
+
+Choice depends on factor preference.
+
+### Suggested portfolio structures
+
+**Aggressive growth-focused** (younger, longer horizon):
+- 30% VTI (US total market)
+- 30% VXUS (international)
+- 20% SCHD (dividend tilt)
+- 20% bonds
+
+**Income-focused** (retiree, want cash flow):
+- 40% SCHD
+- 20% VTI
+- 15% VXUS
+- 15% bonds (intermediate-term)
+- 10% high-yield bonds
+
+**Dividend-pure**:
+- 50% SCHD
+- 20% individual blue-chip dividend stocks
+- 15% international dividend ETF (VXUS or DGS)
+- 15% bonds
+
+---
+
+## Análisis profundo: SCHD's dividend safety
+
+### Each holding's individual dividend track record
+
+SCHD's holdings have on average **24 consecutive years of dividend payments**. Many are Dividend Aristocrats (25+) or Kings (50+).
+
+Key Aristocrats and Kings in SCHD typically include:
+- **Coca-Cola (KO)**: 62 years of increases - Dividend King
+- **Procter & Gamble (PG)**: 67 years - King
+- **Lockheed Martin (LMT)**: 21 years
+- **Home Depot (HD)**: 14 years
+- **Cisco (CSCO)**: 13 years
+- **Texas Instruments (TXN)**: 21 years
+- **Verizon (VZ)**: 19 years
+- **AbbVie (ABBV)**: 12 years (since spin-off)
+
+Of 100 SCHD holdings, ~60% have 15+ years of consecutive increases.
+
+### Dividend cut history within SCHD
+
+SCHD itself has **NEVER cut its distribution** since inception (2011). Annual distribution growth has been positive every single year.
+
+Underlying companies have occasionally cut dividends:
+- **Wells Fargo (WFC)**: cut 2020 (post-COVID)
+- **GE**: cut multiple times historically
+- **General Mills (GIS)**: cut occasionally during food sector stress
+
+When this happens:
+- Stock falls.
+- SCHD removes at next reconstitution.
+- Replacement bought.
+- Distribution may temporarily decline for that quarter, but rebounds.
+
+### Stress test: what if 50% of SCHD stocks cut dividends?
+
+In severe scenario (worse than 2008):
+- 50% of holdings cut dividends 30%.
+- SCHD distribution declines ~15%.
+- NAV declines 25-35%.
+- Recovers within 2-3 years.
+
+This is **manageable** for long-term holders. Short-term holders would face stress.
+
+---
+
+## Análisis profundo: international comparable
+
+### How does SCHD compare globally?
+
+International dividend strategies similar to SCHD:
+- **WisdomTree International LargeCap Dividend** (DOL): non-USA developed markets dividend.
+- **Vanguard International High Dividend Yield** (VYMI): EAFE + emerging markets dividend.
+- **iShares Core High Dividend International** (IDV): international dividend ETF.
+
+These can complement SCHD for **global dividend diversification**.
+
+### USA-only is a feature
+
+Some investors specifically want USA-only:
+- USA economy stability.
+- USA dollar (less FX risk for USD investors).
+- Best regulatory environment.
+- Highest quality companies typically.
+
+For non-USD investors (like Chinese fiscal residents earning in CNY/HKD):
+- USA dollar exposure is positive long-term diversification.
+- WHT 10% applies but is manageable.
+
+---
+
+## Análisis: SCHD distribution per year
+
+### Monthly equivalent for budgeting
+
+SCHD distribution analysis 2024-2025:
+- Q1 2025: $0.247
+- Q2 2025: $0.265
+- Q3 2025: $0.275 (estimated)
+- Q4 2025: $0.275 (estimated)
+- Annual: $1.062
+
+For each $100k in SCHD: ~$3,500 dividend annually = $290 monthly average.
+
+For each $1M in SCHD: ~$35,000 dividend annually = $2,920 monthly.
+
+This is **planning-friendly cash flow** for retirees.
+
+### Reinvestment vs cash
+
+For accumulators (not yet retired):
+- DRIP (dividend reinvestment): compound aggressively.
+- 30-year compounding at 13% CAGR: $100k → ~$3.9M.
+
+For retirees:
+- Take cash distributions for living expenses.
+- Don't sell shares (avoid sequence-of-returns risk).
+
+For mixed: some reinvest, some take cash.
+
+---
+
+## SCHD comparison with stock-picking
+
+### Hypothetical: building "your own SCHD"
+
+If you tried to replicate SCHD with stock-picks:
+- 100 stocks needed (impractical).
+- 30 stocks gets you 80% of diversification benefit.
+- 20 stocks gets you 70% benefit.
+
+For reasonable substitute: 20-30 hand-picked dividend champions.
+
+### Pros of stock-picking
+
+- **No expense ratio** on stocks.
+- **Avoid stocks you don't like** (sin businesses, etc.).
+- **Tax loss harvest** more flexibly.
+- **Customize for your risk tolerance**.
+
+### Pros of SCHD
+
+- **Reconstitution**: index removes problem stocks automatically.
+- **Diversification**: 100 stocks lower risk than 20.
+- **Discipline**: no emotional bias.
+- **Tax efficiency**: index already qualified dividend optimized.
+
+### My take
+
+For most investors: **SCHD is superior**. Stock-picking only makes sense if you have:
+- Strong views on specific companies.
+- Time + skills for analysis.
+- Tax considerations special.
+
+For 80% of dividend investors, simply hold SCHD.

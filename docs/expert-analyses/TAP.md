@@ -428,3 +428,212 @@ Aunque cerveza es business cyclical, Molson Coors ha hecho progress en ESG:
 - **Employee diversity**: 50% women in leadership goal.
 
 For ESG-conscious investors, Molson Coors es **mejor que peers** en algunos métricas. Pero para dividend investors puro, factor minor.
+
+---
+
+## Análisis profundo: M&A speculation y opciones estratégicas
+
+### Could Molson Coors be acquired?
+
+Possible suitors:
+1. **Heineken** (HEIA): largest brewer in Europe. Strategic logic: combined Europe operations + USA presence. Capacity: ~$15-20B deal possible.
+2. **Asahi Group**: Japanese, expanding globally. Pas history of large international acquisitions (acquired CUB Group $7.7B, Carlton United, etc.).
+3. **Carlsberg**: another European brewer. Less likely (smaller balance sheet).
+4. **AB InBev**: regulators would block (already 50%+ USA market).
+
+**Probability of acquisition in 3-5 years**: ~20-30%. Strategic rationale exists but:
+- Premium pricing required (50%+ above current $45).
+- Regulatory scrutiny in USA (DOJ).
+- Limited willing acquirers at current valuations.
+
+### Could Molson Coors do major M&A?
+
+With $8.5B market cap, MC could:
+- Buy small/mid-size brewers ($500M-$2B targets).
+- Acquire RTD/canned cocktails brands.
+- Expand non-alcoholic portfolio.
+
+Recent trend: MC has done **small adds** (Athletic Brewing minority, Topo Chico Hard JV). No major acquisitions since 2016 SAB Miller mega-deal.
+
+Likelihood of large M&A: **moderate** (20%) in 2026-2028.
+
+### Spinoff or sale of Europe?
+
+Could MC spin off or sell Europe operations to focus on Americas?
+
+Pros:
+- Europe declining structurally.
+- USA business is core franchise.
+- Sale could fund deleveraging.
+
+Cons:
+- Heineken/Asahi might bid for Europe alone (could be $4-5B price).
+- Tax implications.
+- Cultural / sentimental ties.
+
+Has been considered repeatedly but not executed. Continues to be possibility.
+
+### Capital structure optimization
+
+MC could:
+- **Sell-leaseback real estate** (some brewing facilities owned).
+- **Securitize royalty streams** (premium brand royalties).
+- **REIT-like structure** for real estate.
+
+These would unlock value but management has been conservative. No imminent action.
+
+---
+
+## Análisis profundo: el cambio de demografía de cerveza
+
+### Generational shift
+
+Cerveza consumption per capita by age cohort (USA):
+- **Boomers (born 1946-64, age 60-78)**: 22 gallons/year (highest consumers).
+- **Gen X (born 1965-80, age 44-59)**: 18 gallons/year.
+- **Millennials (born 1981-96, age 28-43)**: 14 gallons/year.
+- **Gen Z (born 1997-2012, age 12-27)**: ~10 gallons/year (and falling).
+
+Per capita decline:
+- 1981 peak: ~32 gallons/year.
+- 2024: ~19 gallons/year.
+- 2030 projection: ~16 gallons/year.
+
+### Why younger generations drink less
+
+1. **Health consciousness**: more attention to alcohol's health effects.
+2. **Sober curious movement**: voluntary sobriety as lifestyle.
+3. **Cannabis substitution**: legal in many states, 18-30 cohort using more.
+4. **Spirits/cocktails preference**: hard liquor seen as more "elevated".
+5. **Hard seltzer alternative**: lower calorie, refreshing.
+6. **Economic pressures**: less disposable income for routine drinking.
+
+### Revenue per drinker dynamics
+
+Total beer market revenue:
+- 2010: ~$100B.
+- 2024: ~$120B.
+
+Despite -30% per capita, total revenue has been stable due to:
+- **Population growth**: USA grew from 309M to 335M.
+- **Premium shift**: more expensive beers.
+- **Inflation**: prices up.
+
+For Molson Coors: have benefited from premium shift partially, but lacked premium portfolio.
+
+### Long-term outlook
+
+Beer consumption projection 2024-2034:
+- Total volume: -10 to -15%.
+- Total revenue: 0 to +10% (depending on premium and price hikes).
+
+For Molson Coors in this environment:
+- **Volume erosion**: continued.
+- **Pricing power limited**: by competition.
+- **EBITDA stable to slightly down**.
+
+This is the **harsh reality** for traditional brewers. Best in class (BUD, ABInBev, STZ) can grow modestly. Mid-tier (MC) is stable at best.
+
+---
+
+## Análisis profundo: el dividendo policy
+
+### Dividend history across decades
+
+```
+1995: $0.25 → 2005: $0.40 → 2015: $0.96 → 2025: $1.89
+```
+
+Long-term CAGR: ~6.5% over 30 years. Decent dividend growth.
+
+But notice the disruptions:
+- 2020-2021: cut from $1.64 to $1.36 (rebase post-COVID).
+- 2025-2026: cut from $1.84 to $1.89 (effectively flat).
+
+### Comparison with peers
+
+Long-term dividend growth (10y CAGR):
+- **Molson Coors**: +5%.
+- **Heineken**: +6%.
+- **AB InBev (BUD)**: +0% (flat with cuts).
+- **Constellation Brands (STZ)**: +12%.
+- **Brown-Forman (BF.B)**: +8%.
+
+MC is mid-pack but benefits from being stable through cycles.
+
+### Sustainability of $1.89
+
+For dividend at $1.89/share:
+- Annual payout: ~$378M.
+- FCF coverage at $1B+: 38-40% payout. Healthy.
+- EBITDA coverage (recurring): 17%. Very healthy.
+
+If FCF drops 30%:
+- Payout becomes 55%. Still manageable.
+- Dividend could stay flat.
+
+If FCF drops 50%:
+- Payout becomes 75%. Concerning.
+- Possible cut warranted.
+
+So dividend is **safe in scenarios where FCF remains $700M+**, or 70%+ of current.
+
+---
+
+## Datos comparativos: total return scenarios
+
+### 5-year scenarios
+
+**Bull case** (Topo Chico Hard scaling, Bud Light gain sustained):
+- Revenue: +3% annually.
+- EBITDA: +5% annually.
+- EPS adjusted: $7+ by 2029.
+- Stock at P/E 14x: $90-100.
+- Plus dividends $10-12.
+- Total return: 100%+.
+
+**Base case**:
+- Revenue: 0 to +1%.
+- EBITDA: 0 to +1%.
+- EPS adjusted: $5.50 by 2029.
+- Stock at P/E 11x: $55-65.
+- Plus dividends $10.
+- Total return: 30-40%.
+
+**Bear case** (continued decline, more impairments):
+- Revenue: -2% annually.
+- EBITDA: -3% annually.
+- EPS adjusted: $4 by 2029.
+- Stock at P/E 9x: $30-40.
+- Plus dividends $9.
+- Total return: -10% to +0%.
+
+**Probability weighted**: ~30-40% total return over 5 years. Decent but not stellar.
+
+### What I'm watching
+
+Quarter-by-quarter signals:
+1. **Same-store sales** (USA, especially):
+- Positive: bullish.
+- Flat: neutral.
+- Negative: bearish.
+
+2. **Topo Chico Hard market share**:
+- Above 4%: bullish.
+- 2-4%: neutral.
+- Below 2%: bearish.
+
+3. **Premium beer mix shift**:
+- Increasing: bullish (premium = higher margin).
+- Stable: neutral.
+- Declining: bearish.
+
+4. **Europe operations**:
+- Stable or growing: neutral to bullish.
+- More impairments: bearish.
+
+5. **Capital returns**:
+- Buybacks at low prices: accretive, bullish.
+- Suspended buybacks: bearish (cash flow concerns).
+
+Monitoring these gives clear thesis direction.

@@ -298,3 +298,167 @@ Si quieres prioritize total return:
 | 2025 (proj) | +8% | +12% | +8% | 11% |
 
 **Observación**: DIVO returns competitive, volatilidad significativamente menor.
+
+---
+
+## Análisis profundo: la mecánica de covered calls aplicada
+
+### How covered calls generate income
+
+Step-by-step:
+1. CWP owns 100,000 shares of, say, Caterpillar (CAT) at $300/share = $30M in equity exposure.
+2. CWP sells 1,000 contracts (each contract = 100 shares) of "CAT Sept 17 $315 calls" expiring in 30 days.
+3. Premium received: ~$5/share × 1,000 contracts = $500,000 cash immediate.
+4. If CAT stays below $315: keep premium + shares + dividends. Repeat.
+5. If CAT goes to $315+: shares "called away" at $315 (vs $300 cost basis = $15 gain per share). Plus the $5 premium = $20 effective sale price.
+6. Either way: monthly income generated.
+
+### Why DIVO does this on only 15-25% of portfolio
+
+If CWP did this on 100% of portfolio:
+- Maximum income generation.
+- But cap on upside is total: stock returns capped at strike + premium.
+- Investor unhappy if NAV doesn't grow during bull markets.
+
+15-25% selective allocation:
+- ~30-50% of total income from covered calls.
+- 75-85% of portfolio retains full equity upside.
+- Compromise between income + growth.
+
+### Stocks CWP typically doesn't cover
+
+CWP avoids covered calls on:
+- **Highest-conviction names**: MSFT, AAPL, V (where they want full upside).
+- **High dividend yielders**: where capturing dividend matters.
+- **Recently appreciated names**: if you sold call at strike that's reached, you'll miss further gains.
+
+### Stocks CWP typically covers
+
+- **Mature, slow-moving names**: where they don't expect 30%+ moves.
+- **Moderate yielders**: PG, JNJ, PEP, KO (steady performers).
+- **High implied volatility names**: when premium attractive.
+
+This creates a **selective and tactical** approach, not formulaic.
+
+---
+
+## Análisis profundo: tax-managed considerations
+
+### What "Tax-Managed" means
+
+DIVO explicitly aims to be **tax-efficient**. Strategies:
+1. **Hold-and-roll**: avoid selling profitable stocks (avoid capital gains).
+2. **Roll covered calls forward**: if a call is in-the-money, "roll" it (close + open new) instead of taking assignment.
+3. **Tax-loss harvesting**: sell losing positions, replace with similar.
+4. **Long-term capital gains preference**: when must sell, prefer long-term holdings.
+
+### How this affects taxable account holders
+
+For US taxpayers in taxable accounts:
+- **Qualified dividends**: paid as 0%, 15%, or 20% based on income bracket.
+- **Premium income from options**: generally **short-term gains** (taxed as ordinary income, up to 37%).
+- **Short-term capital gains**: when forced to sell.
+
+Net effect: about 50-60% of DIVO distributions are at low tax rate, 40-50% at higher rate.
+
+For tax-deferred accounts (IRA, Roth IRA): all of this is irrelevant. DIVO works very well in these accounts.
+
+For Chinese fiscal residents:
+- WHT 10% on dividends.
+- Reportable to Chinese authorities.
+
+### Premium of qualified vs ordinary
+
+Take an investor in 37% bracket:
+- $1.00 of qualified dividend → $0.80 after tax.
+- $1.00 of ordinary income → $0.63 after tax.
+
+Difference: $0.17 per dollar. For DIVO with ~50% of distributions ordinary: ~$0.085 less per dollar than pure SCHD.
+
+Over $100k invested in DIVO at 5% yield:
+- DIVO: $5,000 × 50% × $0.80 + $5,000 × 50% × $0.63 = $3,575 after tax.
+- SCHD: $3,500 × $0.80 = $2,800 after tax (lower yield but better tax).
+
+DIVO net: ~$3,575 vs SCHD net: ~$2,800. **DIVO wins by $775 in this scenario**, even with tax inefficiency.
+
+For lower-tax investors, the DIVO advantage shrinks.
+
+---
+
+## Análisis profundo: Capital Wealth Planning (CWP)
+
+### The firm
+
+CWP is an independent wealth management firm based in Naples, Florida. Founded 2008 by **Kevin Simpson** (CFA charterholder).
+
+Original business: SMA (Separately Managed Accounts) for high-net-worth clients. The "Enhanced Dividend Income" strategy was their flagship since 2009.
+
+In 2016, partnered with **Amplify ETFs** (Chicago-based ETF provider) to launch DIVO.
+
+### Kevin Simpson background
+
+- Joined Smith Barney in 1991.
+- Various roles in wealth management 1990s-2000s.
+- Founded CWP 2008.
+- Manager of DIVO since inception.
+- Author of investment newsletter / commentary.
+
+His investing philosophy:
+- **Dividend growth focus**: companies that have raised dividends for years.
+- **Quality screen**: low debt, good ROE.
+- **Tactical options**: sell calls when prudent, take advantage of volatility.
+- **Long-term mindset**: not chasing short-term outperformance.
+
+### Track record
+
+In Kevin's SMA accounts (1995-2016):
+- Annualized: ~10-11%.
+- Vs S&P 500: similar overall.
+- With less volatility.
+
+DIVO since inception:
+- Annualized total return: ~11-12%.
+- Vs S&P 500: in line.
+- Vs SCHD: similar.
+
+### Key person risk
+
+If Kevin Simpson leaves or has health issues:
+- DIVO would have transition concerns.
+- However, the strategy is documented + replicable.
+- Other experienced managers at CWP could take over.
+
+Lower key-person risk than GQG Partners (where Rajiv Jain is more central).
+
+### Firm AUM
+
+CWP total AUM (including DIVO + SMA + other): $10-15B.
+
+DIVO is the largest product but not the only one.
+
+---
+
+## DIVO vs el portfolio completo del A&R
+
+### Where DIVO fits in the dividend portfolio
+
+If your A&R portfolio has:
+- 30% dividend ETFs (SCHD, DIVO, SPHD)
+- 30% individual dividend champions (KO, JNJ, PG, etc.)
+- 20% REITs (O, NNN, ARE, etc.)
+- 20% other
+
+DIVO at 8-12% allocation is reasonable.
+
+### Diversification angle
+
+DIVO's covered call strategy is **uncorrelated alpha** — it generates income through volatility selling, not just stock appreciation. This:
+- Adds different return source.
+- Reduces overall portfolio dependence on equity bull market.
+- Provides cushion in flat markets (premium income).
+
+### Risk: don't double-up on covered calls
+
+If you also own JEPI, SPYI, QYLD, RYLD (all covered call ETFs), you may be **over-exposed to covered call alpha**. In flat-bull markets these ETFs all underperform. Be selective.
+
+Recommend: 1-2 covered call ETFs total in portfolio.

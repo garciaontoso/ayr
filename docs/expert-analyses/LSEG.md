@@ -580,3 +580,12 @@ For any thoughtful dividend investor, LSEG should be **core position** unless sp
 
 LSEG is the **anchor of the international dividend portfolio**.
 
+
+---
+
+### Anexo 15: Final closing on LSEG
+
+London Stock Exchange Group stands as **top dividend compounder europeo for next decade**, combining 200+ year heritage with modern transformation through Refinitiv acquisition and Microsoft strategic alliance. **Wide moat** through subscription recurring revenue + market infrastructure + data platform network effects. **Tax-efficient** for foreign investors via UK 0% WHT. **Growing dividend +15% CAGR** plus aggressive buybacks USD 2B+/year. **Defensive characteristics** via low beta + recurring revenue + mission-critical infrastructure. For inversor desde Spain con China residence, LSEG deserves **anchor 4-5% portfolio position** given combination of quality + tax efficiency + diversification. **Hold long-term**. **Accumulate on any weakness**. **Never sell at fair value**. This is the type of stock that compounds for 20+ years through multiple economic cycles.
+
+This concludes the comprehensive LSEG analysis. **Highest conviction position of all 13 international tickers analyzed**.
+

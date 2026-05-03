@@ -325,3 +325,242 @@ CIO surveys 2025 indicate:
 - New deal velocity slowing (longer sales cycles).
 - Existing customer expansion still positive.
 - Retention rates ~110% NRR remain healthy.
+
+---
+
+## Análisis profundo: financial deep dive
+
+### The transition to GAAP profitability
+
+UiPath's path to profitability:
+- FY22: Net loss -$525M.
+- FY23: Net loss -$328M.
+- FY24: Net loss -$90M.
+- FY25: Net loss -$74M.
+- **FY26: Net income +$282M (PROFITABLE)**.
+
+This took ~3 years from IPO (April 2021) to profitability. Acceptable timeline for SaaS but slower than typical SaaS leaders (ServiceNow took 5 years, Salesforce 7+).
+
+### What drove FY26 profitability
+
+1. **Revenue growth +13%**: continued top-line expansion.
+2. **Operating leverage**: each new revenue dollar brings ~30% to profit.
+3. **Cost discipline**: layoffs (10% workforce in 2024-2025).
+4. **Stock-based compensation reduction**: SBC was massive ($300M+ annually), now declining.
+
+### Stock-based compensation matters
+
+UiPath's SBC was historically extreme:
+- FY22: $381M SBC.
+- FY23: $403M.
+- FY24: $345M.
+- FY25: $280M.
+- FY26: $245M (declining).
+
+SBC matters because:
+- It's "non-cash" but **dilutes shareholders** continuously.
+- Heavy SBC = stocks need to grow rapidly to maintain per-share value.
+- UiPath shares outstanding: 540M (FY22) → 580M (FY26) — even with buybacks, SBC dilutes faster.
+
+If UiPath maintains SBC at $250M annually + buybacks at $1B annually, net dilution ~10-15M shares per year. For sustained EPS growth, revenue must grow >12% annually.
+
+### FCF analysis
+
+UiPath's FCF generation:
+- FY22: -$68M (loss).
+- FY23: -$34M.
+- FY24: +$292M (turning point).
+- FY25: +$306M.
+- FY26: +$352M.
+
+FCF margin reaching ~22%. This is **healthy SaaS level** comparable to Adobe, Salesforce.
+
+But looking deeper:
+- **Net income** vs **FCF**: large gap because SBC is added back in FCF calculation. So FCF includes the "noncash" SBC.
+- True economic income: closer to FCF - SBC = $352M - $245M = $107M. Lower than reported FCF.
+
+For valuation: traditional multiples like EV/FCF can be misleading for SBC-heavy SaaS.
+
+---
+
+## Análisis profundo: customer base analysis
+
+### Customer cohorts
+
+UiPath's ~10,800 customers segmented:
+- **Tier 1 ($1M+ ARR)**: ~250 customers. Major Fortune 500 enterprises. Sticky.
+- **Tier 2 ($100K-$1M ARR)**: ~2,000 customers. Mid-large enterprises.
+- **Tier 3 ($25K-$100K ARR)**: ~5,000 customers. Mid-market.
+- **Tier 4 (<$25K ARR)**: ~3,500 customers. Departmental/smaller.
+
+### Net Retention Rate (NRR)
+
+NRR measures revenue from existing customers (excluding new):
+- Above 100% = expansion (good).
+- Below 100% = contraction (bad).
+
+UiPath NRR:
+- FY22: 138% (excellent).
+- FY23: 124%.
+- FY24: 116%.
+- FY25: 112%.
+- FY26: 110%.
+
+**Trend is concerning**: declining from 138% to 110% in 4 years. This means:
+- Existing customers expanding less than before.
+- Or contracting relative to expansion.
+
+For SaaS investors: 110% NRR is the **borderline of healthy**. Below 100% = company in distress mode.
+
+### Customer concentration
+
+Top 10 customers contribute ~25% of revenue. Top 100 contribute ~50%. This is moderate concentration:
+- Less concentrated than typical enterprise software.
+- More than mass-market SaaS.
+
+Loss of major customer would impact 2-5% revenue.
+
+### Industry mix
+
+- **Banking & Finance**: 25-30%.
+- **Healthcare/Pharma**: 15-20%.
+- **Technology**: 10-15%.
+- **Manufacturing**: 10-15%.
+- **Public Sector**: 8-10%.
+- **Retail/CPG**: 8-10%.
+- **Other**: 5-15%.
+
+Heavy concentration in regulated industries (financial, healthcare). These have:
+- Long sales cycles.
+- Compliance requirements.
+- Switching costs.
+
+UiPath's enterprise focus protects from rapid disruption but slows growth.
+
+---
+
+## Análisis profundo: founders and ownership
+
+### Founders
+
+**Daniel Dines (CEO)**:
+- Romanian-American.
+- Founded UiPath 2005 (originally as DeskOver).
+- Pivoted to RPA in 2015.
+- Stepped down as CEO in early 2024 (replaced by Robert Enslin).
+- Returned as CEO in November 2024 after Enslin's departure.
+
+His focus:
+- Product vision.
+- Engineering culture.
+- AI integration strategy.
+
+**Marius Tirca (Chief Technology Officer)**:
+- Co-founder.
+- Romanian.
+- Engineering leader.
+
+### Other key executives
+
+- **Mary Tetlow** (Interim CEO from 2024 to Nov 2024)
+- **Ashim Gupta** (CFO)
+- Various VPs.
+
+### Voting structure
+
+UiPath has a **dual-class share structure**:
+- Class A: 1 vote per share (public market).
+- Class B: 35 votes per share (founders).
+
+This means founders **control voting** despite having ~35% economic ownership. This:
+- Protects founder vision long-term.
+- Limits shareholder influence on strategic decisions.
+- Common in tech IPOs (Google, Facebook, etc.).
+
+Implication: if you disagree with management strategy, your vote doesn't count for much.
+
+### Major institutional holders
+
+- **Founders + insiders**: ~35% economic, ~80% voting.
+- **Vanguard, BlackRock, State Street**: ~15% combined.
+- **Capital Group**: ~5%.
+- **T. Rowe Price**: ~3%.
+- **Other institutionals**: ~25%.
+- **Retail / unidentified**: ~17%.
+
+Some active investors (Elliott Management, Starboard) have circled UiPath but no major activist position.
+
+---
+
+## Análisis profundo: competitive moat sustainability
+
+### Switching costs analysis
+
+When a customer has 500 UiPath workflows:
+- **Code investment**: hundreds of person-hours per workflow.
+- **Training investment**: developers + business analysts trained.
+- **Integration investment**: linked to enterprise systems.
+- **Operational investment**: monitoring, governance.
+
+Total investment: $5-15M for medium enterprise.
+
+To migrate to Microsoft Power Automate or ServiceNow:
+- 12-18 months timeline.
+- ~50-70% of investment must be replicated.
+- Risk of business disruption.
+
+This creates **real switching costs** that protect UiPath's ARR.
+
+### Microsoft's advantage
+
+Microsoft Power Automate's biggest advantage:
+- **Bundled with Office 365** seats.
+- **Native integration** with Excel, Outlook, Teams.
+- **Free for many use cases** initially.
+
+Customers may **not switch** existing UiPath workflows but may **start new workflows** in Power Automate. Over time, share of new automation tilts to Microsoft.
+
+This is the **slow strangulation scenario** — UiPath keeps existing business but loses growth.
+
+### How UiPath defends
+
+1. **Differentiated capabilities**: complex orchestration, document understanding, advanced agents.
+2. **Multi-cloud agnostic**: doesn't lock to Microsoft Azure.
+3. **Enterprise-grade governance**: audit trails, security, compliance.
+4. **Specialized industries**: financial services, healthcare with regulatory needs.
+5. **Partner ecosystem**: SIs (system integrators) like Accenture, Deloitte deeply embedded.
+
+### Time horizon
+
+Realistic outlook:
+- **Next 2-3 years**: UiPath maintains share. Existing customers don't switch. Some new customers go to Microsoft.
+- **3-5 years**: market saturation. New customer growth slows. Microsoft grows faster.
+- **5-10 years**: agentic AI transformation. Either UiPath leads (becomes orchestrator) or fades (Microsoft + LLM-native solutions dominate).
+
+UiPath's fate depends on **executing the agentic pivot well**.
+
+---
+
+## Final action plan for portfolio holders
+
+### If your UiPath position is small (<1%)
+
+Hold as lottery ticket on AI thesis. Cost of being wrong is contained.
+
+### If your UiPath position is significant (1-5%)
+
+Consider trimming to 1-2% and reallocating to:
+- **Microsoft (MSFT)**: gets most of the upside without the existential risk.
+- **ServiceNow (NOW)**: if you want enterprise software exposure.
+- **AI/automation thematic ETFs**: for diversified exposure.
+
+### If your UiPath position is dominant (>5%)
+
+Definitely reduce. Don't bet portfolio on tech turnaround story without dividend support.
+
+### Don't sell on emotion
+
+If you do sell, do it methodically:
+- Sell 25% per quarter.
+- Hold remainder for FY27 results to see if turnaround executing.
+- Adjust based on data, not panic.
