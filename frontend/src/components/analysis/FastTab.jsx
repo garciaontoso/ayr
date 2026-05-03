@@ -19,13 +19,28 @@ import AnalystScorecard from './AnalystScorecard.jsx';
 import FGScoresPanel from './FGScoresPanel.jsx';
 import SplitsTable from './SplitsTable.jsx';
 
+// Year ranges replicado exactamente de FAST Graphs: MAX + 19 años uno a uno.
+// Antes teníamos sólo MAX/20Y/15Y/10Y/5Y/3Y/1Y — ahora granularidad año a año.
 const RANGES = [
   { id: 'MAX', years: 99 },
-  { id: '20Y', years: 20 },
+  { id: '19Y', years: 19 },
+  { id: '18Y', years: 18 },
+  { id: '17Y', years: 17 },
+  { id: '16Y', years: 16 },
   { id: '15Y', years: 15 },
+  { id: '14Y', years: 14 },
+  { id: '13Y', years: 13 },
+  { id: '12Y', years: 12 },
+  { id: '11Y', years: 11 },
   { id: '10Y', years: 10 },
+  { id: '9Y',  years: 9 },
+  { id: '8Y',  years: 8 },
+  { id: '7Y',  years: 7 },
+  { id: '6Y',  years: 6 },
   { id: '5Y',  years: 5 },
+  { id: '4Y',  years: 4 },
   { id: '3Y',  years: 3 },
+  { id: '2Y',  years: 2 },
   { id: '1Y',  years: 1 },
 ];
 
@@ -1080,30 +1095,34 @@ export default function FastTab() {
         }
       `}</style>
       {/* Header */}
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14,flexWrap:'wrap',gap:12}}>
-        <div>
-          <h2 style={{margin:0,fontSize:18,fontWeight:700,color:'var(--text-primary)',fontFamily:'var(--fd)',display:'flex',alignItems:'center',gap:8}}
-              title={`Línea blanca = precio histórico · Línea dorada = ${METRIC_LABEL[fgMode] || 'EPS'} × ${activePE?activePE.toFixed(1):fgPE}x · Azul = proyección · Punto rojo = precio actual${isReit?'\nMODO REIT: comparamos vs AFFO igual que FAST Graphs':''}`}>
-            ⚡ FAST
+      {/* Header tipo FAST Graphs — "Historical graph" + dropdown inline,
+          extras de A&R agrupados en un menú compacto a la derecha.
+          Verificado contra app.fastgraphs.com/security/.../summary */}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,flexWrap:'wrap',gap:10,paddingBottom:8,borderBottom:'1px solid var(--subtle-bg2)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:14,flexWrap:'wrap'}}>
+          <h2 style={{margin:0,fontSize:16,fontWeight:600,color:'var(--text-primary)',fontFamily:'var(--fd)',display:'flex',alignItems:'center',gap:8}}
+              title={`Línea blanca = precio histórico · Línea dorada = ${METRIC_LABEL[fgMode] || 'EPS'} × ${activePE?activePE.toFixed(1):fgPE}x · Azul = Normal P/E · Punto rojo = precio actual${isReit?'\nMODO REIT: comparamos vs AFFO igual que FAST Graphs':''}`}>
+            Historical graph
             {isReit && (
               <span style={{fontSize:9,fontWeight:700,padding:'2px 7px',borderRadius:4,background:'rgba(168,85,247,.12)',color:'#a855f7',border:'1px solid rgba(168,85,247,.3)',letterSpacing:.3}}>
                 REIT · AFFO
               </span>
             )}
           </h2>
-        </div>
-        <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
-          {/* Metric dropdown */}
-          <div style={{display:'flex',flexDirection:'column',gap:2}}>
-            <span style={{fontSize:8,color:'var(--text-tertiary)',fontFamily:'var(--fm)',letterSpacing:'.3px',textTransform:'uppercase'}}>Correlacionar con</span>
+          {/* Price Correlated With dropdown — exacto FAST Graphs */}
+          <div style={{display:'flex',alignItems:'center',gap:6,padding:'5px 10px',background:'rgba(255,159,10,.08)',border:'1px solid rgba(255,159,10,.25)',borderRadius:6}}>
+            <span style={{fontSize:10,color:'#ff9f0a',fontFamily:'var(--fm)',fontWeight:600}}>Price Correlated With:</span>
             <select value={fgMode} onChange={e=>setFgMode(e.target.value)}
-              style={{padding:'6px 10px',borderRadius:8,border:'1px solid var(--gold)',background:'var(--gold-dim)',color:'var(--gold)',fontSize:11,fontWeight:600,fontFamily:'var(--fm)',cursor:'pointer',outline:'none',maxWidth:260}}>
+              style={{padding:'2px 6px',borderRadius:4,border:'none',background:'transparent',color:'var(--text-primary)',fontSize:11,fontWeight:600,fontFamily:'var(--fm)',cursor:'pointer',outline:'none',maxWidth:240}}>
               <optgroup label="Earnings">{METRIC_OPTIONS.filter(m=>m.group==='Earnings').map(m=><option key={m.id} value={m.id}>{m.label}</option>)}</optgroup>
               <optgroup label="Cash Flow">{METRIC_OPTIONS.filter(m=>m.group==='Cash Flow').map(m=><option key={m.id} value={m.id}>{m.label}</option>)}</optgroup>
               <optgroup label="Otras métricas">{METRIC_OPTIONS.filter(m=>m.group==='Otras').map(m=><option key={m.id} value={m.id}>{m.label}</option>)}</optgroup>
             </select>
           </div>
-          {/* Guardar P/E personal para este ticker (localStorage) */}
+        </div>
+        {/* Extras compactos — todos en un solo grupo, iconos pequeños */}
+        <div style={{display:'flex',gap:4,alignItems:'center',flexWrap:'wrap'}}>
+          {/* P/E personal — icono solo */}
           <button onClick={() => {
               if (!storageKey) return;
               try {
@@ -1113,31 +1132,37 @@ export default function FastTab() {
               } catch {}
             }}
             title={hasPersonalPE ? `Borrar P/E personal guardado (${savedPE?.toFixed(1)}x)` : `Guardar ${fgPE}x como P/E preferido para ${ticker}`}
-            style={{padding:'6px 12px',borderRadius:8,border:`1px solid ${hasPersonalPE?'#f59e0b':'var(--border)'}`,background:hasPersonalPE?'rgba(245,158,11,0.12)':'transparent',color:hasPersonalPE?'#f59e0b':'var(--text-secondary)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'var(--fm)'}}>
-            {hasPersonalPE ? '⭐' : '☆'} P/E personal
+            style={{padding:'4px 8px',borderRadius:5,border:`1px solid ${hasPersonalPE?'#f59e0b':'var(--border)'}`,background:hasPersonalPE?'rgba(245,158,11,0.10)':'transparent',color:hasPersonalPE?'#f59e0b':'var(--text-tertiary)',fontSize:10,cursor:'pointer',fontFamily:'var(--fm)'}}>
+            {hasPersonalPE ? '⭐' : '☆'}
           </button>
-          {/* Yield + Payout ya son permanentes en el chart (estilo FAST Graphs). */}
+          {/* Smooth EPS toggle compacto */}
           <button onClick={()=>setSmoothEps(!smoothEps)}
-            title="Rolling median 3y del EPS: suaviza picos GAAP (write-downs, FX, impairments) en la línea de valor justo. OFF = EPS raw."
-            style={{padding:'6px 12px',borderRadius:8,border:`1px solid ${smoothEps?'var(--gold)':'var(--border)'}`,background:smoothEps?'rgba(200,164,78,0.10)':'transparent',color:smoothEps?'var(--gold)':'var(--text-secondary)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'var(--fm)'}}>
-            Smooth EPS {smoothEps ? '✓' : '○'}
+            title="Smooth EPS — rolling median 3y, suaviza picos GAAP (write-downs, FX, impairments)"
+            style={{padding:'4px 8px',borderRadius:5,border:`1px solid ${smoothEps?'var(--gold)':'var(--border)'}`,background:smoothEps?'rgba(200,164,78,0.08)':'transparent',color:smoothEps?'var(--gold)':'var(--text-tertiary)',fontSize:10,cursor:'pointer',fontFamily:'var(--fm)'}}>
+            Smooth
           </button>
-          {/* Compare mode — input libre para 2º ticker como ghost overlay */}
+          {/* Compare ticker compacto */}
           <input
             type="text"
             value={compareTicker}
             onChange={e => setCompareTicker(e.target.value.toUpperCase().trim())}
-            placeholder="vs TICKER"
+            placeholder="vs..."
             maxLength={6}
-            title="Compara el precio de otro ticker (normalizado al inicio). Ej: PEP, MO, ABBV."
-            style={{padding:'6px 10px',borderRadius:8,border:`1px solid ${compareData ? '#9333ea' : 'var(--border)'}`,background:compareData ? 'rgba(147,51,234,0.08)' : 'transparent',color:compareData ? '#9333ea' : 'var(--text-secondary)',fontSize:11,fontWeight:600,fontFamily:'var(--fm)',width:90,textAlign:'center',outline:'none'}}
+            title="Compara con otro ticker (overlay ghost normalizado al inicio). Ej: PEP, MO, ABBV"
+            style={{padding:'4px 8px',borderRadius:5,border:`1px solid ${compareData ? '#9333ea' : 'var(--border)'}`,background:compareData ? 'rgba(147,51,234,0.06)' : 'transparent',color:compareData ? '#9333ea' : 'var(--text-tertiary)',fontSize:10,fontFamily:'var(--fm)',width:60,textAlign:'center',outline:'none'}}
           />
-          <button onClick={exportChartPNG}
-            title={`Descarga el chart actual como PNG (fast-${ticker}-YYYY-MM-DD.png)`}
-            style={{padding:'6px 12px',borderRadius:8,border:'1px solid var(--border)',background:'transparent',color:'var(--text-secondary)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'var(--fm)'}}>
-            ⬇ PNG
+          {/* +Trades — sólo número si tiene */}
+          <button onClick={()=>setShowTrades(!showTrades)}
+            title={`${trades.length} transacciones de este ticker en el chart`}
+            style={{padding:'4px 8px',borderRadius:5,border:`1px solid ${showTrades?'#30d158':'var(--border)'}`,background:showTrades?'rgba(48,209,88,0.06)':'transparent',color:showTrades?'#30d158':'var(--text-tertiary)',fontSize:10,cursor:'pointer',fontFamily:'var(--fm)'}}>
+            T·{trades.length}
           </button>
-          <button onClick={()=>setShowTrades(!showTrades)} style={{padding:'6px 12px',borderRadius:8,border:`1px solid ${showTrades?'#30d158':'var(--border)'}`,background:showTrades?'rgba(48,209,88,0.08)':'transparent',color:showTrades?'#30d158':'var(--text-secondary)',fontSize:11,fontWeight:600,cursor:'pointer',fontFamily:'var(--fm)'}} title={`${trades.length} transacciones de este ticker`}>+Trades ({trades.length})</button>
+          {/* PNG export — icono */}
+          <button onClick={exportChartPNG}
+            title={`Descargar PNG (fast-${ticker}-YYYY-MM-DD.png)`}
+            style={{padding:'4px 8px',borderRadius:5,border:'1px solid var(--border)',background:'transparent',color:'var(--text-tertiary)',fontSize:10,cursor:'pointer',fontFamily:'var(--fm)'}}>
+            ⬇
+          </button>
         </div>
       </div>
 
