@@ -5,6 +5,11 @@ frontend/node_modules/
 # Build output
 frontend/dist/
 
+# Playwright (E2E)
+frontend/test-results/
+frontend/playwright-report/
+frontend/playwright/.cache/
+
 # OS
 .DS_Store
 

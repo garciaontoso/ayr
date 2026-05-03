@@ -11,8 +11,35 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "size": "size-limit",
+    "lhci": "lhci autorun",
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui",
+    "e2e:headed": "playwright test --headed"
   },
+  "size-limit": [
+    {
+      "name": "main bundle (initial load, gzipped)",
+      "path": "dist/assets/index-*.js",
+      "limit": "150 KB"
+    },
+    {
+      "name": "react vendor (gzipped)",
+      "path": "dist/assets/react-vendor-*.js",
+      "limit": "65 KB"
+    },
+    {
+      "name": "FastTab lazy chunk (analysis)",
+      "path": "dist/assets/FastTab-*.js",
+      "limit": "30 KB"
+    },
+    {
+      "name": "all CSS (gzipped)",
+      "path": "dist/assets/*.css",
+      "limit": "20 KB"
+    }
+  ],
   "dependencies": {
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -20,6 +47,9 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@lhci/cli": "^0.15.1",
+    "@playwright/test": "^1.59.1",
+    "@size-limit/preset-app": "^12.1.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.0",
@@ -30,6 +60,7 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
     "jsdom": "^29.0.2",
+    "size-limit": "^12.1.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.0",
     "vitest": "^4.1.2"
