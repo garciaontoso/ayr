@@ -1258,20 +1258,9 @@ function buildPositionsFromCB() {
         const ibCcy = ib.currency || "USD";
         const ibFx = ibCcy === "USD" ? 1 : (fxRates?.[ibCcy] ? 1 / fxRates[ibCcy] : (p.fx || 1));
         valueUSD = (ib.mktValue || 0) * (ibCcy === "USD" ? 1 : ibFx);
-        // 2026-05-03 fix: prefer the user's REAL adjusted cost basis from D1
-        // cost_basis (which reflects all trades + dividend reinvestments + option
-        // credits + partial sells with FIFO matching) over IB's reported avgCost.
-        // IB sometimes resets avgCost on corporate actions or carries stale
-        // numbers after partial liquidations — both lead to wrong P&L.
-        const realAdjBasis = p.adjustedBasis || 0; // already in local ccy from D1
-        const useRealCB = realAdjBasis > 0;
-        if (useRealCB) {
-          costTotalUSD = realAdjBasis * (ib.shares || 0) * (ibCcy === "USD" ? 1 : ibFx);
-          pnlUSD = valueUSD - costTotalUSD;
-        } else {
-          costTotalUSD = (ib.avgCost || 0) * (ib.shares || 0) * (ibCcy === "USD" ? 1 : ibFx);
-          pnlUSD = (ib.unrealizedPnl || 0) * (ibCcy === "USD" ? 1 : ibFx);
-        }
+        // Vanilla IB-driven cost basis + P&L (matches what IB reports).
+        costTotalUSD = (ib.avgCost || 0) * (ib.shares || 0) * (ibCcy === "USD" ? 1 : ibFx);
+        pnlUSD = (ib.unrealizedPnl || 0) * (ibCcy === "USD" ? 1 : ibFx);
         pnlPct = costTotalUSD !== 0 ? pnlUSD / Math.abs(costTotalUSD) : 0;
         // DPS: LIVE_DPS now returns USD (bruto_usd), only fallback divTTM needs FX conversion
         const liveDps = LIVE_DPS[p.ticker];
@@ -1312,17 +1301,38 @@ function buildPositionsFromCB() {
       const shares = ib?.shares || p.shares || 0;
       const lastPrice = ib?.mktPrice || p.lastPrice || 0;
 
+      // Two SEPARATE cost-basis tracks the user wants to compare:
+      //   1. avgCostShares = price avg de las compras de acciones (sin ajustar)
+      //      — comes from IB avgCost or P.avgCost, untouched by divs/opt credits.
+      //   2. costBasisReal = D1 adjustedBasis (cost_basis transactions WITH
+      //      dividend reinvestments + option credits applied → "what the position
+      //      really cost me net of all credits").
+      // Each gets its own P&L using current price.
+      const ibFxForCB = ccy === "USD" ? 1 : (fxRates?.[ccy] ? 1 / fxRates[ccy] : (p.fx || 1));
+      const avgCostShares = ib?.avgCost || p.avgCost || 0;            // local ccy per share
+      const costBasisReal = p.adjustedBasis || avgCostShares;          // local ccy per share
+      const costSharesUSD = avgCostShares * shares * (ccy === "USD" ? 1 : ibFxForCB);
+      const costRealUSD   = costBasisReal * shares * (ccy === "USD" ? 1 : ibFxForCB);
+      const pnlSharesUSD  = valueUSD - costSharesUSD;
+      const pnlRealUSD    = valueUSD - costRealUSD;
+      const pnlSharesPct  = costSharesUSD !== 0 ? pnlSharesUSD / Math.abs(costSharesUSD) : 0;
+      const pnlRealPct    = costRealUSD   !== 0 ? pnlRealUSD   / Math.abs(costRealUSD)   : 0;
+
       // Dynamic yield — computed at runtime from current price/value, not stale D1
       const divYield = valueUSD > 0 && divAnnualUSD > 0 ? divAnnualUSD / valueUSD : 0;
 
       return {
         ...p, ccy, dataSource,
         shares, lastPrice,
-        // 2026-05-03 fix: prefer real cost basis from D1 over IB avgCost.
-        // Old behaviour `ib.avgCost || p.adjustedBasis` overwrote the truthful
-        // D1 value with IB's avg whenever IB had data, masking the bug.
         adjustedBasis: p.adjustedBasis || ib?.avgCost || p.avgCost || 0,
         avgCost: ib?.avgCost || p.avgCost || 0,
+        // 2026-05-03: keep both cost-basis variants exposed so the portfolio
+        // table can show two columns (with credits vs only shares).
+        costSharesPerShare: avgCostShares,
+        costRealPerShare:   costBasisReal,
+        costSharesUSD, costRealUSD,
+        pnlSharesUSD,  pnlRealUSD,
+        pnlSharesPct,  pnlRealPct,
         priceUSD: ccy === "USD" ? lastPrice : (valueUSD / (shares || 1)),
         costUSD: costTotalUSD / (shares || 1),
         valueUSD, costTotalUSD, divAnnualUSD,
