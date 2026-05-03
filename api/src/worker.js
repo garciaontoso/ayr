@@ -8,6 +8,9 @@ import { SPANISH_FUNDS_1S2025 } from './data/spanish_funds.js';
 
 import { makeAgents } from "./lib/agents/index.js";
 import { runResearchAgent, detectContradictions, runAutoInvestigations } from "./lib/research-agent.js";
+import { buildCorsHeaders } from "./lib/cors.js";
+import { sendTelegram, logEvent, errorBudget, TELEGRAM_EMOJI } from "./lib/telegram.js";
+import { ytRequireToken } from "./lib/auth.js";
 
 // Mapping from our tickers to FMP symbols (foreign tickers need exchange suffix)
 // CRITICAL: bare "ENG" on FMP = ENGlobal Corp (wrong!), "RAND" = Rand Capital (wrong!)
@@ -2491,109 +2494,8 @@ async function autoPatrimonioSnapshot(env, { force = false } = {}) {
   };
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// TELEGRAM — Bot notifications (free, no VAPID setup)
-// ═══════════════════════════════════════════════════════════════════════════
-// Setup:
-//   1. @BotFather → /newbot → @AyRTrading_bot → guardar TOKEN
-//   2. Tú envías /start al bot → fetch updates para sacar chat_id
-//   3. wrangler secret put TELEGRAM_BOT_TOKEN
-//   4. wrangler secret put TELEGRAM_CHAT_ID
-// Persistimos cada envío en telegram_log con delivered/error para auditoría.
-
-const TELEGRAM_EMOJI = {
-  info: 'ℹ️', notice: '📌', warn: '⚠️', critical: '🚨',
-  fishing_proximity: '🎣', fishing_hit: '🐟',
-  brain: '🧠', defense: '🛡️',
-};
-
-// ─── Logging estructurado + error budget (audit 2026-05-01) ─────────────
-// Antes: 127 catches silenciosos + 67 console.error sin alerta = bugs ocultos durante días.
-// Ahora: logEvent persiste en D1 + Telegram en CRITICAL, errorBudget cuenta y avisa al pasar threshold.
-
-async function logEvent(env, level, event, fields = {}) {
-  const line = JSON.stringify({ ts: Date.now(), level, event, ...fields });
-  if (level === 'critical' || level === 'error') console.error(line);
-  else console.log(line);
-  if (level === 'critical') {
-    // Fire-and-forget Telegram, no await en hot path
-    sendTelegram(env, {
-      text: `🔴 *${event}*\n\`\`\`\n${line.slice(0, 500)}\n\`\`\``,
-      severity: 'critical',
-      source: event,
-    }).catch(() => {});
-  }
-}
-
-async function errorBudget(env, eventKey, threshold = 10) {
-  const day = new Date().toISOString().slice(0, 10);
-  try {
-    await env.DB.prepare(
-      `CREATE TABLE IF NOT EXISTS errors_budget(
-        event TEXT, day TEXT, count INTEGER DEFAULT 0,
-        last_at TEXT, last_message TEXT,
-        PRIMARY KEY(event, day))`
-    ).run();
-    const r = await env.DB.prepare(
-      `INSERT INTO errors_budget(event, day, count, last_at)
-       VALUES (?, ?, 1, datetime('now'))
-       ON CONFLICT(event, day) DO UPDATE SET count = count + 1, last_at = datetime('now')
-       RETURNING count`
-    ).bind(eventKey, day).first();
-    if (r?.count === threshold) {
-      sendTelegram(env, {
-        text: `⚠️ Error budget hit: *${eventKey}* alcanzó ${threshold} errores hoy. Investigar.`,
-        severity: 'warn',
-        source: 'error_budget',
-      }).catch(() => {});
-    }
-  } catch (e) {
-    console.error("errorBudget meta-error:", e.message);
-  }
-}
-
-async function sendTelegram(env, { text, severity = 'info', source = 'system' }) {
-  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) {
-    // Log silently — Telegram not configured yet
-    try {
-      await env.DB.prepare(
-        `INSERT INTO telegram_log (severity, source, message, delivered, error)
-         VALUES (?, ?, ?, 0, 'TELEGRAM_BOT_TOKEN/CHAT_ID not configured')`
-      ).bind(severity, source, text).run();
-    } catch {}
-    return { delivered: false, error: 'not_configured' };
-  }
-  const emoji = TELEGRAM_EMOJI[severity] || '';
-  const fullText = `${emoji} ${text}`.slice(0, 4000);
-  try {
-    const resp = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: env.TELEGRAM_CHAT_ID,
-        text: fullText,
-        parse_mode: 'Markdown',
-        disable_web_page_preview: true,
-      }),
-      signal: AbortSignal.timeout(10000),
-    });
-    const data = await resp.json();
-    const ok = resp.ok && data?.ok;
-    await env.DB.prepare(
-      `INSERT INTO telegram_log (severity, source, message, delivered, error)
-       VALUES (?, ?, ?, ?, ?)`
-    ).bind(severity, source, fullText, ok ? 1 : 0, ok ? null : (data?.description || `HTTP ${resp.status}`)).run();
-    return { delivered: ok, message_id: data?.result?.message_id, error: ok ? null : data?.description };
-  } catch (e) {
-    try {
-      await env.DB.prepare(
-        `INSERT INTO telegram_log (severity, source, message, delivered, error)
-         VALUES (?, ?, ?, 0, ?)`
-      ).bind(severity, source, fullText, e.message?.slice(0, 200) || 'unknown').run();
-    } catch {}
-    return { delivered: false, error: e.message };
-  }
-}
+// TELEGRAM helpers moved to lib/telegram.js
+// Imported at top: sendTelegram, logEvent, errorBudget, TELEGRAM_EMOJI
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TASTYTRADE — Auth + market data + accounts
@@ -4022,25 +3924,8 @@ export default {
     
     // CORS — allowlist EXACTA (audit 2026-05-01: pages.dev wildcard permitía
     // que evil.pages.dev hiciese CSRF a usuarios autenticados).
-    const origin = request.headers.get("Origin") || "";
-    const ALLOWED_ORIGINS = [
-      "https://ayr.onto-so.com",
-      "https://onto-so.com",
-      "https://ayr-196.pages.dev",   // Cloudflare Pages production alias
-    ];
-    const isLocalhost = origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:");
-    // Pages preview URLs son hash-{commit}.ayr-196.pages.dev — permitidos solo
-    // los del proyecto ayr-196 (no cualquier *.pages.dev).
-    const isPagesPreview = /^https:\/\/[a-f0-9]+\.ayr-196\.pages\.dev$/.test(origin);
-    const isAllowed = ALLOWED_ORIGINS.includes(origin) || isLocalhost || isPagesPreview;
-    const corsOrigin = isAllowed ? origin : "https://ayr.onto-so.com";
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": corsOrigin,
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-AYR-Auth, X-Control-Token",
-      "Access-Control-Allow-Credentials": "true",
-      "Vary": "Origin",
-    };
+    // Logic lives in lib/cors.js — buildCorsHeaders() is a pure function.
+    const { corsHeaders, isAllowed, origin } = buildCorsHeaders(request);
 
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
@@ -29251,19 +29136,8 @@ async function sendWebPush(env, subscription, payloadText) {
 // See docs/youtube-dividendo-agent-design.md for the full design.
 // ═══════════════════════════════════════════════════════════════
 
-function ytRequireToken(request, env) {
-  // Accept both Authorization: Bearer (cron/curl) and X-AYR-Auth (browser via
-  // monkey patch in main.jsx). Mirrors the global PROTECTED_WRITE/READ gate.
-  // Returns JSON 401 (not plain text) so frontend r.json() doesn't blow up
-  // and surface a confusing "Unexpected token U..." parse error.
-  const authHeader = request.headers.get('X-AYR-Auth') || request.headers.get('Authorization') || '';
-  const token = authHeader.replace(/^Bearer\s+/i, '');
-  if (!token || !env.AYR_WORKER_TOKEN || token !== env.AYR_WORKER_TOKEN) {
-    return new Response(JSON.stringify({ error: 'unauthorized', hint: 'Send X-AYR-Auth or Authorization: Bearer header' }),
-      { status: 401, headers: { 'Content-Type': 'application/json' } });
-  }
-  return null;
-}
+// ytRequireToken moved to lib/auth.js
+// Imported at top: ytRequireToken
 
 // Extract recent videos from a channel page's embedded ytInitialData.
 // YouTube deprecated the public RSS feed (returns 404 on all channel_ids as
