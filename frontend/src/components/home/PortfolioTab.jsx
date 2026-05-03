@@ -216,7 +216,11 @@ export const COL_DEFS = [
   { id:"mktCap", label:"MKT CAP", group:"Fundamentales", w:"54px", defaultOn:false,
     val:p=>p.mc||0, fmt:v=>fmtMC(v), sortV:p=>p.mc||0 },
   { id:"sector", label:"SECTOR", group:"Fundamentales", w:"64px", align:"left", defaultOn:true,
-    val:p=>p.sector||"\u2014", fmt:v=>{const s=v||"\u2014";return s.length>10?s.slice(0,9)+"..":s;}, sortV:p=>p.sector||"zzz" },
+    // 2026-05-03 fix: positions.sector ten\u00eda valores stale/wrong (e.g. ADP
+    // figuraba como "Technology" cuando es "Industrials"). Ahora preferimos
+    // el sector de FMP fundamentals (_fund) si existe, fallback al de
+    // positions s\u00f3lo si falta. Verificado: ADP, AMCR, ACN sal\u00edan mal antes.
+    val:p=>p._fund?.sector||p.sector||"\u2014", fmt:v=>{const s=v||"\u2014";return s.length>10?s.slice(0,9)+"..":s;}, sortV:p=>p._fund?.sector||p.sector||"zzz" },
   { id:"beta", label:"BETA", group:"Fundamentales", w:"36px", defaultOn:false,
     val:p=>p._fund?.beta||p.beta||0, fmt:v=>v>0?_sf(v,2):"\u2014", color:v=>v>1.3?"var(--red)":v<0.8?"var(--green)":"var(--text-primary)", sortV:p=>p._fund?.beta||p.beta||0 },
   { id:"roe", label:"ROE%", group:"Fundamentales", w:"40px", defaultOn:false,
@@ -888,6 +892,12 @@ export default function PortfolioTab() {
           divGrowth5y: km.dividendGrowth5Y || 0,
           exDivDate: profile.exDivDate || "",
           ytd: km.ytdReturn || 0,
+          // 2026-05-03: incluir sector/industry de FMP profile para que la
+          // tabla Portfolio use el sector real (FMP) en lugar del legacy
+          // de positions table que estaba desactualizado para varios
+          // tickers (ADP "Technology" → real "Industrials", etc.)
+          sector: profile.sector || "",
+          industry: profile.industry || "",
         };
       }
       setFundData(result);

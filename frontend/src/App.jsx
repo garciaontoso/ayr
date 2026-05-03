@@ -576,6 +576,21 @@ function buildPositionsFromCB() {
     setTab("dash");
     setViewMode("analysis");
     setFmpError(null);
+
+    // 2026-05-03: stale-price fix. Cuando abres una empresa con datos cacheados
+    // su cfg.price viene del análisis anterior — puede ser de hace días. Bug
+    // reportado por usuario en ADP: header mostraba $199 cuando realtime es
+    // $214 (-7%). Aquí forzamos un fetch live después de restaurar el cache.
+    (async () => {
+      try {
+        const r = await fetch(`${API_URL}/api/prices?tickers=${encodeURIComponent(t)}&live=1`);
+        const d = await r.json();
+        const live = d?.prices?.[t]?.price;
+        if (live && Number.isFinite(live) && live > 0) {
+          setCfg(prev => prev.ticker === t ? { ...prev, price: live } : prev);
+        }
+      } catch {}
+    })();
   }, []);
 
   const goHome = useCallback(() => setViewMode("home"), []);
