@@ -45,6 +45,7 @@ const NewsTab            = lazy(() => import('../home/NewsTab'));
 const DailyBriefingTab   = lazy(() => import('../home/DailyBriefingTab'));
 const CanteraTab         = lazy(() => import('../home/CanteraTab'));
 const BuyRadarTab        = lazy(() => import('../home/BuyRadarTab'));
+const DataAuditTab       = lazy(() => import('../home/DataAuditTab'));
 // DiscoveryTab + DividendScannerTab still imported by CanteraTab as sub-tabs;
 // removed top-level mounts 2026-04-27 (no entry in HOME_TAB_GROUPS).
 const AlertTrackRecordTab= lazy(() => import('../home/AlertTrackRecordTab'));
@@ -2184,6 +2185,7 @@ export default function HomeView() {
         {homeTab==="advisor" && <AdvisorTab />}
         {homeTab==="cantera" && <CanteraTab />}
         {homeTab==="buy-radar" && <BuyRadarTab />}
+        {homeTab==="data-audit" && <DataAuditTab />}
         {homeTab==="cartas-sabios" && <CartasSabiosTab />}
         {homeTab==="research" && <ResearchTab />}
         {homeTab==="agentes" && <AgentesTab />}

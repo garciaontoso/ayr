@@ -8594,6 +8594,113 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       }
 
       // ═══════════════════════════════════════════════════════════════
+      // PORTFOLIO DATA AUDIT — recorre TODAS las posiciones y reporta qué
+      // campos están vacíos o inconsistentes. Construido 2026-05-03 a
+      // petición del usuario tras descubrir múltiples bugs ticker-a-ticker
+      // (ADP price stale, sector wrong, mktCap None, etc.). Objetivo: que
+      // los problemas de datos sean VISIBLES sin tener que abrir empresa
+      // a empresa.
+      // ═══════════════════════════════════════════════════════════════
+      if (path === "/api/audit/portfolio" && request.method === "GET") {
+        await ensureMigrations(env);
+        // 2026-05-03: el schema de positions varía entre instalaciones. Cogemos
+        // sólo las columnas mínimas garantizadas y resto via try/catch.
+        const { results: positions } = await env.DB.prepare(
+          `SELECT * FROM positions
+           WHERE list='portfolio' AND COALESCE(shares,0) > 0 ORDER BY ticker ASC`
+        ).all();
+        const audit = [];
+        const now = Date.now();
+        for (const pos of (positions || [])) {
+          const t = pos.ticker;
+          const issues = [];
+          let fundUpdatedAt = null;
+          try {
+            const cached = await env.DB.prepare("SELECT * FROM fundamentals WHERE symbol = ?").bind(t).first();
+            if (cached) {
+              const profile = JSON.parse(cached.profile || '{}');
+              const km = JSON.parse(cached.key_metrics || '[]');
+              const inc = JSON.parse(cached.income || '[]');
+              fundUpdatedAt = cached.updated_at;
+              if (cached.updated_at) {
+                const ageH = (now - new Date(cached.updated_at).getTime()) / 3600000;
+                if (ageH > 48) issues.push({ field: 'fund_age', sev: 'yellow', msg: `Fundamentals ${ageH.toFixed(0)}h viejos` });
+              }
+              const mktCap = profile.mktCap || profile.marketCap || (km[0]?.marketCap) || 0;
+              if (!mktCap || mktCap <= 0) issues.push({ field: 'mktCap', sev: 'red', msg: 'Market Cap vacío' });
+              const fmpSector = profile.sector || '';
+              const posSector = pos.sector || '';
+              if (!fmpSector) issues.push({ field: 'sector', sev: 'red', msg: 'Sector FMP vacío' });
+              else if (posSector && posSector !== fmpSector) issues.push({ field: 'sector_mismatch', sev: 'yellow', msg: `Portfolio: "${posSector}" · FMP: "${fmpSector}"` });
+              if (!profile.industry) issues.push({ field: 'industry', sev: 'yellow', msg: 'Industry vacío' });
+              if (!profile.country) issues.push({ field: 'country', sev: 'yellow', msg: 'Country vacío' });
+              if (!profile.exDivDate) issues.push({ field: 'exDivDate', sev: 'yellow', msg: 'Ex-div date vacío' });
+              if (!profile.beta) issues.push({ field: 'beta', sev: 'yellow', msg: 'Beta vacía' });
+              if (!inc.length) issues.push({ field: 'income', sev: 'red', msg: 'No financials en cache' });
+              else {
+                const last = inc[0] || {};
+                if (!last.eps || last.eps === 0) issues.push({ field: 'eps', sev: 'red', msg: 'EPS último año = 0' });
+                if (!last.weightedAverageShsOut) issues.push({ field: 'sharesOut', sev: 'yellow', msg: 'sharesOut no disponible' });
+                if (!last.revenue || last.revenue === 0) issues.push({ field: 'revenue', sev: 'red', msg: 'Revenue vacío' });
+              }
+            } else {
+              issues.push({ field: 'fund_missing', sev: 'red', msg: 'Sin fundamentals en cache (nunca cargado)' });
+            }
+          } catch (e) {
+            issues.push({ field: 'fund_error', sev: 'red', msg: 'Error parseando fundamentals: ' + e.message });
+          }
+          if (!pos.last_price || pos.last_price === 0) issues.push({ field: 'last_price', sev: 'yellow', msg: 'last_price=0 en positions' });
+          if (!pos.currency) issues.push({ field: 'currency', sev: 'yellow', msg: 'currency=null en positions' });
+          const hasRed = issues.some(i => i.sev === 'red');
+          const hasYellow = issues.some(i => i.sev === 'yellow');
+          const status = hasRed ? 'red' : hasYellow ? 'yellow' : 'green';
+          audit.push({
+            ticker: t,
+            shares: pos.shares,
+            account: pos.account || null,
+            status,
+            issue_count: issues.length,
+            issues,
+            fund_age_hours: fundUpdatedAt ? Math.round((now - new Date(fundUpdatedAt).getTime()) / 3600000) : null,
+          });
+        }
+        const summary = {
+          total: audit.length,
+          green: audit.filter(a => a.status === 'green').length,
+          yellow: audit.filter(a => a.status === 'yellow').length,
+          red: audit.filter(a => a.status === 'red').length,
+          total_issues: audit.reduce((s, a) => s + a.issue_count, 0),
+        };
+        return json({ ok: true, summary, audit, generated_at: new Date().toISOString() }, corsHeaders);
+      }
+
+      // POST /api/audit/portfolio/auto-fix — sincroniza positions.sector con
+      // el sector real de FMP para todas las filas con mismatch. Quick win
+      // para que la tabla Portfolio deje de mostrar sectores wrong.
+      if (path === "/api/audit/portfolio/auto-fix" && request.method === "POST") {
+        await ensureMigrations(env);
+        const unauth = (isAllowed && origin) ? null : ytRequireToken(request, env);
+        if (unauth) return unauth;
+        const { results: positions } = await env.DB.prepare(
+          `SELECT * FROM positions WHERE list='portfolio' AND COALESCE(shares,0) > 0`
+        ).all();
+        let fixedSector = 0, skipped = 0;
+        for (const pos of (positions || [])) {
+          try {
+            const cached = await env.DB.prepare("SELECT profile FROM fundamentals WHERE symbol = ?").bind(pos.ticker).first();
+            if (!cached?.profile) { skipped++; continue; }
+            const profile = JSON.parse(cached.profile || '{}');
+            const fmpSector = profile.sector || '';
+            if (fmpSector && fmpSector !== (pos.sector || '')) {
+              await env.DB.prepare(`UPDATE positions SET sector = ? WHERE ticker = ?`).bind(fmpSector, pos.ticker).run();
+              fixedSector++;
+            }
+          } catch { skipped++; }
+        }
+        return json({ ok: true, fixed_sector: fixedSector, skipped, total: positions?.length || 0 }, corsHeaders);
+      }
+
+      // ═══════════════════════════════════════════════════════════════
       // CANTERA — radar de candidatos (100 sugerencias automáticas)
       // ═══════════════════════════════════════════════════════════════
 

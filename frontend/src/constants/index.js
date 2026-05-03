@@ -114,6 +114,7 @@ export const HOME_TAB_GROUPS = [
     ico: "🎯",
     tabs: [
       {id:"buy-radar",lbl:"Comprar",ico:"🎯"},
+      {id:"data-audit",lbl:"Audit",ico:"🩺"},
     ],
   },
   {
