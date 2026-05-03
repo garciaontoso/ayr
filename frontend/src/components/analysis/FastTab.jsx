@@ -829,7 +829,10 @@ export default function FastTab() {
   // pero no cuadra con lo que marca mi línea".
   const YIELD_AXIS_MAX = (() => {
     const yields = yieldPoints.map(p => p.yld);
-    if (cfg?.price > 0 && latestDPS > 0) yields.push(latestDPS / cfg.price);
+    // 2026-05-03 fix TDZ: latestDPS está declarado más abajo (~línea 971),
+    // así que lo recomputamos inline aquí: último DPS del validHist.
+    const _localLatestDPS = validHist.length ? validHist[validHist.length - 1].div : null;
+    if (cfg?.price > 0 && _localLatestDPS > 0) yields.push(_localLatestDPS / cfg.price);
     const maxYld = yields.length ? Math.max(...yields) : 0.05;
     // Headroom 20% + redondeo a "nice number" arriba
     const padded = maxYld * 1.2;
