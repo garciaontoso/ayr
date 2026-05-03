@@ -109,57 +109,53 @@ export default function DashTab() {
         </Suspense>
       ),
       header: (
-        <Card glow>
-          <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
-            <div style={{width:60,height:60,borderRadius:14,overflow:"hidden",background:"#161b22",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 20px rgba(0,0,0,.3)",flexShrink:0}}>
+        // 2026-05-03: header compactado a una sola línea horizontal con
+        // todos los datos. Antes el bloque era 3 columnas con padding, logo
+        // 60x60, name 22px y precio 36px → ocupaba ~110px. Ahora ~36px,
+        // misma información en pills/separadores.
+        <Card style={{padding:'8px 12px'}}>
+          <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',rowGap:4}}>
+            {/* Logo 28x28 */}
+            <div style={{width:28,height:28,borderRadius:6,overflow:'hidden',background:'#161b22',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
               <img src={`https://images.financialmodelingprep.com/symbol/${(cfg.ticker||"").replace(':','.')}.png`} alt=""
-                style={{width:60,height:60,objectFit:"contain",borderRadius:14}}
-                onError={e=>{e.target.style.display="none";e.target.nextSibling.style.display="flex";}}/>
-              <div style={{display:"none",width:60,height:60,borderRadius:14,background:"linear-gradient(135deg,#c8a44e 0%,#b8860b 50%,#8B6914 100%)",alignItems:"center",justifyContent:"center"}}>
-                <div style={{fontSize:cfg.ticker&&cfg.ticker.length>3?16:20,fontWeight:800,color:"#000",fontFamily:"var(--fm)",letterSpacing:1}}>{(cfg.ticker||"?").slice(0,4)}</div>
+                style={{width:28,height:28,objectFit:'contain'}}
+                onError={e=>{e.target.style.display='none';e.target.nextSibling.style.display='flex';}}/>
+              <div style={{display:'none',width:28,height:28,background:'linear-gradient(135deg,#c8a44e 0%,#8B6914 100%)',alignItems:'center',justifyContent:'center'}}>
+                <div style={{fontSize:10,fontWeight:800,color:'#000',fontFamily:'var(--fm)'}}>{(cfg.ticker||'?').slice(0,3)}</div>
               </div>
             </div>
-            <div style={{flex:1,minWidth:200}}>
-              <div style={{fontSize:22,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fd)"}}>{cfg.name||"Introduce una empresa"}</div>
-              <div style={{display:"flex",alignItems:"center",gap:8,marginTop:4,flexWrap:"wrap"}}>
-                <span style={{fontSize:10,fontWeight:700,color:capLabel==="Mega"||capLabel==="Large"?"var(--green)":capLabel==="Mid"?"var(--yellow)":"var(--orange)",background:capLabel==="Mega"||capLabel==="Large"?"rgba(48,209,88,.10)":capLabel==="Mid"?"rgba(255,214,10,.10)":"rgba(255,159,10,.10)",padding:"2px 8px",borderRadius:20,letterSpacing:.3}}>{capLabel} Cap</span>
-                <span style={{fontSize:12,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>${marketCap>=1e6?_sf(marketCap/1e6,1)+"T":marketCap>=1e3?_sf(marketCap/1e3,1)+"B":_sf(marketCap,0)+"M"}</span>
-                {fmpExtra.profile?.sector && <>
-                  <span style={{fontSize:11,color:"var(--text-tertiary)"}}>·</span>
-                  <span style={{fontSize:10,fontWeight:600,color:"#64d2ff",background:"rgba(100,210,255,.08)",padding:"2px 7px",borderRadius:20}}>{fmpExtra.profile.sector}</span>
-                </>}
-                {fmpExtra.profile?.industry && <span style={{fontSize:10,color:"var(--text-tertiary)"}}>{fmpExtra.profile.industry}</span>}
-                <span style={{fontSize:11,color:"var(--text-tertiary)"}}>·</span>
-                <span style={{fontSize:11,color:"var(--text-secondary)"}}>WACC: {fP(wacc.wacc)}</span>
-                <span style={{fontSize:11,color:"var(--text-tertiary)"}}>·</span>
-                <span style={{fontSize:11,color:"var(--text-secondary)"}}>Beta: {cfg.beta?.toFixed(2)}</span>
-                {fmpExtra.profile?.country && <>
-                  <span style={{fontSize:11,color:"var(--text-tertiary)"}}>·</span>
-                  <span style={{fontSize:10,color:"var(--text-tertiary)"}}>{fmpExtra.profile.country}</span>
-                </>}
-              </div>
-            </div>
-            <div style={{textAlign:"right"}}>
-              <div style={{fontSize:36,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",display:"flex",alignItems:"center",justifyContent:"flex-end",gap:4}}>{fC(cfg.price,cfg.currency==="EUR"?"€":"$")}<TrustBadge level="fresh" source="FMP /historical-price-full (análisis) · Yahoo precios en vivo (portfolio)" updatedAt={new Date().toISOString().slice(0,10)} note="Precio del análisis se carga al abrir la empresa."/></div>
-              {dcf && <div style={{fontSize:13,fontWeight:600,marginTop:4,color:dcf.mos>0?"var(--green)":"var(--red)"}}>
-                Intrínseco: {fC(dcf.iv)} ({dcf.mos>0?"↓":"↑"}{f1(Math.abs(dcf.mos)*100)}%)
-              </div>}
-              {fmpExtra.rating?.rating && <div style={{display:"flex",gap:6,marginTop:6,alignItems:"center"}}>
-                <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>FMP:</span>
-                <span style={{fontSize:11,fontWeight:700,padding:"2px 8px",borderRadius:6,fontFamily:"var(--fm)",
-                  color:fmpExtra.rating.overallScore>=4?"#30d158":fmpExtra.rating.overallScore>=3?"#ffd60a":"#ff453a",
-                  background:fmpExtra.rating.overallScore>=4?"rgba(48,209,88,.1)":fmpExtra.rating.overallScore>=3?"rgba(255,214,10,.1)":"rgba(255,69,58,.1)",
-                  border:`1px solid ${fmpExtra.rating.overallScore>=4?"rgba(48,209,88,.25)":fmpExtra.rating.overallScore>=3?"rgba(255,214,10,.25)":"rgba(255,69,58,.25)"}`
-                }}>{fmpExtra.rating.rating} ({fmpExtra.rating.overallScore}/5)</span>
-                {fmpExtra.grades?.consensus && <span style={{fontSize:10,fontWeight:600,padding:"2px 6px",borderRadius:4,fontFamily:"var(--fm)",
-                  color:fmpExtra.grades.consensus==="Strong Buy"||fmpExtra.grades.consensus==="Buy"?"#30d158":"#ffd60a",
-                  background:fmpExtra.grades.consensus==="Strong Buy"||fmpExtra.grades.consensus==="Buy"?"rgba(48,209,88,.08)":"rgba(255,214,10,.08)"
-                }}>{fmpExtra.grades.consensus}</span>}
-                {fmpExtra.dcf?.dcf > 0 && <span style={{fontSize:10,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>
-                  DCF: {fC(fmpExtra.dcf.dcf)} {fmpExtra.dcf.dcf > cfg.price ? "↑" : "↓"}{f1(Math.abs((1-cfg.price/fmpExtra.dcf.dcf)*100))}%
-                </span>}
-              </div>}
-            </div>
+            {/* Name + price (precio = lo más prominente, 18px) */}
+            <span style={{fontSize:13,fontWeight:700,color:'var(--text-primary)',fontFamily:'var(--fd)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',maxWidth:280}}>{cfg.name||'Introduce una empresa'}</span>
+            <span style={{fontSize:18,fontWeight:700,color:'var(--text-primary)',fontFamily:'var(--fm)',display:'flex',alignItems:'center',gap:4}}>
+              {fC(cfg.price,cfg.currency==='EUR'?'€':'$')}
+              <TrustBadge level="fresh" source="FMP /historical-price-full" updatedAt={new Date().toISOString().slice(0,10)} note="Precio del análisis."/>
+            </span>
+            {dcf && <span style={{fontSize:10,fontWeight:600,color:dcf.mos>0?'var(--green)':'var(--red)',fontFamily:'var(--fm)',padding:'2px 6px',borderRadius:4,background:dcf.mos>0?'rgba(48,209,88,.08)':'rgba(255,69,58,.08)',whiteSpace:'nowrap'}}>
+              IV {fC(dcf.iv)} {dcf.mos>0?'↓':'↑'}{f1(Math.abs(dcf.mos)*100)}%
+            </span>}
+            <span style={{fontSize:9,fontWeight:700,color:capLabel==='Mega'||capLabel==='Large'?'var(--green)':capLabel==='Mid'?'var(--yellow)':'var(--orange)',background:capLabel==='Mega'||capLabel==='Large'?'rgba(48,209,88,.10)':capLabel==='Mid'?'rgba(255,214,10,.10)':'rgba(255,159,10,.10)',padding:'2px 6px',borderRadius:4,letterSpacing:.3,whiteSpace:'nowrap'}}>{capLabel}</span>
+            <span style={{fontSize:10,fontWeight:600,color:'var(--text-primary)',fontFamily:'var(--fm)',whiteSpace:'nowrap'}}>${marketCap>=1e6?_sf(marketCap/1e6,1)+'T':marketCap>=1e3?_sf(marketCap/1e3,1)+'B':_sf(marketCap,0)+'M'}</span>
+            {fmpExtra.profile?.sector && <span style={{fontSize:9,fontWeight:600,color:'#64d2ff',background:'rgba(100,210,255,.08)',padding:'2px 6px',borderRadius:4,whiteSpace:'nowrap'}}>{fmpExtra.profile.sector}</span>}
+            {fmpExtra.profile?.industry && <span style={{fontSize:9,color:'var(--text-tertiary)',whiteSpace:'nowrap'}}>{fmpExtra.profile.industry}</span>}
+            <span style={{fontSize:10,color:'var(--text-secondary)',whiteSpace:'nowrap',fontFamily:'var(--fm)'}}>WACC {fP(wacc.wacc)}</span>
+            <span style={{fontSize:10,color:'var(--text-secondary)',whiteSpace:'nowrap',fontFamily:'var(--fm)'}}>β {cfg.beta?.toFixed(2)}</span>
+            {fmpExtra.profile?.country && <span style={{fontSize:9,color:'var(--text-tertiary)',whiteSpace:'nowrap'}}>{fmpExtra.profile.country}</span>}
+            {fmpExtra.rating?.rating && (
+              <span style={{display:'inline-flex',alignItems:'center',gap:3,fontSize:9,fontWeight:700,padding:'2px 6px',borderRadius:4,fontFamily:'var(--fm)',
+                color:fmpExtra.rating.overallScore>=4?'#30d158':fmpExtra.rating.overallScore>=3?'#ffd60a':'#ff453a',
+                background:fmpExtra.rating.overallScore>=4?'rgba(48,209,88,.1)':fmpExtra.rating.overallScore>=3?'rgba(255,214,10,.1)':'rgba(255,69,58,.1)',
+                border:`1px solid ${fmpExtra.rating.overallScore>=4?'rgba(48,209,88,.25)':fmpExtra.rating.overallScore>=3?'rgba(255,214,10,.25)':'rgba(255,69,58,.25)'}`,
+                whiteSpace:'nowrap'}}
+                title={`FMP rating ${fmpExtra.rating.rating} (${fmpExtra.rating.overallScore}/5)${fmpExtra.grades?.consensus?` · Consensus: ${fmpExtra.grades.consensus}`:''}${fmpExtra.dcf?.dcf>0?` · DCF FMP: ${fC(fmpExtra.dcf.dcf)} ${fmpExtra.dcf.dcf>cfg.price?'↑':'↓'}${f1(Math.abs((1-cfg.price/fmpExtra.dcf.dcf)*100))}%`:''}`}>
+                FMP {fmpExtra.rating.rating}
+                {fmpExtra.grades?.consensus && <span style={{opacity:.7}}>· {fmpExtra.grades.consensus}</span>}
+              </span>
+            )}
+            {fmpExtra.dcf?.dcf > 0 && (
+              <span style={{fontSize:9,color:'var(--text-secondary)',fontFamily:'var(--fm)',whiteSpace:'nowrap'}} title="DCF según FMP">
+                DCF {fC(fmpExtra.dcf.dcf)} {fmpExtra.dcf.dcf > cfg.price ? '↑' : '↓'}{f1(Math.abs((1-cfg.price/fmpExtra.dcf.dcf)*100))}%
+              </span>
+            )}
           </div>
           {/* Chart slot: price (default) OR selected metric history.
               Click any metric card below to swap; click the same card again
