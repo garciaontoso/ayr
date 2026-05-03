@@ -23689,6 +23689,81 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
       return;
     }
 
+    // ─── Data Audit diario (08:00 UTC = 10:00 Madrid / 16:00 Shanghai) ───
+    // 2026-05-03: cron añadido para detectar regresiones de datos sin que
+    // el usuario tenga que descubrirlas. Pasos:
+    //   1. GET /api/audit/portfolio (no auth porque es self-call)
+    //   2. POST /api/audit/portfolio/auto-fix → repara sectores
+    //   3. Si red > 0 OR delta de issues vs ayer > 5 → Telegram alert
+    //   4. Persiste snapshot en agent_memory (key='audit_snapshot') para
+    //      comparar con día siguiente.
+    if (cronExpr === "0 8 * * *") {
+      console.log("[scheduled] data audit cron tick");
+      const apiBase = "https://api.onto-so.com";
+      try {
+        // 1. Auto-fix sectores primero (resta issues yellow)
+        try {
+          const fr = await fetch(`${apiBase}/api/audit/portfolio/auto-fix`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${env.AYR_WORKER_TOKEN}` },
+            signal: AbortSignal.timeout(60000),
+          });
+          const fd = await fr.json().catch(() => ({}));
+          console.log(`[audit-cron] auto-fix: ${fd.fixed_sector || 0} sectores reparados`);
+        } catch (e) { console.error('[audit-cron] auto-fix error:', e.message); }
+
+        // 2. Audit completo
+        const r = await fetch(`${apiBase}/api/audit/portfolio`, {
+          signal: AbortSignal.timeout(60000),
+        });
+        if (!r.ok) throw new Error(`audit returned ${r.status}`);
+        const d = await r.json();
+        const summary = d.summary || {};
+        console.log(`[audit-cron] summary:`, JSON.stringify(summary));
+
+        // 3. Comparar con snapshot anterior
+        const prevRow = await env.DB.prepare(
+          "SELECT value FROM agent_memory WHERE key = 'audit_snapshot' LIMIT 1"
+        ).first().catch(() => null);
+        const prev = prevRow?.value ? JSON.parse(prevRow.value) : null;
+        const deltaRed = summary.red - (prev?.red || 0);
+        const deltaTotal = summary.total_issues - (prev?.total_issues || 0);
+
+        // 4. Telegram alert si hay regresión o red > 0
+        if (summary.red > 0 || deltaRed > 0 || deltaTotal > 5) {
+          const redTickers = (d.audit || []).filter(a => a.status === 'red').map(a => a.ticker);
+          const text = [
+            `🩺 *Data Audit Diario*`,
+            ``,
+            `📊 Estado: 🟢${summary.green} 🟡${summary.yellow} 🔴${summary.red}`,
+            `📋 ${summary.total_issues} issues totales (${deltaTotal >= 0 ? '+' : ''}${deltaTotal} vs ayer)`,
+            ``,
+            redTickers.length > 0 ? `🔴 *Tickers con datos críticos faltantes:*\n${redTickers.map(t => `· ${t}`).join('\n')}` : '',
+            ``,
+            `Ver detalle: https://ayr.onto-so.com → Radar → 🩺 Audit`,
+          ].filter(Boolean).join('\n');
+          await sendTelegram(env, { text, severity: summary.red > 0 ? 'warn' : 'info', source: 'audit_cron' });
+        } else {
+          console.log("[audit-cron] sin regresiones — no se envía Telegram");
+        }
+
+        // 5. Persistir snapshot
+        await env.DB.prepare(
+          `INSERT INTO agent_memory (key, value, updated_at) VALUES ('audit_snapshot', ?, datetime('now'))
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`
+        ).bind(JSON.stringify({ ...summary, ts: new Date().toISOString() })).run().catch(e => console.error('[audit-cron] snapshot persist failed:', e.message));
+      } catch (e) {
+        console.error("[audit-cron] error:", e.message);
+        try {
+          await sendTelegram(env, {
+            text: `⚠️ *Audit cron failed*\n${e.message?.slice(0, 200)}`,
+            severity: 'warn', source: 'audit_cron',
+          });
+        } catch {}
+      }
+      return;
+    }
+
     // ─── KILL-SWITCH para crons LLM (2026-04-19) ───
     // Si por error se reactiva otro cron (Oracle/agentes), no se ejecuta.
     console.log("[scheduled] KILL-SWITCH activo para crons LLM — no se ejecuta nada");
