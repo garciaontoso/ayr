@@ -64,57 +64,88 @@ export default function DividendsTab() {
     // FCF coverage ratio
     const fcfCoverage = L.fcf > 0 && LD.dps > 0 && LD.sharesOut > 0 ? L.fcf / (LD.dps * LD.sharesOut) : null;
 
-    return (
-      <div style={{display:"flex",flexDirection:"column",gap:20}}>
+    // ── Drag handlers ──────────────────────────────────────────────────────
+    const handleDivDragStart = (id, e) => {
+      dragKey.current = id;
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', id); } catch {}
+    };
+    const handleDivDragOver = (id, e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (dragKey.current && dragKey.current !== id) setDragOver(id);
+    };
+    const handleDivDragLeave = (id) => { if (dragOver === id) setDragOver(null); };
+    const handleDivDrop = (id, e) => {
+      e.preventDefault();
+      const src = dragKey.current || e.dataTransfer.getData('text/plain');
+      if (!src || src === id) { dragKey.current = null; setDragOver(null); return; }
+      const without = sectionOrder.filter(k => k !== src);
+      const targetIdx = without.indexOf(id);
+      const newOrder = [...without.slice(0, targetIdx), src, ...without.slice(targetIdx)];
+      setSectionOrder(newOrder);
+      setPref(DIV_SECTION_ORDER_KEY, JSON.stringify(newOrder));
+      dragKey.current = null; setDragOver(null);
+    };
+    const handleDivDragEnd = () => { dragKey.current = null; setDragOver(null); };
+    const handleDivContextMenu = (e) => {
+      e.preventDefault();
+      if (window.confirm('Restablecer orden de bloques al original?')) {
+        setSectionOrder(DIV_DEFAULT_ORDER);
+        removePref(DIV_SECTION_ORDER_KEY);
+      }
+    };
+
+    // ── Section map ────────────────────────────────────────────────────────
+    const DIV_SECTIONS = {
+      hero: (
         <div>
-          <h2 style={{margin:"0 0 4px",fontSize:20,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fd)"}}>💰 Análisis de Dividendos</h2>
-          <p style={{margin:0,fontSize:12,color:"var(--text-secondary)"}}>Safety Score, historial de crecimiento, payout ratios y métricas clave para inversores de dividendos a largo plazo.</p>
-        </div>
-
-        {/* ══════ SAFETY SCORE + YIELD HERO ══════ */}
-        <Card glow style={{borderColor:`${safetyColor}33`}}>
-          <div style={{display:"grid",gridTemplateColumns:"120px 1fr 120px",gap:20,alignItems:"center"}}>
-            {/* Safety circle */}
-            <div style={{textAlign:"center"}}>
-              <div style={{width:84,height:84,borderRadius:"50%",border:`4px solid ${safetyColor}`,display:"flex",alignItems:"center",justifyContent:"center",background:safetyBg,margin:"0 auto"}}>
-                <span style={{fontSize:34,fontWeight:900,color:safetyColor,fontFamily:"var(--fm)"}}>{S.safetyScore}</span>
-              </div>
-              <div style={{fontSize:13,fontWeight:700,color:safetyColor,marginTop:8}}>{S.safetyLabel}</div>
-              {S.safetyDate && <div style={{fontSize:9,color:"var(--text-tertiary)",marginTop:3}}>Upd. {S.safetyDate}</div>}
-            </div>
-            {/* Middle metrics */}
-            <div>
-              {S.safetyNote && <div style={{fontSize:11,color:"var(--text-secondary)",lineHeight:1.7,marginBottom:12,padding:"10px 14px",background:"var(--row-alt)",borderRadius:8,borderLeft:`3px solid ${safetyColor}`}}>{S.safetyNote}</div>}
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(120px, 1fr))",gap:8}}>
-                {(() => {
-                  const fwdEPS = fmpExtra.estimates?.[0]?.epsAvg || fmpExtra.estimates?.[0]?.estimatedEpsAvg;
-                  const fwdPayout = fwdEPS > 0 && LD.dps > 0 ? LD.dps / fwdEPS : null;
-                  return [
-                  {l:"Payout Ratio",v:`${_sf(S.payoutRatio*100,0)}%`,c:S.payoutRatio<0.6?cGreen:S.payoutRatio<0.8?cYellow:cRed},
-                  {l:"FCF Payout",v:fP(da.payoutFCF),c:da.payoutFCF&&da.payoutFCF<0.7?cGreen:cOrange},
-                  {l:"Fwd Payout",v:fwdPayout!=null?_sf(fwdPayout*100,0)+"%":"—",c:fwdPayout!=null?(fwdPayout<0.6?cGreen:fwdPayout<0.75?cYellow:cRed):"var(--text-tertiary)"},
-                  {l:"Deuda/EBITDA",v:(S.ndEbitda!=null?_sf(S.ndEbitda,1)+"x":"—"),c:S.ndEbitda<3?cGreen:S.ndEbitda<5?cYellow:cRed},
-                  {l:"FCF Coverage",v:fcfCoverage?_sf(fcfCoverage,1)+"x":"—",c:fcfCoverage&&fcfCoverage>2?cGreen:fcfCoverage&&fcfCoverage>1.5?cYellow:cRed},
-                ]})().map((x,i)=>(
-                  <div key={i} style={{padding:"10px 8px",borderRadius:8,background:"var(--subtle-bg)",textAlign:"center",border:"1px solid var(--subtle-border)"}}>
-                    <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>{x.l}</div>
-                    <div style={{fontSize:18,fontWeight:700,color:x.c,fontFamily:"var(--fm)"}}>{x.v}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            {/* Yield */}
-            <div style={{textAlign:"center"}}>
-              <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textTransform:"uppercase",letterSpacing:1}}>YIELD</div>
-              <div style={{fontSize:38,fontWeight:800,color:cGold,fontFamily:"var(--fm)",lineHeight:1,marginTop:4}}>{fP(divYield)}</div>
-              <div style={{fontSize:11,color:"var(--text-secondary)",marginTop:6}}>${LD.dps?.toFixed(2)||"—"}/acción</div>
-              <div style={{fontSize:10,color:"var(--text-tertiary)",marginTop:3}}>{S.frequency}</div>
-              <div style={{fontSize:10,color:"var(--text-tertiary)"}}>{S.taxation}</div>
-            </div>
+          <div style={{marginBottom:12}}>
+            <h2 style={{margin:"0 0 4px",fontSize:20,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fd)"}}>Análisis de Dividendos</h2>
+            <p style={{margin:0,fontSize:12,color:"var(--text-secondary)"}}>Safety Score, historial de crecimiento, payout ratios y métricas clave para inversores de dividendos a largo plazo.</p>
           </div>
-        </Card>
+          <Card glow style={{borderColor:`${safetyColor}33`}}>
+            <div style={{display:"grid",gridTemplateColumns:"120px 1fr 120px",gap:20,alignItems:"center"}}>
+              <div style={{textAlign:"center"}}>
+                <div style={{width:84,height:84,borderRadius:"50%",border:`4px solid ${safetyColor}`,display:"flex",alignItems:"center",justifyContent:"center",background:safetyBg,margin:"0 auto"}}>
+                  <span style={{fontSize:34,fontWeight:900,color:safetyColor,fontFamily:"var(--fm)"}}>{S.safetyScore}</span>
+                </div>
+                <div style={{fontSize:13,fontWeight:700,color:safetyColor,marginTop:8}}>{S.safetyLabel}</div>
+                {S.safetyDate && <div style={{fontSize:9,color:"var(--text-tertiary)",marginTop:3}}>Upd. {S.safetyDate}</div>}
+              </div>
+              <div>
+                {S.safetyNote && <div style={{fontSize:11,color:"var(--text-secondary)",lineHeight:1.7,marginBottom:12,padding:"10px 14px",background:"var(--row-alt)",borderRadius:8,borderLeft:`3px solid ${safetyColor}`}}>{S.safetyNote}</div>}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(120px, 1fr))",gap:8}}>
+                  {(() => {
+                    const fwdEPS = fmpExtra.estimates?.[0]?.epsAvg || fmpExtra.estimates?.[0]?.estimatedEpsAvg;
+                    const fwdPayout = fwdEPS > 0 && LD.dps > 0 ? LD.dps / fwdEPS : null;
+                    return [
+                    {l:"Payout Ratio",v:`${_sf(S.payoutRatio*100,0)}%`,c:S.payoutRatio<0.6?cGreen:S.payoutRatio<0.8?cYellow:cRed},
+                    {l:"FCF Payout",v:fP(da.payoutFCF),c:da.payoutFCF&&da.payoutFCF<0.7?cGreen:cOrange},
+                    {l:"Fwd Payout",v:fwdPayout!=null?_sf(fwdPayout*100,0)+"%":"—",c:fwdPayout!=null?(fwdPayout<0.6?cGreen:fwdPayout<0.75?cYellow:cRed):"var(--text-tertiary)"},
+                    {l:"Deuda/EBITDA",v:(S.ndEbitda!=null?_sf(S.ndEbitda,1)+"x":"—"),c:S.ndEbitda<3?cGreen:S.ndEbitda<5?cYellow:cRed},
+                    {l:"FCF Coverage",v:fcfCoverage?_sf(fcfCoverage,1)+"x":"—",c:fcfCoverage&&fcfCoverage>2?cGreen:fcfCoverage&&fcfCoverage>1.5?cYellow:cRed},
+                  ]})().map((x,i)=>(
+                    <div key={i} style={{padding:"10px 8px",borderRadius:8,background:"var(--subtle-bg)",textAlign:"center",border:"1px solid var(--subtle-border)"}}>
+                      <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textTransform:"uppercase",letterSpacing:.5,marginBottom:4}}>{x.l}</div>
+                      <div style={{fontSize:18,fontWeight:700,color:x.c,fontFamily:"var(--fm)"}}>{x.v}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{textAlign:"center"}}>
+                <div style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textTransform:"uppercase",letterSpacing:1}}>YIELD</div>
+                <div style={{fontSize:38,fontWeight:800,color:cGold,fontFamily:"var(--fm)",lineHeight:1,marginTop:4}}>{fP(divYield)}</div>
+                <div style={{fontSize:11,color:"var(--text-secondary)",marginTop:6}}>${LD.dps?.toFixed(2)||"—"}/acción</div>
+                <div style={{fontSize:10,color:"var(--text-tertiary)",marginTop:3}}>{S.frequency}</div>
+                <div style={{fontSize:10,color:"var(--text-tertiary)"}}>{S.taxation}</div>
+              </div>
+            </div>
+          </Card>
+        </div>
+      ),
 
-        {/* ══════ KEY DIVIDEND METRICS ══════ */}
+      keyMetrics: (
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:10}}>
           {[
             {l:"Racha Crecim.",v:`${S.growthStreak} años`,c:S.growthStreak>=10?cGreen:S.growthStreak>=5?cYellow:cRed},
@@ -132,9 +163,10 @@ export default function DividendsTab() {
             </Card>
           ))}
         </div>
+      ),
 
-        {/* ══════ SSD NOTES ══════ */}
-        {S.notes?.length > 0 && <Card title="Notas de Análisis" icon="📝">
+      ssdNotes: S.notes?.length > 0 ? (
+        <Card title="Notas de Análisis" icon="📝">
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {S.notes.map((note,i) => {
               const nc = note.score>=80?cGreen:note.score>=60?"#8BC34A":cOrange;
@@ -152,9 +184,10 @@ export default function DividendsTab() {
               );
             })}
           </div>
-        </Card>}
+        </Card>
+      ) : null,
 
-        {/* ══════ DIVIDEND GROWTH ══════ */}
+      growth: (
         <Card title="Crecimiento del Dividendo" icon="📈">
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(180px, 1fr))",gap:12,marginBottom:16}}>
             {[
@@ -173,8 +206,6 @@ export default function DividendsTab() {
           <div style={{fontSize:12,fontWeight:600,color:"var(--text-secondary)",marginBottom:10}}>Dividendo por Acción — Histórico</div>
           <DivBar data={histYrs.filter(y=>fin[y]?.dps>0).map(y=>({y,v:fin[y]?.dps||0}))} formatFn={v=>`$${_sf(v,2)}`}
             colorFn={(v,y,i)=>{const prev=i>0?(fin[histYrs.filter(yr=>fin[yr]?.dps>0)[i-1]]?.dps||0):v;return v>prev?cGreen:v<prev?cRed:cGold;}} height={110}/>
-
-          {/* YoY Dividend Growth Rate chart */}
           {(() => {
             const dpsYears = histYrs.filter(y => fin[y]?.dps > 0);
             const yoyData = [];
@@ -191,8 +222,9 @@ export default function DividendsTab() {
             </>);
           })()}
         </Card>
+      ),
 
-        {/* ══════ PAYOUT + COVERAGE CHARTS ══════ */}
+      payout: (
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
           <Card title="Earnings Payout Ratio" icon="📊">
             <div style={{fontSize:10,color:"var(--text-tertiary)",marginBottom:10,lineHeight:1.5}}>% del EPS destinado a dividendo. Por debajo del 70% es preferible para sostenibilidad.</div>
@@ -205,8 +237,9 @@ export default function DividendsTab() {
               colorFn={v=>v&&v<70?cGreen:v&&v<85?cOrange:cRed} formatFn={v=>`${_sf(v,0)}%`}/>
           </Card>
         </div>
+      ),
 
-        {/* ══════ KEY FINANCIAL CHARTS (3×2) ══════ */}
+      financials: (
         <Card title="Métricas Financieras Clave" icon="📉">
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14}}>
             {[
@@ -231,8 +264,9 @@ export default function DividendsTab() {
             ))}
           </div>
         </Card>
+      ),
 
-        {/* ══════ PAYMENT DETAILS ══════ */}
+      payment: (
         <Card title="Detalles del Pago" icon="📅">
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(130px, 1fr))",gap:10}}>
             {[
@@ -250,6 +284,52 @@ export default function DividendsTab() {
             ))}
           </div>
         </Card>
+      ),
+    };
+
+    const tipBanner = showTip ? (
+      <div style={{display:'flex',alignItems:'center',gap:10,padding:'8px 14px',background:'rgba(200,164,78,.08)',border:'1px solid rgba(200,164,78,.2)',borderRadius:8,fontSize:11,color:'var(--text-secondary)'}}>
+        <span style={{flex:1}}>Arrastra los bloques para reordenar. Click derecho en un bloque para restablecer.</span>
+        <button onClick={() => { try { localStorage.setItem('ayr-reorder-tip-seen','1'); } catch {} setShowTip(false); }}
+          style={{background:'none',border:'none',color:'var(--text-tertiary)',cursor:'pointer',fontSize:13,padding:'0 4px',lineHeight:1}}>✕</button>
+      </div>
+    ) : null;
+
+    const orderedDivKeys = [...new Set([...sectionOrder, ...DIV_DEFAULT_ORDER])].filter(k => DIV_SECTIONS[k] != null);
+
+    return (
+      <div style={{display:"flex",flexDirection:"column",gap:20}}>
+        {tipBanner}
+        {orderedDivKeys.map(id => {
+          const content = DIV_SECTIONS[id];
+          if (!content) return null;
+          const isDragTarget = dragOver === id;
+          return (
+            <div key={id}
+              draggable={true}
+              onDragStart={e => handleDivDragStart(id, e)}
+              onDragOver={e => handleDivDragOver(id, e)}
+              onDragLeave={() => handleDivDragLeave(id)}
+              onDrop={e => handleDivDrop(id, e)}
+              onDragEnd={handleDivDragEnd}
+              onContextMenu={handleDivContextMenu}
+              title="Arrastra para reordenar bloques · click derecho para restablecer"
+              style={{
+                position:'relative',
+                borderLeft: isDragTarget ? '3px solid var(--gold)' : '3px solid transparent',
+                transition:'border-left .1s',
+                opacity: dragKey.current === id ? 0.45 : 1,
+              }}>
+              <span style={{
+                position:'absolute',top:10,left:-18,
+                fontSize:9,color:'var(--text-tertiary)',opacity:.4,
+                letterSpacing:1,cursor:'grab',userSelect:'none',
+                fontFamily:'var(--fm)',lineHeight:1,
+              }}>⋮⋮</span>
+              {content}
+            </div>
+          );
+        })}
       </div>
     );
 }

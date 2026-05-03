@@ -17257,12 +17257,43 @@ OUTPUT: JSON array EXACTO con un objeto por item del input, en el mismo orden. S
         }
 
         if (!execs || execs.length === 0) {
-          return json({
-            error: "no_executives_data",
+          // 2026-05-03: graceful fallback. FMP /key-executives returns empty
+          // for thinly-covered foreign tickers (FDJU, BME:VIS, HKG:*, etc).
+          // Return a 200 with empty exec list + whatever profile/insider data
+          // we DID get, so the Directiva tab still renders something useful
+          // (company name, sector, country, message) instead of breaking.
+          const fallbackResult = {
             ticker,
             fmp_symbol: fmpSym,
-            hint: "FMP /key-executives returned empty for this ticker (foreign or thinly covered).",
-          }, corsHeaders, 404);
+            company: profile?.companyName || ticker,
+            sector: profile?.sector || null,
+            industry: profile?.industry || null,
+            country: profile?.country || null,
+            ceo_name: profile?.ceo || profile?.ceoName || null,
+            executives: [],
+            total_compensation_usd: 0,
+            insider_activity_12m: { buy_count: 0, sell_count: 0, buy_value_usd: 0, sell_value_usd: 0, net_value_usd: 0 },
+            insider_transactions: [],
+            ai_assessment: "",
+            green_flags: [],
+            red_flags: [],
+            tokens_used: 0,
+            cached_at: new Date().toISOString(),
+            partial: true,
+            partial_reason: "no_executives_data",
+            partial_hint: "FMP /key-executives no devuelve datos para este ticker (extranjero o con cobertura limitada). Profile y datos de mercado sí están disponibles.",
+          };
+          // Cache the partial result for 7 days (shorter than full 30d) so we
+          // re-check periodically in case FMP populates the data later.
+          if (env.EARNINGS_R2) {
+            try {
+              await env.EARNINGS_R2.put(CACHE_KEY, JSON.stringify(fallbackResult), {
+                httpMetadata: { contentType: "application/json" },
+                customMetadata: { cached_at: String(Date.now()), ticker, partial: "1" },
+              });
+            } catch (_) { /* swallow */ }
+          }
+          return json(fallbackResult, corsHeaders);
         }
 
         // 4. Normalize executives

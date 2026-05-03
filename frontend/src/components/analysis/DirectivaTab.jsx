@@ -90,11 +90,47 @@ export default function DirectivaTab() {
   }
 
   if (!data || !data.executives || data.executives.length === 0) {
-    return <Card>
-      <div style={{padding:24,color:'var(--text-secondary)'}}>
-        Sin datos de directiva para {ticker}. FMP puede no cubrir tickers extranjeros.
+    // Show profile + insider data even when executives missing (FMP gap)
+    const insider = data?.insider_activity_12m || {};
+    const hasInsider = (insider.buy_count || 0) + (insider.sell_count || 0) > 0;
+    return (
+      <div style={{display:'flex',flexDirection:'column',gap:16}}>
+        <Card glow title={`${data?.company || ticker}`} icon="👥">
+          <div style={{padding:'8px 4px'}}>
+            <div style={{display:'flex',gap:14,flexWrap:'wrap',fontSize:12,color:'var(--text-secondary)',marginBottom:12}}>
+              {data?.sector && <Pill label="Sector" value={data.sector} />}
+              {data?.industry && <Pill label="Industria" value={data.industry} />}
+              {data?.country && <Pill label="País" value={data.country} />}
+              {data?.ceo_name && <Pill label="CEO" value={data.ceo_name} />}
+            </div>
+            <div style={{padding:'12px 14px',background:'rgba(255,214,10,.08)',border:'1px solid rgba(255,214,10,.2)',borderRadius:8,fontSize:12,color:'var(--text-secondary)',lineHeight:1.6}}>
+              <span style={{color:'#ffd60a',fontWeight:600,marginRight:6}}>ℹ</span>
+              FMP no devuelve la lista de ejecutivos para <b>{ticker}</b> (ticker extranjero o con cobertura limitada).
+              {' '}Lo que sí tenemos disponible: profile básico arriba{hasInsider ? ' + insider trades abajo' : ''}.
+            </div>
+            <button
+              onClick={() => fetchDirectiva(true)}
+              style={{...btnStyle,marginTop:12}}
+            >🔄 Reintentar (force refresh)</button>
+          </div>
+        </Card>
+        {hasInsider && (
+          <Card title="Insider activity (12m)" icon="🕵️">
+            <div style={{display:'flex',gap:14,flexWrap:'wrap'}}>
+              <Stat label="Compras" value={insider.buy_count || 0} sub={fmtUSD(insider.buy_value_usd)} color="#30d158" />
+              <Stat label="Ventas" value={insider.sell_count || 0} sub={fmtUSD(insider.sell_value_usd)} color="#ff453a" />
+            </div>
+          </Card>
+        )}
+        {Array.isArray(data?.insider_transactions) && data.insider_transactions.length > 0 && (
+          <Card title="Trades de la directiva (recientes)" icon="📅">
+            <div style={{fontSize:11,color:'var(--text-tertiary)'}}>
+              Hay {data.insider_transactions.length} trades disponibles aunque falten los key-executives.
+            </div>
+          </Card>
+        )}
       </div>
-    </Card>;
+    );
   }
 
   // CEO highlight: first exec whose title matches CEO/Chief Executive

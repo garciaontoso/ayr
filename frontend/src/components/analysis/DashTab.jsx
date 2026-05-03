@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Badge, BarChart, Card, TrustBadge } from '../ui';
 import MetricHistoryChart from '../ui/MetricHistoryChart.jsx';
@@ -6,19 +6,31 @@ import { _sf, n, f1, f2, fP, fX, fC, fM, div } from '../../utils/formatters.js';
 import { R } from '../../utils/ratings.js';
 import { useFreshness } from '../../hooks/useFreshness.js';
 import { API_URL } from '../../constants/index.js';
+import { getPref, setPref, removePref } from '../../utils/userPrefs.js';
+
+const SECTION_ORDER_KEY = 'ayr-section-order-resumen';
+const DEFAULT_SECTION_ORDER = [
+  'header', 'metrics', 'range52', 'charts', 'roicWacc',
+  'earnings', 'scores', 'fcfCoverage', 'fcfAlloc', 'aiRisk', 'debtMaturity',
+];
+function loadSectionOrder() {
+  try { const v = getPref(SECTION_ORDER_KEY); return v ? JSON.parse(v) : null; } catch { return null; }
+}
 
 export default function DashTab() {
   const { CHART_YEARS, L, LD, altmanZ, capLabel, cfg, chartLabels, comp, dcf, fin, fmpExtra, marketCap, piotroski, priceChartData, roicWaccSpread, ssd, wacc, waterfall } = useAnalysis();
-  // Trust badges — useFreshness has its own useEffect so must be declared before render
   const { getLevel: freshnessLevel, getUpdatedAt: freshnessDate, getSource: freshnessSource } = useFreshness();
 
-  // Chart metric selector: 'price' (default weekly chart) or any of the
-  // metric keys defined in METRIC_CHART_DEFS. Clicking a metric card swaps
-  // the price chart for that metric's annual evolution. Click again to revert.
+  // ── All state before effects (TDZ safety) ─────────────────────────────
   const [chartMetric, setChartMetric] = useState('price');
-
-  // Debt maturity calendar — must be declared before render (TDZ safety)
   const [debtMaturity, setDebtMaturity] = useState(null);
+  const [sectionOrder, setSectionOrder] = useState(() => loadSectionOrder() || DEFAULT_SECTION_ORDER);
+  const [dragOver, setDragOver] = useState(null);
+  const dragKey = useRef(null);
+  const [showTip, setShowTip] = useState(() => {
+    try { return !localStorage.getItem('ayr-reorder-tip-seen'); } catch { return false; }
+  });
+
   useEffect(() => {
     if (!cfg.ticker) return;
     setDebtMaturity(null);
@@ -47,8 +59,26 @@ export default function DashTab() {
       'Deuda/FCF':   { get: y => comp[y]?.d2fcf, fmt: v => v == null ? '—' : _sf(v,1)+'x', color: '#5b9bd5', sub: 'x' },
       'EV/EBITDA':   { get: y => comp[y]?.eve,   fmt: v => v == null ? '—' : _sf(v,1)+'x', color: '#5b9bd5', sub: 'x' },
     };
-    return (
-      <div style={{display:"flex",flexDirection:"column",gap:20}}>
+    // ── Drag handlers ─────────────────────────────────────────────────────
+    const onSecDragStart = (id, e) => { dragKey.current = id; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', id); } catch {} };
+    const onSecDragOver  = (id, e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragKey.current && dragKey.current !== id) setDragOver(id); };
+    const onSecDragLeave = (id) => { if (dragOver === id) setDragOver(null); };
+    const onSecDrop = (id, e) => {
+      e.preventDefault();
+      const src = dragKey.current || e.dataTransfer.getData('text/plain');
+      if (!src || src === id) { dragKey.current = null; setDragOver(null); return; }
+      const without = sectionOrder.filter(k => k !== src);
+      const ti = without.indexOf(id);
+      const newOrder = [...without.slice(0, ti), src, ...without.slice(ti)];
+      setSectionOrder(newOrder); setPref(SECTION_ORDER_KEY, JSON.stringify(newOrder));
+      dragKey.current = null; setDragOver(null);
+    };
+    const onSecDragEnd = () => { dragKey.current = null; setDragOver(null); };
+    const onSecCtx = (e) => { e.preventDefault(); if (window.confirm('Restablecer orden de bloques al original?')) { setSectionOrder(DEFAULT_SECTION_ORDER); removePref(SECTION_ORDER_KEY); } };
+
+    // ── Section content map ────────────────────────────────────────────────
+    const SECTIONS = {
+      header: (
         <Card glow>
           <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap"}}>
             <div style={{width:60,height:60,borderRadius:14,overflow:"hidden",background:"#161b22",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 20px rgba(0,0,0,.3)",flexShrink:0}}>
@@ -171,7 +201,9 @@ export default function DashTab() {
             </div>;
           })()}
         </Card>
+      ),
 
+      metrics: (
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:12}}>
           {[
             {lbl:"FCF",val:fM(L.fcf),sub:`Margen: ${fP(L.fcfm)}`,rules:R.fcfm,rv:L.fcfm,trust:{src:"FMP /cash-flow-statement (TTM)",note:"Free Cash Flow = OpCF - CapEx"}},
@@ -217,20 +249,19 @@ export default function DashTab() {
             );
           })}
         </div>
+      ),
 
-        {/* ── 52-Week Range + Forward Payout + Sector PE ── */}
-        {fmpExtra.profile?.range && (() => {
-          const rangeParts = (fmpExtra.profile.range||"0-0").split("-").map(Number);
-          const [lo52, hi52] = [rangeParts[0] || 0, rangeParts[1] || 0];
-          const price52 = cfg.price || 0;
-          const pctInRange = hi52 > lo52 ? (price52 - lo52) / (hi52 - lo52) : 0;
-          const fwdEPS = fmpExtra.estimates?.[0]?.epsAvg || fmpExtra.estimates?.[0]?.estimatedEpsAvg;
-          const fwdPayout = fwdEPS > 0 && LD.dps > 0 ? LD.dps / fwdEPS : null;
-          const curPE = LD.eps > 0 && price52 > 0 ? price52 / LD.eps : null;
-          // 5Y avg yield from keyMetrics
-          const kmYields = (fmpExtra.keyMetrics||[]).slice(0,5).map(k=>k.dividendYield).filter(v=>v>0);
-          const avg5yYield = kmYields.length > 0 ? kmYields.reduce((s,v)=>s+v,0)/kmYields.length : null;
-          const curYield = price52 > 0 && LD.dps > 0 ? LD.dps / price52 : null;
+      range52: fmpExtra.profile?.range ? (() => {
+        const rangeParts = (fmpExtra.profile.range||"0-0").split("-").map(Number);
+        const [lo52, hi52] = [rangeParts[0] || 0, rangeParts[1] || 0];
+        const price52 = cfg.price || 0;
+        const pctInRange = hi52 > lo52 ? (price52 - lo52) / (hi52 - lo52) : 0;
+        const fwdEPS = fmpExtra.estimates?.[0]?.epsAvg || fmpExtra.estimates?.[0]?.estimatedEpsAvg;
+        const fwdPayout = fwdEPS > 0 && LD.dps > 0 ? LD.dps / fwdEPS : null;
+        const curPE = LD.eps > 0 && price52 > 0 ? price52 / LD.eps : null;
+        const kmYields = (fmpExtra.keyMetrics||[]).slice(0,5).map(k=>k.dividendYield).filter(v=>v>0);
+        const avg5yYield = kmYields.length > 0 ? kmYields.reduce((s,v)=>s+v,0)/kmYields.length : null;
+        const curYield = price52 > 0 && LD.dps > 0 ? LD.dps / price52 : null;
           return (
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginTop:12}}>
             {/* 52-Week Range */}
@@ -305,17 +336,20 @@ export default function DashTab() {
                 </div>
               ) : <div style={{color:"var(--text-tertiary)",fontSize:12}}>Sin datos P/E</div>}
             </Card>
-          </div>);
-        })()}
+        </div>
+        );
+      })() : null,
 
+      charts: (
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:12}}>
           <Card title="Ventas" icon="📈"><BarChart data={revData} labels={labels} color="var(--gold)" formatFn={fM}/></Card>
           <Card title="Free Cash Flow" icon="💰"><BarChart data={fcfData} labels={labels} color="var(--green)" formatFn={fM}/></Card>
           <Card title="EPS" icon="📊"><BarChart data={epsData} labels={labels} color="#64d2ff" formatFn={f2}/></Card>
           <Card title="Dividendo/Acción" icon="💰"><BarChart data={CHART_YEARS.map(y=>fin[y]?.dps||0)} labels={chartLabels} color="#c8a44e" formatFn={v=>"$"+_sf(v,2)}/></Card>
         </div>
+      ),
 
-        {/* ROIC vs WACC Spread */}
+      roicWacc: (
         <Card title="ROIC vs WACC — Creación de Valor" icon="⚡">
           <div style={{display:"flex",alignItems:"flex-end",gap:3,height:100,padding:"0 4px"}}>
             {roicWaccSpread.slice().reverse().map((d,i)=>{
@@ -337,16 +371,16 @@ export default function DashTab() {
             <span><span style={{color:"var(--red)"}}>●</span> ROIC &lt; WACC = Destruye valor</span>
           </div>
         </Card>
+      ),
 
-        {/* Earnings History — Beat/Miss track record */}
-        {fmpExtra.earnings?.length > 0 && (() => {
-          const recent = fmpExtra.earnings.filter(e => e.epsActual != null).slice(0, 12);
-          if (recent.length === 0) return null;
-          const beats = recent.filter(e => e.epsActual > e.epsEstimated).length;
-          const misses = recent.filter(e => e.epsActual < e.epsEstimated).length;
-          const nextEarnings = fmpExtra.earnings.find(e => e.epsActual == null && e.date);
-          return (
-            <Card title="Earnings Track Record" icon="📊">
+      earnings: fmpExtra.earnings?.length > 0 ? (() => {
+        const recent = fmpExtra.earnings.filter(e => e.epsActual != null).slice(0, 12);
+        if (recent.length === 0) return null;
+        const beats = recent.filter(e => e.epsActual > e.epsEstimated).length;
+        const misses = recent.filter(e => e.epsActual < e.epsEstimated).length;
+        const nextEarnings = fmpExtra.earnings.find(e => e.epsActual == null && e.date);
+        return (
+          <Card title="Earnings Track Record" icon="📊">
               <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:12}}>
                 {nextEarnings && <div style={{padding:"6px 12px",borderRadius:8,background:"rgba(200,164,78,.08)",border:"1px solid rgba(200,164,78,.2)"}}>
                   <div style={{fontSize:8,color:"var(--text-tertiary)",fontFamily:"var(--fm)",textTransform:"uppercase"}}>PRÓXIMO EARNINGS</div>
@@ -379,11 +413,11 @@ export default function DashTab() {
                   );
                 })}
               </div>
-            </Card>
-          );
-        })()}
+          </Card>
+        );
+      })() : null,
 
-        {/* Bottom row: Altman Z + Waterfall */}
+      scores: (
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
           <Card title="Altman Z-Score" icon="🔬">
             {altmanZ.score != null ? (
@@ -425,10 +459,10 @@ export default function DashTab() {
             ) : <div style={{color:"var(--text-tertiary)",fontSize:12,textAlign:"center",padding:20}}>Introduce datos</div>}
           </Card>
         </div>
+      ),
 
-        {/* FCF Coverage del Dividendo (multi-año) */}
-        {(() => {
-          const rows = CHART_YEARS.map(y => {
+      fcfCoverage: (() => {
+        const rows = CHART_YEARS.map(y => {
             const d = fin[y]; if(!d) return null;
             const fcf = (d.ocf||0) - (d.capex||0);
             const divs = (d.dps||0) * (d.sharesOut||0);
@@ -440,7 +474,7 @@ export default function DashTab() {
           const cov = lat.divs > 0 ? lat.fcf/lat.divs : null;
           const covColor = cov==null ? "var(--text-tertiary)" : cov >= 2 ? "var(--green)" : cov >= 1.2 ? "var(--gold)" : cov >= 1 ? "#ff9f0a" : "var(--red)";
           return (
-            <Card title="Cobertura del Dividendo (FCF vs Dividendos)" icon="🛡" style={{marginTop:12}} badge={
+            <Card title="Cobertura del Dividendo (FCF vs Dividendos)" icon="🛡" badge={
               cov != null ? <span style={{fontSize:11,fontWeight:700,color:covColor,padding:"4px 12px",borderRadius:100,border:`1px solid ${covColor}`,background:`${covColor.startsWith('var')?'rgba(48,209,88,.12)':covColor+"22"}`}}>{cov.toFixed(2)}x cobertura</span> : null
             }>
               <div style={{display:"flex",alignItems:"flex-end",gap:6,height:140,padding:"4px 2px",borderBottom:"1px solid var(--border)"}}>
@@ -465,36 +499,32 @@ export default function DashTab() {
                 </div>
                 <span style={{fontSize:9,color:"var(--text-tertiary)"}}>Coverage = FCF / DPS×Shares · DSTTab tiene allocation con buybacks/SBC/deuda</span>
               </div>
-            </Card>
-          );
-        })()}
+          </Card>
+        );
+      })(),
 
-        {/* FCF Allocation — Capital Allocation multi-year stacked bar */}
-        {(() => {
-          const allocRows = CHART_YEARS.map(y => {
-            const d = fin[y]; if (!d) return null;
-            const a = comp[y]?.fcfAlloc;
-            if (!a) return null;
-            const total = a.divs + a.buybacks + a.debtPaydown + a.acquisitions + a.retained;
-            if (total <= 0) return null;
-            return { y, ...a, total };
-          }).filter(Boolean);
-          if (allocRows.length === 0) return null;
-          const maxTotal = Math.max(...allocRows.map(r => r.total), 1);
-          const BAR_H = 120;
-          // Semantic colors: shareholder returns (green/gold), balance sheet (blue),
-          // growth (purple), neutral (slate). Avoid red — all 5 buckets are legitimate
-          // uses of FCF; signaling "bad" via red would mislead.
-          const SEGS = [
-            { key: 'divs',       label: 'Dividendos', color: '#30d158' }, // verde brillante — cash directo al accionista
-            { key: 'buybacks',   label: 'Buybacks',   color: '#c8a44e' }, // gold — retorno indirecto al accionista
-            { key: 'debtPaydown',label: 'Deuda',      color: '#5b9bd5' }, // azul — balance sheet improvement
-            { key: 'acquisitions',label: 'M&A',       color: '#bf5af2' }, // púrpura — crecimiento, riesgo de value-destruction
-            { key: 'retained',   label: 'Retenido',   color: '#94a3b8' }, // slate — neutral, sin destino claro
-          ];
-          const latRow = allocRows[allocRows.length - 1];
-          return (
-            <Card title="Asignación del FCF (Capital Allocation)" icon="📊" style={{marginTop:12}}>
+      fcfAlloc: (() => {
+        const allocRows = CHART_YEARS.map(y => {
+          const d = fin[y]; if (!d) return null;
+          const a = comp[y]?.fcfAlloc;
+          if (!a) return null;
+          const total = a.divs + a.buybacks + a.debtPaydown + a.acquisitions + a.retained;
+          if (total <= 0) return null;
+          return { y, ...a, total };
+        }).filter(Boolean);
+        if (allocRows.length === 0) return null;
+        const maxTotal = Math.max(...allocRows.map(r => r.total), 1);
+        const BAR_H = 120;
+        const SEGS = [
+          { key: 'divs',        label: 'Dividendos', color: '#30d158' },
+          { key: 'buybacks',    label: 'Buybacks',   color: '#c8a44e' },
+          { key: 'debtPaydown', label: 'Deuda',      color: '#5b9bd5' },
+          { key: 'acquisitions',label: 'M&A',        color: '#bf5af2' },
+          { key: 'retained',    label: 'Retenido',   color: '#94a3b8' },
+        ];
+        const latRow = allocRows[allocRows.length - 1];
+        return (
+          <Card title="Asignación del FCF (Capital Allocation)" icon="📊">
               {/* Stacked bar chart */}
               <div style={{display:'flex',alignItems:'flex-end',gap:4,height:BAR_H+20,padding:'0 2px',marginBottom:4}}>
                 {allocRows.map((r,i) => {
@@ -543,10 +573,10 @@ export default function DashTab() {
               )}
             </Card>
           );
-        })()}
+        })(),
 
-        {/* AI Disruption Risk — en Resumen */}
-        <Card title="Riesgo Disrupción IA" icon="🤖" style={{marginTop:16}} badge={
+      aiRisk: (
+        <Card title="Riesgo Disrupción IA" icon="🤖" badge={
           ssd.aiDisruptionLevel ? <span style={{fontSize:11,fontWeight:700,
             color:ssd.aiDisruptionLevel==="Low"?"#30d158":ssd.aiDisruptionLevel==="Medium"?"#ffd60a":ssd.aiDisruptionLevel==="High"?"#ff9f0a":"#ff453a",
             background:ssd.aiDisruptionLevel==="Low"?"rgba(48,209,88,.12)":ssd.aiDisruptionLevel==="Medium"?"rgba(255,214,10,.12)":ssd.aiDisruptionLevel==="High"?"rgba(255,159,10,.12)":"rgba(255,69,58,.12)",
@@ -583,9 +613,10 @@ export default function DashTab() {
             </div>
           )}
         </Card>
+      ),
 
-        {/* Calendario de Vencimientos de Deuda */}
-        <Card title="Calendario de Vencimientos de Deuda" icon="📅" style={{marginTop:16}}>
+      debtMaturity: (
+        <Card title="Calendario de Vencimientos de Deuda" icon="📅">
           {debtMaturity ? (() => {
             const m = debtMaturity.maturity;
             const por = debtMaturity.period_of_report || '';
@@ -651,6 +682,43 @@ export default function DashTab() {
             </div>
           )}
         </Card>
+      ),
+    };
+
+    // Tip banner (shown once)
+    const tipBanner = showTip ? (
+      <div style={{display:'flex',alignItems:'center',gap:10,padding:'8px 14px',background:'rgba(200,164,78,.08)',border:'1px solid rgba(200,164,78,.2)',borderRadius:8,fontSize:11,color:'var(--text-secondary)'}}>
+        <span style={{flex:1}}>Arrastra los bloques para reordenar. Click derecho en un bloque para restablecer.</span>
+        <button onClick={() => { try { localStorage.setItem('ayr-reorder-tip-seen','1'); } catch {} setShowTip(false); }}
+          style={{background:'none',border:'none',color:'var(--text-tertiary)',cursor:'pointer',fontSize:13,padding:'0 4px',lineHeight:1}}>✕</button>
+      </div>
+    ) : null;
+
+    const orderedKeys = [...new Set([...sectionOrder, ...DEFAULT_SECTION_ORDER])].filter(k => SECTIONS[k] != null);
+
+    return (
+      <div style={{display:"flex",flexDirection:"column",gap:20}}>
+        {tipBanner}
+        {orderedKeys.map(id => {
+          const sec = SECTIONS[id];
+          if (!sec) return null;
+          const isDragTarget = dragOver === id;
+          return (
+            <div key={id}
+              draggable={true}
+              onDragStart={e => onSecDragStart(id, e)}
+              onDragOver={e => onSecDragOver(id, e)}
+              onDragLeave={() => onSecDragLeave(id)}
+              onDrop={e => onSecDrop(id, e)}
+              onDragEnd={onSecDragEnd}
+              onContextMenu={onSecCtx}
+              title="Arrastra para reordenar · click derecho para restablecer"
+              style={{position:'relative',borderLeft:isDragTarget?'3px solid var(--gold)':'3px solid transparent',transition:'border-left .1s',opacity:dragKey.current===id?0.45:1}}>
+              <span style={{position:'absolute',top:10,left:-18,fontSize:9,color:'var(--text-tertiary)',opacity:.4,letterSpacing:1,cursor:'grab',userSelect:'none',fontFamily:'var(--fm)',lineHeight:1}}>⋮⋮</span>
+              {sec}
+            </div>
+          );
+        })}
       </div>
     );
 }
