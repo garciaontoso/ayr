@@ -55,10 +55,37 @@ const METRIC_OPTIONS = [
 const METRIC_LABEL = Object.fromEntries(METRIC_OPTIONS.map(m => [m.id, m.label]));
 
 export default function FastTab() {
-  const { DATA_YEARS, cfg, comp, fgGrowth, fgMode, fgPE, fgProjYears, fin,
+  const { DATA_YEARS, cfg, comp, fgGrowth, fgMode, fgPE, fgProjYears, fin, fmpExtra,
     setFgGrowth, setFgMode, setFgPE, setFgProjYears } = useAnalysis();
 
   const ticker = cfg?.ticker || '';
+
+  // ── REIT auto-switch (2026-05-03) ─────────────────────────────────────
+  // FAST Graphs cambia automáticamente el "Price Correlated With" a
+  // "Free Cash Flow to Equity (FCFE,AFFO)" para REITs. Verificado contra
+  // O (Realty Income): usan FCFE/AFFO con multiplicador 15x igual que para
+  // empresas normales. Aquí replicamos: si el sector del ticker es Real
+  // Estate o el industry contiene "REIT", auto-conmutamos fgMode a 'fcfe'
+  // la primera vez que se carga ese ticker. El usuario puede luego elegir
+  // otro modo manualmente y se respeta para esa sesión.
+  const isReit = (() => {
+    const sector = fmpExtra?.profile?.sector || '';
+    const industry = fmpExtra?.profile?.industry || '';
+    if (sector === 'Real Estate') return true;
+    if (industry.toLowerCase().includes('reit')) return true;
+    return false;
+  })();
+  const reitAutoTickerRef = useRef(null);
+  useEffect(() => {
+    if (!ticker || !isReit) return;
+    // Sólo auto-cambiar una vez por ticker — para no pisar selección manual
+    if (reitAutoTickerRef.current === ticker) return;
+    reitAutoTickerRef.current = ticker;
+    if (fgMode !== 'fcfe' && fgMode !== 'ocf') {
+      setFgMode('fcfe');  // FCFE/AFFO = approx AFFO
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ticker, isReit]);
   // ETF / fondo / instrumento sin fundamentales por acción: FMP devuelve
   // ratios/key-metrics/estimates vacíos. Detectar temprano para mostrar
   // empty-states útiles en cada sub-tab.
@@ -1055,9 +1082,17 @@ export default function FastTab() {
       {/* Header */}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14,flexWrap:'wrap',gap:12}}>
         <div>
-          <h2 style={{margin:'0 0 4px',fontSize:20,fontWeight:700,color:'var(--text-primary)',fontFamily:'var(--fd)'}}>⚡ FAST — Precio vs Valor</h2>
+          <h2 style={{margin:'0 0 4px',fontSize:20,fontWeight:700,color:'var(--text-primary)',fontFamily:'var(--fd)',display:'flex',alignItems:'center',gap:8}}>
+            ⚡ FAST — Precio vs Valor
+            {isReit && (
+              <span title="Detectado REIT. FAST Graphs valora REITs con AFFO en lugar de EPS — auto-conmutado a Free FCFE/AFFO." style={{fontSize:9,fontWeight:700,padding:'2px 7px',borderRadius:4,background:'rgba(168,85,247,.12)',color:'#a855f7',border:'1px solid rgba(168,85,247,.3)',letterSpacing:.3}}>
+                MODO REIT · AFFO
+              </span>
+            )}
+          </h2>
           <p style={{margin:0,fontSize:11,color:'var(--text-secondary)',lineHeight:1.45}}>
             Línea blanca = precio histórico mensual · Línea dorada = {METRIC_LABEL[fgMode] || 'EPS'} × {activePE ? activePE.toFixed(1)+'x' : fgPE+'x'} P/E · Punteada azul = proyección · Punto rojo = precio actual
+            {isReit && <span style={{color:'#a855f7'}}> · Para REITs comparamos vs AFFO igual que FAST Graphs (mejor proxy que EPS).</span>}
           </p>
         </div>
         <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
@@ -1115,15 +1150,34 @@ export default function FastTab() {
         {RANGES.map(r => (
           <button key={r.id} onClick={()=>setRange(r.id)} style={{padding:'4px 10px',borderRadius:5,border:`1px solid ${range===r.id?'var(--gold)':'var(--border)'}`,background:range===r.id?'var(--gold-dim)':'transparent',color:range===r.id?'var(--gold)':'var(--text-secondary)',fontSize:10,fontWeight:600,cursor:'pointer',fontFamily:'var(--fm)'}}>{r.id}</button>
         ))}
-        <span style={{marginLeft:12,fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)',marginRight:4,letterSpacing:.3}}>P/E REFERENCIA:</span>
-        {[
-          {id:'custom',lbl:`Custom (${fgPE}x)`},
-          {id:'normal_5y',lbl:history?.avg_pe_5y?`Normal 5y (${history.avg_pe_5y.toFixed(1)}x)`:'Normal 5y'},
-          {id:'normal_10y',lbl:history?.avg_pe_10y?`Normal 10y (${history.avg_pe_10y.toFixed(1)}x)`:'Normal 10y'},
-          {id:'normal_all',lbl:history?.avg_pe_all?`Normal MAX (${history.avg_pe_all.toFixed(1)}x)`:'Normal MAX'},
-        ].map(o => (
-          <button key={o.id} onClick={()=>setPeMode(o.id)} style={{padding:'4px 10px',borderRadius:5,border:`1px solid ${peMode===o.id?'#64d2ff':'var(--border)'}`,background:peMode===o.id?'rgba(100,210,255,0.12)':'transparent',color:peMode===o.id?'#64d2ff':'var(--text-secondary)',fontSize:10,fontWeight:600,cursor:'pointer',fontFamily:'var(--fm)'}}>{o.lbl}</button>
-        ))}
+        <span style={{marginLeft:12,fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)',marginRight:4,letterSpacing:.3}}>
+          {isReit && (fgMode === 'fcfe' || fgMode === 'ocf') ? 'P/AFFO REFERENCIA:' : 'P/E REFERENCIA:'}
+        </span>
+        {(() => {
+          // En modo REIT (AFFO), las medias históricas avg_pe_5y/10y vienen
+          // de P/E (price ÷ EPS) y son engañosas (pueden mostrar 50-60x
+          // porque EPS de REITs es bajo por D&A). Las ocultamos y mostramos
+          // sólo el slider Custom hasta que el backend exponga p_affo_history.
+          // El usuario por defecto verá Custom (15x) que es lo que usa FAST
+          // Graphs como Fair Value para REITs.
+          const reitMode = isReit && (fgMode === 'fcfe' || fgMode === 'ocf');
+          const opts = reitMode
+            ? [{id:'custom',lbl:`Custom (${fgPE}x)`}]
+            : [
+                {id:'custom',lbl:`Custom (${fgPE}x)`},
+                {id:'normal_5y',lbl:history?.avg_pe_5y?`Normal 5y (${history.avg_pe_5y.toFixed(1)}x)`:'Normal 5y'},
+                {id:'normal_10y',lbl:history?.avg_pe_10y?`Normal 10y (${history.avg_pe_10y.toFixed(1)}x)`:'Normal 10y'},
+                {id:'normal_all',lbl:history?.avg_pe_all?`Normal MAX (${history.avg_pe_all.toFixed(1)}x)`:'Normal MAX'},
+              ];
+          return opts.map(o => (
+            <button key={o.id} onClick={()=>setPeMode(o.id)} style={{padding:'4px 10px',borderRadius:5,border:`1px solid ${peMode===o.id?'#64d2ff':'var(--border)'}`,background:peMode===o.id?'rgba(100,210,255,0.12)':'transparent',color:peMode===o.id?'#64d2ff':'var(--text-secondary)',fontSize:10,fontWeight:600,cursor:'pointer',fontFamily:'var(--fm)'}}>{o.lbl}</button>
+          ));
+        })()}
+        {isReit && (fgMode === 'fcfe' || fgMode === 'ocf') && (
+          <span style={{fontSize:8,color:'var(--text-tertiary)',fontFamily:'var(--fm)',marginLeft:4,fontStyle:'italic'}}>
+            (Normal P/E historical oculta — distorsionada en REITs por D&A; usa slider Custom 15x = FAST Graphs default)
+          </span>
+        )}
       </div>
 
       {/* Per-metric comparison panel — muestra valores de TODAS las métricas para el último año.

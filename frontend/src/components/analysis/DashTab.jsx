@@ -242,9 +242,19 @@ export default function DashTab() {
         const [lo52, hi52] = [rangeParts[0] || 0, rangeParts[1] || 0];
         const price52 = cfg.price || 0;
         const pctInRange = hi52 > lo52 ? (price52 - lo52) / (hi52 - lo52) : 0;
+        // Detect REIT — para REITs Forward Payout y Sector P/E sobre EPS son
+        // engañosos (D&A infla EPS y aplasta P/E). Calculamos sobre AFFO.
+        const _sec = fmpExtra.profile?.sector || '';
+        const _ind = fmpExtra.profile?.industry || '';
+        const isReitR = _sec === 'Real Estate' || _ind.toLowerCase().includes('reit');
         const fwdEPS = fmpExtra.estimates?.[0]?.epsAvg || fmpExtra.estimates?.[0]?.estimatedEpsAvg;
-        const fwdPayout = fwdEPS > 0 && LD.dps > 0 ? LD.dps / fwdEPS : null;
+        // Para REITs: AFFO ≈ FCF/share (LD.fcfps). Si no está, usa OCF/share.
+        const affoPS = LD.fcfps || (LD.ocf && LD.sharesOut ? LD.ocf / LD.sharesOut : 0);
+        const fwdPayout = isReitR
+          ? (affoPS > 0 && LD.dps > 0 ? LD.dps / affoPS : null)
+          : (fwdEPS > 0 && LD.dps > 0 ? LD.dps / fwdEPS : null);
         const curPE = LD.eps > 0 && price52 > 0 ? price52 / LD.eps : null;
+        const curPAffo = isReitR && affoPS > 0 && price52 > 0 ? price52 / affoPS : null;
         const kmYields = (fmpExtra.keyMetrics||[]).slice(0,5).map(k=>k.dividendYield).filter(v=>v>0);
         const avg5yYield = kmYields.length > 0 ? kmYields.reduce((s,v)=>s+v,0)/kmYields.length : null;
         const curYield = price52 > 0 && LD.dps > 0 ? LD.dps / price52 : null;
@@ -264,18 +274,35 @@ export default function DashTab() {
               </div>
               <div style={{fontSize:9,color:"var(--text-tertiary)",marginTop:14,textAlign:"center"}}>{pctInRange<0.3?"Cerca de mínimos":pctInRange>0.7?"Cerca de máximos":"Zona media"}</div>
             </Card>
-            {/* Forward Payout + Yield vs 5Y Avg */}
+            {/* Forward Payout + Yield vs 5Y Avg.
+                Para REITs el ratio se calcula vs AFFO (DPS/AFFO) en lugar
+                de DPS/EPS, porque el EPS de REITs está distorsionado por
+                D&A. Threshold también más permisivo: REITs sanos pagan
+                70-90% de AFFO mientras que empresas normales <60%. */}
             <Card>
-              <div style={{fontSize:10,color:"var(--text-tertiary)",fontWeight:600,fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:8}}>FORWARD PAYOUT</div>
+              <div style={{fontSize:10,color:isReitR?"#a855f7":"var(--text-tertiary)",fontWeight:600,fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:8}}>
+                {isReitR ? "AFFO PAYOUT (REIT)" : "FORWARD PAYOUT"}
+              </div>
               <div style={{display:"flex",gap:16,alignItems:"flex-end"}}>
                 <div>
-                  <div style={{fontSize:22,fontWeight:700,color:fwdPayout!=null?(fwdPayout<0.6?"#30d158":fwdPayout<0.75?"#ffd60a":"#ff453a"):"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{fwdPayout!=null?_sf(fwdPayout*100,0)+"%":"—"}</div>
-                  <div style={{fontSize:9,color:"var(--text-tertiary)"}}>Fwd DPS/EPS</div>
+                  <div style={{fontSize:22,fontWeight:700,color:fwdPayout!=null?(
+                    isReitR
+                      ? (fwdPayout<0.85?"#30d158":fwdPayout<0.95?"#ffd60a":"#ff453a")
+                      : (fwdPayout<0.6?"#30d158":fwdPayout<0.75?"#ffd60a":"#ff453a")
+                  ):"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{fwdPayout!=null?_sf(fwdPayout*100,0)+"%":"—"}</div>
+                  <div style={{fontSize:9,color:"var(--text-tertiary)"}}>{isReitR ? "DPS/AFFO" : "Fwd DPS/EPS"}</div>
                 </div>
-                {fwdEPS && <div style={{fontSize:10,color:"var(--text-tertiary)",lineHeight:1.8}}>
-                  DPS: ${LD.dps?.toFixed(2)}<br/>
-                  Est EPS: ${_sf(fwdEPS,2)}
-                </div>}
+                {isReitR ? (
+                  affoPS > 0 && <div style={{fontSize:10,color:"var(--text-tertiary)",lineHeight:1.8}}>
+                    DPS: ${LD.dps?.toFixed(2)}<br/>
+                    AFFO: ${_sf(affoPS,2)}
+                  </div>
+                ) : (
+                  fwdEPS && <div style={{fontSize:10,color:"var(--text-tertiary)",lineHeight:1.8}}>
+                    DPS: ${LD.dps?.toFixed(2)}<br/>
+                    Est EPS: ${_sf(fwdEPS,2)}
+                  </div>
+                )}
               </div>
               {avg5yYield != null && curYield != null && (
                 <div style={{marginTop:10,paddingTop:8,borderTop:"1px solid var(--subtle-bg2)"}}>
@@ -288,39 +315,60 @@ export default function DashTab() {
                 </div>
               )}
             </Card>
-            {/* Sector PE Comparison */}
+            {/* Sector PE Comparison.
+                Para REITs muestra P/AFFO en lugar de P/E (más comparable).
+                Sector REIT averages: ~16x P/AFFO, S&P ~20x P/E. */}
             <Card>
-              <div style={{fontSize:10,color:"var(--text-tertiary)",fontWeight:600,fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:8}}>SECTOR P/E</div>
-              {curPE ? (
+              <div style={{fontSize:10,color:isReitR?"#a855f7":"var(--text-tertiary)",fontWeight:600,fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:8}}>
+                {isReitR ? "P/AFFO vs SECTOR REIT" : "SECTOR P/E"}
+              </div>
+              {(isReitR ? curPAffo : curPE) ? (
                 <div>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:8}}>
                     <div>
                       <div style={{fontSize:10,color:"var(--text-tertiary)"}}>{cfg.ticker}</div>
-                      <div style={{fontSize:22,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>{_sf(curPE,1)}x</div>
+                      <div style={{fontSize:22,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)"}}>
+                        {_sf(isReitR ? curPAffo : curPE, 1)}x
+                      </div>
                     </div>
                     {fmpExtra.profile?.sector && <div style={{textAlign:"right"}}>
                       <div style={{fontSize:10,color:"var(--text-tertiary)"}}>{fmpExtra.profile.sector}</div>
-                      <div style={{fontSize:16,fontWeight:600,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>~20x</div>
+                      <div style={{fontSize:16,fontWeight:600,color:"var(--text-secondary)",fontFamily:"var(--fm)"}}>
+                        ~{isReitR ? "16x P/AFFO" : "20x"}
+                      </div>
                     </div>}
                   </div>
                   {/* Visual bar comparison */}
-                  <div style={{display:"flex",gap:6,alignItems:"flex-end",height:40}}>
-                    <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
-                      <div style={{width:"100%",background:curPE<20?"#30d158":"#ff9f0a",borderRadius:3,height:Math.min(40,Math.max(8,(curPE/30)*40)),transition:"height .3s"}}/>
-                      <span style={{fontSize:8,color:"var(--text-tertiary)"}}>{cfg.ticker}</span>
-                    </div>
-                    <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
-                      <div style={{width:"100%",background:"var(--border-hover)",borderRadius:3,height:Math.min(40,Math.max(8,(20/30)*40))}}/>
-                      <span style={{fontSize:8,color:"var(--text-tertiary)"}}>Sector</span>
-                    </div>
-                    <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
-                      <div style={{width:"100%",background:"var(--subtle-bg2)",borderRadius:3,height:Math.min(40,Math.max(8,(21/30)*40))}}/>
-                      <span style={{fontSize:8,color:"var(--text-tertiary)"}}>S&P</span>
-                    </div>
-                  </div>
-                  <div style={{fontSize:9,color:curPE<20?"#30d158":"#ff9f0a",marginTop:6,textAlign:"center"}}>{curPE<15?"Barato vs sector":curPE<20?"Por debajo del sector":"Por encima del sector"}</div>
+                  {(() => {
+                    const cur = isReitR ? curPAffo : curPE;
+                    const sectorTarget = isReitR ? 16 : 20;
+                    const goodThresh = isReitR ? 16 : 20;
+                    const okThresh = isReitR ? 22 : 25;
+                    const barColor = cur < goodThresh ? "#30d158" : cur < okThresh ? "#ffd60a" : "#ff9f0a";
+                    return (
+                      <>
+                        <div style={{display:"flex",gap:6,alignItems:"flex-end",height:40}}>
+                          <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                            <div style={{width:"100%",background:barColor,borderRadius:3,height:Math.min(40,Math.max(8,(cur/30)*40)),transition:"height .3s"}}/>
+                            <span style={{fontSize:8,color:"var(--text-tertiary)"}}>{cfg.ticker}</span>
+                          </div>
+                          <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                            <div style={{width:"100%",background:"var(--border-hover)",borderRadius:3,height:Math.min(40,Math.max(8,(sectorTarget/30)*40))}}/>
+                            <span style={{fontSize:8,color:"var(--text-tertiary)"}}>Sector</span>
+                          </div>
+                          <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                            <div style={{width:"100%",background:"var(--subtle-bg2)",borderRadius:3,height:Math.min(40,Math.max(8,(21/30)*40))}}/>
+                            <span style={{fontSize:8,color:"var(--text-tertiary)"}}>S&P</span>
+                          </div>
+                        </div>
+                        <div style={{fontSize:9,color:barColor,marginTop:6,textAlign:"center"}}>
+                          {cur < goodThresh ? `Barato vs sector ${isReitR?"REIT":""}` : cur < okThresh ? `Cercano a sector ${isReitR?"REIT":""}` : `Por encima del sector ${isReitR?"REIT":""}`}
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
-              ) : <div style={{color:"var(--text-tertiary)",fontSize:12}}>Sin datos P/E</div>}
+              ) : <div style={{color:"var(--text-tertiary)",fontSize:12}}>Sin datos {isReitR?"P/AFFO":"P/E"}</div>}
             </Card>
         </div>
         );
