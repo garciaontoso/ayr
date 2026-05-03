@@ -4,7 +4,12 @@ import { _sf, n, fP, fC, fM, div, cagrFn } from '../../utils/formatters.js';
 import { YEARS } from '../../constants/index.js';
 
 export default function GrowthTab() {
-  const { comp, fin, fmpExtra } = useAnalysis();
+  const { comp, fin, fmpExtra, chronoAsc } = useAnalysis();
+  // 2026-05-03: respect user year-order preference. FMP returns finGrowth in
+  // descending order; reverse for chronological display.
+  const finGrowthDisplay = chronoAsc
+    ? [...(fmpExtra.finGrowth || []).slice(0, 6)].reverse()
+    : (fmpExtra.finGrowth || []).slice(0, 6);
     const yrs5 = YEARS.slice(0,6); // 5y
     const yrs10 = YEARS.slice(0,11); // 10y
     const metrics = [
@@ -65,7 +70,7 @@ export default function GrowthTab() {
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
               <thead><tr>
                 <th style={{position:"sticky",left:0,background:"var(--surface)",padding:"8px 12px",textAlign:"left",color:"var(--gold)",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:9,minWidth:150}}>GROWTH RATE</th>
-                {fmpExtra.finGrowth.slice(0,6).map((g,i)=><th key={i} style={{padding:"8px 6px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:9}}>{g.date?.slice(0,4)||g.calendarYear||"—"}</th>)}
+                {finGrowthDisplay.map((g,i)=><th key={i} style={{padding:"8px 6px",textAlign:"right",color:"var(--text-secondary)",fontWeight:600,borderBottom:"2px solid var(--table-border)",fontFamily:"var(--fm)",fontSize:9}}>{g.date?.slice(0,4)||g.calendarYear||"—"}</th>)}
               </tr></thead>
               <tbody>
                 {[
@@ -83,7 +88,7 @@ export default function GrowthTab() {
                 ].map((row,i)=>(
                   <tr key={row.k} style={{background:i%2?"var(--row-alt)":"transparent"}}>
                     <td style={{position:"sticky",left:0,background:i%2?"var(--card)":"var(--bg)",padding:"6px 12px",color:"var(--text-primary)",fontWeight:500,borderBottom:"1px solid var(--table-border)",fontSize:11}}>{row.l}</td>
-                    {fmpExtra.finGrowth.slice(0,6).map((g,j)=>{
+                    {finGrowthDisplay.map((g,j)=>{
                       const v = g[row.k];
                       // For "shares outstanding": negative (buyback) is GOOD, positive (dilution) is BAD
                       const color = v==null?"var(--text-tertiary)":

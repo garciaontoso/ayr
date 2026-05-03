@@ -7,8 +7,14 @@ import { calcPiotroski } from '../calculators/piotroski.js';
 import { calcAltmanZ } from '../calculators/altmanZ.js';
 import { calcGrowthRate } from '../calculators/growthRate.js';
 import { calcDividendAnalysis } from '../calculators/dividendAnalysis.js';
+import { isChronoAsc } from '../utils/userPrefs.js';
 
 export function useAnalysisMetrics({ fin, cfg, setSsd, fmpExtra }) {
+  // 2026-05-03: chronoAsc = user prefers oldest→newest left-to-right order
+  // (standard finance convention). DATA_YEARS keeps its descending semantics
+  // for streak calcs that expect [0]=latest; consumers that RENDER tables
+  // should use DISPLAY_YEARS so they auto-flip per user preference.
+  const chronoAsc = isChronoAsc();
   // ─── Computed Metrics ────────────────────────────
   const comp = useMemo(()=>{
     const c = {};
@@ -85,6 +91,9 @@ export function useAnalysisMetrics({ fin, cfg, setSsd, fmpExtra }) {
   const prevDataYear = YEARS.find(y => y < latestDataYear && fin[y]?.revenue > 0) || YEARS[1];
   const DATA_YEARS = YEARS.filter(y => fin[y]?.revenue > 0).slice(0, 10);
   const CHART_YEARS = [...DATA_YEARS].reverse();
+  // DISPLAY_YEARS — what tables/lists should iterate. Default = chronological
+  // (oldest → newest). User can flip via header toggle (writes localStorage).
+  const DISPLAY_YEARS = chronoAsc ? CHART_YEARS : DATA_YEARS;
   const chartLabels = CHART_YEARS.map(y => String(y).slice(2));
 
   const L = comp[latestDataYear] || {};
@@ -360,7 +369,8 @@ export function useAnalysisMetrics({ fin, cfg, setSsd, fmpExtra }) {
   return {
     comp, wacc, piotroski, altmanZ, advancedMetrics, divAnalysis, dcf, dcfCalc,
     scoreItems, totalScore, L, LD, PD,
-    DATA_YEARS, CHART_YEARS, chartLabels, latestDataYear, prevDataYear,
+    DATA_YEARS, CHART_YEARS, DISPLAY_YEARS, chronoAsc, chartLabels,
+    latestDataYear, prevDataYear,
     marketCap, capLabel, discountRate, estimatedGrowth, revenueCAGR,
     roicWaccSpread, waterfall, growthCalc,
   };

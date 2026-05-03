@@ -4,7 +4,7 @@ import { Card, MetricHistoryChart } from '../ui';
 import { _sf, fM, fC, n, div } from '../../utils/formatters.js';
 
 export default function DataTab() {
-  const { DATA_YEARS, CHART_YEARS, fin, upFin } = useAnalysis();
+  const { DATA_YEARS, CHART_YEARS, DISPLAY_YEARS, fin, upFin } = useAnalysis();
   const [selectedKey, setSelectedKey] = useState(null);
     const fields = [
       // fmtType: 'M' = millions ($), 'C' = currency 2dec ($X.XX), 'N' = plain number
@@ -15,7 +15,7 @@ export default function DataTab() {
       {k:"retainedEarnings",l:"Benef. No Distribuido",fmt:0,fmtType:'M'},{k:"interestExpense",l:"Gastos Intereses",fmt:0,fmtType:'M'},
       {k:"depreciation",l:"Depreciación",fmt:0,fmtType:'M'},{k:"taxProvision",l:"Provisión Impuestos",fmt:0,fmtType:'M'},
     ];
-    const yrs = DATA_YEARS;
+    const yrs = DISPLAY_YEARS || DATA_YEARS;
     const fmtForType = (type) => type === 'C' ? (v => fC(v)) : type === 'N' ? (v => v == null ? '—' : _sf(v, 0)) : (v => fM(v));
     const selected = fields.find(f => f.k === selectedKey);
     return (

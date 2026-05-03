@@ -1857,7 +1857,8 @@ function buildPositionsFromCB() {
   const {
     comp, wacc, piotroski, altmanZ, advancedMetrics, divAnalysis, dcf, dcfCalc,
     scoreItems, totalScore, L, LD, PD,
-    DATA_YEARS, CHART_YEARS, chartLabels, latestDataYear, prevDataYear,
+    DATA_YEARS, CHART_YEARS, DISPLAY_YEARS, chronoAsc, chartLabels,
+    latestDataYear, prevDataYear,
     marketCap, capLabel, discountRate, estimatedGrowth, revenueCAGR,
     roicWaccSpread, waterfall, growthCalc,
   } = useAnalysisMetrics({ fin, cfg, setSsd, fmpExtra });
@@ -1876,7 +1877,8 @@ function buildPositionsFromCB() {
   const analysisValue = useMemo(() => ({
     fin, cfg, comp, wacc, piotroski, altmanZ, dcf, dcfCalc, divAnalysis, ssd, advancedMetrics,
     scoreItems, totalScore, L, LD, PD, fmpExtra, priceChartData,
-    DATA_YEARS, CHART_YEARS, chartLabels, latestDataYear, prevDataYear,
+    DATA_YEARS, CHART_YEARS, DISPLAY_YEARS, chronoAsc, chartLabels,
+    latestDataYear, prevDataYear,
     marketCap, capLabel, discountRate, estimatedGrowth, revenueCAGR,
     roicWaccSpread, waterfall, growthCalc,
     comps, setComps, upFin, upCfg,

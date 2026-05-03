@@ -4,8 +4,8 @@ import { _sf, n, fP, fX, fC, fM, div } from '../../utils/formatters.js';
 import { R } from '../../utils/ratings.js';
 
 export default function ValuationTab() {
-  const { DATA_YEARS, L, LD, advancedMetrics, cfg, comp, comps, dcf, fmpExtra, setComps } = useAnalysis();
-    const yrs = DATA_YEARS;
+  const { DATA_YEARS, DISPLAY_YEARS, L, LD, advancedMetrics, cfg, comp, comps, dcf, fmpExtra, setComps } = useAnalysis();
+    const yrs = DISPLAY_YEARS || DATA_YEARS;
     const metrics = [
       {k:"eve",l:"EV / EBITDA",r:R.eve,f:fX},{k:"pb",l:"Precio / Book",f:fX},{k:"bvps",l:"Book Value / Acción",f:v=>fC(v)},
       {k:"fcfps",l:"FCF / Acción",f:v=>fC(v)},{k:"fcfPayout",l:"FCF Payout",f:fP},{k:"ePayout",l:"Earnings Payout",f:fP},

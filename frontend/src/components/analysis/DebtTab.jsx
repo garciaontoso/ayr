@@ -5,9 +5,9 @@ import { fP, fX, fM, div } from '../../utils/formatters.js';
 import { R } from '../../utils/ratings.js';
 
 export default function DebtTab() {
-  const { DATA_YEARS, CHART_YEARS, L, LD, comp } = useAnalysis();
+  const { DATA_YEARS, CHART_YEARS, DISPLAY_YEARS, L, LD, comp } = useAnalysis();
   const [selectedKey, setSelectedKey] = useState(null);
-    const yrs = DATA_YEARS;
+    const yrs = DISPLAY_YEARS || DATA_YEARS;
     const metrics = [
       {k:"d2fcf",l:"Deuda Neta / FCF",r:R.d2fcf,f:fX},{k:"ic",l:"EBIT / Intereses",r:R.ic,f:fX},
       {k:"nd2cap",l:"Deuda Neta / Capital",f:fP},{k:"d2ebit",l:"Deuda Neta / EBIT",f:fX},

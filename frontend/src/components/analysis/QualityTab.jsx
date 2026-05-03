@@ -5,11 +5,11 @@ import { _sf, n, fP, fX, fM, div } from '../../utils/formatters.js';
 import { R } from '../../utils/ratings.js';
 
 export default function QualityTab() {
-  const { DATA_YEARS, CHART_YEARS, L, comp, fmpExtra } = useAnalysis();
+  const { DATA_YEARS, CHART_YEARS, DISPLAY_YEARS, L, comp, fmpExtra } = useAnalysis();
   // Click any metric card or table row to show a big year-by-year line chart
   // at the top of the tab. Click ✕ or the same metric again to close.
   const [selectedKey, setSelectedKey] = useState(null);
-    const yrs = DATA_YEARS;
+    const yrs = DISPLAY_YEARS || DATA_YEARS;
     const metrics = [
       {k:"gm",l:"Margen Bruto",r:R.gm,f:fP},{k:"om",l:"Margen Operativo",r:R.om,f:fP},{k:"nm",l:"Margen Neto",r:R.nm,f:fP},
       {k:"roe",l:"ROE",r:R.roe,f:fP},{k:"roic",l:"ROIC",r:R.roic,f:fP},{k:"fcfm",l:"Margen FCF",r:R.fcfm,f:fP},

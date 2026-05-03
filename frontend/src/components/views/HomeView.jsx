@@ -138,6 +138,123 @@ function MiniGauge({ value, min, max, colors, size = 80, label }) {
   );
 }
 
+// ─── Year-order toggle (2026-05-03) ────────────────────────────────────
+// Toggles whether analysis tables display years oldest→newest (asc, default,
+// matches finance convention + the price chart) or newest→oldest (desc).
+// Persists per-user via userPrefs.setPref. Reload required for the change to
+// take effect (preference is read at hook init time).
+function YearOrderToggle() {
+  // eslint-disable-next-line no-unused-vars
+  const [_, force] = useState(0);
+  const order = (typeof localStorage !== 'undefined'
+    ? localStorage.getItem('ayr_year_order') ||
+      (() => { for (let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k?.endsWith('::ayr_year_order'))return localStorage.getItem(k);}return null; })()
+    : null) || 'asc';
+  const isAsc = order !== 'desc';
+  return (
+    <button
+      onClick={() => {
+        const next = isAsc ? 'desc' : 'asc';
+        try {
+          // Use the scoped helper inline (don't import to avoid cycles in this file)
+          const u = localStorage.getItem('ayr_active_user') || 'ricardo';
+          const k = u === 'default' ? 'ayr_year_order' : `u:${u}::ayr_year_order`;
+          localStorage.setItem(k, next);
+        } catch {}
+        // Force a full reload so the analysis hook re-reads the preference
+        // and every cached useMemo recomputes with the new order.
+        window.location.reload();
+      }}
+      title={isAsc ? "Años: antiguo→reciente (click para invertir)" : "Años: reciente→antiguo (click para invertir)"}
+      aria-label={isAsc ? "Cambiar orden a más reciente primero" : "Cambiar orden a más antiguo primero"}
+      style={{
+        padding: "4px 7px",
+        borderRadius: 6,
+        border: "1px solid var(--border)",
+        background: "transparent",
+        color: "var(--text-tertiary)",
+        fontSize: 10,
+        cursor: "pointer",
+        transition: "all .15s",
+        fontFamily: "var(--fm)",
+        fontWeight: 600,
+      }}>
+      {isAsc ? "←→" : "→←"} {isAsc ? "20→25" : "25→20"}
+    </button>
+  );
+}
+
+// ─── User profile picker (Ricardo / Amparo) ───────────────────────────
+// Switches the localStorage namespace prefix for scoped preferences (year
+// order, tab order, column visibility, theme, etc) so each user has their
+// own setup. Reload after switch so all components re-read prefs.
+function UserPicker() {
+  const [open, setOpen] = useState(false);
+  const current = (typeof localStorage !== 'undefined' ? localStorage.getItem('ayr_active_user') : null) || 'ricardo';
+  const users = [
+    { id: 'ricardo', label: 'Ricardo', icon: '👨‍💻' },
+    { id: 'amparo',  label: 'Amparo',  icon: '👩' },
+  ];
+  const me = users.find(u => u.id === current) || users[0];
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        title={`Usuario activo: ${me.label} — click para cambiar`}
+        aria-label={`Usuario ${me.label}`}
+        style={{
+          padding: "4px 8px",
+          borderRadius: 6,
+          border: "1px solid var(--border)",
+          background: "transparent",
+          color: "var(--text-tertiary)",
+          fontSize: 10,
+          cursor: "pointer",
+          transition: "all .15s",
+          fontFamily: "var(--fm)",
+          fontWeight: 600,
+          display: "flex",
+          alignItems: "center",
+          gap: 4,
+        }}>
+        <span aria-hidden="true">{me.icon}</span>
+        <span>{me.label}</span>
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', right: 0, marginTop: 4,
+          background: 'var(--card)', border: '1px solid var(--border)',
+          borderRadius: 8, padding: 4, minWidth: 140, zIndex: 1000,
+          boxShadow: '0 8px 24px rgba(0,0,0,.3)',
+        }}>
+          {users.map(u => (
+            <button key={u.id}
+              onClick={() => {
+                try { localStorage.setItem('ayr_active_user', u.id); } catch {}
+                window.location.reload();
+              }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                width: '100%', padding: '6px 10px',
+                background: u.id === current ? 'var(--row-alt)' : 'transparent',
+                border: 'none', cursor: 'pointer', borderRadius: 6,
+                color: u.id === current ? 'var(--gold)' : 'var(--text-primary)',
+                fontFamily: 'var(--fb)', fontSize: 12, textAlign: 'left',
+              }}>
+              <span>{u.icon}</span>
+              <span>{u.label}</span>
+              {u.id === current && <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--gold)' }}>✓</span>}
+            </button>
+          ))}
+          <div style={{ fontSize: 9, color: 'var(--text-tertiary)', padding: '4px 10px', borderTop: '1px solid var(--subtle-border)', marginTop: 4 }}>
+            Cada usuario guarda su orden de pestañas, columnas y preferencias.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Small reminder badge that shows when the AI agents haven't run today ───
 // Fetches /api/agent-run/status once on mount. Click → switches to AgentesTab.
 function RunReminderBadge({ onClick }) {
@@ -1646,6 +1763,12 @@ export default function HomeView() {
           <span style={{fontSize:9,color:uiZoom!==100?"var(--gold)":"var(--text-tertiary)",fontFamily:"var(--fm)",minWidth:24,textAlign:"center",fontWeight:600,cursor:"pointer"}} onClick={()=>changeZoom(100)} title="Restablecer zoom al 100%">{uiZoom}%</span>
           <button onClick={()=>changeZoom(uiZoom+10)} aria-label="Aumentar zoom" style={{padding:"1px 5px",border:"none",background:"transparent",color:"var(--text-tertiary)",fontSize:11,cursor:"pointer",fontWeight:700,lineHeight:1}}>+</button>
         </div>
+
+        {/* Year-order toggle (asc / desc) — applies to every analysis table */}
+        <YearOrderToggle />
+
+        {/* User profile picker — Ricardo / Amparo */}
+        <UserPicker />
 
         {/* AI Agents run reminder — badge red if agents haven't run today */}
         <RunReminderBadge onClick={() => setHomeTab("agentes")} />
