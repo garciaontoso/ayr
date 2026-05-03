@@ -8,13 +8,20 @@ export default function ClaudeTab() {
     
     if (!hasReport) {
       return (
-        <div style={{textAlign:"center",padding:"60px 20px"}}>
+        <div style={{textAlign:"center",padding:"40px 20px"}}>
           <div style={{fontSize:48,marginBottom:16}}>🧠</div>
           <div style={{fontSize:20,fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fd)",marginBottom:8}}>Análisis Inteligente con Claude</div>
           <div style={{fontSize:13,color:"var(--text-secondary)",maxWidth:500,margin:"0 auto",lineHeight:1.8,marginBottom:24}}>
-            Claude analiza los 10 años de datos financieros de {cfg.name || "la empresa"} y genera un informe completo con tesis de inversión, análisis de moat, riesgos, catalizadores y evaluación de disrupción por IA.
+            Esta pestaña usa Claude API (cuesta ~$0.30 por análisis). Pulsa <strong style={{color:"var(--gold)"}}>⚡ Cargar</strong> arriba para generarlo.
           </div>
-          <div style={{fontSize:12,color:"var(--text-tertiary)",marginBottom:8}}>Pulsa <strong style={{color:"var(--gold)"}}>⚡ Cargar</strong> en la barra superior para generar el análisis.</div>
+          {/* 2026-05-03: banner que indica que hay alternativa GRATIS en la
+              pestaña 🎓 Veredicto Experto. Evita confusión por iconos parecidos. */}
+          <div style={{maxWidth:540,margin:"0 auto",padding:"14px 18px",background:"rgba(200,164,78,.08)",border:"1px solid rgba(200,164,78,.25)",borderRadius:12,textAlign:"left"}}>
+            <div style={{fontSize:11,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fm)",letterSpacing:.5,marginBottom:6,textTransform:"uppercase"}}>💡 Alternativa gratis disponible</div>
+            <div style={{fontSize:12,color:"var(--text-secondary)",lineHeight:1.7}}>
+              Hay una pestaña <strong style={{color:"var(--gold)"}}>🎓 Veredicto Experto</strong> a un click (justo a la derecha de ★ Veredicto) con un análisis didáctico extenso escrito por Claude Code session — <strong>sin coste API</strong>. Cubre calidad, deuda, dividendo, valoración, riesgos, IA disruption + veredicto final. Guarda historial para ver evolución del veredicto.
+            </div>
+          </div>
         </div>
       );
     }
