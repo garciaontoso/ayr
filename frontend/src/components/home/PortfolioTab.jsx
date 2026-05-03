@@ -87,7 +87,9 @@ function CategoryDot({ ticker }) {
 
 const ALERTS_KEY = "ayr_price_alerts";
 const COLS_KEY = "ayr_portfolio_cols";
-const FUND_CACHE_KEY = "ayr_fundamentals_cache";
+// v2 (2026-05-03): bumped key to bust caches that stored evEbitda=0 due to
+// the worker returning annual arrays where the frontend was reading TTM keys.
+const FUND_CACHE_KEY = "ayr_fundamentals_cache_v2";
 
 const SECTOR_COLORS = {
   "Technology":"#3b82f6","Information Technology":"#3b82f6","Tech":"#3b82f6",
@@ -743,16 +745,30 @@ export default function PortfolioTab() {
       const result = {};
       for (const [sym, info] of Object.entries(data.results || {})) {
         if (!info) continue;
-        const ratios = info.ratios || {}; const profile = info.profile || {}; const km = info.keyMetrics || {};
+        // ── 2026-05-03 fix ─────────────────────────────────────────────────
+        // The worker returns ratios + keyMetrics as ANNUAL ARRAYS
+        // (period=annual, limit=10). Reading `.peRatioTTM` etc on an array
+        // always yielded undefined → evEbitda/PE/PB silently 0 in Portfolio.
+        // Take the most recent annual entry [0] and use the non-TTM keys.
+        const ratiosArr = Array.isArray(info.ratios)     ? info.ratios     : [];
+        const kmArr     = Array.isArray(info.keyMetrics) ? info.keyMetrics : [];
+        const ratios    = ratiosArr[0] || {};
+        const km        = kmArr[0]     || {};
+        const profile   = info.profile || {};
         result[sym] = {
-          pe: ratios.peRatioTTM || profile.pe || 0,
-          fwdPE: km.peRatioTTM || 0,
-          pb: ratios.priceToBookRatioTTM || km.pbRatioTTM || 0,
-          evEbitda: ratios.enterpriseValueOverEBITDATTM || km.evToEbitda || 0,
-          roe: ratios.returnOnEquityTTM || 0,
-          debtEq: ratios.debtEquityRatioTTM || 0,
+          pe: ratios.priceToEarningsRatio || ratios.peRatio || km.peRatio || profile.pe || 0,
+          fwdPE: km.peRatio || ratios.peRatio || 0,
+          pb: ratios.priceToBookRatio || km.pbRatio || km.priceToBookRatio || 0,
+          evEbitda: ratios.enterpriseValueMultiple
+                 || ratios.enterpriseValueOverEBITDA
+                 || km.enterpriseValueOverEBITDA
+                 || km.evToEBITDA
+                 || km.evToOperatingCashFlow
+                 || 0,
+          roe: ratios.returnOnEquity || km.roe || km.returnOnEquity || 0,
+          debtEq: ratios.debtToEquityRatio || ratios.debtEquityRatio || km.debtToEquity || 0,
           beta: profile.beta || 0,
-          payoutRatio: ratios.payoutRatioTTM || ratios.dividendPayoutRatioTTM || 0,
+          payoutRatio: ratios.dividendPayoutRatio || ratios.payoutRatio || km.payoutRatio || 0,
           divGrowth5y: km.dividendGrowth5Y || 0,
           exDivDate: profile.exDivDate || "",
           ytd: km.ytdReturn || 0,
