@@ -5,6 +5,11 @@ import { useDraggableOrder } from '../../hooks/useDraggableOrder.js';
 import BuyWizard from '../ui/BuyWizard.jsx';
 import TickerSearchModal from '../ui/TickerSearchModal.jsx';
 import { API_URL } from '../../constants/index.js';
+import { PASTORES_DIVIDENDO, priceZone, zoneColors } from '../../data/pastoresDividendo.js';
+
+// Quick-access map: ticker → row in PASTORES_DIVIDENDO. Used to enrich the
+// Pastores list view with buy ranges + zone color when that list is active.
+const PASTORES_BY_TICKER = Object.fromEntries(PASTORES_DIVIDENDO.map(r => [r.ticker, r]));
 
 const CUSTOM_LISTS_KEY = 'ayr_research_custom_lists';
 
@@ -131,6 +136,39 @@ export default function ResearchTab() {
       } catch {}
     })();
   }, []);
+
+  // Pastores del Dividendo — precios live para EU tickers (.MC/.PA/.DE/etc.)
+  // que no están en el screener. Fetch on-demand cuando esa lista está activa.
+  const [pastoresPrices, setPastoresPrices] = useState({});
+  useEffect(() => {
+    if (researchOpenList !== 'pastores_dividendo') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const tickers = PASTORES_DIVIDENDO.map(r => r.ticker).join(',');
+        const r = await fetch(`${API_URL}/api/prices?tickers=${encodeURIComponent(tickers)}&live=1`);
+        const d = await r.json();
+        if (cancelled) return;
+        const map = {};
+        const arr = d.prices || d.results || [];
+        for (const row of arr) {
+          const t = row.ticker || row.symbol;
+          if (t) map[t] = row.price ?? row.lastPrice ?? row.close ?? null;
+        }
+        if (Object.keys(map).length === 0 && d && typeof d === 'object' && !Array.isArray(d)) {
+          for (const [k, v] of Object.entries(d)) {
+            if (typeof v === 'number') map[k] = v;
+            else if (v && typeof v === 'object') map[k] = v.price ?? v.lastPrice ?? v.close ?? null;
+          }
+        }
+        setPastoresPrices(map);
+      } catch (e) {
+        console.warn('pastores prices fetch failed', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [researchOpenList]);
+
   const saveCustomLists = useCallback((lists) => {
     setCustomLists(lists);
     // Write-through: cloud primero, localStorage como cache inmediato
@@ -241,6 +279,10 @@ export default function ResearchTab() {
       {id:"radar_intl",name:"Radar Internacional",desc:"Europa, Australia y materias primas",color:"#8b5cf6",tickers:["BHP","RIO","LYB","ICL","WPP"]},
       {id:"reits_ar",name:"REITs A&R",desc:"Selección de REITs en seguimiento",color:"#ec4899",tickers:["ADC","COLD","DOC","EPR","EQR","FRT","MPW","MAA","NHI","NSA","OHI","PSA","RICK","O","SBRA","SILA","SPG","VTR","WELL","WPC"]},
       {id:"dividendst",name:"DividendST Ranking",desc:"Ranking DividendStreet.com — Score /5, actualizado periódicamente",color:"#14b8a6",tickers:["MKTX","SNA","GOOGL","MSFT","CTAS","TROW","FDS","V","RHI","NKE","GGG","MCO","LVMH","PAYX","AXP","ROK","MMM","MA","ZTS","FAST","BF-A","PFE","BRBY","AAPL","JNJ","CME","UNP","HSY","EMR","MRK","PEP","CSCO","HRL","FDX","IBE","LMT","PG","DGE","SPGI","INTC","WM","BMY","DIS","EL","KO","SBUX","ORCL","TAP","MO","WMT","IBM","T","CLX","VFC","MANU"]},
+      // 2026-05-03: lista del usuario, 19 empresas EU con rangos de compra
+      // (Excel original + LVMH/Aena ya incluidos + Unilever/Reckitt sin rango aún).
+      // Los rangos viven en data/pastoresDividendo.js para no duplicar.
+      {id:"pastores_dividendo",name:"Pastores del Dividendo",desc:"19 empresas EU con rangos de compra propios",color:"#c8a44e",tickers:["SAB.MC","CABK.MC","BBVA.MC","TEF.MC","REP.MC","TTE.PA","ACS.MC","FER.MC","AENA.MC","CIE.MC","GEST.MC","LOG.MC","MC.PA","RACE.MI","P911.DE","SU.PA","AI.PA","ALV.DE","ULVR.L","RKT.L"]},
     ];
     const lists = [...defaultLists, ...customLists];
     const activeId = researchOpenList || 'portfolio';
@@ -361,7 +403,65 @@ export default function ResearchTab() {
             const basicCols = ["SCORE","TICKER","EMPRESA","SECTOR","YIELD%","PAYOUT FCF%","D/EBITDA","ROIC%","P/E","🎯","FMP",""];
             const advCols = ["SCORE","TICKER","EMPRESA","TIPO","RIESGO","DIV","MKT CAP","D.NETA","BPA","DPA","D/FCF","RD%","PAYOUT","PER","PER JUSTO","CREC.","TIR","P.JUSTO","DESC.","🎯","FMP"];
             const cols = researchAdvanced ? advCols : basicCols;
+            const isPastores = list.id === 'pastores_dividendo';
             return <div style={{padding:"0 0 14px"}}>
+              {/* Pastores del Dividendo — banner con rangos de compra y zona
+                  según precio live. Reemplaza la mensaje "0 con datos · 19
+                  sin datos" porque esos tickers EU no están en el screener. */}
+              {isPastores && (
+                <div style={{padding:"12px 16px 4px"}}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+                    <span style={{fontSize:10,color:'var(--text-tertiary)',fontFamily:'var(--fm)',letterSpacing:.5}}>
+                      🎯 RANGOS DE COMPRA · CLICK PARA ABRIR ANÁLISIS
+                    </span>
+                    <span style={{fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)'}}>
+                      {Object.keys(pastoresPrices).length === 0
+                        ? '⏳ cargando precios…'
+                        : `✓ ${Object.keys(pastoresPrices).length}/${PASTORES_DIVIDENDO.length} con precio`}
+                    </span>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))',gap:6}}>
+                    {PASTORES_DIVIDENDO.map(p => {
+                      const price = pastoresPrices[p.ticker];
+                      const zone = priceZone(price, p.buyLow, p.buyHigh);
+                      const c = zoneColors(zone);
+                      const cur = p.currency === 'EUR' ? '€' : p.currency === 'GBP' ? '£' : '$';
+                      const lo = p.buyLow != null ? p.buyLow.toFixed(2) : '—';
+                      const hi = p.buyHigh != null ? p.buyHigh.toFixed(2) : '—';
+                      const px = price != null ? price.toFixed(2) : '—';
+                      return (
+                        <button
+                          key={p.ticker}
+                          onClick={() => openAnalysis(p.ticker)}
+                          title={`Ver análisis de ${p.name}`}
+                          style={{
+                            display:'flex',alignItems:'center',gap:8,
+                            padding:'6px 9px', background:c.bg,
+                            border:`1px solid ${c.fg}33`, borderRadius:7,
+                            cursor:'pointer', textAlign:'left',
+                            fontFamily:'inherit',
+                          }}
+                        >
+                          <span style={{fontSize:8,fontWeight:700,color:c.fg,fontFamily:'var(--fm)',padding:'2px 5px',borderRadius:4,background:`${c.fg}22`,minWidth:54,textAlign:'center'}}>{c.label}</span>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{display:'flex',alignItems:'baseline',gap:5}}>
+                              <span style={{fontSize:11,fontWeight:700,color:'var(--text-primary)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{p.name}</span>
+                              <span style={{fontSize:8,color:'var(--text-tertiary)',fontFamily:'var(--fm)'}}>{p.ticker}</span>
+                            </div>
+                            <div style={{fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)',marginTop:1}}>
+                              {cur}{lo}–{cur}{hi} · ahora <span style={{color:c.fg,fontWeight:700}}>{cur}{px}</span>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{fontSize:9,color:'var(--text-tertiary)',marginTop:8,fontStyle:'italic'}}>
+                    🟢 COMPRA = ≤ rango bajo · 🟡 ZONA = dentro · 🔴 CARO = arriba · S/D = sin precio. Unilever y Reckitt sin rango aún.
+                  </div>
+                </div>
+              )}
+
               {/* List toolbar */}
               <div style={{padding:"8px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
                 <span style={{fontSize:10,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>{withData.length} con datos · {noData.length} sin datos</span>

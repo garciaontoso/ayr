@@ -94,6 +94,39 @@ export default function WatchlistTab() {
   const [oracleVerdicts, setOracleVerdicts] = useState({});
   const [oracleWizardTicker, setOracleWizardTicker] = useState(null);
 
+  // Pastores del Dividendo — precios live independientes (no dependen del
+  // watchlistList del usuario, ya que esos 19 tickers EU no están en su
+  // watchlist como posiciones). Tira de /api/prices?live=1 directamente.
+  const [pastoresPrices, setPastoresPrices] = useState({});
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const tickers = PASTORES_DIVIDENDO.map(r => r.ticker).join(',');
+        const r = await fetch(`${API_URL}/api/prices?tickers=${encodeURIComponent(tickers)}&live=1`);
+        const d = await r.json();
+        if (cancelled) return;
+        const map = {};
+        const arr = d.prices || d.results || [];
+        for (const row of arr) {
+          const t = row.ticker || row.symbol;
+          if (t) map[t] = row.price ?? row.lastPrice ?? row.close ?? null;
+        }
+        // Soporte para shape {SYM: price, …}
+        if (Object.keys(map).length === 0 && d && typeof d === 'object') {
+          for (const [k, v] of Object.entries(d)) {
+            if (typeof v === 'number') map[k] = v;
+            else if (v && typeof v === 'object') map[k] = v.price ?? v.lastPrice ?? v.close ?? null;
+          }
+        }
+        setPastoresPrices(map);
+      } catch (e) {
+        console.warn('pastores prices fetch failed', e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   useEffect(() => {
     (async () => {
       try {
@@ -294,16 +327,24 @@ export default function WatchlistTab() {
         </div>
       </div>
 
-      {/* Pastores del Dividendo — buy-zone reference banner */}
+      {/* Pastores del Dividendo — vista propia (no usa watchlistList).
+          Se muestra cuando esta tab está activa, en lugar de la tabla
+          normal del watchlist (que estaría vacía porque esos 19 tickers
+          EU no están en posiciones del usuario). Al estar precargados
+          en data/pastoresDividendo.js, basta con tirar de /api/prices. */}
       {currentTab.id === PASTORES_TAB_ID && (
-        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 12 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--gold)", marginBottom: 8, fontFamily: "var(--fm)", letterSpacing: 0.5 }}>
-            🎯 RANGOS DE COMPRA · {PASTORES_DIVIDENDO.length} EMPRESAS
+        <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, padding: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--gold)", fontFamily: "var(--fm)", letterSpacing: 0.5 }}>
+              🎯 PASTORES DEL DIVIDENDO · {PASTORES_DIVIDENDO.length} EMPRESAS
+            </div>
+            <div style={{ fontSize: 9, color: "var(--text-tertiary)" }}>
+              {Object.keys(pastoresPrices).length === 0 ? '⏳ cargando precios…' : `✓ ${Object.keys(pastoresPrices).length}/${PASTORES_DIVIDENDO.length} con precio`}
+            </div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(220px,1fr))", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: 8 }}>
             {PASTORES_DIVIDENDO.map(p => {
-              const live = (allItems || []).find(x => x.ticker === p.ticker);
-              const price = live?.lastPrice;
+              const price = pastoresPrices[p.ticker];
               const zone = priceZone(price, p.buyLow, p.buyHigh);
               const c = zoneColors(zone);
               const cur = p.currency === 'EUR' ? '€' : p.currency === 'GBP' ? '£' : '$';
@@ -311,26 +352,41 @@ export default function WatchlistTab() {
               const hi = p.buyHigh != null ? p.buyHigh.toFixed(2) : '—';
               const px = price != null ? price.toFixed(2) : '—';
               return (
-                <div key={p.ticker} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: c.bg, border: `1px solid ${c.fg}33`, borderRadius: 8 }}>
-                  <span style={{ fontSize: 9, fontWeight: 700, color: c.fg, fontFamily: "var(--fm)", padding: "2px 5px", borderRadius: 4, background: `${c.fg}22`, minWidth: 56, textAlign: "center" }}>{c.label}</span>
+                <button
+                  key={p.ticker}
+                  onClick={() => openAnalysis?.(p.ticker)}
+                  title={`Ver análisis de ${p.name}`}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8,
+                    padding: "8px 10px", background: c.bg,
+                    border: `1px solid ${c.fg}33`, borderRadius: 8,
+                    cursor: openAnalysis ? 'pointer' : 'default',
+                    textAlign: 'left', fontFamily: 'inherit',
+                  }}
+                >
+                  <span style={{ fontSize: 9, fontWeight: 700, color: c.fg, fontFamily: "var(--fm)", padding: "2px 5px", borderRadius: 4, background: `${c.fg}22`, minWidth: 60, textAlign: "center" }}>{c.label}</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
-                    <div style={{ fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>
-                      {cur}{lo}–{cur}{hi} · ahora <span style={{ color: c.fg, fontWeight: 700 }}>{cur}{px}</span>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
+                      <span style={{ fontSize: 9, color: "var(--text-tertiary)", fontFamily: "var(--fm)" }}>{p.ticker}</span>
+                    </div>
+                    <div style={{ fontSize: 10, color: "var(--text-tertiary)", fontFamily: "var(--fm)", marginTop: 2 }}>
+                      Compra {cur}{lo}–{cur}{hi} · ahora <span style={{ color: c.fg, fontWeight: 700 }}>{cur}{px}</span>
                     </div>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
-          <div style={{ fontSize: 9, color: "var(--text-tertiary)", marginTop: 8, fontStyle: "italic" }}>
-            🟢 ≤ rango bajo · 🟡 dentro del rango · 🔴 por encima · S/D = sin precio. Unilever y Reckitt sin rango aún — fíjalos cuando quieras.
+          <div style={{ fontSize: 9, color: "var(--text-tertiary)", marginTop: 10, lineHeight: 1.6 }}>
+            🟢 COMPRA = precio ≤ rango bajo · 🟡 ZONA = dentro del rango · 🔴 CARO = por encima del rango alto · <strong>S/D</strong> = sin precio (puede tardar unos segundos).
+            <br/>Click en cualquier empresa para abrir su análisis completo. Unilever y Reckitt sin rango aún — fíjalos cuando quieras.
           </div>
         </div>
       )}
 
-      {/* Items */}
-      {sorted.length === 0 && (
+      {/* Items — sólo para watchlists normales, NO para Pastores */}
+      {currentTab.id !== PASTORES_TAB_ID && sorted.length === 0 && (
         <EmptyState
           icon="👁"
           title={currentTab.tickers ? `"${currentTab.name}" esta vacia` : "Watchlist vacia"}
@@ -338,8 +394,8 @@ export default function WatchlistTab() {
         />
       )}
 
-      {/* Data table view */}
-      {sorted.length > 0 && (
+      {/* Data table view — sólo para watchlists normales */}
+      {currentTab.id !== PASTORES_TAB_ID && sorted.length > 0 && (
         <div style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5, minWidth: 700 }}>
