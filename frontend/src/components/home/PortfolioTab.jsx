@@ -87,6 +87,34 @@ function CategoryDot({ ticker }) {
 
 const ALERTS_KEY = "ayr_price_alerts";
 const COLS_KEY = "ayr_portfolio_cols";
+
+// ── Vistas (presets de columnas) ────────────────────────────────────────
+// Cada vista = {id, name, cols[], readOnly?}. Por defecto se siembran 4
+// (Principal / Dividendos / Valoración / Calidad). El usuario puede crear
+// vistas nuevas guardando el estado actual y borrar las que quiera.
+// Persistencia en localStorage; las vistas por defecto pueden EDITARSE
+// (el flag readOnly es informativo, no bloquea).
+const VIEWS_KEY = "ayr_portfolio_views";
+const ACTIVE_VIEW_KEY = "ayr_portfolio_active_view";
+
+const VIEW_PRESETS = [
+  {
+    id: 'principal', name: 'Principal',
+    cols: ['ticker','categoria','name','price','chgPct','chgAbs','shares','cost','costReal','pnl','pnlReal','weight','value','divIncome','divYield'],
+  },
+  {
+    id: 'dividendos', name: 'Dividendos',
+    cols: ['ticker','categoria','name','price','divYield','yoc','dps','divIncome','monthlyDiv','payoutRatio','divGrowth5y','divGrowth1y','divGrowth3y','exDate','weight','value'],
+  },
+  {
+    id: 'valoracion', name: 'Valoración',
+    cols: ['ticker','categoria','name','price','chgPct','pe','fwdPE','pb','evEbitda','mktCap','quality','safety','weight','value'],
+  },
+  {
+    id: 'calidad', name: 'Calidad',
+    cols: ['ticker','categoria','name','price','chgPct','quality','safety','smartMoney','oracle','roe','divGrowth5y','payoutRatio','weight'],
+  },
+];
 // v2 (2026-05-03): bumped key to bust caches that stored evEbitda=0 due to
 // the worker returning annual arrays where the frontend was reading TTM keys.
 const FUND_CACHE_KEY = "ayr_fundamentals_cache_v2";
@@ -550,6 +578,94 @@ export default function PortfolioTab() {
   const colPickerRef = useRef(null);
   const [colSort, setColSort] = useState({ id: null, asc: false });
 
+  // ── Vistas: state + handlers ──────────────────────────────────────────
+  const [views, setViews] = useState(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(VIEWS_KEY));
+      if (Array.isArray(stored) && stored.length > 0) {
+        // Migración: si faltan presets por defecto, fusionarlos
+        const present = new Set(stored.map(v => v.id));
+        const merged = [...stored];
+        for (const p of VIEW_PRESETS) if (!present.has(p.id)) merged.push(p);
+        return merged;
+      }
+    } catch {}
+    return VIEW_PRESETS;
+  });
+  const [activeView, setActiveView] = useState(() => {
+    try { return localStorage.getItem(ACTIVE_VIEW_KEY) || 'principal'; } catch { return 'principal'; }
+  });
+
+  // Cuando cambia visibleCols (toggle/reorder), guarda automáticamente en
+  // la vista activa para que la próxima vez vuelvas a verla igual.
+  useEffect(() => {
+    if (!activeView) return;
+    setViews(prev => {
+      const next = prev.map(v => v.id === activeView ? { ...v, cols: visibleCols } : v);
+      try { localStorage.setItem(VIEWS_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, [visibleCols, activeView]);
+
+  const switchView = useCallback((id) => {
+    const v = views.find(x => x.id === id);
+    if (!v) return;
+    setActiveView(id);
+    try { localStorage.setItem(ACTIVE_VIEW_KEY, id); } catch {}
+    setVisibleCols(v.cols);
+  }, [views]);
+
+  const saveAsNewView = useCallback(() => {
+    const name = window.prompt('Nombre de la nueva vista:');
+    if (!name || !name.trim()) return;
+    const id = 'v_' + Date.now();
+    const next = [...views, { id, name: name.trim(), cols: visibleCols }];
+    setViews(next);
+    setActiveView(id);
+    try {
+      localStorage.setItem(VIEWS_KEY, JSON.stringify(next));
+      localStorage.setItem(ACTIVE_VIEW_KEY, id);
+    } catch {}
+  }, [views, visibleCols]);
+
+  const deleteCurrentView = useCallback(() => {
+    const v = views.find(x => x.id === activeView);
+    if (!v) return;
+    const isPreset = VIEW_PRESETS.some(p => p.id === v.id);
+    const msg = isPreset
+      ? `Restaurar la vista "${v.name}" a sus columnas por defecto?`
+      : `Borrar la vista "${v.name}"? No se puede deshacer.`;
+    if (!window.confirm(msg)) return;
+    if (isPreset) {
+      const preset = VIEW_PRESETS.find(p => p.id === v.id);
+      const next = views.map(x => x.id === v.id ? { ...preset } : x);
+      setViews(next);
+      setVisibleCols(preset.cols);
+      try { localStorage.setItem(VIEWS_KEY, JSON.stringify(next)); } catch {}
+    } else {
+      const next = views.filter(x => x.id !== v.id);
+      setViews(next);
+      try { localStorage.setItem(VIEWS_KEY, JSON.stringify(next)); } catch {}
+      // Cambia a Principal
+      const principal = next.find(x => x.id === 'principal') || next[0];
+      if (principal) {
+        setActiveView(principal.id);
+        setVisibleCols(principal.cols);
+        try { localStorage.setItem(ACTIVE_VIEW_KEY, principal.id); } catch {}
+      }
+    }
+  }, [views, activeView]);
+
+  const renameCurrentView = useCallback(() => {
+    const v = views.find(x => x.id === activeView);
+    if (!v) return;
+    const name = window.prompt('Nuevo nombre:', v.name);
+    if (!name || !name.trim()) return;
+    const next = views.map(x => x.id === v.id ? { ...x, name: name.trim() } : x);
+    setViews(next);
+    try { localStorage.setItem(VIEWS_KEY, JSON.stringify(next)); } catch {}
+  }, [views, activeView]);
+
   // ─── Column widths with persistence ───
   // Users can drag the right edge of any header cell to resize. Widths
   // are stored in localStorage under COLS_WIDTH_KEY as { colId: pixels }.
@@ -963,6 +1079,44 @@ export default function PortfolioTab() {
             </div>
           </div>);
         })()}
+
+        {/* \u2500\u2500 Vistas (presets de columnas) \u2500\u2500 */}
+        {portfolioList.length>1 && (
+          <div style={{display:"flex",gap:4,alignItems:"center",marginBottom:6,flexWrap:"wrap"}}>
+            <span style={{fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",fontWeight:600,letterSpacing:.5,marginRight:4}}>VISTA</span>
+            {views.map(v => {
+              const active = activeView === v.id;
+              return (
+                <button
+                  key={v.id}
+                  onClick={() => switchView(v.id)}
+                  onDoubleClick={active ? renameCurrentView : undefined}
+                  title={active ? "Doble click para renombrar" : `Cambiar a vista "${v.name}"`}
+                  style={{
+                    padding:"4px 10px", borderRadius:6,
+                    border:`1px solid ${active?"var(--gold)":"var(--border)"}`,
+                    background:active?"var(--gold-dim)":"transparent",
+                    color:active?"var(--gold)":"var(--text-tertiary)",
+                    fontSize:10, fontWeight:active?700:500,
+                    cursor:"pointer", fontFamily:"var(--fm)",
+                  }}
+                >{v.name}</button>
+              );
+            })}
+            <button
+              onClick={saveAsNewView}
+              title="Guardar columnas actuales como vista nueva"
+              style={{padding:"4px 8px",borderRadius:6,border:"1px dashed var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer",fontFamily:"var(--fm)"}}
+            >+ nueva</button>
+            {views.length > 0 && (
+              <button
+                onClick={deleteCurrentView}
+                title="Borrar / restaurar vista actual"
+                style={{padding:"4px 8px",borderRadius:6,border:"1px solid rgba(255,69,58,.3)",background:"transparent",color:"#ff453a",fontSize:10,cursor:"pointer",fontFamily:"var(--fm)"}}
+              >\ud83d\uddd1</button>
+            )}
+          </div>
+        )}
 
         {/* Search + Sort + Column Toggle */}
         {portfolioList.length>1 && (
