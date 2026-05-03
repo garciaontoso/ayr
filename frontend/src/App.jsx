@@ -738,21 +738,49 @@ function buildPositionsFromCB() {
   // Recalculate portfolio position when CB transactions change
   useEffect(() => {
     if (!cbTicker || cbTransactions.length === 0) return;
-    // Get last txn with _totalShares
-    let finalShares = 0, adjBasis = 0;
+    // 2026-05-03 fix: antes leíamos _totalShares de la ÚLTIMA transacción —
+    // ese valor en cost_basis es running balance PER ACCOUNT, no global.
+    // Para multi-account (PG 100+100+50 entre U6735130 y NULL = 250) la
+    // última transacción tenía _totalShares=150 (sólo U6735130) y el
+    // Portfolio mostraba 150 mientras Cost Basis mostraba 250. Bug
+    // reportado por usuario y verificado en API:
+    //   /api/positions PG → shares: 250 ✓
+    //   _totalShares last cb_txn → 150 ✗
+    // Ahora sumamos EQUITY shares (buys+) menos sells (-) e ignoramos
+    // DIVIDENDS rows (legacy bug — DIVIDENDS no debería tener shares
+    // según CLAUDE.md pero hay rows antiguas).
+    let buys = 0, sells = 0, adjBasis = 0;
+    let totalCost = 0, totalBought = 0, totalDivs = 0, totalOptCredit = 0;
+    cbTransactions.forEach(t => {
+      const tipo = (t.type || '').toUpperCase();
+      const sh = Number(t.shares) || 0;
+      // Skip DIVIDENDS rows — no representan shares aunque el campo exista
+      if (tipo === 'DIVIDENDS' || tipo === 'DIVIDEND' || tipo === 'DIV') {
+        totalDivs += (t.divTotal || 0);
+        return;
+      }
+      if (tipo === 'OPTION' || tipo === 'OPT') {
+        totalOptCredit += (t.optCreditTotal || 0);
+        return;
+      }
+      // EQUITY rows — type 'buy' / 'sell' / 'EQUITY' / 'COMPRA' / 'VENTA'
+      if (tipo === 'SELL' || tipo === 'VENTA' || sh < 0) {
+        sells += Math.abs(sh);
+      } else {
+        // Default = buy (positive shares)
+        buys += sh;
+        totalCost += sh * (t.price || 0);
+        totalBought += sh;
+      }
+    });
+    const finalShares = buys - sells;
+    // adjBasis se sigue cogiendo del LAST txn pero como fallback solo
     for (let i = cbTransactions.length - 1; i >= 0; i--) {
-      if (cbTransactions[i]._totalShares) {
-        finalShares = cbTransactions[i]._totalShares;
-        adjBasis = Math.abs(cbTransactions[i]._adjustedBasis || 0);
+      if (cbTransactions[i]._adjustedBasis) {
+        adjBasis = Math.abs(cbTransactions[i]._adjustedBasis);
         break;
       }
     }
-    let totalCost = 0, totalBought = 0, totalDivs = 0, totalOptCredit = 0;
-    cbTransactions.forEach(t => {
-      if (t.type === "buy") { totalCost += (t.shares||0) * (t.price||0); totalBought += (t.shares||0); }
-      if (t.type === "dividend") totalDivs += (t.divTotal||0);
-      if (t.type === "option") totalOptCredit += (t.optCreditTotal||0);
-    });
     const avgCost = totalBought > 0 ? totalCost / totalBought : adjBasis;
     // Update position with CB-derived values
     setPositions(prev => {
