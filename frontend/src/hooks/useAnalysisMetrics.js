@@ -91,8 +91,14 @@ export function useAnalysisMetrics({ fin, cfg, setSsd, fmpExtra }) {
   const LD = fin[latestDataYear] || {};
   const PD = fin[prevDataYear] || {};
 
-  // WACC
-  const wacc = useMemo(()=>calcWACC({equity:LD.equity,totalDebt:LD.totalDebt,interestExpense:LD.interestExpense,taxRate:cfg.taxRate/100,beta:cfg.beta,riskFreeRate:cfg.riskFree/100,marketPremium:cfg.marketPremium/100}),[LD,cfg]);
+  // WACC — 2026-05-03 fix: use MARKET equity (price × shares) not book equity
+  // for the E/V weighting. Buyback-heavy companies (ZTS, AAPL, MCD, IBM)
+  // have book equity << market cap → using book underweights equity → WACC
+  // collapses to ~3-4% → DCF intrinsic value explodes (ZTS showed $1229 vs
+  // FMP DCF $142). Standard CFA / damodaran practice = market weights.
+  const marketEquity = (cfg.price || 0) * (LD.sharesOut || 0);
+  const equityForWacc = marketEquity > 0 ? marketEquity : LD.equity;
+  const wacc = useMemo(()=>calcWACC({equity:equityForWacc,totalDebt:LD.totalDebt,interestExpense:LD.interestExpense,taxRate:cfg.taxRate/100,beta:cfg.beta,riskFreeRate:cfg.riskFree/100,marketPremium:cfg.marketPremium/100}),[equityForWacc,LD,cfg]);
   const discountRate = cfg.useWACC ? wacc.wacc : (cfg.manualDiscount||10)/100;
 
   // Growth rate
