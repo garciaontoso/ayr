@@ -9,7 +9,7 @@
 //
 // Esta es la lista personal de "quiero comprar X a Y precio".
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { API_URL } from '../../constants/index.js';
 import { useHome } from '../../context/HomeContext';
 import { _sf } from '../../utils/formatters.js';
@@ -48,6 +48,164 @@ async function ensureAlertRule(ticker, target) {
   }
 }
 
+// ── Company autocomplete combobox ──────────────────────────────────────
+// Reemplaza el viejo input de "ticker exacto" con un buscador por nombre.
+// El usuario escribe "Univer" → /api/search/company devuelve ULVR.L (UK),
+// UNA.AS (NL), UL (US ADR)… con bandera del país. El click rellena
+// draft.ticker + draft.name + draft.currency. Mínimo 2 chars, debounce
+// 300ms para no martillear FMP.
+function CompanySearchCombobox({ value, name, onPick, FLAGS, getCountry }) {
+  const [query, setQuery] = useState(value || '');
+  const [results, setResults] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(0);
+  const debounceRef = useRef(null);
+  const abortRef = useRef(null);
+  const wrapRef = useRef(null);
+
+  // Sync external value changes (cuando se selecciona algo y el padre actualiza)
+  useEffect(() => {
+    if (value !== query && value !== undefined) setQuery(value || '');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  // Debounced fetch
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (abortRef.current) abortRef.current.abort();
+    const term = (query || '').trim();
+    if (term.length < 2) { setResults([]); setLoading(false); return; }
+    setLoading(true);
+    debounceRef.current = setTimeout(async () => {
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      try {
+        const r = await fetch(`${API_URL}/api/search/company?q=${encodeURIComponent(term)}&limit=10`, { signal: ctrl.signal });
+        const d = await r.json();
+        setResults(Array.isArray(d.results) ? d.results.slice(0, 10) : []);
+        setActiveIdx(0);
+      } catch (e) {
+        if (e.name !== 'AbortError') setResults([]);
+      } finally { setLoading(false); }
+    }, 300);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [query]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const onDoc = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  const pick = (r) => {
+    if (!r) return;
+    onPick?.({
+      ticker: r.symbol,
+      name: r.name,
+      currency: r.currency || undefined,
+      country: r.country || '',
+      exchangeShortName: r.exchangeShortName || '',
+    });
+    setQuery(r.symbol);
+    setOpen(false);
+  };
+
+  const onKey = (e) => {
+    if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { setOpen(true); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx(i => Math.min(i + 1, Math.max(results.length - 1, 0))); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIdx(i => Math.max(i - 1, 0)); }
+    else if (e.key === 'Enter') {
+      if (results[activeIdx]) { e.preventDefault(); pick(results[activeIdx]); }
+    } else if (e.key === 'Escape') { setOpen(false); }
+  };
+
+  const term = (query || '').trim();
+  const showDropdown = open && (term.length >= 2 || term.length === 0 || term.length === 1);
+  return (
+    <div ref={wrapRef} style={{ position: 'relative', minWidth: 240, flex: 1 }}>
+      <input
+        autoFocus
+        placeholder="Buscar empresa: 'Unilever', 'Nestle', 'AAPL'…"
+        value={query}
+        onChange={e => { setQuery(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={onKey}
+        style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--subtle-bg)', color: 'var(--text-primary)', fontSize: 12, fontFamily: 'var(--fm)' }}
+      />
+      {/* Hint del nombre seleccionado debajo, sólo cuando hay match exacto y nombre */}
+      {name && term && term.toUpperCase() === (value || '').toUpperCase() && (
+        <div style={{ fontSize: 9, color: 'var(--text-tertiary)', marginTop: 2, fontFamily: 'var(--fm)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {name}
+        </div>
+      )}
+      {showDropdown && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4, background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.45)', maxHeight: 320, overflowY: 'auto', zIndex: 20 }}>
+          {term.length < 2 && (
+            <div style={{ padding: '10px 12px', fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>
+              Escribe 2+ caracteres para buscar…
+            </div>
+          )}
+          {term.length >= 2 && loading && (
+            <div style={{ padding: '10px 12px', fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', border: '2px solid var(--gold)', borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} />
+              Buscando…
+            </div>
+          )}
+          {term.length >= 2 && !loading && results.length === 0 && (
+            <div style={{ padding: '10px 12px', fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>
+              Sin resultados para "{term}".
+            </div>
+          )}
+          {!loading && results.map((r, i) => {
+            const active = i === activeIdx;
+            // País: prefer el del backend (derived from exchangeShortName).
+            // Fallback: getCountry() del frontend usa sufijo del ticker.
+            const cc = r.country || (() => { try { return getCountry?.(r.symbol, r.currency) || ''; } catch { return ''; } })();
+            const flag = cc ? (FLAGS?.[cc] || '') : '';
+            return (
+              <button
+                key={r.symbol}
+                type="button"
+                onClick={() => pick(r)}
+                onMouseEnter={() => setActiveIdx(i)}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%',
+                  padding: '8px 12px', textAlign: 'left', cursor: 'pointer',
+                  background: active ? 'rgba(200,164,78,0.10)' : 'transparent',
+                  border: 'none',
+                  borderBottom: i < results.length - 1 ? '1px solid var(--subtle-border, rgba(255,255,255,0.04))' : 'none',
+                  fontFamily: 'var(--fm)', color: 'var(--text-primary)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+                  <span style={{ fontSize: 14, lineHeight: 1, width: 20, display: 'inline-block' }}>{flag || '·'}</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: 1 }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                      <span style={{ fontWeight: 700, color: active ? 'var(--gold)' : 'var(--text-primary)', fontSize: 12 }}>{r.symbol}</span>
+                      {r.exchangeShortName && (
+                        <span style={{ fontSize: 9, color: 'var(--text-tertiary)', padding: '1px 6px', borderRadius: 3, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)' }}>
+                          {r.exchangeShortName}
+                        </span>
+                      )}
+                      {r.currency && <span style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>{r.currency}</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.name}>
+                      {r.name}
+                    </div>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <style>{`@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+}
+
 export default function BuyRadarTab() {
   const { openAnalysis, FLAGS, getCountry } = useHome();
   const [items, setItems] = useState([]);
@@ -55,7 +213,7 @@ export default function BuyRadarTab() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);          // {ticker, target, name?, reason?, ccy?}
   const [showAdd, setShowAdd] = useState(false);
-  const [draft, setDraft] = useState({ ticker: '', target: '', currency: 'USD', reason: '' });
+  const [draft, setDraft] = useState({ ticker: '', name: '', target: '', currency: 'USD', reason: '' });
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -92,10 +250,16 @@ export default function BuyRadarTab() {
       alert('Pon un ticker y un precio objetivo válido (>0).');
       return;
     }
-    await postJSON('/api/buy-radar/add', { ticker, target_price: target, currency: draft.currency, reason: draft.reason });
+    await postJSON('/api/buy-radar/add', {
+      ticker,
+      name: draft.name || null,
+      target_price: target,
+      currency: draft.currency,
+      reason: draft.reason,
+    });
     await ensureAlertRule(ticker, target);
     setShowAdd(false);
-    setDraft({ ticker: '', target: '', currency: 'USD', reason: '' });
+    setDraft({ ticker: '', name: '', target: '', currency: 'USD', reason: '' });
     await refresh();
   };
 
@@ -149,13 +313,18 @@ export default function BuyRadarTab() {
       {/* Add form */}
       {showAdd && (
         <div style={{ background: 'var(--card)', border: '1px solid var(--gold)', borderRadius: 12, padding: 14 }}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <input
-              autoFocus
-              placeholder="Ticker (ej. AAPL, MC.PA)"
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <CompanySearchCombobox
               value={draft.ticker}
-              onChange={e => setDraft({ ...draft, ticker: e.target.value })}
-              style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--subtle-bg)', color: 'var(--text-primary)', fontSize: 12, fontFamily: 'var(--fm)', minWidth: 140 }}
+              name={draft.name}
+              FLAGS={FLAGS}
+              getCountry={getCountry}
+              onPick={(p) => setDraft(d => ({
+                ...d,
+                ticker: p.ticker || '',
+                name: p.name || '',
+                currency: p.currency || d.currency,
+              }))}
             />
             <input
               type="number" step="0.01"
@@ -180,10 +349,10 @@ export default function BuyRadarTab() {
               style={{ flex: 1, minWidth: 160, padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--subtle-bg)', color: 'var(--text-primary)', fontSize: 12, fontFamily: 'var(--fm)' }}
             />
             <button onClick={onAdd} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--green)', background: 'rgba(48,209,88,.12)', color: 'var(--green)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Guardar</button>
-            <button onClick={() => { setShowAdd(false); setDraft({ ticker: '', target: '', currency: 'USD', reason: '' }); }} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-tertiary)', fontSize: 11, cursor: 'pointer' }}>Cancelar</button>
+            <button onClick={() => { setShowAdd(false); setDraft({ ticker: '', name: '', target: '', currency: 'USD', reason: '' }); }} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-tertiary)', fontSize: 11, cursor: 'pointer' }}>Cancelar</button>
           </div>
           <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 8 }}>
-            Al guardar también se crea una regla de alerta <strong>price_below</strong> automática. Cuando la cotización ≤ objetivo te llegará Telegram + push.
+            Escribe el nombre (ej. "Unilever") y elige el listing — verás todas las cotizaciones (UK, US ADR, NL…) con su bandera. Al guardar se crea una alerta <strong>price_below</strong> automática (Telegram + push).
           </div>
         </div>
       )}

@@ -15342,6 +15342,157 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         }
       }
 
+      // ═══════════════════════════════════════════════════════════════
+      // Company autocomplete — usado por BuyRadarTab "+ Añadir empresa".
+      // El usuario escribe "Univer" o "Unilever" y queremos devolver
+      // TODOS los listings (ULVR.L UK, UNA.AS NL, UL US ADR…) con la
+      // bandera del país para que pueda elegir el cotización correcta.
+      //
+      // Diferencia con /api/search:
+      //  · Añade `country` (ISO-2) derivado de exchangeShortName
+      //  · Cachea 24h en agent_memory (key search:<lowercase q>) para
+      //    evitar martillear FMP — muchas búsquedas son repetidas
+      //  · Auth: NO requerida (sólo lookup público de FMP).
+      // ═══════════════════════════════════════════════════════════════
+      if (path === "/api/search/company" && request.method === "GET") {
+        const q = (url.searchParams.get("q") || "").trim();
+        const limit = Math.min(parseInt(url.searchParams.get("limit") || "20", 10), 50);
+        if (q.length < 2) return json({ results: [], query: q, hint: "min 2 chars" }, corsHeaders);
+        const FMP_KEY = env.FMP_KEY;
+        if (!FMP_KEY) return json({ error: "FMP_KEY not configured", results: [] }, corsHeaders, 500);
+        const FMP_BASE = "https://financialmodelingprep.com/stable";
+
+        // Mapeo exchangeShortName → ISO-2 country code.
+        // Cubre los exchanges más usados por el usuario (US, UK, EU, Asia).
+        // Cuando un exchangeShortName es desconocido devolvemos '' y el
+        // frontend cae a getCountry(ticker) por sufijo.
+        const exchangeToCountry = (exShort, currency) => {
+          if (!exShort) return '';
+          const ex = String(exShort).toUpperCase();
+          // US
+          if (['NYSE','NASDAQ','AMEX','NMS','NGM','NCM','NYSEARCA','BATS','OTC','PNK','CBOE','OTCBB'].includes(ex)) return 'US';
+          // UK
+          if (['LSE','LON','XLON','AIM'].includes(ex)) return 'GB';
+          // Hong Kong
+          if (['HKSE','HKEX','SEHK'].includes(ex)) return 'HK';
+          // Canada
+          if (['TSX','TSXV','CNQ','NEO'].includes(ex)) return 'CA';
+          // Australia
+          if (['ASX'].includes(ex)) return 'AU';
+          // Spain
+          if (['MCE','BME','BMAD'].includes(ex)) return 'ES';
+          // Netherlands / Euronext Amsterdam
+          if (['AMS','EURONEXT_AMS'].includes(ex)) return 'NL';
+          // France / Euronext Paris
+          if (['PAR','EURONEXT_PAR','EPA'].includes(ex)) return 'FR';
+          // Germany
+          if (['XETRA','FRA','GER','ETR','BER','HAM','MUN','STU','DUS'].includes(ex)) return 'DE';
+          // Italy / Euronext Milan
+          if (['MIL','BIT','MTA'].includes(ex)) return 'IT';
+          // Switzerland
+          if (['SWX','VTX','SIX','EBS'].includes(ex)) return 'CH';
+          // Japan
+          if (['TSE','TYO','OSE','JPX'].includes(ex)) return 'JP';
+          // China A-shares
+          if (['SHH','SHE','SHA','SHG','SHZ','SZSE','SSE'].includes(ex)) return 'CN';
+          // Korea
+          if (['KRX','KOSDAQ','KOSPI','KSC','KOE'].includes(ex)) return 'KR';
+          // Taiwan
+          if (['TPE','TAI','TWSE'].includes(ex)) return 'TW';
+          // India
+          if (['NSE','BSE','BOM','NSI'].includes(ex)) return 'IN';
+          // Brazil / São Paulo
+          if (['SAO','BVMF','B3'].includes(ex)) return 'BR';
+          // Mexico
+          if (['MEX','MX','BMV'].includes(ex)) return 'MX';
+          // Belgium / Euronext Brussels
+          if (['BRU','EBR'].includes(ex)) return 'BE';
+          // Portugal / Euronext Lisbon
+          if (['LIS','ELI'].includes(ex)) return 'PT';
+          // Ireland / Euronext Dublin
+          if (['ISE','EIB'].includes(ex)) return 'IE';
+          // Nordics
+          if (['STO','OMX','SS','HEL','HE','OSL','OL','CPH','CO','ICE'].includes(ex)) {
+            if (ex === 'STO' || ex === 'SS') return 'SE';
+            if (ex === 'HEL' || ex === 'HE') return 'FI';
+            if (ex === 'OSL' || ex === 'OL') return 'NO';
+            if (ex === 'CPH' || ex === 'CO') return 'DK';
+            if (ex === 'ICE') return 'IS';
+          }
+          // Singapore
+          if (['SGX','SES'].includes(ex)) return 'SG';
+          // Fallback por moneda
+          if (currency === 'USD') return 'US';
+          if (currency === 'GBP' || currency === 'GBX' || currency === 'GBp') return 'GB';
+          if (currency === 'EUR') return 'EU';
+          if (currency === 'HKD') return 'HK';
+          if (currency === 'CAD') return 'CA';
+          if (currency === 'AUD') return 'AU';
+          if (currency === 'JPY') return 'JP';
+          if (currency === 'CHF') return 'CH';
+          return '';
+        };
+
+        // Cache lookup — agent_memory.id = "search:<q lowercased>"
+        const cacheKey = `search:${q.toLowerCase()}`;
+        try {
+          const cached = await env.DB.prepare(
+            "SELECT data, updated_at FROM agent_memory WHERE id = ?"
+          ).bind(cacheKey).first();
+          if (cached?.data && cached?.updated_at) {
+            const age = Date.now() - new Date(cached.updated_at).getTime();
+            if (age < 24 * 3600 * 1000) {  // 24h
+              try {
+                const parsed = JSON.parse(cached.data);
+                if (Array.isArray(parsed?.results)) {
+                  return json({ ...parsed, cached: true }, corsHeaders);
+                }
+              } catch {}
+            }
+          }
+        } catch {}
+
+        try {
+          // FMP en paralelo: search-symbol (ticker match) + search-name (nombre)
+          const [bySymbol, byName] = await Promise.all([
+            fetch(`${FMP_BASE}/search-symbol?query=${encodeURIComponent(q)}&limit=${limit}&apikey=${FMP_KEY}`).then(r=>r.json()).catch(()=>[]),
+            fetch(`${FMP_BASE}/search-name?query=${encodeURIComponent(q)}&limit=${limit}&apikey=${FMP_KEY}`).then(r=>r.json()).catch(()=>[]),
+          ]);
+          const seen = new Set();
+          const merged = [];
+          // Empezamos por search-name (más relevante cuando el usuario escribe "Unilever")
+          // y luego search-symbol para listings adicionales por ticker.
+          for (const r of [...(Array.isArray(byName)?byName:[]), ...(Array.isArray(bySymbol)?bySymbol:[])]) {
+            const sym = r.symbol;
+            if (!sym || seen.has(sym)) continue;
+            seen.add(sym);
+            const exchangeShortName = r.exchangeShortName || r.exchange || '';
+            const currency = r.currency || '';
+            merged.push({
+              symbol: sym,
+              name: r.name || r.companyName || sym,
+              exchange: r.exchangeFullName || r.stockExchange || exchangeShortName || '',
+              exchangeShortName: exchangeShortName,
+              currency: currency,
+              country: exchangeToCountry(exchangeShortName, currency),
+              type: r.type || '',
+            });
+            if (merged.length >= limit) break;
+          }
+          const payload = { results: merged, query: q, count: merged.length };
+          // Persist to cache (best-effort, ignore failures)
+          try {
+            await env.DB.prepare(
+              `INSERT INTO agent_memory (id, data, updated_at) VALUES (?, ?, datetime('now'))
+               ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = datetime('now')`
+            ).bind(cacheKey, JSON.stringify(payload)).run();
+          } catch {}
+          return json(payload, corsHeaders);
+        } catch (e) {
+          return json({ error: "Search failed: " + e.message, results: [], query: q }, corsHeaders, 500);
+        }
+      }
+
       // GET /api/fundamentals?symbol=AAPL — get cached or fetch fresh
       // v6: Now fetches 12 FMP endpoints (was 6) — adds rating, DCF, estimates, price targets, key metrics, financial growth
       if (path === "/api/fundamentals" && request.method === "GET") {
