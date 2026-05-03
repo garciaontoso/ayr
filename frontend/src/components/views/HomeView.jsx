@@ -1301,6 +1301,7 @@ function AirplaneMode({ portfolioList }) {
           cacheFetch(`${API}/api/report?symbol=${enc}`),                // Informe + DividendST tabs
           cacheFetch(`${API}/api/company/${enc}/transcript-summary`),   // Transcripts tab
           cacheFetch(`${API}/api/earnings-transcripts?ticker=${enc}`),  // Transcripts list
+          cacheFetch(`${API}/api/expert-analysis?ticker=${enc}`),       // 🎓 Veredicto Experto tab
         ]);
       }));
       setDlCurrent(Math.min(i + 8, usTickers.length));

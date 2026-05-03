@@ -6896,9 +6896,12 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         const narrative = body.narrative || null;
         const verdict = body.verdict || (body.ssd?.verdict ?? null);
         const score = body.score ?? body.ssd?.overallScore ?? null;
-        // Get current version to increment
         const cur = await env.DB.prepare("SELECT version FROM expert_analyses WHERE ticker = ?").bind(sym).first();
         const newVersion = cur ? (cur.version || 1) + 1 : 1;
+        // 2026-05-03 v2: write to BOTH current + history. Current keeps the
+        // most recent version (fast queries), history accumulates ALL versions
+        // (user pidió "ver evolución del veredicto"). Historical inserts
+        // never UPDATE — siempre nuevo row con fecha.
         await env.DB.prepare(`
           INSERT INTO expert_analyses (ticker, ssd_data, narrative, verdict, score, version, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
@@ -6910,7 +6913,24 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             version = excluded.version,
             updated_at = datetime('now')
         `).bind(sym, ssdJson, narrative, verdict, score, newVersion).run();
+        await env.DB.prepare(`
+          INSERT INTO expert_analyses_history (ticker, ssd_data, narrative, verdict, score, version, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+        `).bind(sym, ssdJson, narrative, verdict, score, newVersion).run();
         return json({ ok: true, ticker: sym, version: newVersion, updated_at: new Date().toISOString() }, corsHeaders);
+      }
+
+      // GET /api/expert-analysis/history?ticker=X → todas las versiones
+      // ordenadas por fecha desc, para mostrar evolución del veredicto.
+      if (path === "/api/expert-analysis/history" && request.method === "GET") {
+        await ensureMigrations(env);
+        const sym = (url.searchParams.get('ticker') || '').toUpperCase();
+        if (!sym) return json({ error: 'Missing ?ticker=' }, corsHeaders, 400);
+        const { results } = await env.DB.prepare(
+          `SELECT id, ticker, narrative, verdict, score, version, created_at
+           FROM expert_analyses_history WHERE ticker = ? ORDER BY created_at DESC`
+        ).bind(sym).all();
+        return json({ ok: true, ticker: sym, count: (results || []).length, history: results || [] }, corsHeaders);
       }
 
       if (path === "/api/credit-rating" && request.method === "GET") {

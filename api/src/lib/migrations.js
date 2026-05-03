@@ -246,6 +246,24 @@ export async function ensureMigrations(env) {
     )`).run();
     try { await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_expert_anal_updated ON expert_analyses(updated_at DESC)`).run(); } catch(_){}
 
+    // ── Expert Analyses History (2026-05-03 v2) ────────────────────────
+    // Usuario pidió "guarda el historial de todos los informes con fecha,
+    // que no se borre cuando hagamos uno nuevo". expert_analyses guarda
+    // sólo la versión más reciente (PK ticker → upsert sobrescribe).
+    // Esta tabla nueva guarda TODAS las versiones históricas para ver
+    // evolución del veredicto a lo largo del tiempo.
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS expert_analyses_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      ssd_data TEXT,
+      narrative TEXT,
+      verdict TEXT,
+      score INTEGER,
+      version INTEGER NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+    try { await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_exp_hist_ticker_ts ON expert_analyses_history(ticker, created_at DESC)`).run(); } catch(_){}
+
     // Presupuesto: excluded gasto IDs, last payment, custom months
     try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN excluded_gastos TEXT DEFAULT NULL`).run(); } catch(e) { /* already exists */ }
     try { await env.DB.prepare(`ALTER TABLE presupuesto ADD COLUMN last_payment TEXT DEFAULT NULL`).run(); } catch(e) { /* already exists */ }

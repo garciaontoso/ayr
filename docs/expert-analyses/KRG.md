@@ -329,3 +329,146 @@ KRG es alternativa "value" entre REITs retail si quieres exposición Sun Belt + 
 - KRG Q4 2025 earnings call transcript
 - KRG Investor Day presentations
 - Macrotrends / NAREIT data
+
+---
+
+## Apéndice educativo: cómo analizar un REIT (lecciones para dividenderos)
+
+Los REITs son una categoría única que requiere métricas y framework distinto al common stock. Vale la pena profundizar para entender por qué KRG y otros REITs se valúan diferente.
+
+### Métricas clave de REITs (cuando dejas de mirar EPS)
+
+**1. FFO (Funds From Operations)**
+- Definición: Net Income + Depreciación + Amortización - Gain on sale of properties
+- Por qué importa: la depreciación contable de las propiedades es non-cash y a menudo divergente del cambio real de valor (las propiedades se aprecian, pero contablemente se deprecian). FFO ajusta esa distorsión.
+- KRG FFO 2025 estimado: ~$430M, ~$2.00/share
+
+**2. AFFO (Adjusted Funds From Operations) — la "verdadera" métrica de earning power**
+- Definición: FFO - CapEx de mantenimiento - Tenant improvements - Leasing commissions
+- Por qué importa: refleja el dinero **real disponible** después de mantener las propiedades en condiciones leasable
+- Es la **base más correcta para el payout ratio del dividendo**
+- KRG AFFO 2025 estimado: ~$320-340M, ~$1.50-1.60/share
+- Payout AFFO: $1.16 / $1.55 = **75%** (saludable; típico REITs operan 70-85%)
+
+**3. Same-Store NOI Growth (Same-Property Net Operating Income)**
+- Mide el crecimiento orgánico de ingresos NOI en propiedades poseídas durante todo el período comparado (excluye ventas/compras del año)
+- Es el **mejor indicador de salud orgánica** del portfolio
+- KRG: +2-4% recientemente, decent
+
+**4. Occupancy**
+- % de espacio leasable que está actualmente arrendado
+- KRG: 94.5-95.5% (top quartile)
+- Por debajo de 92% señal de stress; por encima de 96% suele ser cap
+
+**5. Re-leasing Spreads**
+- Cuando un contrato de tenant vence y se re-firma o se firma a nuevo tenant, ¿cuánto sube el rent?
+- KRG: +10-20% en deals nuevos — **excepcionalmente bueno**, refleja escasez de espacio retail de calidad
+- Esto es viento de cola orgánico durante 3-5 años
+
+**6. Net Debt / EBITDA**
+- Como en empresas no-REIT, pero los REITs operan con leverage más alto típicamente
+- KRG: 4.1x — bajo para REIT, fortaleza relativa
+
+**7. Cap Rate (implied)**
+- Tasa de capitalización implícita: NOI / Property Value
+- Para KRG: si suma cap rate ~6-7% en sus markets, valor implícito de propiedades ~$5.5-6.5B vs $5.35B de market cap
+- **Important**: cap rates cambian con tipos de interés. Tipos altos = cap rates más altos = property values más bajos = NAV descuento
+
+**8. NAV (Net Asset Value)**
+- Estimación de valor de las propiedades (a cap rate de mercado) menos deuda
+- Es lo que un private equity buyer pagaría por la empresa entera
+- Si REIT cotiza below NAV: descuento (oportunidad o señal de problema)
+- Si cotiza above NAV: prima (mercado anticipa crecimiento o premium quality)
+- KRG cotiza near NAV — "fair value"
+
+### Por qué los REITs son diferentes para taxation
+
+En EEUU:
+- REITs deben distribuir **>90% de su taxable income** a accionistas (es lo que les da el status REIT)
+- Esto explica payout ratios altos (vs corporates que pagan 30-50%)
+- A cambio, no pagan corporate income tax (se "evita la doble imposición")
+- Los dividendos de REIT son **ordinary income** para accionista (no qualified dividends a 15-20%)
+
+Para inversor extranjero:
+- **WHT 30%** sobre distribuciones (no aplica el reducido 10% de tratado)
+- En cuenta gravable internacional, esto es muy penalizador
+- En cuenta IRA/401k US, no aplica WHT
+
+### El ciclo de tipos de interés y los REITs
+
+Los REITs son extremadamente sensibles a tipos de interés. Razones:
+
+1. **Costo del capital**: REITs apalancan 30-50% de sus propiedades. Tipos altos = cost of refinancing más alto = compresión de FCF
+2. **Cap rate expansion**: tipos altos → buyers exigen mayor yield → cap rates suben → property values bajan → NAV de REIT cae
+3. **Comparison yields**: cuando treasuries dan 5%, un REIT con yield 4% pierde atractivo. Capital fluye hacia bonds.
+4. **Discount rate**: futuro NOI vale menos descontado a tipos altos
+
+**Cycles históricos**:
+- Tipos a la baja (2010-2016, 2019-2021): REITs rallean fuertemente
+- Tipos al alza (2017-2019, 2022-2024): REITs underperform
+- 2024-2025: tipos high pero stable. REITs en consolidation.
+
+**Si Fed empieza ciclo de cortes 2026**: REITs típicamente +20-40% en 12-18 meses post-pivot. KRG se beneficiaría.
+
+### Sub-sectores de REIT — calidad relativa
+
+No todos los REITs son iguales. Ranking por calidad estructural:
+
+**Tier 1 (highest quality moats)**:
+- **Industrial / Logistics** (PLD, STAG): viento de cola e-commerce, last-mile demand
+- **Cell towers** (AMT, CCI): infraestructura crítica, switching costs altísimos
+- **Data centers** (EQIX, DLR): viento de cola AI/cloud
+- **Net lease retail** (O - Realty Income): tenants pay everything, very predictable
+
+**Tier 2 (quality, sector-specific):
+- **Healthcare** (VTR, WELL): aging demographics. WELL premium peer.
+- **Storage** (PSA, EXR): sticky tenants, recession resilient
+- **Apartment** (EQR, AVB): housing demand
+- **Grocery-anchored shopping centers** (REG, FRT, PECO, **KRG**): defensive retail, e-commerce resistant
+
+**Tier 3 (cyclical, sector-stress):**
+- **Mall** (SPG, MAC): structural decline overall
+- **Office** (BXP, ARE): post-COVID work-from-home risk
+- **Lodging** (HST, PEB): cyclical tourism
+- **Triple-net non-grocery retail**: mixed quality
+
+KRG en Tier 2 grocery-anchored — decent placement, no top tier (REG/FRT son mejor calidad) ni bottom tier.
+
+---
+
+## Apéndice: KRG vs peers in detail
+
+| Métrica | KRG | REG | FRT | BRX | PECO |
+|---------|-----|-----|-----|-----|------|
+| Market Cap | $5.4B | $11B | $9.5B | $8B | $4.5B |
+| P/AFFO | 17x | 19x | 23x | 13x | 17x |
+| Dividend Yield | 4.4% | 4.2% | 4.4% | 4.6% | 3.7% |
+| Years div increase | 4 (post-corte) | 30+ | 56 | 8 | 4 |
+| Net Debt/EBITDA | 4.1x | 5.5x | 6x | 6.5x | 5x |
+| Same-store NOI | +3% | +3.5% | +3% | +3% | +3% |
+| Geographic focus | Sun Belt | National | DC/SF/Boston | National | National |
+| Quality tier | Tier 2 | Tier 1 | Tier 1 (Aristocrat) | Tier 2 | Tier 2 |
+
+**Conclusion**: KRG es **decent value** entre Tier 2 grocery-anchored REITs. Mejor balance que REG, BRX. Peor track record y quality que FRT (Dividend King) y REG.
+
+**Para un dividendero**:
+- **Quality first**: FRT > REG > KRG > BRX > PECO
+- **Value first**: BRX > KRG > PECO > FRT > REG
+- **Best balance**: KRG es decent split entre quality y value
+
+---
+
+## Apéndice: cuándo los REITs son apropiados para un portfolio
+
+REITs deben formar **15-25%** de un portfolio dividendero serio en mi opinión, distribuidos así:
+- 40-50% Tier 1 (O, AMT, EQIX, PLD): el "core" 
+- 30-40% Tier 2 quality (VTR, REG, FRT, etc.)
+- 10-20% Special situation/Value plays (KRG, BRX, etc.)
+
+KRG encajaría en el último 10-20% — exposure a Sun Belt, decent value, pero no es core holding.
+
+**Position sizing**: 1-3% del portfolio total para KRG es razonable.
+
+---
+
+Con esto, KRG queda contextualizado como una posición decente pero no excepcional en el universo REIT. Es buena diversificación pero no la primera elección para un dividendero patrimonial.

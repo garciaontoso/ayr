@@ -39,6 +39,10 @@ Cada Operating Group es un mini-Constellation con su propio M&A team, su propia 
 
 Esto es radicalmente distinto a la mayoría de roll-ups (que típicamente "consolidan" eficiencias post-merger destruyendo el valor del acquired team). Mark Leonard ha argumentado que la consolidación destruye valor en software vertical porque la cultura es lo que mantiene la relación con clientes especializados.
 
+**Métrica fundamental: el "hurdle rate"**
+
+CSU establece para cada operating group un **hurdle rate de 25%+ IRR** sobre cualquier adquisición. Cualquier deal que no proyecte cumplir ese hurdle es rechazado. Esta disciplina ha sido la clave de la consistencia: en lugar de buscar growth a cualquier precio (la trampa típica de roll-ups), CSU prioriza ROIC. La consecuencia matemática: deals smaller, more selective, pero con returns predeciblemente altos.
+
 **Historia de M&A volume**:
 - 2015: 50 deals, USD 234M total
 - 2018: 60+ deals, USD 451M
@@ -47,7 +51,14 @@ Esto es radicalmente distinto a la mayoría de roll-ups (que típicamente "conso
 - 2024: 146 deals, USD 2.0B+
 - 2025: ~160 deals proyectados, USD 2.3B
 
-El volumen ha crecido **exponencialmente** y **el ROIC se ha mantenido** — esto es la prueba más fuerte del modelo (la mayoría de roll-ups ven ROIC degradar al escalar porque agotan el inventario de buenas adquisiciones baratas).
+El volumen ha crecido **exponencialmente** y **el ROIC se ha mantenido** — esto es la prueba más fuerte del modelo (la mayoría de roll-ups ven ROIC degradar al escalar porque agotan el inventario de buenas adquisiciones baratas). La explicación: el universo total de VMS pequeño globalmente es **decenas de miles** de empresas, CSU solo posee unas 800+. Aún hay runway.
+
+**Geografía**:
+- Norteamérica: ~55% del revenue.
+- Europa: ~25%.
+- Resto del mundo: ~20% (Australia, ASEAN, América Latina).
+
+CSU expande agresivamente en Europa (compras en UK, Países Bajos, Países Nórdicos) y empieza a explorar India y Japón.
 
 ---
 
@@ -59,6 +70,8 @@ CSU ha generado un **CAGR de ~30%+ en stock price desde 2006** (IPO en TSX a CAD
 
 Para contextualizar: muy pocas empresas mantienen ROIC>20% al doblar su tamaño. Constellation lo ha hecho **al multiplicar por 100x su tamaño**. Eso es genio (o suerte sostenida 20 años, lo cual es estadísticamente imposible — luego es genio).
 
+Para verlo cuantitativamente: si una empresa reinvierte 100% del FCF a 25% ROIC durante 20 años, el valor compounding es 1,25^20 = 86,7x. CSU efectivamente ha entregado eso aproximadamente. La matemática del compounding al máximo nivel.
+
 **2. Modelo descentralizado anti-fragility**
 
 Si una vertical concreta (digamos, software para gestión de bibliotecas) sufre disrupción, CSU pierde solo 1-2% de su revenue. Está expuesta a **800+ verticales** distintas. Esa diversificación operacional es una forma de antifragilidad — un fallo individual no puede tirar la compañía.
@@ -67,7 +80,7 @@ Compárese con un compounder *concentrated* tipo Adobe, donde un fallo de Creati
 
 **3. Recurring revenue altísimo**
 
-Estimado 80%+ del revenue es licencias de mantenimiento + SaaS + servicios profesionales recurrentes. Esto significa **alta visibilidad de ingresos** futuros, baja volatilidad, y márgenes sostenibles.
+Estimado 80%+ del revenue es licencias de mantenimiento + SaaS + servicios profesionales recurrentes. Esto significa **alta visibilidad de ingresos** futuros, baja volatilidad, y márgenes sostenibles. La conversión a SaaS está aumentando: cada año más de las 800+ subsidiarias migran su modelo de licenciamiento perpetual a suscripción anual.
 
 **4. FCF excepcional**
 
@@ -76,14 +89,17 @@ FCF 2025: USD 2,568M sobre revenue USD 11,623M = **22% margen FCF**. Excelente p
 **5. CEO/founder alignment**
 
 Mark Leonard:
-- Posee ~6% de las acciones.
+- Posee ~6% de las acciones (~USD 2-3B).
 - **Renunció a su salario base en 2018** (no cobra fixed compensation desde entonces, solo dividend de sus shares y un stock-bonus de USD 0).
 - Comunica con accionistas vía cartas anuales legendarias (estilo Buffett) explicando filosofía, errores, oportunidades.
 - Ha rechazado spin-offs grandes en su momento (los hace solo cuando estratégicamente claros — Topicus, Lumine).
+- Ha pedido públicamente a accionistas a **vender** cuando consideraba la valoración demasiado alta (acto raro de honestidad CEO).
 
 **6. La sucesión está en marcha**
 
 Mark Leonard tiene 67 años y empezó a delegar gradualmente. Los Operating Groups tienen presidentes con autonomía total (Mark Miller en Volaris, Bernard Anzarouth, Jeff Bender en Harris, etc.). El modelo descentralizado **es deliberadamente diseñado para sobrevivir a Mark Leonard**. Esto es positivo aunque tendrá que probarse.
+
+Mark Leonard ha dicho que **lo mejor que le puede pasar a un compounder cuando muere el founder es que la cultura sobreviva**. Berkshire Hathaway será el test (Buffett 95 años). CSU será otro test 10-20 años de aquí.
 
 **7. El "secret sauce" es replicable internamente, no por outsiders**
 
@@ -95,6 +111,10 @@ Net Debt USD 5,776M − cash USD 3,083M = USD 2,693M. EBITDA 2025: USD 2,579M. *
 
 CSU tiene acceso a líneas de crédito de USD 5B+ a tipos relativamente bajos. Esto le permite hacer surge buying en correcciones de mercado (cuando los multiplos para deals bajan, CSU puede ir agresiva).
 
+**9. Excelente correlation pattern**
+
+CSU ha sido un **stock que sube en mercados malos** (2008 +25%, 2022 -10% vs S&P -19%). Esto es porque su negocio es asimétrico: en correcciones, los múltiplos de M&A bajan, lo cual le permite comprar más barato. La beta es 0,66 — moderadamente baja para una tech high-growth.
+
 ---
 
 ### Por qué NO / Riesgos
@@ -103,7 +123,7 @@ CSU tiene acceso a líneas de crédito de USD 5B+ a tipos relativamente bajos. E
 
 CSU paga USD 4/year fijo (USD 1/quarter). A precio USD 1,805, **yield 0,22%**. Es básicamente cero. **Si tu portfolio requiere yield mínimo, CSU no encaja**. La tesis es total return via stock price appreciation, no income.
 
-Para el inversor de income strict, CSU es la antítesis del Aristócrata. Para el inversor de "compounding-via-internal-reinvestment" (Buffett-style), CSU es el holy grail.
+Para el inversor de income strict, CSU es la antítesis del Aristócrata. Para el inversor de "compounding-via-internal-reinvertimento" (Buffett-style), CSU es el holy grail. **Mark Leonard ha sido explícito: "no devolveremos capital cuando podemos reinvertirlo a 25%+ IRR"**.
 
 **2. Net income bajo vs FCF — interpretación cuidadosa**
 
@@ -116,6 +136,8 @@ Para **valorar correctamente** CSU, hay que mirar:
 - **FCF/share**
 - **ROIC sobre capital invertido** (no ROE reported)
 
+Esto requiere análisis fundamental sofisticado. El inversor casual que solo mira P/E de 73x se asustará y vendrá. El que entiende el modelo verá el verdadero P/FCF de ~33x.
+
 **3. Múltiplos exigentes**
 
 CSU cotiza ~33x FCF y ~50x reported EPS. Es **caro en absoluto**. La justificación es el growth + ROIC, pero el inversor compra una proyección a 10+ años. Si el ROIC se erosiona al escalar (más allá del rate ya acordado), el múltiplo se contrae brutalmente.
@@ -127,11 +149,13 @@ A cierto tamaño, **el universo de deals atractivos se agota**. CSU ya factura U
 - Tendrá que hacer megamerges (riesgo de mala digestión).
 - Tendrá que entrar en geografías más arriesgadas (China, India donde el moat es menor).
 
-El modelo **funciona bien hasta cierta escala**. CSU dice que aún tiene runway de 10-15 años, pero es un riesgo a vigilar.
+El modelo **funciona bien hasta cierta escala**. CSU dice que aún tiene runway de 10-15 años, pero es un riesgo a vigilar. Mark Leonard ha hablado abiertamente de esto en sus cartas.
 
 **5. Sucesión de Mark Leonard**
 
 Mark Leonard tiene 67 años. Es saludable y activo, pero **la transición CEO** tendrá que pasar. La estructura descentralizada está diseñada para sobrevivir a su salida, pero **una transición tendrá market reaction**. Watch carefully.
+
+El sucesor probable es Mark Miller (presidente de Volaris, ~50 años, en CSU desde 2003). Pero hay incertidumbre.
 
 **6. Liquidez baja en USA (CNSWF)**
 
@@ -152,6 +176,10 @@ Topicus 2021, Lumine 2023, **Vela 2026?**. Cada spin-off **reduce el tamaño de 
 **10. Cultura específica difícil de mantener**
 
 Mark Leonard's writings hablan repetidamente de **mantener cultura de "owner mindset"** en cada subsidiaria. A medida que CSU compra cientos de empresas/year, mantener cultura es harder. Si la cultura se diluye, el modelo colapsa.
+
+**11. Generative AI risk especifico**
+
+Algunas verticales de software (especialmente las más simples — small business accounting, scheduling) podrían ser disrupted por LLMs/agents. CSU está expuesta a través de muchas subsidiarias. Mark Leonard ha hablado de esto en sus cartas, dice que el riesgo es real pero que también hay oportunidades (M&A más barato si los founders pequeños ven menos future).
 
 ---
 
@@ -182,15 +210,17 @@ Calificación moat: **wide**, sostenible mientras Mark Leonard's culture survive
 **FCF:** USD 1,225M → USD 2,568M (CAGR +13%)
 **Shares outstanding:** ~21,2M plano (CSU casi nunca emite ni recompra)
 **ROIC:** sostenido 25-35% sobre nuevos capitales invertidos
+**Stock price CAGR:** ~22% últimos 10 años (extraordinario)
 
 ---
 
-### Emerging risks
+### Emerging risks (lo que no era preocupación en 2023 y ahora sí)
 
 1. **Generative AI cambiando software paradigm** — algunas verticales pequeñas pueden ser disrupted por LLMs que automatizan workflows. CSU tiene producto en cientos de verticales, exposición distribuida.
 2. **Subida de tipos** ya no es problema (CSU usa equity + cash mostly), pero tipos altos podrían reducir multiplos pagados por sellers (positivo para CSU).
 3. **EU AI Act y regulaciones específicas** podrían afectar verticales como healthcare software, government software.
 4. **Mark Leonard sucesión final** — clave para la próxima década.
+5. **Saturación de deal supply** — eventualmente los chollos se agotan.
 
 ---
 
@@ -202,6 +232,7 @@ Calificación moat: **wide**, sostenible mientras Mark Leonard's culture survive
 - **Liquidez Compra**: CSU es liquid en TSX, puede haber slippage en días low-volume pero gestionable. CNSWF ojo con limit orders, no market.
 - **Contabilidad:** IFRS (Canadá usa IFRS), reportes Q1-Q3 + anual. Carta anual de Mark Leonard imprescindible (publicada típicamente en enero).
 - **Dividend schedule:** Trimestral fijo USD 1/quarter. No DRIP automático en TSX.
+- **FX risk acumulado**: si compras CNSWF en USD pero la subyacente reporta en USD y cotiza primario en CAD, hay doble translation. Moderado.
 
 ---
 
@@ -214,6 +245,8 @@ Si está buscando **CAGR 15-20% a 10 años con riesgo moderado** y confía en ma
 **Recomendación de rol en cartera:** **core compounder**, no income. **Posición target: 4-7%** del portfolio, dependiendo de tu apetito por valuation premium. **Hold long-term default**. **Acumular en pullbacks 15%+** desde all-time-high, raros históricamente pero existen (2022 Q4, 2023 Q1).
 
 **Trigger de TRIM:** ROIC sostenido bajando de 20%, o erosión clara del modelo (deals materially overpaid, integration friction). **Trigger de SELL:** Mark Leonard sucesión chaotic + signs the culture is broken.
+
+**Lectura imprescindible**: cartas anuales de Mark Leonard a accionistas (publicadas en csisoftware.com). Equivalente Buffett-tier de wisdom sobre capital allocation.
 
 ---
 

@@ -135,17 +135,27 @@ export default function VeredictoExpertoTab() {
   const { cfg } = useAnalysis();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [history, setHistory] = useState([]);
+  const [selectedVersion, setSelectedVersion] = useState(null);  // null = latest
 
   useEffect(() => {
     if (!cfg.ticker) return;
     setLoading(true);
     setData(null);
-    fetch(`${API_URL}/api/expert-analysis?ticker=${encodeURIComponent(cfg.ticker)}`)
-      .then(r => r.json())
-      .then(d => setData(d))
-      .catch(() => setData({ exists: false }))
-      .finally(() => setLoading(false));
+    setSelectedVersion(null);
+    Promise.all([
+      fetch(`${API_URL}/api/expert-analysis?ticker=${encodeURIComponent(cfg.ticker)}`).then(r => r.json()).catch(() => ({ exists: false })),
+      fetch(`${API_URL}/api/expert-analysis/history?ticker=${encodeURIComponent(cfg.ticker)}`).then(r => r.json()).catch(() => ({ history: [] })),
+    ]).then(([latest, hist]) => {
+      setData(latest);
+      setHistory(hist.history || []);
+    }).finally(() => setLoading(false));
   }, [cfg.ticker]);
+
+  // Use selected historical version OR latest data
+  const display = selectedVersion != null
+    ? history.find(h => h.id === selectedVersion) || data
+    : data;
 
   if (loading) return (
     <Card>
@@ -170,7 +180,9 @@ export default function VeredictoExpertoTab() {
     </Card>
   );
 
-  const { ssd, narrative, verdict, score, updated_at, version } = data;
+  const src = display || data;
+  const { narrative, verdict, score, updated_at, created_at, version } = src;
+  const dateShown = updated_at || created_at;
   const verdictColor = verdict === 'CORE HOLD' || verdict === 'ADD' || verdict === 'BUY' ? '#30d158'
                     : verdict === 'HOLD' ? '#ffd60a'
                     : verdict === 'REVIEW' ? '#ff9f0a'
@@ -197,6 +209,23 @@ export default function VeredictoExpertoTab() {
             </div>
           )}
         </div>
+        {/* Selector de versiones históricas — para ver evolución del veredicto */}
+        {history.length > 1 && (
+          <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${verdictColor}22`, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', letterSpacing: .5, textTransform: 'uppercase' }}>📅 Historial · {history.length} versiones</span>
+            <select value={selectedVersion ?? 'latest'} onChange={e => setSelectedVersion(e.target.value === 'latest' ? null : Number(e.target.value))}
+              style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--subtle-bg)', color: 'var(--text-primary)', fontSize: 11, fontFamily: 'var(--fm)', cursor: 'pointer' }}>
+              <option value="latest">📍 Última (v{data?.version})</option>
+              {history.map(h => (
+                <option key={h.id} value={h.id}>v{h.version} · {h.created_at?.slice(0, 16).replace('T', ' ')} · {h.verdict || '—'}{h.score != null ? ` · ${h.score}/100` : ''}</option>
+              ))}
+            </select>
+            {selectedVersion != null && (
+              <button onClick={() => setSelectedVersion(null)} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--gold)', background: 'var(--gold-dim)', color: 'var(--gold)', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--fm)' }}>← volver al actual</button>
+            )}
+            <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-tertiary)', fontStyle: 'italic' }}>Comparar evolución del veredicto a lo largo del tiempo</span>
+          </div>
+        )}
       </div>
 
       {/* Narrative content */}

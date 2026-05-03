@@ -25,6 +25,22 @@ error tracking propio + Zod + Vitest + CI. Cualquier sesión nueva debe
 leer ese fichero primero, ver qué está hecho ✅ y qué está EN CURSO 🚧,
 y continuar por ahí en lugar de empezar features nuevas.
 
+## 🎓 Veredicto Experto (2026-05-03)
+- Pestaña 🎓 al lado de ★ Veredicto en cada empresa.
+- Análisis didácticos extensos escritos por Claude Code session ($0).
+- 55 análisis cargados en producción (D1 `expert_analyses` + history en `expert_analyses_history`).
+- **HISTORIAL preservado**: cada upload crea row nueva en history → selector en UI permite ver evolución del veredicto en el tiempo.
+- Endpoints: `GET /api/expert-analysis?ticker=X` (latest), `GET /api/expert-analysis/history?ticker=X` (todas las versiones), `POST /api/expert-analysis/upload` (auth).
+- Markdowns en `docs/expert-analyses/{TICKER}.md` (versionados en git).
+- Cache offline incluido en AirplaneMode Phase 7 → iPad descarga junto con resto.
+- **Faltan ~22 tickers**: HEN3, HKG:1052/1910/2219/9616/9618, MSDL, NET.UN, OBDC, RAND, REXR, RHI, RYN, SAFE, SHUR, SPHD, TAP, TROW, UNH, VICI, WEN, YYY. Para generarlos: pídele a Claude "genera análisis experto para los faltantes".
+
+## 🛡 Anti-fallo: bugs consolidados (Semana 1 hardening)
+- Bug #012: ReportTab loop infinito offline → useRef hasFetched (e7801fc)
+- Bug #013: /api/report no en AirplaneMode Phase 7 → añadido (e7801fc)
+- Bug #014: history-versionable expert analyses → tabla _history accumulates (este commit)
+- Memoria de bugs en `docs/bug-patterns.md` (al menos 14 catalogados).
+
 ## 💳 FMP plan + endpoints DEPRECATED
 - Usuario paga **FMP Ultimate (el plan más caro)** — no escatimar pidiéndole upgrade
 - **FMP DESCONTINUÓ credit ratings (S&P/Moody's/Fitch) el 31 agosto 2025**.

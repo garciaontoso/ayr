@@ -303,3 +303,185 @@ Para un dividendo investor con horizonte 5-15 años, ZTS es **una de las mejores
 - Zoetis Q4 2025 earnings call transcript
 - FDA Librela safety review (April 2024 publication)
 - Macrotrends dividend history
+
+---
+
+## Apéndice: Profundizando en el caso Librela
+
+Como Librela es el catalyst negativo principal y mucha gente no entiende lo que pasó, profundizo:
+
+### Qué es Librela
+Librela (bedinvetmab) es un **anticuerpo monoclonal** (mAb) dirigido contra el factor de crecimiento nervioso (NGF). En perros con osteoartritis, el NGF es producido en cantidades elevadas en articulaciones inflamadas y es responsable del dolor crónico. Bloquearlo con un anti-NGF monoclonal **reduce el dolor sin los efectos secundarios de los AINEs (NSAIDs como meloxicam, carprofen)** que son hepatotóxicos y nefrotóxicos en perros mayores.
+
+Librela fue lanzado en 2021 en EU y mediados 2023 en EEUU tras aprobación FDA. **Demanda explosiva inicial**: $250M revenue año 1 en EEUU (uno de los mejores lanzamientos veterinarios de la historia).
+
+### Qué pasó en abril 2024
+Tras varios meses de uso, veterinarios comenzaron a reportar a la **FDA Center for Veterinary Medicine** eventos adversos en perros tratados con Librela:
+- Debilidad muscular progresiva
+- Ataxia (descoordinación)
+- Mortalidad inexplicada (perros mayores que mueren más rápido de lo esperado)
+
+Para finales de 2024, había varios cientos de eventos adversos reportados (FDA's veterinary adverse event database). Algunos casos hicieron prensa amarilla (DOGS DYING FROM LIBRELA, etc.).
+
+**Aclaración importante**: en farmacovigilancia, los reportes de eventos adversos son **reportes de correlación, no causalidad**. Un perro tratado con Librela que muere puede estar muriendo por otras razones (la mayoría son perros muy mayores con artrosis severa). Para concluir causalidad, necesitas estudios epidemiológicos controlados.
+
+### Respuesta de ZTS
+- Equipos científicos revisaron casos
+- Argumentaron que los rates de eventos adversos están dentro de expectations dado el perfil de pacientes (perros mayores, comorbilidades)
+- En diciembre 2024 FDA actualizó el labeling para incluir advertencia más prominente, pero **NO retiró el producto**.
+
+### Estado actual (2026)
+- Librela sigue en venta en EEUU y EU
+- Revenue continuó creciendo en 2025: ~$500M run-rate, target $1B+ peak
+- Probabilidad de retiro forzado: ~5-10% (declive)
+- Probabilidad de re-labeling restrictivo: ~30%
+- Probabilidad de business as usual: ~60%
+
+### Implicaciones para ZTS valuation
+- Worst case (retirada): -$1B revenue impacto inmediato + $500M-1B en litigios = ~$5B equity impact = ~10-12% del market cap. Acción podría caer 15-20% adicional en news.
+- Mid case (restrictive labeling, slower growth): -10-20% del Librela ramp. ~$200-400M revenue impact. ~3-5% equity impact.
+- Best case (rehabilitation, growth resume): Librela hits $1B+ peak → +5-10% upside.
+
+**Mi visión**: el sell-off de la acción del 30% desde máximos descuenta más que el mid case, casi pricing in worst case. **Risk/reward favorable a estos precios**.
+
+### Lección broader
+Lo de Librela ilustra un riesgo del modelo "blockbuster pharma": un solo producto puede mover el sentimiento dramáticamente. ZTS está bien diversificado en otros productos (Apoquel, Simparica, Cytopoint) que generan $4-5B revenue solos, pero el growth narrative dependía de Librela. Si Librela falla, el growth profile cae de "10-12% growth sostenido" a "5-7%".
+
+---
+
+## Apéndice: Pipeline ZTS
+
+Para entender el potencial post-Apoquel cliff, vale la pena profundizar en el pipeline:
+
+### Productos en desarrollo clave
+
+1. **Salud cardíaca canina**: candidato a anti-MMP (matrix metalloproteinase) para insuficiencia cardíaca crónica en perros (mitral valve disease — afecta a 30%+ perros senior). TAM potencial $300-500M.
+
+2. **Diabetes felino**: insulina de larga duración formulada para gatos (vs human insulin que se usa off-label). TAM $100-200M.
+
+3. **Cáncer canino**: oncología veterinaria está en su infancia. ZTS tiene candidatos en fase clínica para linfoma canino, mast cell tumors. TAM $200-500M largo plazo.
+
+4. **mRNA platforms**: ZTS tiene alianza con Moderna desde 2022 para vacunas mRNA aplicadas a livestock (PRRS, FMD, BSE). Disruptivo si funciona.
+
+5. **Llewellyn (companion animal pain agente nuevo)**: alternativa a Librela en fase clínica.
+
+6. **Vacunas combinadas**: combinar 5-7 antígenos en una sola inyección (el "DHPP combinada" mejorada).
+
+### Track record de ZTS en pipeline
+ZTS ha lanzado **>30 productos significativos en 10 años**: Apoquel (2013), Cytopoint (2016), Simparica (2016), Simparica Trio (2020), Librela (2023), Solensia (2022), etc. Casi todos blockbuster o near-blockbuster en sus categorías.
+
+**Conclusion**: el pipeline NO es vacuum filler. Hay productos reales en desarrollo.
+
+---
+
+## Apéndice educativo: el negocio de animal health vs human pharma
+
+Para entender por qué Zoetis es un negocio especial vs un farmacéutica humana tradicional, vale la pena profundizar en las diferencias estructurales del sector.
+
+### Por qué animal health tiene mejores economics que human pharma
+
+1. **Costo de desarrollo más bajo**:
+   - Un nuevo fármaco humano: ~$1.5-2.5B y 10-15 años (Phase I, II, III en humanos, FDA approval)
+   - Un nuevo fármaco animal: ~$100-300M y 5-8 años (trials menos extensos, regulatorio más simple para animales que para humanos)
+   - Eso significa **ROI más alto y más rápido** para Zoetis vs Pfizer/Merck
+
+2. **Pricing más estable**:
+   - En human pharma, pricing está bajo presión política (Medicare negotiation, drug pricing reform en EEUU, NHS negotiations en UK, formularies en Europa). Constant headline risk.
+   - En animal pharma, **NO hay presión política** sobre pricing. Los dueños de mascotas pagan out-of-pocket (insurance es <30% en EEUU). Los farmers pagan lo que les ahorra el cost de un brote o pérdida de productividad.
+   - Resultado: Zoetis puede subir precios 4-6%/año consistentemente sin pushback.
+
+3. **Patent cliffs menos catastróficos**:
+   - Cuando un human pharma blockbuster pierde patente, ventas caen 80-95% en 12-18 meses (genéricos baratísimos toman cuota inmediatamente con misma molécula).
+   - En animal pharma, **genéricos tardan más en penetrar**: hay branded loyalty entre veterinarios, distribución especializada, formulations específicas (chewables, flavored, palatable) que son difíciles de replicar.
+   - Apoquel cliff esperado 2026-2027: Zoetis estima erosión gradual de 30-50% del producto en 3-4 años (no 80% en 1 año).
+
+4. **Recurring revenue más sticky**:
+   - Mascotas y livestock necesitan medicamentos preventivos year-round (parasiticides mensuales, vacunas anuales, etc.)
+   - Resultado: ~70% del revenue de Zoetis es preventivo o mantenimiento, no curativo episodic. Mucha más predictability que human pharma episodic prescriptions.
+
+### Tendencias seculares del sector
+
+1. **Pet humanization** (humanización de mascotas): los millennials gastan en mascotas como en hijos. Average gasto anual EEUU por perro: $1,500-3,000 (vs $300 en 1990). Apoquel a $40/mes era impensable hace 20 años.
+
+2. **Premiumization**: dueños están dispuestos a pagar por productos premium si mejoran calidad de vida del pet. Librela ($60-100/inyección mensual) demuestra esto.
+
+3. **Telemedicine veterinario**: en 2020-2023 explotó tele-veterinaria. Esto afecta cómo se prescriben productos pero no reduce demanda total — al contrario, baja la barrera de access.
+
+4. **Demand de proteína global**: clase media en China, India, Brasil consume más carne. Mejora demanda livestock health.
+
+5. **Antibiotic restrictions**: presión global para reducir antibiotic en livestock (microbial resistance). Esto podría golpear ~5% revenue de Zoetis (livestock antibiotics) pero también abre mercado para alternativas (vacunas, probióticos) donde Zoetis está bien posicionada.
+
+### El Apoquel cliff — análisis profundo
+
+Apoquel (oclacitinib) es un JAK inhibitor para alergias caninas. Lanzado 2013, ahora ~$1B/año revenue (about 11% del total Zoetis revenue).
+
+**Patent timeline**:
+- US patent expira 2026
+- EU patents extended hasta 2027-2028 (con SPCs - Supplementary Protection Certificates)
+- China, Brasil, otros países: timing varía
+
+**Mitigación de Zoetis**:
+1. **Apoquel Chewable**: nueva formulación (chewable, palatable) lanzada 2023, con patente nueva hasta 2034. Zoetis está migrando users a Chewable que tiene better compliance.
+2. **NextGen combination**: Apoquel + Cytopoint protocol. Vendiendo workflow, no solo molécula.
+3. **Librela como alternativa**: para casos de osteoartritis, Librela reemplaza algunos casos donde Apoquel se usaba off-label.
+
+Estimación de impacto:
+- Año 1 post-cliff (2027): -10% Apoquel revenue (~$100M)
+- Año 2 (2028): -25% (~$250M)
+- Año 3 (2029): -40% (~$400M)
+- Año 4+ steady state: -50% (~$500M perdido vs hoy)
+
+Pero Zoetis crecerá Librela y otros productos durante ese mismo período. **Net impact**: ~$300M-400M de revenue impacto neto, ~3-4% del revenue total. **Manageable, no catastrophic**.
+
+---
+
+## Apéndice educativo: Librela controversy
+
+Librela (bedinvetmab) es un anticuerpo monoclonal que bloquea NGF (Nerve Growth Factor) — el mismo target que Pfizer/Eli Lilly probaron en humanos (tanezumab, fasinumab). **En humanos los anti-NGF fallaron Phase III por joint problems** (rapid joint destruction). En perros se aprobaron y han sido blockbuster comercial.
+
+### Lo que pasó (abril 2024)
+
+Veterinarios reportaron a la FDA un patrón de eventos adversos en perros tratados con Librela:
+- Aumento de mortality post-tratamiento (algunos casos within days)
+- Debilidad muscular, ataxia
+- Joint deterioration (ironic — el producto trata dolor de joint pero podría empeorar joint)
+
+La FDA hizo review formal. **Conclusion (julio 2024)**: el producto NO fue retirado, pero la etiqueta fue updated con warnings sobre riesgo en perros de cierta edad/condición.
+
+### Por qué importa para inversores
+
+1. **Sentimiento sobre Zoetis tomó hit grande**: la acción cayó ~25% entre primary news y conclusion review. Investor confidence en pipeline shaken.
+
+2. **Litigation potential**: si los eventos adversos son confirmados como causal en court, class action litigation podría ser real.
+
+3. **Otro anti-NGF feline (Solensia)** podría tener mismo issue.
+
+4. **Pipeline confidence**: si Librela tiene problemas, ¿qué dice eso sobre el pipeline regulatorio strict de Zoetis? Investors questioning.
+
+### Cómo reaccionar como inversor
+
+- **Si los eventos adversos resultan ser correlación, no causación** (perros viejos with osteoarthritis morían anyway), el producto continúa y el sentiment se recupera. Probable scenario.
+- **Si confirmación de causación**: Zoetis enfrenta litigación + retiro + pérdida de $500M revenue + reputational damage. Bear case.
+
+Mi probabilidad estimada: 70% que se rehabilita, 20% que persiste el cloud, 10% retiro/severe restrictions.
+
+A precio actual $114, **la mayoría del downside está descontado**. Risk/reward asimétrico favorable.
+
+---
+
+## Conclusión expandida
+
+ZTS combina:
+1. **Mejor sub-sector pharma** (animal health > human pharma estructuralmente)
+2. **Líder claro del sub-sector** (#1 con 25-30% global share)
+3. **Vientos seculares fuertes** (pet humanization, demand proteína)
+4. **ROIC élite** (~25%)
+5. **Dividend grower fuerte** (+15-18% CAGR)
+6. **Múltiplo más bajo en historia** (P/E 19x vs mediana 33x)
+
+Los riesgos (Librela, Apoquel cliff, recesión) están parcialmente descontados. **Ventana excepcional para acumular** un compounder de calidad mundial.
+
+Position size sugerido: 4-6% del portfolio. Más alto que un dividendo medio porque:
+- Calidad superior + valoración descuento crea expected return atractivo
+- Diversificación healthcare con menos drug-pricing risk que human pharma
+- Hedge natural al ciclo macro (defensive demand)
