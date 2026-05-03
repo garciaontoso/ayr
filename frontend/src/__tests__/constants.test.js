@@ -51,8 +51,8 @@ describe('Constants', () => {
     }
   });
 
-  it('HOME_TAB_GROUPS has 5 groups', () => {
-    expect(HOME_TAB_GROUPS.length).toBe(5);
+  it('HOME_TAB_GROUPS has 6 groups (radar added 2026-05-03)', () => {
+    expect(HOME_TAB_GROUPS.length).toBe(6);
     for (const g of HOME_TAB_GROUPS) {
       expect(g.id).toBeDefined();
       expect(g.lbl).toBeDefined();

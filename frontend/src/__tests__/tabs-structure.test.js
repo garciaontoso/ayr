@@ -64,7 +64,7 @@ describe('HOME_TABS structural invariants', () => {
 // ── HOME_TAB_GROUPS invariants ────────────────────────────────────────────────
 
 describe('HOME_TAB_GROUPS invariants', () => {
-  const GROUP_IDS = ['cartera', 'ingresos', 'finanzas', 'mercado', 'research'];
+  const GROUP_IDS = ['radar', 'cartera', 'ingresos', 'finanzas', 'mercado', 'research'];
 
   it('has exactly the expected group ids', () => {
     const ids = HOME_TAB_GROUPS.map(g => g.id);

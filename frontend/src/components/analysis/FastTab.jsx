@@ -1968,7 +1968,20 @@ export default function FastTab() {
             const yldLabel = isAffoMode ? 'AFFO Yield' : 'EPS Yield';
             // TEV ≈ Market Cap + Total Debt - Cash
             const lastF = fin[lastHistY] || {};
-            const mktCap = profile.mktCap || 0;
+            // 2026-05-03: FMP migró su schema y profile.mktCap viene a None
+            // para muchos tickers (e.g. ADP). Fallback chain:
+            //   1. profile.mktCap (legacy)
+            //   2. profile.marketCap (algunas variantes FMP)
+            //   3. history.key_metrics_by_year[lastHistY].marketCap
+            //   4. cfg.price * lastF.sharesOut (compute)
+            const mktCap = (() => {
+              if (profile.mktCap) return profile.mktCap;
+              if (profile.marketCap) return profile.marketCap;
+              const km = history?.key_metrics_by_year?.[lastHistY];
+              if (km?.marketCap) return km.marketCap;
+              if (cfg?.price > 0 && lastF.sharesOut > 0) return cfg.price * lastF.sharesOut;
+              return 0;
+            })();
             const totalDebt = lastF.totalDebt || 0;
             const cash = lastF.cash || 0;
             const tev = mktCap > 0 ? mktCap + totalDebt - cash : null;

@@ -18,12 +18,30 @@
 
 // ── Helpers genéricos ────────────────────────────────────────────────────
 
+const _API_URL = 'https://api.onto-so.com';
 const _logged = new Set();
+
 function _warnOnce(key, msg, data) {
   if (_logged.has(key)) return;
   _logged.add(key);
   console.warn('[validator]', msg, data || '');
-  // TODO: enchufar a /api/error-log para tracking centralizado
+  // Post to /api/error-log in production (or when ayr_force_error_log=1 in dev)
+  const isProd = typeof import.meta !== 'undefined' && import.meta.env?.PROD;
+  const forceLog = typeof localStorage !== 'undefined' && localStorage.getItem('ayr_force_error_log') === '1';
+  if (isProd || forceLog) {
+    try {
+      fetch(`${_API_URL}/api/error-log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          severity: 'warn',
+          message: msg,
+          context: JSON.stringify(data || null),
+          buildId: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_BUILD_ID) || 'dev',
+        }),
+      }).catch(() => {});
+    } catch (_) {}
+  }
 }
 
 // ── Primitivos ───────────────────────────────────────────────────────────

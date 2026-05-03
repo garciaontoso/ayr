@@ -1,0 +1,74 @@
+name: CI
+
+# Bloquea merges a main si build / tests / wrangler validate fallan.
+# Lint queda como warning (continue-on-error) hasta resolver legacy
+# noise — ver TODO debajo.
+#
+# Semana 1 del roadmap profesionalización (docs/ROADMAP-PRO.md).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  frontend:
+    name: Frontend (build + lint + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install deps
+        run: npm ci
+
+      # TODO: eliminar continue-on-error cuando arreglemos lint legacy
+      # (~707 errores ESLint a 2026-05-03: empty-block, unused-vars en
+      # storage/userPrefs/main.jsx). Ver `npm run lint` en local.
+      - name: Lint
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Test (Vitest)
+        run: npm run test
+
+      - name: Build (Vite)
+        run: npm run build
+        env:
+          # build no necesita el token real — sólo se inyecta en runtime
+          VITE_AYR_TOKEN: dummy-build-token
+
+  worker:
+    name: Worker (wrangler validate)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: api/package-lock.json
+
+      - name: Install deps
+        run: npm ci
+
+      # `wrangler deploy --dry-run` parsea wrangler.toml + bindings y
+      # bundlea worker.js sin requerir auth Cloudflare. Si falla aquí,
+      # falla el deploy real en producción → bloqueamos el merge.
+      - name: Wrangler validate (dry-run bundle)
+        run: npx wrangler deploy --dry-run --outdir=dist

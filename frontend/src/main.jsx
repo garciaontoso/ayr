@@ -96,6 +96,68 @@ window.fetch = async function authedFetch(input, init) {
   }
 };
 
+// ─── Global error capture (unhandled promise rejections + uncaught errors) ────
+// Only posts to /api/error-log in production, or when
+// localStorage.ayr_force_error_log === '1' (for dev testing).
+// Throttle: max 5 reports per 10-second window to prevent flooding.
+;(function installGlobalErrorHandlers() {
+  const _API = 'https://api.onto-so.com';
+  const _BUILD = import.meta.env?.VITE_BUILD_ID || 'dev';
+  let _count = 0;
+  let _windowStart = Date.now();
+
+  function _shouldReport() {
+    const now = Date.now();
+    if (now - _windowStart > 10_000) { _count = 0; _windowStart = now; }
+    if (_count >= 5) return false;
+    _count++;
+    const isProd = import.meta.env?.PROD;
+    const forceLog = typeof localStorage !== 'undefined' && localStorage.getItem('ayr_force_error_log') === '1';
+    return isProd || forceLog;
+  }
+
+  function _send(payload) {
+    if (!_shouldReport()) return;
+    try {
+      fetch(`${_API}/api/error-log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ buildId: _BUILD, ...payload }),
+      }).catch(() => {});
+    } catch (_) {}
+  }
+
+  // Uncaught synchronous errors (not caught by React's ErrorBoundary, e.g.
+  // errors in event handlers, timers, etc.)
+  window.addEventListener('error', function(ev) {
+    // Skip ResizeObserver loop errors — browser bug, harmless
+    if (ev.message && ev.message.includes('ResizeObserver')) return;
+    _send({
+      severity: 'error',
+      message: ev.message || 'uncaught error',
+      stack: ev.error?.stack || '',
+      url: ev.filename || window.location.href,
+      context: JSON.stringify({ lineno: ev.lineno, colno: ev.colno, type: 'window.error' }),
+    });
+  });
+
+  // Unhandled promise rejections
+  window.addEventListener('unhandledrejection', function(ev) {
+    const reason = ev.reason;
+    const message = reason instanceof Error
+      ? reason.message
+      : (typeof reason === 'string' ? reason : JSON.stringify(reason));
+    const stack = reason instanceof Error ? (reason.stack || '') : '';
+    _send({
+      severity: 'error',
+      message: message || 'unhandled promise rejection',
+      stack,
+      url: window.location.href,
+      context: JSON.stringify({ type: 'unhandledrejection' }),
+    });
+  });
+})();
+
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <AuthGate>

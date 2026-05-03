@@ -115,6 +115,7 @@ export const HOME_TAB_GROUPS = [
     tabs: [
       {id:"buy-radar",lbl:"Comprar",ico:"🎯"},
       {id:"data-audit",lbl:"Audit",ico:"🩺"},
+      {id:"errors",lbl:"Errors",ico:"🐛"},
     ],
   },
   {

@@ -9,6 +9,7 @@ import FiveFiltersBars from '../ui/FiveFiltersBars.jsx';
 import BuyWizard from '../ui/BuyWizard.jsx';
 import { API_URL } from '../../constants/index.js';
 import { getPref, setPref } from '../../utils/userPrefs.js';
+import { safeParseFundamentals } from '../../validators/schemas.js';
 
 // 5 colores de categoría que el usuario asigna a cada ticker (per-user).
 // Click cell → ciclo o dropdown picker. Persistente vía userPrefs `ayr-cat-{ticker}`.
@@ -865,6 +866,11 @@ export default function PortfolioTab() {
       const result = {};
       for (const [sym, info] of Object.entries(data.results || {})) {
         if (!info) continue;
+        // ── Zod runtime check (2026-05-03) ────────────────────────────────
+        // Logging-only: si FMP cambia el schema (Bug #001 TTM→annual o Bug
+        // #010 mktCap missing), reporta a /api/error-log fire-and-forget.
+        // NUNCA bloquea — el parsing manual de abajo sigue con `info` raw.
+        safeParseFundamentals(info, sym);
         // ── 2026-05-03 fix ─────────────────────────────────────────────────
         // The worker returns ratios + keyMetrics as ANNUAL ARRAYS
         // (period=annual, limit=10). Reading `.peRatioTTM` etc on an array

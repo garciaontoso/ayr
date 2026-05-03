@@ -284,6 +284,12 @@ async function fmpSpark(ticker, env, days = 5) {
 let _migrated = false;
 let _scannerMigrated = false;
 
+// Rate-limit map for POST /api/error-log — keyed by CF-Connecting-IP.
+// Each entry: { count: N, windowStart: timestamp_ms }
+// Isolate-local: resets on cold start (acceptable — this is a soft guard
+// against runaway loops, not a hard security control).
+const _errorLogRateLimit = new Map();
+
 // Migración aislada para tablas del scanner — independiente del gran ensureMigrations
 // que tiene timeout 5s y puede dejar tablas a medias en cold start. Las endpoints
 // del scanner llaman a este en lugar de ensureMigrations para garantizar idempotencia.
@@ -8815,6 +8821,239 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           } catch { skipped++; }
         }
         return json({ ok: true, fixed_sector: fixedSector, skipped, total: positions?.length || 0 }, corsHeaders);
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      // ERROR TRACKING — reemplaza Sentry con almacén propio en D1
+      // Semana 1 del plan de profesionalización (ROADMAP-PRO.md).
+      // Tabla: errors_log (creada en ensureMigrations ~línea 475)
+      // ═══════════════════════════════════════════════════════════════
+
+      // POST /api/error-log — recibe error reports del frontend.
+      // Sin auth (el frontend no tiene token antes de inicializar),
+      // pero con rate-limit por IP (50 req/min) y deduplicación
+      // dentro de ventana de 5 minutos por (message, url).
+      if (path === "/api/error-log" && request.method === "POST") {
+        const RATE_LIMIT = 50;          // max events per window
+        const RATE_WINDOW_MS = 60_000;  // 1-minute sliding window
+        const DEDUP_WINDOW_MS = 300_000; // 5-minute dedup window
+
+        // ── 1. Rate-limit por IP ──────────────────────────────────
+        const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+        const nowMs = Date.now();
+        const rl = _errorLogRateLimit.get(ip);
+        if (rl) {
+          if (nowMs - rl.windowStart < RATE_WINDOW_MS) {
+            if (rl.count >= RATE_LIMIT) {
+              console.log(`[error-log] rate-limited IP ${ip} (${rl.count} events in window)`);
+              return json({ ok: false, error: "rate_limited" }, corsHeaders, 429);
+            }
+            rl.count++;
+          } else {
+            // Window expired — reset
+            _errorLogRateLimit.set(ip, { count: 1, windowStart: nowMs });
+          }
+        } else {
+          _errorLogRateLimit.set(ip, { count: 1, windowStart: nowMs });
+        }
+
+        // Prune stale entries every ~1000 requests to avoid memory growth
+        if (_errorLogRateLimit.size > 1000) {
+          for (const [k, v] of _errorLogRateLimit) {
+            if (nowMs - v.windowStart > RATE_WINDOW_MS * 2) _errorLogRateLimit.delete(k);
+          }
+        }
+
+        // ── 2. Parse + sanitize body ──────────────────────────────
+        let body;
+        try { body = await request.json(); } catch { return json({ ok: false, error: "invalid_json" }, corsHeaders, 400); }
+
+        const VALID_SEVERITIES = new Set(["error", "warn", "info"]);
+        const severity  = VALID_SEVERITIES.has(body.severity) ? body.severity : "error";
+        const message   = String(body.message   || "").slice(0, 2000);
+        const stack     = String(body.stack      || "").slice(0, 8000);
+        const errUrl    = String(body.url        || "").slice(0, 500);
+        const context   = body.context ? JSON.stringify(body.context).slice(0, 2000) : null;
+        const ticker    = body.ticker   ? String(body.ticker).toUpperCase().slice(0, 20) : null;
+        const tab       = body.tab      ? String(body.tab).slice(0, 100)  : null;
+        const buildId   = body.buildId  ? String(body.buildId).slice(0, 64) : null;
+        const userAgent = (request.headers.get("User-Agent") || "").slice(0, 500);
+
+        if (!message) return json({ ok: false, error: "message_required" }, corsHeaders, 400);
+
+        // ── 3. Deduplicación: si ya existe fila reciente con mismo message+url,
+        //       incrementa counter en context en lugar de insertar fila nueva.
+        // Esto evita que un error en bucle (p.ej. React render loop) llene la tabla.
+        try {
+          const cutoff = new Date(nowMs - DEDUP_WINDOW_MS).toISOString().replace("T", " ").slice(0, 19);
+          const existing = await env.DB.prepare(
+            `SELECT id, context FROM errors_log
+              WHERE message = ? AND url = ? AND ts > ? AND resolved = 0
+              ORDER BY ts DESC LIMIT 1`
+          ).bind(message, errUrl, cutoff).first();
+
+          if (existing) {
+            // Parse existing context JSON, bump occurrence counter
+            let ctx = {};
+            try { ctx = JSON.parse(existing.context || "{}"); } catch {}
+            ctx.occurrences = (ctx.occurrences || 1) + 1;
+            ctx.last_seen = new Date(nowMs).toISOString();
+            await env.DB.prepare(
+              `UPDATE errors_log SET context = ? WHERE id = ?`
+            ).bind(JSON.stringify(ctx), existing.id).run();
+            console.log(`[error-log] dedup hit id=${existing.id} occurrences=${ctx.occurrences} message="${message.slice(0,80)}"`);
+            return json({ ok: true, id: existing.id, deduped: true }, corsHeaders);
+          }
+        } catch (e) {
+          // Dedup query failure is non-fatal — proceed to insert
+          console.warn("[error-log] dedup check failed:", e.message);
+        }
+
+        // ── 4. Insertar fila nueva ────────────────────────────────
+        try {
+          const res = await env.DB.prepare(
+            `INSERT INTO errors_log (severity, message, stack, url, user_agent, context, ticker, tab, build_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).bind(severity, message, stack || null, errUrl || null, userAgent || null,
+                 context, ticker, tab, buildId).run();
+          const id = res.meta?.last_row_id;
+          console.log(`[error-log] inserted id=${id} severity=${severity} message="${message.slice(0,80)}"`);
+          return json({ ok: true, id }, corsHeaders);
+        } catch (e) {
+          console.error("[error-log] insert failed:", e.message);
+          return json({ ok: false, error: "db_error" }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/errors/dashboard — lista errores para el dashboard interno.
+      // Requiere auth X-AYR-Auth. Soporta filtros via query params.
+      if (path === "/api/errors/dashboard" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+
+        const limit    = Math.min(parseInt(url.searchParams.get("limit")  || "100", 10), 500);
+        const offset   = Math.max(parseInt(url.searchParams.get("offset") || "0",   10), 0);
+        const resolved = url.searchParams.has("resolved") ? parseInt(url.searchParams.get("resolved"), 10) : 0;
+        const severity = url.searchParams.get("severity") || null;
+        const since    = url.searchParams.get("since")    || null;
+
+        // Validate severity to prevent injection (whitelist, not bind, since it goes in WHERE)
+        const VALID_SEV = new Set(["error", "warn", "info"]);
+        const severityFilter = (severity && VALID_SEV.has(severity)) ? severity : null;
+
+        // Build WHERE clauses using only bound parameters
+        const conditions = ["resolved = ?"];
+        const binds = [resolved];
+        if (severityFilter) { conditions.push("severity = ?"); binds.push(severityFilter); }
+        if (since)          { conditions.push("ts >= ?");      binds.push(since); }
+        const whereClause = conditions.join(" AND ");
+
+        try {
+          // Rows ordered newest-first
+          const { results: rows } = await env.DB.prepare(
+            `SELECT id, ts, severity, message, stack, url, user_agent, context,
+                    ticker, tab, build_id, resolved
+               FROM errors_log
+              WHERE ${whereClause}
+              ORDER BY ts DESC
+              LIMIT ? OFFSET ?`
+          ).bind(...binds, limit, offset).all();
+
+          // Total count for pagination
+          const countRow = await env.DB.prepare(
+            `SELECT COUNT(*) AS n FROM errors_log WHERE ${whereClause}`
+          ).bind(...binds).first();
+          const total = countRow?.n || 0;
+
+          // Top recurring messages (group-by message, capped at 20)
+          const { results: byMessageRows } = await env.DB.prepare(
+            `SELECT message, COUNT(*) AS count, MAX(ts) AS lastSeen
+               FROM errors_log
+              WHERE ${whereClause}
+              GROUP BY message
+              ORDER BY count DESC
+              LIMIT 20`
+          ).bind(...binds).all();
+
+          // Counts per severity (ignores the severity filter intentionally — gives full picture)
+          const sevBinds = [resolved];
+          if (since) sevBinds.push(since);
+          const sevWhere = since ? "resolved = ? AND ts >= ?" : "resolved = ?";
+          const { results: sevRows } = await env.DB.prepare(
+            `SELECT severity, COUNT(*) AS n FROM errors_log WHERE ${sevWhere} GROUP BY severity`
+          ).bind(...sevBinds).all();
+          const bySeverity = { error: 0, warn: 0, info: 0 };
+          for (const r of (sevRows || [])) {
+            if (r.severity in bySeverity) bySeverity[r.severity] = r.n;
+          }
+
+          return json({
+            rows: rows || [],
+            total,
+            byMessage: byMessageRows || [],
+            bySeverity,
+          }, corsHeaders);
+        } catch (e) {
+          console.error("[errors/dashboard]", e.message);
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // POST /api/errors/resolve — marca error(es) como resueltos.
+      // Acepta { id } para un solo error o { message } para resolver por mensaje.
+      if (path === "/api/errors/resolve" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+
+        let body;
+        try { body = await request.json(); } catch { return json({ ok: false, error: "invalid_json" }, corsHeaders, 400); }
+
+        const id      = body.id      ? parseInt(body.id, 10)          : null;
+        const message = body.message ? String(body.message).slice(0, 2000) : null;
+
+        if (!id && !message) return json({ ok: false, error: "id or message required" }, corsHeaders, 400);
+
+        try {
+          let res;
+          if (id) {
+            res = await env.DB.prepare(
+              `UPDATE errors_log SET resolved = 1 WHERE id = ?`
+            ).bind(id).run();
+          } else {
+            res = await env.DB.prepare(
+              `UPDATE errors_log SET resolved = 1 WHERE message = ?`
+            ).bind(message).run();
+          }
+          const updated = res.meta?.changes ?? 0;
+          return json({ ok: true, updated }, corsHeaders);
+        } catch (e) {
+          console.error("[errors/resolve]", e.message);
+          return json({ ok: false, error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // DELETE /api/errors/clear — borra errores ya resueltos más antiguos de N días.
+      // Protección contra tabla infinita. Default: 30 días.
+      if (path === "/api/errors/clear" && request.method === "DELETE") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+
+        const olderThanDays = Math.max(1, parseInt(url.searchParams.get("older_than_days") || "30", 10));
+        // Build the full modifier string as a single bound value.
+        // SQLite datetime() modifier format: "-30 days" (the leading minus = past)
+        const modifier = `-${olderThanDays} days`;
+        try {
+          const res = await env.DB.prepare(
+            `DELETE FROM errors_log
+              WHERE resolved = 1
+                AND ts < datetime('now', ?)`
+          ).bind(modifier).run();
+          const deleted = res.meta?.changes ?? 0;
+          return json({ ok: true, deleted, older_than_days: olderThanDays }, corsHeaders);
+        } catch (e) {
+          console.error("[errors/clear]", e.message);
+          return json({ ok: false, error: e.message }, corsHeaders, 500);
+        }
       }
 
       // ═══════════════════════════════════════════════════════════════

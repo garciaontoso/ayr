@@ -1,0 +1,19 @@
+{
+  "name": "ayr-monorepo",
+  "version": "4.5.0",
+  "private": true,
+  "description": "A&R — dividend portfolio + analysis. Frontend (Vite + React) + Cloudflare Worker.",
+  "scripts": {
+    "test": "cd frontend && npm run test",
+    "test:watch": "cd frontend && npm run test:watch",
+    "lint": "cd frontend && npm run lint",
+    "build": "cd frontend && npm run build",
+    "audit": "curl -s https://api.onto-so.com/api/audit/full | python3 -m json.tool",
+    "audit:check": "bash scripts/pre-deploy-check.sh",
+    "deploy:frontend": "cd frontend && npm run build && npx wrangler pages deploy dist --project-name=ayr --branch=production --commit-dirty=true",
+    "deploy:worker": "cd api && npx wrangler deploy",
+    "deploy:safe": "npm run audit:check && npm run test && npm run build && npm run deploy:worker && npm run deploy:frontend",
+    "deploy:safe:force": "ALLOW_REGRESSION=1 npm run audit:check && npm run build && npm run deploy:worker && npm run deploy:frontend",
+    "smoke": "curl -s -o /dev/null -w 'frontend:%{http_code}\\n' https://ayr.onto-so.com && curl -s -o /dev/null -w 'api:%{http_code}\\n' https://api.onto-so.com/api/audit/full"
+  }
+}

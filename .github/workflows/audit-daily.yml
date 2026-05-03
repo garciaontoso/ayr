@@ -1,0 +1,52 @@
+name: Audit Daily
+
+# Llama el endpoint /api/audit/full cada día a las 09:00 UTC y abre
+# Issue en GitHub si detecta nuevas regresiones (DELTA_RED > 0).
+#
+# Telegram alerts ya las envía el cron interno del worker
+# ("0 8 * * *" en api/wrangler.toml). Esto añade una segunda capa
+# externa: si el worker está caído o el cron falla, GitHub Actions lo
+# notifica como Issue.
+#
+# Requires secret: AYR_WORKER_TOKEN — set en repo settings (Settings →
+# Secrets and variables → Actions). Mismo valor que VITE_AYR_TOKEN del
+# frontend `.env.local` (worker espera header `X-AYR-Auth`).
+
+on:
+  schedule:
+    - cron: '0 9 * * *'   # 09:00 UTC daily
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write           # crear Issue automático cuando hay regresión
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run audit
+        id: audit
+        run: |
+          response=$(curl -s -H "X-AYR-Auth: ${{ secrets.AYR_WORKER_TOKEN }}" https://api.onto-so.com/api/audit/full)
+          echo "$response" | jq -r '.summary // empty'
+          echo "$response" > audit.json
+          red=$(echo "$response" | jq -r '.summary.red // 0')
+          echo "red=$red" >> "$GITHUB_OUTPUT"
+
+      - name: Open issue if red > 0
+        if: steps.audit.outputs.red > 0
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const audit = JSON.parse(fs.readFileSync('audit.json', 'utf8'));
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Audit regression — ${audit.summary?.red ?? '?'} red issues`,
+              body: '```json\n' + JSON.stringify(audit.summary, null, 2) + '\n```',
+              labels: ['audit', 'regression']
+            });

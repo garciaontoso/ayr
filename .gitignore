@@ -10,6 +10,11 @@ frontend/dist/
 
 # Wrangler
 api/.wrangler/
+.wrangler/
+api/dist/
+
+# CI artifacts
+audit.json
 
 # IDE
 .vscode/
