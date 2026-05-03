@@ -8,7 +8,7 @@ import { TrustBadge } from '../ui/TrustBadge.jsx';
 import FiveFiltersBars from '../ui/FiveFiltersBars.jsx';
 import BuyWizard from '../ui/BuyWizard.jsx';
 import { API_URL } from '../../constants/index.js';
-import { getPref, setPref } from '../../utils/userPrefs.js';
+import { getPref, setPref } from '../../utils/userPrefs';
 import { safeParseFundamentals } from '../../validators/schemas';
 
 // 5 colores de categoría que el usuario asigna a cada ticker (per-user).
@@ -416,12 +416,12 @@ function ThesesCoverageBadge() {
 
 export default function PortfolioTab() {
   const {
-    portfolioList, portfolioTotals, portfolioComputed,
+    portfolioList, portfolioTotals, _portfolioComputed,
     searchTicker, setSearchTicker, updatePosition,
     countryFilter, setCountryFilter, portSort, setPortSort, showCapTable, setShowCapTable,
-    pricesLoading, pricesLastUpdate, refreshPrices,
-    displayCcy, privacyMode, hide,
-    openAnalysis, openCostBasis, removePosition,
+    pricesLoading, _pricesLastUpdate, refreshPrices,
+    _displayCcy, privacyMode, hide,
+    openAnalysis, openCostBasis, _removePosition,
     getCountry, FLAGS, POS_STATIC, CompanyRow,
     ibData, divStreaks, smartMoneyHolders, openScoresModal,
     setHomeTab,
@@ -724,7 +724,7 @@ export default function PortfolioTab() {
     }
   }, []);
 
-  const resetColWidths = useCallback(() => {
+  const _resetColWidths = useCallback(() => {
     setColWidths({});
   }, []);
 
@@ -1399,7 +1399,7 @@ export default function PortfolioTab() {
                           const d = p._dgr;
                           // Kept local: DGR tooltip needs signed + 1-decimal percent from a fraction; closest shared helper (fmtPctFracSigned) defaults to 2 decimals.
                           const fmtDGR = v => v != null ? (v >= 0 ? "+" : "") + _sf(v * 100, 1) + "%" : "\u2014";
-                          const dgrColor = v => v != null ? (v > 0.05 ? "#30d158" : v > 0.01 ? "#ffd60a" : "#ff453a") : "var(--text-tertiary)";
+                          const _dgrColor = v => v != null ? (v > 0.05 ? "#30d158" : v > 0.01 ? "#ffd60a" : "#ff453a") : "var(--text-tertiary)";
                           const val = c.val(p);
                           const formatted = c.fmt(val, p);
                           const cellColor = c.color ? c.color(val) : "var(--text-primary)";

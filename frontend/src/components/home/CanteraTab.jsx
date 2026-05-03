@@ -240,7 +240,7 @@ function FeaturedCard({ c, onAction }) {
 
 // Table row for the full list
 function CandidateRow({ c, rank, onAction, onDelete }) {
-  const color = scoreColor(c.priority_score);
+  const _color = scoreColor(c.priority_score);
   const sources = (c.sources || '').split(',').filter(Boolean);
 
   return (
@@ -334,7 +334,7 @@ function deriveFilters(c) {
 }
 
 // Composite of whatever non-null filters are available
-function filterComposite(c) {
+function _filterComposite(c) {
   const f = deriveFilters(c);
   const vals = Object.values(f).filter(v => v !== null);
   if (vals.length === 0) return 0;
@@ -484,7 +484,7 @@ function RadarView() {
   });
 
   const top10 = sorted.filter(c => c.status === 'radar').slice(0, 10);
-  const tableRows = sorted.filter((_, i) => i >= 10 || candidates.findIndex(c => c.id === sorted[i]?.id) >= 10);
+  const _tableRows = sorted.filter((_, i) => i >= 10 || candidates.findIndex(c => c.id === sorted[i]?.id) >= 10);
   // Simpler: show all in table, first 10 also shown in featured cards
   const tableAll = sorted;
 

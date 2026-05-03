@@ -1,7 +1,7 @@
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Badge, Card } from '../ui';
-import { _sf, n, fP, fC, fM, div, cagrFn } from '../../utils/formatters';
-import { R } from '../../utils/ratings.js';
+import { _sf, n, fP, fC, fM, div as _div, cagrFn } from '../../utils/formatters';
+import { R } from '../../utils/ratings';
 import { YEARS } from '../../constants/index.js';
 
 export default function PaybackTab() {

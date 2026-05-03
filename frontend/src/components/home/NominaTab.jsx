@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useHome } from '../../context/HomeContext';
-import { _sf, fC } from '../../utils/formatters';
+import { _sf, fC as _fC } from '../../utils/formatters';
 import { EmptyState } from '../ui/EmptyState.jsx';
 
 /* ═══════════════════════════════════════════════════════════════
@@ -232,7 +232,7 @@ function TopPayers({ positions, privacyMode, sym }) {
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-        {topPayers.map((p, i) => {
+        {topPayers.map((p, _i) => {
           const pct = maxAnnual > 0 ? (p.annual / maxAnnual) * 100 : 0;
           const yldColor = p.yld > 0.05 ? GREEN : p.yld > 0.03 ? "#e6b940" : GOLD;
           return (

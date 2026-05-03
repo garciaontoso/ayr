@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { CURRENCIES, DISPLAY_CCYS, APP_VERSION, API_URL, HOME_TAB_GROUPS } from '../../constants/index.js';
-import { saveCompanyToStorage } from '../../utils/storage.js';
+import { saveCompanyToStorage } from '../../utils/storage';
 // fetchAllYouTubeForOffline lives in its own tiny module so YouTubeTab can be lazy
-import { fetchAllYouTubeForOffline } from '../../utils/youtubeOffline.js';
+import { fetchAllYouTubeForOffline } from '../../utils/youtubeOffline';
 import { PortfolioTab } from '../home';  // PortfolioTab stays eager — it's the default tab
 import { ErrorBoundary } from '../ui';
 import SettingsPanel from '../home/SettingsPanel';  // tiny (122 lines), stays eager
@@ -105,7 +105,7 @@ function MiniGauge({ value, min, max, colors, size = 80, label }) {
   const R = 32, cx = 40, cy = 38, sw = 7;
   // Arc from 180deg to 0deg (left to right)
   const startAngle = Math.PI;
-  const endAngle = 0;
+  const _endAngle = 0;
   const arcLength = Math.PI;
   // Background arc segments (colored zones)
   const segments = colors.map((seg, i) => {
@@ -1256,7 +1256,7 @@ function AirplaneMode({ portfolioList }) {
     setDlPhase("Vídeos YouTube Dividendo");
     setDlTotal(1); setDlCurrent(0);
     try {
-      const ytCount = await fetchAllYouTubeForOffline();
+      const _ytCount = await fetchAllYouTubeForOffline();
       setDlCurrent(1);
       // Also cache the API response for backwards compat
       await cacheFetch(`${API}/api/youtube/videos?limit=200`);
@@ -1442,7 +1442,7 @@ export default function HomeView() {
   const {
     homeTab, setHomeTab,
     portfolioList, watchlistList, historialList,
-    displayCcy, switchDisplayCcy, fxLoading, fxLastUpdate, refreshFxRates,
+    displayCcy, switchDisplayCcy, _fxLoading, _fxLastUpdate, _refreshFxRates,
     privacyMode, setPrivacyMode,
     showSettings, setShowSettings,
     uiZoom, changeZoom,

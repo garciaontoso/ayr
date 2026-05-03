@@ -1,6 +1,6 @@
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Card } from '../ui';
-import { _sf, n, fP, fX, fM, div } from '../../utils/formatters';
+import { _sf, n as _n, fP, fX, fM, div as _div } from '../../utils/formatters';
 
 export default function ChecklistTab() {
   const { DATA_YEARS, L, LD, advancedMetrics, altmanZ, cfg, comp, dcf, divAnalysis, fmpExtra, piotroski, revenueCAGR, ssd, wacc } = useAnalysis();

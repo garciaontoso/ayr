@@ -71,7 +71,7 @@ function evalDecision(filters, action) {
 }
 
 // ── Compact inline badge (default view) ────────────────────────────────────
-export function FiveFiltersBadge({ filters, reasoning, devilsAdvocate, invalidation, action, compact }) {
+export function FiveFiltersBadge({ filters, reasoning, devilsAdvocate, invalidation, action, _compact }) {
   const [expanded, setExpanded] = useState(false);
 
   if (!filters) return null;

@@ -36,7 +36,7 @@ function KpiCard({ label, value, color, sub }) {
 // ── Severity row bar ──────────────────────────────────────────
 function SeverityBar({ label, data, color }) {
   const acc = data?.accuracy_pct;
-  const total = data?.total ?? 0;
+  const _total = data?.total ?? 0;
   const correct = data?.correct ?? 0;
   const wrong   = data?.wrong ?? 0;
   const pend    = data?.pending ?? 0;
@@ -65,7 +65,7 @@ function CalibRow({ tier, data }) {
   const s6  = data?.stats_6m;
   const s12 = data?.stats_12m;
   const n6   = s6?.n_measured ?? 0;
-  const n12  = s12?.n_measured ?? 0;
+  const _n12  = s12?.n_measured ?? 0;
   const r6   = s6?.cut_rate;
   const r12  = s12?.cut_rate;
 

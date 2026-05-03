@@ -550,7 +550,7 @@ export default function ResearchAgentTab() {
   const [histLoading, setHistLoading] = useState(true);
   const [selected, setSelected] = useState(null);
   const [candidates, setCandidates] = useState([]);
-  const [scanLoading, setScanLoading] = useState(false);
+  const [_scanLoading, setScanLoading] = useState(false);
   const [scanRunning, setScanRunning] = useState(false);
   const [scanResult, setScanResult] = useState(null);
   const [scanError, setScanError] = useState(null);

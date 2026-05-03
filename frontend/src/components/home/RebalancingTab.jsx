@@ -5,7 +5,7 @@
 // All user edits (targets, selections, notes) persist in localStorage.
 //
 // Hook order (TDZ-safe): all useState/useRef BEFORE all useEffect.
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback as _useCallback } from 'react';
 import { API_URL } from '../../constants/index.js';
 
 // ─── IB Order helpers (client-side only, no API needed) ───────────────────────

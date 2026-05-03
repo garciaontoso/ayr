@@ -10,8 +10,8 @@
 
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { API_URL } from '../../constants/index.js';
-import { _sf, fDol } from '../../utils/formatters';
-import { STRATEGY_RGBA } from '../../utils/strategyColors.js';
+import { _sf, fDol as _fDol } from '../../utils/formatters';
+import { STRATEGY_RGBA } from '../../utils/strategyColors';
 
 // ── Style constants (hoisted — no per-render realloc) ───────────────────────
 const cardBase = {
@@ -38,7 +38,7 @@ const DTE_BANDS = [
   { id: '45+',   lbl: '45d+',   min: 45, max: Infinity },
 ];
 
-function dteBandId(dte) {
+function _dteBandId(dte) {
   if (dte == null) return null;
   if (dte <= 7)  return '0-7';
   if (dte <= 21) return '7-21';

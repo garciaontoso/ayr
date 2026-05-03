@@ -1,6 +1,6 @@
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Card } from '../ui';
-import { _sf, n, div } from '../../utils/formatters';
+import { _sf, n as _n, div as _div } from '../../utils/formatters';
 
 export default function ClaudeTab() {
   const { cfg, ssd } = useAnalysis();

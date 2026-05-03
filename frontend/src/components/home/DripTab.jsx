@@ -218,7 +218,7 @@ export default function DripTab() {
   // Total cash dividends accumulated in no-DRIP scenario (received but not reinvested)
   const totalCashDivs = rows.reduce((s, r) => s + r.noDripDivNet, 0);
   // Total cash flow in DRIP partial scenario
-  const totalDripCash = rows.reduce((s, r) => s + r.dripCash, 0);
+  const _totalDripCash = rows.reduce((s, r) => s + r.dripCash, 0);
 
   // Chart data
   const chartYears = rows.map(r => `${new Date().getFullYear() + r.year}`);

@@ -63,10 +63,10 @@ const SECTIONS = [
 ];
 
 export default function CoveredCallsTab() {
-  const { portfolioTotals, positions, openAnalysis, hide, privacyMode, ibData } = useHome();
+  const { portfolioTotals, _positions, openAnalysis, _hide, privacyMode, ibData } = useHome();
 
   const [loading, setLoading] = useState(true);
-  const [loadingMsg, setLoadingMsg] = useState("");
+  const [loadingMsg, _setLoadingMsg] = useState("");
   const [earningsData, setEarningsData] = useState({});
   const [priceData, setPriceData] = useState({});
   const [optionsData, setOptionsData] = useState({});
@@ -358,7 +358,7 @@ export default function CoveredCallsTab() {
   const totalPremiumAnnual = totalPremiumAll * (365 / dte);
   const eligibleCount = ccData.filter(x => x.contracts > 0).length;
   const greenCount = ccData.filter(x => x.signalOrder === 1).length;
-  const realCount = ccData.filter(x => x.source !== "B-S").length;
+  const _realCount = ccData.filter(x => x.source !== "B-S").length;
 
   // Calculator
   const calcPos = calcTicker ? ccData.find(x => x.ticker === calcTicker) : null;
@@ -850,7 +850,7 @@ export default function CoveredCallsTab() {
                   </tr>
                 </thead>
                 <tbody>
-                  {putData.slice(0,60).map((p,i)=>(
+                  {putData.slice(0,60).map((p,_i)=>(
                     <tr key={`${p.ticker}-${p.otmPct}`} style={{borderBottom:"1px solid var(--subtle-border)"}}>
                       <td style={{padding:"6px 8px",fontWeight:700,color:"var(--text-primary)",fontFamily:"var(--fm)",textAlign:"left"}}>
                         {p.ticker}

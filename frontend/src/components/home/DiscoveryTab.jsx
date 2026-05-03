@@ -191,7 +191,7 @@ export default function DiscoveryTab() {
   const [minQuality, setMinQuality] = useState(60);
   const [minSafety, setMinSafety] = useState(55);
   const [minYield, setMinYield] = useState(0);
-  const [minScore, setMinScore] = useState(0);
+  const [minScore, _setMinScore] = useState(0);
   const [tierFilter, setTierFilter] = useState("ALL");
   const [sectorFilter, setSectorFilter] = useState("");
   const [excludePortfolio, setExcludePortfolio] = useState(true);

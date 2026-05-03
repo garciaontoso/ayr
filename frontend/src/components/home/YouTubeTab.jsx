@@ -16,7 +16,7 @@ import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
 
 // Re-export from the standalone utility so AirplaneMode can import it without
 // pulling this full component into the eager bundle.
-export { fetchAllYouTubeForOffline } from '../../utils/youtubeOffline.js';
+export { fetchAllYouTubeForOffline } from '../../utils/youtubeOffline';
 
 function loadOfflineChannels() {
   try {

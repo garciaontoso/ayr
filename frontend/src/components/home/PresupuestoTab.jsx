@@ -89,11 +89,11 @@ for (const [presu, codes] of Object.entries(PRESU_TO_GASTO_CATS)) {
 
 // ─── Warning/info section styles ───
 const warningCard = { ...card, background: 'rgba(200,164,78,0.06)', borderColor: 'rgba(200,164,78,0.3)' };
-const dangerCard = { ...card, background: 'rgba(255,107,107,0.06)', borderColor: 'rgba(255,107,107,0.3)' };
+const _dangerCard = { ...card, background: 'rgba(255,107,107,0.06)', borderColor: 'rgba(255,107,107,0.3)' };
 const infoCard = { ...card, background: 'rgba(100,210,255,0.06)', borderColor: 'rgba(100,210,255,0.3)' };
 
 export default function PresupuestoTab() {
-  const { displayCcy, fxRates, privacyMode, hide, hideN, gastosLog } = useHome();
+  const { displayCcy, fxRates, privacyMode, _hide, _hideN, gastosLog } = useHome();
 
   // ─── State ───
   const [items, setItems] = useState([]);
@@ -157,7 +157,7 @@ export default function PresupuestoTab() {
     } catch (e) { /* silent */ }
   }, []);
 
-  const fetchHistory = useCallback(async (itemId) => {
+  const _fetchHistory = useCallback(async (itemId) => {
     try {
       const res = await fetch(`${API_URL}/api/presupuesto/history/${itemId}`);
       if (!res.ok) throw new Error(res.status);
@@ -312,7 +312,7 @@ export default function PresupuestoTab() {
   const missingExpenses = useMemo(() => {
     if (!gastosLog || gastosLog.length === 0 || items.length === 0) return [];
     const now = new Date();
-    const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+    const _threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
     // Find expenses that repeat (same detail appears 2+ times in last 6 months)
     const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
     const recentGastos = gastosLog.filter(g => g.date && new Date(g.date) >= sixMonthsAgo);
@@ -445,7 +445,7 @@ export default function PresupuestoTab() {
     const months = Array.from({length:12}, (_,i) => ({ month: i+1, total: 0, items: [], byCat: {} }));
     for (const item of items) {
       const ms = itemMonths[item.id] || [1];
-      const cat = catOf(item.categoria);
+      const _cat = catOf(item.categoria);
       for (const m of ms) {
         const amount = item.frecuencia === 'MENSUAL' ? item.importe : item.importe;
         months[m-1].total += amount;

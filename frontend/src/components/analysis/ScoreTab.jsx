@@ -1,7 +1,7 @@
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Badge, DonutChart, GaugeVerdict, Card } from '../ui';
-import { _sf, n, f2, fP, fX, div } from '../../utils/formatters';
-import { R } from '../../utils/ratings.js';
+import { _sf, n, f2, fP, fX, div as _div } from '../../utils/formatters';
+import { R } from '../../utils/ratings';
 
 export default function ScoreTab() {
   const { DATA_YEARS, advancedMetrics, altmanZ, cfg, fin, piotroski, scoreItems, ssd, totalScore, wacc } = useAnalysis();

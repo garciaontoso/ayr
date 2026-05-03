@@ -7368,6 +7368,123 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         }
       }
 
+      // POST /api/errors/resolve-stack — devuelve metadatos del sourcemap para
+      // un stack minificado (NO resuelve el stack en server, ver decisión más abajo).
+      //
+      // Body: { buildId: string, stack: string }
+      //
+      // Devuelve:
+      //   {
+      //     ok, buildId, stack,           // eco
+      //     files: [                       // un entry por filename minificado encontrado en el stack
+      //       {
+      //         filename: "index-XXX.js",
+      //         frames: [{ line, column, fn? }, ...],
+      //         mapKey: "sourcemaps/{buildId}/index-XXX.js.map",
+      //         mapAvailable: true|false,  // ¿existe en R2?
+      //         mapSizeBytes: number?,
+      //         resolveCmd: "npx wrangler r2 object get ayr-earnings-archive/sourcemaps/.../index-XXX.js.map ..."
+      //       }
+      //     ],
+      //     hint: "..."
+      //   }
+      //
+      // DECISIÓN PRAGMÁTICA: NO resolvemos en el servidor.
+      //   - La librería `source-map` (Mozilla) usa parsing VLQ y wasm — funciona
+      //     en Workers pero pesa ~150KB por bundle y consume CPU budget.
+      //   - El dashboard /api/errors/dashboard se mira <10x/día por el desarrollador.
+      //   - Workflow real: ver buildId en dashboard → `npx wrangler r2 object get ...`
+      //     localmente → cargar el .map en Chrome DevTools (Sources → Add source map)
+      //     o usar `npx source-map-cli` para resolver línea a línea.
+      // Si el volumen de errores hace doloroso este flujo, migrar a resolución
+      // server-side con `source-map` lazy-loaded (ya que el endpoint es admin-only).
+      if (path === "/api/errors/resolve-stack" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+
+        let body;
+        try { body = await request.json(); } catch { return json({ ok: false, error: "invalid_json" }, corsHeaders, 400); }
+
+        const buildId = String(body.buildId || "").slice(0, 64);
+        const stack   = String(body.stack    || "").slice(0, 16000);
+
+        if (!buildId) return json({ ok: false, error: "buildId required" }, corsHeaders, 400);
+        if (!stack)   return json({ ok: false, error: "stack required" },   corsHeaders, 400);
+
+        // Parse stack lines:
+        //   "    at funcName (https://ayr.onto-so.com/assets/index-ABC.js:1:5234)"
+        //   "    at https://.../index-ABC.js:1:5234"
+        //   "Vn.fetch at index-ABC.js:1:5234"
+        // Capturamos el filename `index-ABC.js`, line, column.
+        const FILE_RE = /([A-Za-z0-9_-]+-[A-Za-z0-9_-]+\.js):(\d+):(\d+)/g;
+        const fnFor = (line) => {
+          // Intenta extraer función que precede al filename. Heurística laxa.
+          const m = line.match(/at\s+([A-Za-z0-9_$.<>]+)\s*\(/) ||
+                    line.match(/^\s*([A-Za-z0-9_$.<>]+)\s+at/);
+          return m ? m[1] : null;
+        };
+
+        // Agrupa frames por filename
+        const byFile = new Map(); // filename -> [{ line, column, fn }, ...]
+        const lines = stack.split(/\r?\n/);
+        for (const ln of lines) {
+          let m;
+          // reset regex state per line
+          FILE_RE.lastIndex = 0;
+          while ((m = FILE_RE.exec(ln)) !== null) {
+            const filename = m[1];
+            const lineNo   = parseInt(m[2], 10);
+            const colNo    = parseInt(m[3], 10);
+            if (!byFile.has(filename)) byFile.set(filename, []);
+            byFile.get(filename).push({ line: lineNo, column: colNo, fn: fnFor(ln) });
+          }
+        }
+
+        if (byFile.size === 0) {
+          return json({
+            ok: true, buildId, stack,
+            files: [],
+            hint: "No minified filenames detected in stack. Ensure stack contains 'index-XXX.js:line:col' patterns.",
+          }, corsHeaders);
+        }
+
+        // Para cada filename, comprueba si el .map existe en R2
+        const files = [];
+        for (const [filename, frames] of byFile) {
+          const mapFile = `${filename}.map`;
+          const mapKey  = `sourcemaps/${buildId}/${mapFile}`;
+          let mapAvailable = false;
+          let mapSizeBytes = null;
+          try {
+            // head() es la operación más barata — solo metadata
+            const head = await env.EARNINGS_R2.head(mapKey);
+            if (head) {
+              mapAvailable = true;
+              mapSizeBytes = head.size;
+            }
+          } catch (e) {
+            console.warn(`[errors/resolve-stack] R2 head failed for ${mapKey}:`, e.message);
+          }
+          files.push({
+            filename,
+            frames,
+            mapKey,
+            mapAvailable,
+            mapSizeBytes,
+            resolveCmd: mapAvailable
+              ? `npx wrangler r2 object get ayr-earnings-archive/${mapKey} --remote --file=/tmp/${mapFile}`
+              : null,
+          });
+        }
+
+        const anyAvailable = files.some((f) => f.mapAvailable);
+        const hint = anyAvailable
+          ? "Sourcemaps disponibles. Descarga con resolveCmd y carga en Chrome DevTools (Sources → Add source map) o usa `npx source-map-cli` para resolver frames concretos."
+          : `Ningun sourcemap encontrado para buildId=${buildId}. Verifica que el deploy ejecuto npm run upload:sourcemaps tras el build.`;
+
+        return json({ ok: true, buildId, stack, files, hint }, corsHeaders);
+      }
+
       // ═══════════════════════════════════════════════════════════════
       // CANTERA — radar de candidatos (100 sugerencias automáticas)
       // ═══════════════════════════════════════════════════════════════

@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 import AuthGate from './AuthGate.jsx'
-import { loadServerPrefs } from './utils/userPrefs.js'
+import { loadServerPrefs } from './utils/userPrefs'
 
 // Hydrate cross-device preferences from D1 BEFORE first render. Non-blocking
 // (returns void if endpoint unreachable). Restores tab order, column visibility,
@@ -27,7 +27,7 @@ const _origFetch = window.fetch;
 //   - Only triggered after the original fetch fails (no double-network)
 //   - Only reads, never writes — airplane mode is the only writer
 //   - Returns a 504 stub if cache also misses, so callers see a clear status
-async function readFromOfflineCache(input, init) {
+async function readFromOfflineCache(input, _init) {
   try {
     if (!('caches' in self)) return null;
     const cache = await caches.open('ayr-offline-data');

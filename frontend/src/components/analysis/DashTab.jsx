@@ -2,11 +2,11 @@ import { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Badge, BarChart, Card, TrustBadge } from '../ui';
 import MetricHistoryChart from '../ui/MetricHistoryChart.jsx';
-import { _sf, n, f1, f2, fP, fX, fC, fM, div } from '../../utils/formatters';
-import { R } from '../../utils/ratings.js';
+import { _sf, n as _n, f1, f2, fP, fX, fC, fM, div as _div } from '../../utils/formatters';
+import { R } from '../../utils/ratings';
 import { useFreshness } from '../../hooks/useFreshness.js';
 import { API_URL } from '../../constants/index.js';
-import { getPref, setPref, removePref } from '../../utils/userPrefs.js';
+import { getPref, setPref, removePref } from '../../utils/userPrefs';
 
 // FAST se incrustó dentro de Resumen el 2026-05-03 a petición del usuario.
 // La pestaña ⚡FAST top-level sigue existiendo como código (no la borro)
@@ -29,13 +29,13 @@ const DEFAULT_METRIC_ORDER = [
   'FCF','M. Bruto','M. Operativo','ROE','ROIC','Deuda/FCF','EV/EBITDA',
   'Piotroski','Div Yield','WACC','Ventas','EPS','DPS',
 ];
-function loadMetricOrder() {
+function _loadMetricOrder() {
   try { const v = getPref(METRIC_ORDER_KEY); return v ? JSON.parse(v) : null; } catch { return null; }
 }
 
 export default function DashTab() {
-  const { CHART_YEARS, L, LD, altmanZ, capLabel, cfg, chartLabels, comp, dcf, fin, fmpExtra, marketCap, piotroski, priceChartData, roicWaccSpread, ssd, wacc, waterfall } = useAnalysis();
-  const { getLevel: freshnessLevel, getUpdatedAt: freshnessDate, getSource: freshnessSource } = useFreshness();
+  const { CHART_YEARS, L, LD, altmanZ, capLabel, cfg, chartLabels, comp, dcf, fin, fmpExtra, marketCap, piotroski, _priceChartData, roicWaccSpread, ssd, wacc, waterfall } = useAnalysis();
+  const { getLevel: _freshnessLevel, getUpdatedAt: freshnessDate, getSource: _freshnessSource } = useFreshness();
 
   // ── All state before effects (TDZ safety) ─────────────────────────────
   const [chartMetric, setChartMetric] = useState('price');

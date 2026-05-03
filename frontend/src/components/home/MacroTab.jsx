@@ -55,7 +55,7 @@ export default function MacroTab() {
   const [days, setDays] = useState(14);
   const [events, setEvents] = useState([]);
   const [portfolioSectors, setPortfolioSectors] = useState({});
-  const [totalValue, setTotalValue] = useState(0);
+  const [_totalValue, setTotalValue] = useState(0);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
@@ -132,7 +132,7 @@ export default function MacroTab() {
     fontSize: 12,
     fontWeight: 600,
   });
-  const refreshBtn = {
+  const _refreshBtn = {
     padding: '6px 14px',
     borderRadius: 16,
     border: '1px solid var(--border)',

@@ -49,7 +49,7 @@ function fmtDate(d) {
   try { return new Date(d).toLocaleDateString('es-ES'); } catch { return d; }
 }
 
-function fmtTimeAgo(unixSec) {
+function _fmtTimeAgo(unixSec) {
   if (!unixSec) return '—';
   const ageMs = Date.now() - unixSec * 1000;
   const days = Math.floor(ageMs / 86400000);
@@ -986,7 +986,7 @@ export default function DeepDividendTab() {
   const [dashboard, setDashboard] = useState(null);
   const [allRows, setAllRows] = useState([]);
   const [calibration, setCalibration] = useState(null);
-  const [briefing, setBriefing] = useState(null);
+  const [_briefing, setBriefing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -1049,7 +1049,7 @@ export default function DeepDividendTab() {
         body: JSON.stringify({ ticker, force: true }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const data = await r.json();
+      const _data = await r.json();
       // After run, reload the drill data
       const r2 = await fetch(`${API_URL}/api/deep-dividend/get?ticker=${encodeURIComponent(ticker)}`);
       if (r2.ok) {

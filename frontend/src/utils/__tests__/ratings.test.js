@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { rate, R } from '../ratings.js';
+import { rate, R } from '../ratings';
 
 describe('rate (generic rating engine)', () => {
   const rules = [

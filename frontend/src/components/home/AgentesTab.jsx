@@ -364,7 +364,7 @@ export default function AgentesTab() {
 
       {/* ── Agent Cards Grid ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 24 }}>
-        {sortedAgents.map((agent, agentIdx) => {
+        {sortedAgents.map((agent, _agentIdx) => {
           const agentInsights = byAgent[agent.id] || [];
           const latest = latestByAgent[agent.id];
           const critCount = agentInsights.filter(i => i.severity === 'critical').length;
@@ -694,8 +694,7 @@ export default function AgentesTab() {
                     action:'Accion', conviction:'Conviccion', bullSummary:'Argumento alcista',
                     bearSummary:'Argumento bajista', targetPrice:'Precio objetivo', timeHorizon:'Horizonte',
                     accuracy:'Precision', guru:'Guru',
-                    portfolioBeta:'Beta portfolio', sectorConcentration:'Concentracion sector',
-                    leverageCostVsIncome:'Margen vs income', regimeAlignment:'Alineacion regimen',
+                    sectorConcentration:'Concentracion sector',
                     topRisks:'Riesgos top', recommendations:'Recomendaciones',
                   };
                   const pillColorFor = (val) => {

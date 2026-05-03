@@ -205,7 +205,7 @@ export default function DailyBriefingTab() {
           new_filings, upcoming_dividends, pending_actions, date,
           research_investigations, cantera_today } = data;
 
-  const verdictColor = (v) => v === 'ADD' ? '#22c55e'
+  const _verdictColor = (v) => v === 'ADD' ? '#22c55e'
     : v === 'SELL' ? '#ef4444'
     : v === 'TRIM' ? '#f59e0b'
     : v === 'HOLD' ? '#64d2ff'

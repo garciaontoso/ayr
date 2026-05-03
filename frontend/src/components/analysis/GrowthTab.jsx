@@ -1,6 +1,6 @@
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Card } from '../ui';
-import { _sf, n, fP, fC, fM, div, cagrFn } from '../../utils/formatters';
+import { _sf, n, fP, fC, fM, div as _div, cagrFn } from '../../utils/formatters';
 import { YEARS } from '../../constants/index.js';
 
 export default function GrowthTab() {
@@ -10,8 +10,8 @@ export default function GrowthTab() {
   const finGrowthDisplay = chronoAsc
     ? [...(fmpExtra.finGrowth || []).slice(0, 6)].reverse()
     : (fmpExtra.finGrowth || []).slice(0, 6);
-    const yrs5 = YEARS.slice(0,6); // 5y
-    const yrs10 = YEARS.slice(0,11); // 10y
+    const _yrs5 = YEARS.slice(0,6); // 5y
+    const _yrs10 = YEARS.slice(0,11); // 10y
     const metrics = [
       {k:"revenue",l:"Ventas",fn:y=>fin[y]?.revenue},
       {k:"netIncome",l:"Beneficio Neto",fn:y=>fin[y]?.netIncome},

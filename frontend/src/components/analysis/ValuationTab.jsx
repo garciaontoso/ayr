@@ -1,9 +1,9 @@
 import { useState, useRef } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Badge, Card } from '../ui';
-import { _sf, n, fP, fX, fC, fM, div } from '../../utils/formatters';
-import { R } from '../../utils/ratings.js';
-import { getPref, setPref, removePref } from '../../utils/userPrefs.js';
+import { _sf, n, fP, fX, fC, fM, div as _div } from '../../utils/formatters';
+import { R } from '../../utils/ratings';
+import { getPref, setPref, removePref } from '../../utils/userPrefs';
 
 const PREF_KEY = 'ayr-row-order-valuation';
 const DEFAULT_ORDER = ["eve","pb","bvps","fcfps","fcfPayout","ePayout"];

@@ -400,7 +400,7 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
   // ─── Canonical "today" FIRE metrics (single source of truth) ───
   // Used so the static KPI matches FireTab/DividendosTab even before the
   // user touches the editable scenario params below.
-  const fireToday = useFireMetrics({
+  const _fireToday = useFireMetrics({
     nlv: currentPat,
     annualExpenses: annualGastosUSD,
     annualDividendsNet: annualDivUSD,
@@ -469,7 +469,7 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
       if (pat < 0) pat = 0;
 
       const retReal = retornoPct - inflacionPct;
-      const patReal = i === 0 ? patInicio : patInicio / Math.pow(1 + inflacionPct/100, i);
+      const _patReal = i === 0 ? patInicio : patInicio / Math.pow(1 + inflacionPct/100, i);
       // Canonical FIRE target: gastos / SWR (3.5%) — single source of truth
       const fireNumber = gastos > 0 ? gastos / FIRE_SWR : 0;
 
@@ -664,19 +664,19 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
             return d;
           };
 
-          const mainPath = bezier(pts);
+          const _mainPath = bezier(pts);
           const hiPath = bezier(ptsHi);
-          const loPath = bezier(ptsLo);
+          const _loPath = bezier(ptsLo);
 
           // Confidence band closed path (hi forward + lo reverse)
-          const bandPath = hiPath + ` L${ptsLo[ptsLo.length - 1].x},${ptsLo[ptsLo.length - 1].y}` +
+          const _bandPath = hiPath + ` L${ptsLo[ptsLo.length - 1].x},${ptsLo[ptsLo.length - 1].y}` +
             ptsLo.slice().reverse().reduce((d, p, i) => {
               if (i === 0) return d;
               const rev = [...ptsLo].reverse();
-              const p0 = rev[Math.max(0, i - 1)];
-              const p1 = rev[i];
-              const p2 = rev[Math.min(rev.length - 1, i + 1)];
-              const p3 = rev[Math.min(rev.length - 1, i + 2)];
+              const _p0 = rev[Math.max(0, i - 1)];
+              const _p1 = rev[i];
+              const _p2 = rev[Math.min(rev.length - 1, i + 1)];
+              const _p3 = rev[Math.min(rev.length - 1, i + 2)];
               // Reversed control points
               return d;
             }, '') + ' Z';
@@ -882,7 +882,7 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
           {projection.map((r, i) => {
             const hNom = Math.max((r.patFinal / maxPat) * 100, 1);
             const hReal = Math.max((r.patReal / maxPat) * 100, 1);
-            const show = i === 0 || i === projection.length - 1 || i % Math.max(1, Math.floor(projection.length / 6)) === 0;
+            const _show = i === 0 || i === projection.length - 1 || i % Math.max(1, Math.floor(projection.length / 6)) === 0;
             return (
               <div key={r.year} style={{ flex: 1, display: 'flex', gap: 1, alignItems: 'flex-end', justifyContent: 'center', height: '100%' }}>
                 <div style={{ width: '40%', maxWidth: 8, height: `${hNom}%`, background: 'var(--gold)', borderRadius: '2px 2px 0 0', opacity: 0.5 }} title={`Nominal: ${fN(r.patFinal)}`} />
@@ -1011,7 +1011,7 @@ function ProyeccionSection({ CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, 
 // Main PatrimonioTab
 // ═══════════════════════════════════════
 export default function PatrimonioTab() {
-  const { CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, fxRates, ibData, hide, privacyMode } = useHome();
+  const { CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, GASTOS_MONTH, fxRates, _ibData, _hide, privacyMode } = useHome();
   const [section, setSection] = useState('historial');
   const [hoveredBar, setHoveredBar] = useState(null);
 

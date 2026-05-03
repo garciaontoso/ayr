@@ -252,7 +252,7 @@ function BacktestPanel({ strategies }) {
 }
 
 function BacktestResult({ r }) {
-  const isOk = r.total_return_pct >= 0 && r.sharpe >= 0.4;
+  const _isOk = r.total_return_pct >= 0 && r.sharpe >= 0.4;
   const verdict = r.sharpe >= 1.0 ? { lbl: '🟢 Edge real', color: '#30d158' }
     : r.sharpe >= 0.5 ? { lbl: '🟡 Marginal — mejorar params', color: '#fbbf24' }
     : { lbl: '🔴 No edge — descartar o rediseñar', color: '#f87171' };

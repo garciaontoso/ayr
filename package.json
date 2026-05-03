@@ -10,7 +10,7 @@
     "build": "cd frontend && npm run build",
     "audit": "curl -s https://api.onto-so.com/api/audit/full | python3 -m json.tool",
     "audit:check": "bash scripts/pre-deploy-check.sh",
-    "deploy:frontend": "cd frontend && npm run build && npx wrangler pages deploy dist --project-name=ayr --branch=production --commit-dirty=true",
+    "deploy:frontend": "cd frontend && npm run build && npm run upload:sourcemaps && npx wrangler pages deploy dist --project-name=ayr --branch=production --commit-dirty=true",
     "deploy:worker": "cd api && npx wrangler deploy",
     "deploy:safe": "npm run audit:check && npm run test && npm run build && npm run deploy:worker && npm run deploy:frontend",
     "deploy:safe:force": "ALLOW_REGRESSION=1 npm run audit:check && npm run build && npm run deploy:worker && npm run deploy:frontend",

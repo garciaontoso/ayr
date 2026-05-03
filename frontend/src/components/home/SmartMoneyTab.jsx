@@ -504,7 +504,7 @@ export default function SmartMoneyTab() {
   });
   const th = { padding: '8px 10px', fontSize: 9, color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' };
   const td = { padding: '7px 10px', fontSize: 12, color: 'var(--text-secondary)', borderBottom: '1px solid rgba(255,255,255,.04)' };
-  const tickerLink = (t) => ({
+  const tickerLink = (_t) => ({
     fontFamily: 'var(--fm)', fontWeight: 700, color: 'var(--gold)', cursor: 'pointer', textDecoration: 'none',
   });
 
@@ -547,7 +547,7 @@ export default function SmartMoneyTab() {
           // Badge count on the Alerts pill
           const alertCount = sv.id === 'alerts' ? (alertsData?.stats?.critical || 0) : 0;
           const active = view === sv.id;
-          const { isDragOver, extraStyle } = subViewDragVisuals(sv.id);
+          const { _isDragOver, extraStyle } = subViewDragVisuals(sv.id);
           return (
             <button
               key={sv.id}

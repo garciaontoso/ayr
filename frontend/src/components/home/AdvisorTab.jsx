@@ -73,7 +73,7 @@ function ExpandCard({ children, defaultOpen = true, title, count, color }) {
 
 // ── Position mini-card ──
 function PositionCard({ item, onClick, expanded, onToggle }) {
-  const { ticker, name, score, verdict, color, reason, action, weight, divYield, pnlPct, alerts, positives, sector } = item;
+  const { ticker, name, score, _verdict, color, reason, action, weight, divYield, _pnlPct, alerts, positives, _sector } = item;
   return (
     <div style={{
       ...card({ padding: '14px 18px', borderLeft: `4px solid ${color}`, marginBottom: 6, cursor: 'pointer', transition: 'all .2s' }),
@@ -145,7 +145,7 @@ const wifResultRow = (label, value, color = 'var(--text-secondary)') => (
 );
 
 function WhatIfSimulator({
-  portfolioList, portfolioTotals, analysis, hide, hideN, fxRates, displayCcy,
+  portfolioList, portfolioTotals, _analysis, _hide, hideN, _fxRates, _displayCcy,
   wifMode, setWifMode,
   wifSellTicker, setWifSellTicker, wifSellShares, setWifSellShares,
   wifBuyTicker, setWifBuyTicker, wifBuyAmount, setWifBuyAmount,
@@ -173,7 +173,7 @@ function WhatIfSimulator({
     const divLost = sharesToSell * divPerShare;
     const remainingShares = (pos.shares || 0) - sharesToSell;
     const remainingValue = remainingShares * price;
-    const newNlv = nlv; // NLV stays the same (cash replaces equity)
+    const _newNlv = nlv; // NLV stays the same (cash replaces equity)
     const oldWeight = (pos.usdValue || 0) / nlv * 100;
     const newWeight = remainingValue / nlv * 100;
     return {
@@ -591,8 +591,8 @@ export default function AdvisorTab() {
   const [quickResult, setQuickResult] = useState(null);
   const [quickLoading, setQuickLoading] = useState(false);
   const [quickError, setQuickError] = useState(null);
-  const [showMantener, setShowMantener] = useState(false);
-  const progressRef = useRef(null);
+  const [_showMantener, _setShowMantener] = useState(false);
+  const _progressRef = useRef(null);
 
   // ── What-If Simulator State ──
   const [wifMode, setWifMode] = useState('sell'); // 'sell' | 'buy' | 'swap'

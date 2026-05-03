@@ -34,7 +34,7 @@ export default function WatchlistTab() {
     watchlistList,
     searchTicker, setSearchTicker, updatePosition,
     openAnalysis, CompanyRow, FLAGS, getCountry,
-    displayCcy, privacyMode, hide, openScoresModal,
+    _displayCcy, _privacyMode, _hide, openScoresModal,
   } = useHome();
 
   // Persistent tabs in localStorage. Seeds the curated "Pastores del Dividendo"
@@ -170,7 +170,7 @@ export default function WatchlistTab() {
     setShowAddTab(false);
   };
 
-  const renameTab = (id, name) => {
+  const _renameTab = (id, name) => {
     saveTabs(tabs.map(t => t.id === id ? { ...t, name } : t));
     setEditingTab(null);
   };
@@ -421,7 +421,7 @@ export default function WatchlistTab() {
                 </tr>
               </thead>
               <tbody>
-                {sorted.map((p, i) => {
+                {sorted.map((p, _i) => {
                   const chgPct = p.dayChange || 0;
                   const high52 = p.fiftyTwoWeekHigh || 0;
                   const low52 = p.fiftyTwoWeekLow || 0;

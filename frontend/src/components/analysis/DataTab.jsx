@@ -1,8 +1,8 @@
 import { useState, useRef } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Card, MetricHistoryChart } from '../ui';
-import { _sf, fM, fC, n, div } from '../../utils/formatters';
-import { getPref, setPref, removePref } from '../../utils/userPrefs.js';
+import { _sf, fM, fC, n as _n, div as _div } from '../../utils/formatters';
+import { getPref, setPref, removePref } from '../../utils/userPrefs';
 
 const PREF_KEY = 'ayr-row-order-data';
 const DEFAULT_ORDER = ["revenue","grossProfit","operatingIncome","netIncome","eps","dps","sharesOut","ocf","capex","totalDebt","cash","equity","retainedEarnings","interestExpense","depreciation","taxProvision"];

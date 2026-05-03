@@ -1,7 +1,7 @@
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Badge, BarChart, Card, SensitivityTable } from '../ui';
-import { _sf, n, f1, fP, fC, fM, div } from '../../utils/formatters';
-import { R } from '../../utils/ratings.js';
+import { _sf, n as _n, f1, fP, fC, fM, div as _div } from '../../utils/formatters';
+import { R } from '../../utils/ratings';
 
 export default function DCFTab() {
   const { cfg, dcf, dcfCalc, discountRate, estimatedGrowth, fmpExtra } = useAnalysis();

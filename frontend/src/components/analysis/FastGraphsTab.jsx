@@ -55,7 +55,7 @@ export default function FastGraphsTab() {
     const allData = [...validHist, ...projData];
 
     // Current price point — place at most recent hist year
-    const pricePoint = validHist.length ? { y: validHist[validHist.length - 1].y, price: cfg.price } : null;
+    const _pricePoint = validHist.length ? { y: validHist[validHist.length - 1].y, price: cfg.price } : null;
 
     // Chart dims
     const W = 860, H = 420, PADL = 68, PADR = 24, PADT = 24, PADB = 48;

@@ -135,7 +135,7 @@ function CorrelationView() {
             </tr>
           </thead>
           <tbody>
-            {dispRows.map((row, ri) => (
+            {dispRows.map((row, _ri) => (
               <tr key={row.ticker}>
                 <td style={{
                   padding: '1px 4px', textAlign: 'right',

@@ -256,3 +256,40 @@ export interface AyrApiErr {
 }
 
 export type AyrApiResponse<T> = AyrApiOk<T> | AyrApiErr;
+
+// ── Ratings (utils/ratings.ts) ────────────────────────────────────────────
+
+/**
+ * Una regla individual del catálogo `R` en `utils/ratings.ts`. Cada métrica
+ * (gm/om/roe/...) tiene un array ordenado de reglas; `rate()` devuelve la
+ * primera cuyo `test(value)` pasa.
+ */
+export interface RatingRule {
+  test: (v: number) => boolean;
+  lbl: string;
+  c: string;   // foreground color
+  bg: string;  // background color (rgba string)
+  score: number;
+  tip?: string;
+}
+
+export interface RatingResult {
+  lbl: string;
+  c: string;
+  bg: string;
+  score: number;
+  tip?: string;
+}
+
+// ── User preferences (utils/userPrefs.ts) ─────────────────────────────────
+
+export type UserId = 'ricardo' | 'amparo' | string;
+
+export interface KnownUser {
+  id: UserId;
+  label: string;
+  icon: string;
+  color: string;
+}
+
+export type YearOrder = 'asc' | 'desc';

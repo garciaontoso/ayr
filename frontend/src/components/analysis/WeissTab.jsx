@@ -1,10 +1,10 @@
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Card } from '../ui';
-import { _sf, n, div } from '../../utils/formatters';
+import { _sf, n as _n, div as _div } from '../../utils/formatters';
 import { YEARS } from '../../constants/index.js';
 
 export default function WeissTab() {
-  const { L, LD, cfg, fin, fmpExtra, marketCap } = useAnalysis();
+  const { L, LD, cfg, fin, fmpExtra, _marketCap } = useAnalysis();
     // Historical data: DPS, price proxied from EPS × PE, and yield
     const histYrs = YEARS.slice(0, 15).reverse().filter(y => fin[y]?.dps > 0);
     if (histYrs.length < 3) return (
@@ -41,7 +41,7 @@ export default function WeissTab() {
     const yields = yieldData.map(d => d.yld);
     const yieldAvg = yields.reduce((a,b) => a+b, 0) / yields.length;
     const yieldMax = Math.max(...yields);
-    const yieldMin = Math.min(...yields);
+    const _yieldMin = Math.min(...yields);
     const yieldMedian = [...yields].sort((a,b) => a-b)[Math.floor(yields.length/2)];
     
     // Current yield

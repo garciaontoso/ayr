@@ -137,7 +137,7 @@ function CalendarioSection({ divLog, POS_STATIC, ownedTickers, soloActuales }) {
   const { year, month } = calMonth;
   const firstDay = new Date(year, month, 1);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const startDow = (firstDay.getDay() + 6) % 7; // Monday = 0
+  const _startDow = (firstDay.getDay() + 6) % 7; // Monday = 0
 
   const weeks = useMemo(() => {
     const w = [];
@@ -501,13 +501,13 @@ export default function DividendosTab() {
   const {
     divLog, divLoading, divShowForm, setDivShowForm,
     divForm, setDivForm, divFilter, setDivFilter,
-    divSort, setDivSort, divCalYear, setDivCalYear,
-    addDivEntry, deleteDivEntry,
+    divSort, setDivSort, _divCalYear, _setDivCalYear,
+    addDivEntry, _deleteDivEntry,
     POS_STATIC, getCountry, FLAGS,
     DIV_BY_YEAR, DIV_BY_MONTH,
     portfolioTotals, FORWARD_DIV,
     GASTOS_MONTH, ibData, fxRates, CTRL_DATA,
-    privacyMode, hide,
+    privacyMode, _hide,
   } = useHome();
 
   // ── Canonical FIRE metrics (single source of truth via hooks) ──────
@@ -529,10 +529,10 @@ export default function DividendosTab() {
   });
 
   // Trust badges — data freshness (fetched once per session from /api/data-status)
-  const { getLevel, getSource, getUpdatedAt } = useFreshness();
+  const { getLevel, _getSource, getUpdatedAt } = useFreshness();
 
   const [section, setSection] = useState("dashboard");
-  const [soloActuales, setSoloActuales] = useState(true);
+  const [soloActuales, _setSoloActuales] = useState(true);
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('div_view') || "neto"); // "bruto" | "neto"
   const isNeto = viewMode === "neto";
 
@@ -860,10 +860,10 @@ export default function DividendosTab() {
     const all = divLog.filter(d => d.date && d.gross);
     const byYear = {}; all.forEach(d => { const y=d.date.slice(0,4); if(!byYear[y])byYear[y]={g:0,n:0,c:0}; byYear[y].g+=d.gross||0; byYear[y].n+=d.net||0; byYear[y].c++; });
     const yearKeys = Object.keys(byYear).sort();
-    const maxYearG = Math.max(...yearKeys.map(y=>byYear[y].g),1);
+    const _maxYearG = Math.max(...yearKeys.map(y=>byYear[y].g),1);
     const byMonth = {}; all.forEach(d => { const m=d.date.slice(0,7); if(!byMonth[m])byMonth[m]={g:0,n:0,c:0}; byMonth[m].g+=d.gross||0; byMonth[m].n+=d.net||0; byMonth[m].c++; });
     const monthKeys = Object.keys(byMonth).sort().slice(-36);
-    const maxMonthG = Math.max(...monthKeys.map(m=>byMonth[m].g),1);
+    const _maxMonthG = Math.max(...monthKeys.map(m=>byMonth[m].g),1);
     // Use canonical FIRE target from useFireMetrics (real expenses, not hardcoded $3500)
     // Falls back to 3500/mo only if expense data isn't loaded yet
     const fireTarget = fire.monthlyDivNeeded > 0 ? fire.monthlyDivNeeded : 3500;
@@ -880,16 +880,16 @@ export default function DividendosTab() {
     const recent12m = all.filter(d=>d.date>=cutoff12m);
     const byTicker12 = {}; recent12m.forEach(d => { const t=d.ticker; if(!t)return; if(!byTicker12[t])byTicker12[t]={g:0,n:0,c:0}; byTicker12[t].g+=d.gross||0; byTicker12[t].n+=d.net||0; byTicker12[t].c++; });
     const topPayers = Object.entries(byTicker12).sort((a,b)=>b[1].g-a[1].g).slice(0,25);
-    const maxTickerG = topPayers.length>0?topPayers[0][1].g:1;
-    const yocData = Object.entries(byTicker12).map(([t,d])=>{ const pos=POS_STATIC[t]; if(!pos||!pos.cb||!pos.sh)return null; const tc=pos.cb*pos.sh; const yoc=tc>0?(d.g/tc*100):0; const cy=pos.lp>0&&pos.sh>0?(d.g/(pos.lp*pos.sh)*100):0; return {t,g12:d.g,cost:tc,yoc,cy,sh:pos.sh,cb:pos.cb,lp:pos.lp}; }).filter(Boolean).filter(d=>d.yoc>0).sort((a,b)=>b.yoc-a.yoc);
+    const _maxTickerG = topPayers.length>0?topPayers[0][1].g:1;
+    const _yocData = Object.entries(byTicker12).map(([t,d])=>{ const pos=POS_STATIC[t]; if(!pos||!pos.cb||!pos.sh)return null; const tc=pos.cb*pos.sh; const yoc=tc>0?(d.g/tc*100):0; const cy=pos.lp>0&&pos.sh>0?(d.g/(pos.lp*pos.sh)*100):0; return {t,g12:d.g,cost:tc,yoc,cy,sh:pos.sh,cb:pos.cb,lp:pos.lp}; }).filter(Boolean).filter(d=>d.yoc>0).sort((a,b)=>b.yoc-a.yoc);
     const tickerDates = {}; all.forEach(d=>{ const t=d.ticker; if(!t)return; if(!tickerDates[t])tickerDates[t]=[]; tickerDates[t].push(d.date); });
-    const freqData = Object.entries(tickerDates).map(([t,dates])=>{ dates.sort(); if(dates.length<2)return null; const gaps=[]; for(let i=1;i<dates.length;i++){const d1=new Date(dates[i-1]),d2=new Date(dates[i]); gaps.push((d2-d1)/(864e5));} const avg=gaps.reduce((s,g)=>s+g,0)/gaps.length; let freq=avg<=35?"Mensual":avg<=65?"Bimensual":avg<=100?"Trimestral":avg<=200?"Semestral":"Anual"; const last=dates[dates.length-1]; const next=new Date(last); next.setDate(next.getDate()+Math.round(avg)); return {t,freq,avg:Math.round(avg),next:next.toISOString().slice(0,10),last,count:dates.length}; }).filter(d=>d&&byTicker12[d.t]).sort((a,b)=>a.next.localeCompare(b.next));
+    const _freqData = Object.entries(tickerDates).map(([t,dates])=>{ dates.sort(); if(dates.length<2)return null; const gaps=[]; for(let i=1;i<dates.length;i++){const d1=new Date(dates[i-1]),d2=new Date(dates[i]); gaps.push((d2-d1)/(864e5));} const avg=gaps.reduce((s,g)=>s+g,0)/gaps.length; let freq=avg<=35?"Mensual":avg<=65?"Bimensual":avg<=100?"Trimestral":avg<=200?"Semestral":"Anual"; const last=dates[dates.length-1]; const next=new Date(last); next.setDate(next.getDate()+Math.round(avg)); return {t,freq,avg:Math.round(avg),next:next.toISOString().slice(0,10),last,count:dates.length}; }).filter(d=>d&&byTicker12[d.t]).sort((a,b)=>a.next.localeCompare(b.next));
     const curYear = divFilter.year!=="all"?divFilter.year:new Date().getFullYear().toString();
     const prevYear = String(parseInt(curYear, 10)-1);
     const tickerByYear = {}; all.forEach(d=>{ const y=d.date.slice(0,4),t=d.ticker; if(!t)return; if(!tickerByYear[t])tickerByYear[t]={}; if(!tickerByYear[t][y])tickerByYear[t][y]=0; tickerByYear[t][y]+=d.gross||0; });
-    const growthData = Object.entries(tickerByYear).map(([t,years])=>{ const cur=years[curYear]||0,prev=years[prevYear]||0; const g=prev>0?((cur-prev)/prev*100):(cur>0?999:0); return {t,cur,prev,g}; }).filter(d=>d.cur>0||d.prev>0).sort((a,b)=>b.cur-a.cur);
-    const availMonths = divFilter.year!=="all"?[...new Set(divLog.filter(d=>d.date?.startsWith(divFilter.year)).map(d=>d.date?.slice(0,7)).filter(Boolean))].sort().reverse():[];
-    const rc = v=>v>0?"var(--green)":v<0?"var(--red)":"var(--text-secondary)";
+    const _growthData = Object.entries(tickerByYear).map(([t,years])=>{ const cur=years[curYear]||0,prev=years[prevYear]||0; const g=prev>0?((cur-prev)/prev*100):(cur>0?999:0); return {t,cur,prev,g}; }).filter(d=>d.cur>0||d.prev>0).sort((a,b)=>b.cur-a.cur);
+    const _availMonths = divFilter.year!=="all"?[...new Set(divLog.filter(d=>d.date?.startsWith(divFilter.year)).map(d=>d.date?.slice(0,7)).filter(Boolean))].sort().reverse():[];
+    const _rc = v=>v>0?"var(--green)":v<0?"var(--red)":"var(--text-secondary)";
     const mNames=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
     return <>
       {/* ── Row 1: KPIs compactos ── */}

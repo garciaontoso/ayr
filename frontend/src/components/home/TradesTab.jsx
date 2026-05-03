@@ -8,7 +8,7 @@ export default function TradesTab() {
   const {
     tradesData, setTradesData, tradesLoading, setTradesLoading,
     tradesFilter, setTradesFilter, tradesPage, setTradesPage,
-    openAnalysis, openCostBasis,
+    _openAnalysis, openCostBasis,
     privacyMode,
   } = useHome();
 

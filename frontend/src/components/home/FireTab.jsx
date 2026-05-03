@@ -59,7 +59,7 @@ function runMonteCarlo({ nlv, annualSavings, fireTarget, years = 30, paths = 500
 }
 
 // ─── Monte Carlo Section ─────────────────────────────────────────────────────
-function MonteCarloSection({ nlv, annualSavings, fireTarget, fireCcy, sym, privacyMode }) {
+function MonteCarloSection({ nlv, annualSavings, fireTarget, fireCcy: _fireCcy, sym, privacyMode }) {
   const [returnMean, setReturnMean] = useState(7);   // %
   const [returnStd, setReturnStd]   = useState(15);  // %
   const [horizonYrs, setHorizonYrs] = useState(30);
@@ -349,10 +349,9 @@ function MonteCarloSection({ nlv, annualSavings, fireTarget, fireCcy, sym, priva
 }
 
 // ─── Your Number Calculator ───
-function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA, fxEurUsd, fireCcy }) {
+function YourNumberSection({ pat, divNetA: _divNetA, gastosAnnual, espRealistaA, baseRealA, fxEurUsd: _fxEurUsd, fireCcy }) {
   const isUSD = fireCcy === "USD";
   const sym = isUSD ? "$" : "€";
-  const toD = v => isUSD ? v : v / fxEurUsd;
 
   // Editable scenario params — pre-filled with user's real data
   const [scenarios, setScenarios] = useState([
@@ -635,8 +634,6 @@ function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA
         };
 
         const linePath = bezier(pts);
-        // Area path (close to bottom)
-        const areaPath = linePath + ` L${pts[pts.length - 1].x},${PT + cH} L${pts[0].x},${PT + cH} Z`;
 
         // Split into working/retired segments for coloring
         const retireIdx = pts.findIndex(p => p.phase === 'retired');
@@ -827,11 +824,11 @@ function YourNumberSection({ pat, divNetA, gastosAnnual, espRealistaA, baseRealA
 export default function FireTab() {
   const {
     divLog, fxRates,
-    fireCcy, setFireCcy, fireGastosYear, setFireGastosYear,
+    fireCcy, setFireCcy: _setFireCcy, fireGastosYear, setFireGastosYear,
     gastosLog,
     CTRL_DATA, INCOME_DATA, GASTOS_MONTH,
     ibData,
-    FI_TRACK, DIV_BY_YEAR, portfolioTotals,
+    FI_TRACK, DIV_BY_YEAR, portfolioTotals: _portfolioTotals,
     privacyMode,
   } = useHome();
 
@@ -898,7 +895,7 @@ const espRealistaM = isUSD ? (avgEurAll + cnyVidaEur) * fxEurUsd : avgEurAll + c
 const espRealistaA = espRealistaM * 12;
 // Escenario Base España = solo gastos EUR (mínimo estructural sin vida diaria China)
 const espBaseM = isUSD ? avgEurAll * fxEurUsd : avgEurAll;
-const espBaseA = espBaseM * 12;
+const _espBaseA = espBaseM * 12;
 
 // Base Real = España + China obligatorio (ALQ, UCH, UTI — gastos que tendras siempre)
 const cnyChinaObligEur = avgCnyChinaOnly * fxCnyEur;
@@ -929,7 +926,7 @@ const divCoversPct = gastosAvg>0 ? (divNetM/gastosAvg*100) : 0;
 const espCoversPct = espRealistaM>0 ? (divNetM/espRealistaM*100) : 0;
 const espBasePct = espBaseM>0 ? (divNetM/espBaseM*100) : 0;
 const baseRealCoversPct = baseRealM>0 ? (divNetM/baseRealM*100) : 0;
-const gapM = divNetM - gastosAvg;
+const _gapM = divNetM - gastosAvg;
 const savingsM = divNetM + sueldoM - gastosAvg;
 const savingsRate = (divNetM+sueldoM)>0 ? (savingsM/(divNetM+sueldoM)*100) : 0;
 
@@ -951,7 +948,7 @@ const swr35 = fireMain.fireTarget;
 const swr35BaseReal = fireBaseReal.fireTarget;
 const yearsToFire = fireMain.yearsToFire;
 const yearsToFireBaseReal = fireBaseReal.yearsToFire;
-const fireRet = pat>0 ? (gastosAnnual/pat*100) : 0;
+const _fireRet = pat>0 ? (gastosAnnual/pat*100) : 0;
 
 // Div by year
 const divByYear={}; all.forEach(d=>{const y=d.date.slice(0,4);if(!divByYear[y])divByYear[y]={g:0,n:0};divByYear[y].g+=d.gross||0;divByYear[y].n+=d.net||0;});
@@ -968,13 +965,13 @@ const fK = v => {
 };
 
 const [fireSection, setFireSection] = useState("dashboard");
-const [useBaseReal, setUseBaseReal] = useState(false);
+const [useBaseReal, _setUseBaseReal] = useState(false);
 // When toggle is on, use base real (Spain + China obligatorio) for FIRE calcs
 const activeGastosM = useBaseReal ? baseRealM : gastosAvg;
 const activeGastosA = useBaseReal ? baseRealA : gastosAnnual;
-const activeSwr35 = useBaseReal ? swr35BaseReal : swr35;
-const activeYearsToFire = useBaseReal ? yearsToFireBaseReal : yearsToFire;
-const activeFireRet = pat>0 ? (activeGastosA/pat*100) : 0;
+const _activeSwr35 = useBaseReal ? swr35BaseReal : swr35;
+const _activeYearsToFire = useBaseReal ? yearsToFireBaseReal : yearsToFire;
+const _activeFireRet = pat>0 ? (activeGastosA/pat*100) : 0;
 const activeGapM = divNetM - activeGastosM;
 const activeDivCoversPct = activeGastosM>0 ? (divNetM/activeGastosM*100) : 0;
 
@@ -1055,9 +1052,8 @@ return (
 
   {/* ── SECTION 3b: Monthly Breakdown Table ── */}
   {(() => {
-    const [period, setPeriod] = [fireGastosYear, setFireGastosYear];
+    const [period, _setPeriod] = [fireGastosYear, setFireGastosYear];
     const allM = Object.keys(GASTOS_MONTH).sort();
-    const now = new Date();
     const getMonths = (p) => {
       if (p === "6m") return allM.slice(-6);
       if (p === "12m" || !p) return allM.slice(-12);
@@ -1081,7 +1077,7 @@ return (
     }).reverse();
 
     const sumGAll = rows.reduce((s,r) => s+r.totalAll, 0);
-    const sumGSin = rows.reduce((s,r) => s+r.totalSinChina, 0);
+    const _sumGSin = rows.reduce((s,r) => s+r.totalSinChina, 0);
     const sumDiv = rows.reduce((s,r) => s+r.dNet, 0);
     const avgGAll = rows.length > 0 ? sumGAll/rows.length : 0;
     const avgDiv = rows.length > 0 ? sumDiv/rows.length : 0;
@@ -1111,7 +1107,7 @@ return (
       {/* Bar chart with exact numbers */}
       <div style={{overflowX:"auto",marginBottom:14}}>
         <div style={{display:"flex",alignItems:"flex-end",gap:2,minWidth:Math.max(rows.length*70,400),height:220,padding:"0 4px"}}>
-          {[...rows].reverse().map((r,i) => {
+          {[...rows].reverse().map((r, _i) => {
             const maxBar = Math.max(...rows.map(rr => Math.max(rr.totalAll, rr.dNet)), 1);
             const hD = r.dNet / maxBar * 160;
             const hG = r.totalAll / maxBar * 160;

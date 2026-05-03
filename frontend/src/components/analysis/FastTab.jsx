@@ -486,7 +486,7 @@ export default function FastTab() {
     x: xScale(d.y),
     yp: yScale(clipY(getSmoothEps(d.y) * activePE)),
   }));
-  const fairHistPoly = fairHistPts.map(p => `${p.x},${p.yp}`).join(' ');
+  const _fairHistPoly = fairHistPts.map(p => `${p.x},${p.yp}`).join(' ');
 
   // Fair value projection — use activePE EXCEPT in "normal" mode which collapses to avg P/E.
   // 2026-05-03: el anchor de la proyección ahora usa getSmoothEps(lastHistY) en
@@ -504,7 +504,7 @@ export default function FastTab() {
   // valor que el último punto de fairHistPts → unión sin gap.
   const anchorVal = validHist.length ? getSmoothEps(lastHistY) : 0;
   const projFairFull = validHist.length ? [{ x: xScale(lastHistY), yp: yScale(anchorVal * projMultiplier), val: anchorVal * projMultiplier }, ...projFairPts] : projFairPts;
-  const projFairPoly = projFairFull.map(p => `${p.x},${p.yp}`).join(' ');
+  const _projFairPoly = projFairFull.map(p => `${p.x},${p.yp}`).join(' ');
 
   // Combined fair value line (histórico + proyección) — UNA SOLA polyline
   // sólida estilo FAST Graphs. Antes pintábamos dos polylines (sólida +
@@ -538,7 +538,7 @@ export default function FastTab() {
     { x: xScale(validHist[validHist.length - 1]?.y || minXYear), yp: yScale(rawMin) },
     { x: xScale(validHist[0]?.y || minXYear), yp: yScale(rawMin) },
   ];
-  const fairAreaPoly = fairAreaPts.map(p => `${p.x},${p.yp}`).join(' ');
+  const _fairAreaPoly = fairAreaPts.map(p => `${p.x},${p.yp}`).join(' ');
 
   // ─── Valor justo (verde) + Sobrevaloración (rojo) — estilo FAST Graphs ──
   // Dos áreas continuas que emulan el patrón visual de FAST Graphs:
@@ -724,9 +724,9 @@ export default function FastTab() {
     }));
     return [...histPts, ...projPts].map(p => `${p.x},${p.yp}`).join(' ');
   };
-  const bandLow = peBandLine(peLow);
+  const _bandLow = peBandLine(peLow);
   const bandMid = peBandLine(peMid);
-  const bandHigh = peBandLine(peHigh);
+  const _bandHigh = peBandLine(peHigh);
   // ───────────────────────────────────────────────────────────────────────
 
   // Normal P/E reference line (if different from active)
@@ -736,7 +736,7 @@ export default function FastTab() {
     x: xScale(d.y),
     yp: yScale(Math.max(d.val * normalPE, rawMin)),
   })) : [];
-  const normalRefPoly = normalRefPts.map(p => `${p.x},${p.yp}`).join(' ');
+  const _normalRefPoly = normalRefPts.map(p => `${p.x},${p.yp}`).join(' ');
 
   // Year ticks
   const yearTicks = [];
@@ -942,7 +942,7 @@ export default function FastTab() {
   // Debug: compute ALL metrics for last year so user can see them side-by-side
   const lastF = fin[lastHistY];
   const soLast = lastF?.sharesOut;
-  const allMetricValues = lastF ? {
+  const _allMetricValues = lastF ? {
     eps_adj:     lastF.eps,
     eps_basic:   lastF.epsBasic ?? lastF.eps,
     eps_diluted: lastF.epsDiluted ?? lastF.eps,
@@ -961,7 +961,7 @@ export default function FastTab() {
   // El valor Graham 15x (activePE en modo custom) se mantiene como línea
   // naranja de referencia, no como disparador de compra.
   const fairValue = latestMetric ? latestMetric * zonePE : null;
-  const fairValueGraham = latestMetric ? latestMetric * activePE : null;  // referencia Graham
+  const _fairValueGraham = latestMetric ? latestMetric * activePE : null;  // referencia Graham
   const mosVsFair = fairValue && cfg?.price ? 1 - cfg.price / fairValue : null;
 
   // ── Recesiones NBER + eventos macro — feature 3 ──
@@ -1974,16 +1974,30 @@ export default function FastTab() {
             //   2. profile.marketCap (algunas variantes FMP)
             //   3. history.key_metrics_by_year[lastHistY].marketCap
             //   4. cfg.price * lastF.sharesOut (compute)
+            // 2026-05-03 v2 fix: las distintas fuentes mezclan unidades.
+            //   · profile.mktCap de FMP → raw dollars (e.g. 87,826,000,000)
+            //   · keyMetrics[].marketCap → raw dollars
+            //   · cfg.price * lastF.sharesOut → depende. lastF.sharesOut suele
+            //     venir en MILLONES (e.g. 410). Si lo multiplicamos por price,
+            //     sale en MILLONES de dólares (87,826M = $87.8B), no raw.
+            // Helper: normaliza siempre a RAW dollars para que /1e9 funcione.
+            // Si valor < 1e7 lo asumimos en millions y lo escalamos × 1e6.
+            const _toRawDollars = (v) => v ? (v < 1e7 ? v * 1e6 : v) : 0;
             const mktCap = (() => {
-              if (profile.mktCap) return profile.mktCap;
-              if (profile.marketCap) return profile.marketCap;
+              if (profile.mktCap) return _toRawDollars(profile.mktCap);
+              if (profile.marketCap) return _toRawDollars(profile.marketCap);
               const km = history?.key_metrics_by_year?.[lastHistY];
-              if (km?.marketCap) return km.marketCap;
-              if (cfg?.price > 0 && lastF.sharesOut > 0) return cfg.price * lastF.sharesOut;
+              if (km?.marketCap) return _toRawDollars(km.marketCap);
+              if (cfg?.price > 0 && lastF.sharesOut > 0) {
+                // sharesOut de FMP income.weightedAverageShsOut viene en raw count
+                // (e.g. 410,000,000). Pero algunas variantes lo dan en millones.
+                const sh = lastF.sharesOut < 1e7 ? lastF.sharesOut * 1e6 : lastF.sharesOut;
+                return cfg.price * sh;
+              }
               return 0;
             })();
-            const totalDebt = lastF.totalDebt || 0;
-            const cash = lastF.cash || 0;
+            const totalDebt = _toRawDollars(lastF.totalDebt);
+            const cash = _toRawDollars(lastF.cash);
             const tev = mktCap > 0 ? mktCap + totalDebt - cash : null;
             const fmtB = (v) => v == null ? '—' : `$${(v/1e9).toFixed(2)}B`;
             // Type — instrumento. FMP profile.type or fallback heuristic.

@@ -1,9 +1,9 @@
 import { useState, useRef } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Card } from '../ui';
-import { _sf, n, fP, div } from '../../utils/formatters';
+import { _sf, n as _n, fP, div as _div } from '../../utils/formatters';
 import { YEARS } from '../../constants/index.js';
-import { getPref, setPref, removePref } from '../../utils/userPrefs.js';
+import { getPref, setPref, removePref } from '../../utils/userPrefs';
 
 // ── Section drag-and-drop order ─────────────────────────────────────────────
 const DIV_SECTION_ORDER_KEY = 'ayr-section-order-dividends';
@@ -56,7 +56,7 @@ export default function DividendsTab() {
     };
 
     // Div growth years array for calculations
-    const growthYrs = YEARS.slice(0,12).filter(y => fin[y]?.dps > 0);
+    const _growthYrs = YEARS.slice(0,12).filter(y => fin[y]?.dps > 0);
     const divCAGR3 = da.cagr3;
     const divCAGR5 = da.cagr5;
     const divCAGR10 = da.cagr10;

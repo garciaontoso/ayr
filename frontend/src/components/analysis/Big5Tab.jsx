@@ -1,7 +1,7 @@
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Badge, Card } from '../ui';
-import { n, fP, fC, div, cagrFn } from '../../utils/formatters';
-import { R } from '../../utils/ratings.js';
+import { n, fP, fC, div as _div, cagrFn } from '../../utils/formatters';
+import { R } from '../../utils/ratings';
 import { YEARS } from '../../constants/index.js';
 
 export default function Big5Tab() {

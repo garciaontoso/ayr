@@ -1,12 +1,14 @@
-import { n } from './formatters.js';
+import { n } from './formatters';
+import type { RatingRule, RatingResult } from '../types';
 
-export const rate = (val, rules) => {
-  if(n(val)==null) return {lbl:"—",c:"var(--text-tertiary)",bg:"#1a202c",score:0};
-  for(const r of rules) if(r.test(val)) return r;
-  return {lbl:"—",c:"var(--text-tertiary)",bg:"#1a202c",score:0};
+export const rate = (val: unknown, rules: ReadonlyArray<RatingRule>): RatingResult => {
+  if (n(val) == null) return { lbl: '—', c: 'var(--text-tertiary)', bg: '#1a202c', score: 0 };
+  const num = val as number;
+  for (const r of rules) if (r.test(num)) return r;
+  return { lbl: '—', c: 'var(--text-tertiary)', bg: '#1a202c', score: 0 };
 };
 
-export const R = {
+export const R: Record<string, RatingRule[]> = {
   gm: [
     {test:v=>v>.40, lbl:"Excelente",c:"#30d158",bg:"rgba(48,209,88,.12)",score:3,tip:"Ventaja competitiva fuerte (moat). Poder de fijación de precios."},
     {test:v=>v>.25, lbl:"Bueno",c:"#64d2ff",bg:"rgba(100,210,255,.10)",score:2,tip:"Márgenes saludables, empresa competitiva."},

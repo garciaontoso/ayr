@@ -14,8 +14,8 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { API_URL } from '../../constants/index.js';
-import { _sf, fDol } from '../../utils/formatters';
-import { STRATEGY_HEX, STRATEGY_DESC } from '../../utils/strategyColors.js';
+import { _sf, fDol as _fDol } from '../../utils/formatters';
+import { STRATEGY_HEX, STRATEGY_DESC } from '../../utils/strategyColors';
 
 // ── Style constants (hoisted) ───────────────────────────────────────────────
 const cardBase = {

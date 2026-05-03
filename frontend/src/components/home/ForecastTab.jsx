@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { API_URL } from '../../constants/index.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-const fDol = (v, decimals = 0) => {
+const _fDol = (v, decimals = 0) => {
   if (v == null || isNaN(v)) return '—';
   const abs = Math.abs(v);
   if (abs >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;

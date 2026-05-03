@@ -105,11 +105,11 @@ export default function ResearchTab() {
   const {
     searchTicker, setSearchTicker,
     portfolio,
-    screenerData, screenerLoading,
+    screenerData, _screenerLoading,
     bulkLoading, bulkProgress, loadScreener, runBulkFetch,
     researchOpenList, setResearchOpenList, researchAdvanced, setResearchAdvanced,
     researchHide, setResearchHide, researchCapFilter, setResearchCapFilter,
-    reportData, reportLoading, reportSymbol, openReport,
+    _reportData, _reportLoading, _reportSymbol, openReport,
     openAnalysis, POS_STATIC,
     loadFromAPI, fmpLoading, fmpError, setViewMode, setTab, setCfg,
     setHomeTab,
@@ -208,6 +208,20 @@ export default function ResearchTab() {
     return [...new Set(syms)].slice(0, 300);  // cap to avoid very long URLs
   }, [screenerData]);
   useEffect(() => { loadOracleVerdicts(screenerTickers); }, [screenerTickers, loadOracleVerdicts]);
+
+  // Hoisted from the inline IIFE so it can be referenced by <TickerSearchModal>
+  // outside the IIFE (was a no-undef bug at render time when opening the modal).
+  const handlePickTicker = (item) => {
+    const ctx = addTickerModal;
+    if (!ctx) return;
+    const list = customLists.find(l => l.id === ctx.listId);
+    if (!list) return;
+    const t = (item.symbol || '').trim().toUpperCase();
+    if (!t) return;
+    if (list.tickers.includes(t)) { alert(`${t} ya está en la lista`); return; }
+    saveCustomLists(customLists.map(l => l.id === ctx.listId ? { ...l, tickers: [...l.tickers, t] } : l));
+    setAddTickerModal(null);
+  };
 
   return (
 <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -322,19 +336,7 @@ export default function ResearchTab() {
       if (!list) return;
       setAddTickerModal({ listId: id, listName: list.name });
     };
-    // Callback invocado cuando el usuario elige un ticker en el dropdown.
-    // Recibe {symbol, name, exchange} desde FMP — usamos el symbol exacto que
-    // FMP entrega (ej "NESN.SW") para garantizar que el bulk fetch funcione.
-    const handlePickTicker = (item) => {
-      const ctx = addTickerModal;
-      if (!ctx) return;
-      const list = customLists.find(l => l.id === ctx.listId);
-      if (!list) return;
-      const t = (item.symbol || '').trim().toUpperCase();
-      if (!t) return;
-      if (list.tickers.includes(t)) { alert(`${t} ya está en la lista`); return; }
-      saveCustomLists(customLists.map(l => l.id === ctx.listId ? { ...l, tickers: [...l.tickers, t] } : l));
-    };
+    // (handlePickTicker hoisted to outer scope — see ResearchTab top.)
     // Remove a single ticker from the active custom list.
     const handleRemoveTicker = (listId, ticker) => {
       if (!listId.startsWith('custom_')) return;

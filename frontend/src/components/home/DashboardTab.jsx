@@ -29,8 +29,8 @@ export default function DashboardTab() {
       .catch(() => setSpyHistory([]));
   }, []);
   const {
-    portfolioTotals, portfolioList, privacyMode, hide, hideN,
-    openAnalysis, POS_STATIC, getCountry, FLAGS,
+    portfolioTotals, portfolioList, privacyMode, hide, _hideN,
+    openAnalysis, POS_STATIC, _getCountry, FLAGS,
     CTRL_DATA, INCOME_DATA, DIV_BY_YEAR, DIV_BY_MONTH, GASTOS_CAT, CASH_DATA, MARGIN_INTEREST_DATA, FI_TRACK, FIRE_PROJ, FIRE_PARAMS, ANNUAL_PL,
     GASTOS_MONTH, fxRates,
     ibData, ibDiscrepancies,
@@ -188,10 +188,10 @@ const pieTotal = pieData.reduce((s,d) => s + d.v, 0) || 1;
 
 const strats = [{k:"div",l:"Dividendos",c:"#c8a44e"},{k:"cs",l:"Covered Calls",c:"#30d158"},{k:"rop",l:"ROP",c:"#5e5ce6"},{k:"roc",l:"ROC",c:"#bf5af2"},{k:"cal",l:"Calendar",c:"#64d2ff"},{k:"leaps",l:"LEAPs",c:"#ff9f0a"}];
 
-const cs = {padding:"16px 20px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:16,flex:1,minWidth:140};
+const _cs = {padding:"16px 20px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:16,flex:1,minWidth:140};
 const ls = {fontSize:9,color:"var(--text-tertiary)",fontFamily:"var(--fm)",letterSpacing:.8,fontWeight:600,marginBottom:4};
-const vs = {fontSize:22,fontWeight:700,fontFamily:"var(--fm)",lineHeight:1.2};
-const ss = {fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2};
+const _vs = {fontSize:22,fontWeight:700,fontFamily:"var(--fm)",lineHeight:1.2};
+const _ss = {fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)",marginTop:2};
 const secTitle = (ico,text) => <div style={{fontSize:15,fontWeight:600,color:"var(--text-primary)",fontFamily:"var(--fd)",marginBottom:16}}>{ico} {text}</div>;
 const card = {background:"var(--card)",border:"1px solid var(--border)",borderRadius:16,padding:20};
 
@@ -380,7 +380,7 @@ return (
     const curTotal = curDataG.reduce((s, v) => s + v, 0);
     const curTotalN = curData.reduce((s, v) => s + v, 0);
     const prevTotal = prevDataG.reduce((s, v) => s + v, 0);
-    const prevTotalN = prevData.reduce((s, v) => s + v, 0);
+    const _prevTotalN = prevData.reduce((s, v) => s + v, 0);
     const curMonth = new Date().getMonth();
 
     return (
@@ -668,7 +668,7 @@ return (
       const nlv = ibData.summary?.nlv?.amount || 1;
       const marginPct = Math.min((initMargin / nlv) * 100, 100);
       const gaugeColor = marginPct > 50 ? "#ff453a" : marginPct > 30 ? "#ffd60a" : "#30d158";
-      const gaugeColorBg = marginPct > 50 ? "rgba(255,69,58,.1)" : marginPct > 30 ? "rgba(255,214,10,.1)" : "rgba(48,209,88,.1)";
+      const _gaugeColorBg = marginPct > 50 ? "rgba(255,69,58,.1)" : marginPct > 30 ? "rgba(255,214,10,.1)" : "rgba(48,209,88,.1)";
       // Semi-circle gauge: arc from 180deg to 0deg (left to right)
       const cx = 100, cy = 90, r = 70, sw = 14;
       const startAngle = Math.PI; // 180 deg
@@ -1209,7 +1209,7 @@ return (
       const mNP = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
       return <>
         <div style={{display:"flex",alignItems:"center",gap:4,height:200,padding:"0 4px"}}>
-          {months12.map((d,i) => {
+          {months12.map((d,_i) => {
             const v = d.total || 0;
             const h = Math.abs(v) / maxP * 80;
             const isP = v >= 0;

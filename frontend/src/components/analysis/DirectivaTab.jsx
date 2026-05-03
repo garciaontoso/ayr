@@ -135,7 +135,7 @@ export default function DirectivaTab() {
 
   // CEO highlight: first exec whose title matches CEO/Chief Executive
   const ceo = data.executives.find(e => /chief\s*executive|^ceo\b/i.test(e.title)) || data.executives[0];
-  const others = data.executives.filter(e => e !== ceo).slice(0, 8);
+  const _others = data.executives.filter(e => e !== ceo).slice(0, 8);
   const insider = data.insider_activity_12m || {};
   const totalComp = data.total_compensation_usd || 0;
 

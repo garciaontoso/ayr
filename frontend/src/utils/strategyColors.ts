@@ -16,7 +16,17 @@
 //   SCALP      = orange    (intraday/weekly index)
 //   OPT/Other  = slate     (uncategorized)
 
-export const STRATEGY_HEX = {
+export type StrategyKey =
+  | 'CSP' | 'SP' | 'CC' | 'SC' | 'BPS' | 'BCS' | 'IC'
+  | 'LP' | 'LC' | 'SCALP' | 'OPT' | 'Other';
+
+export interface StrategyRgba {
+  bg: string;
+  border: string;
+  text: string;
+}
+
+export const STRATEGY_HEX: Record<StrategyKey, string> = {
   CSP:   '#10b981',
   SP:    '#10b981',
   CC:    '#a855f7',
@@ -31,7 +41,7 @@ export const STRATEGY_HEX = {
   Other: '#94a3b8',
 };
 
-export const STRATEGY_RGBA = Object.fromEntries(
+export const STRATEGY_RGBA: Record<string, StrategyRgba> = Object.fromEntries(
   Object.entries(STRATEGY_HEX).map(([k, hex]) => {
     // Convert #RRGGBB → rgb tuple → rgba bg/border with consistent opacities
     const r = parseInt(hex.slice(1, 3), 16);
@@ -45,7 +55,7 @@ export const STRATEGY_RGBA = Object.fromEntries(
   })
 );
 
-export const STRATEGY_DESC = {
+export const STRATEGY_DESC: Record<StrategyKey, string> = {
   CSP: 'Cash-Secured Puts',
   CC: 'Covered Calls',
   BPS: 'Bull Put Spread',

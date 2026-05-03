@@ -52,7 +52,7 @@ export default function ScreenerTab() {
 
   const scoreColor = (s) => s >= 70 ? "#30d158" : s >= 50 ? "#c8a44e" : "#ff453a";
   const scoreBg = (s) => s >= 70 ? "rgba(48,209,88,.1)" : s >= 50 ? "rgba(200,164,78,.1)" : "rgba(255,69,58,.1)";
-  const scoreLabel = (s) => s >= 80 ? "CORE HOLD" : s >= 60 ? "HOLD" : s >= 40 ? "REVIEW" : "SELL";
+  const _scoreLabel = (s) => s >= 80 ? "CORE HOLD" : s >= 60 ? "HOLD" : s >= 40 ? "REVIEW" : "SELL";
 
   return <div style={{display:"flex",flexDirection:"column",gap:14}}>
     {/* Header */}

@@ -48,7 +48,7 @@ const labelStyle = {
 };
 
 export default function BuyWizard({ open, onClose, initialTicker }) {
-  const { portfolio, portfolioList, portfolioTotals, screenerData, POS_STATIC } = useHome();
+  const { _portfolio, portfolioList, portfolioTotals, screenerData, POS_STATIC } = useHome();
   const [ticker, setTicker] = useState(initialTicker || '');
   const [step, setStep] = useState('input');  // input | evaluating | review | submitting | done
   const [oracleResult, setOracleResult] = useState(null);
@@ -358,7 +358,7 @@ export default function BuyWizard({ open, onClose, initialTicker }) {
 // ── Oracle Review Panel — the hero display ────────────────────────────────
 
 function OracleReviewPanel({ data, tesis, setTesis, shares, setShares, price, setPrice, conviction, setConviction, horizon, setHorizon, onCancel, onRegister, onRefresh }) {
-  const { ticker, verdict, cached, contextUsed, callMs, generatedAt, position, isNew, sector, sectorTarget, sectorStatus, currentWeight, suggestedUSD, suggestedPct, livePrice } = data;
+  const { ticker, verdict, cached, contextUsed, callMs, generatedAt, position, isNew, sector, sectorTarget, sectorStatus, currentWeight, suggestedUSD, _suggestedPct, livePrice } = data;
 
   const action = verdict.action || 'HOLD';
   const actionColor = verdictColor(action);

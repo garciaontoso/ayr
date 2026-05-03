@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useHome } from '../../context/HomeContext';
-import { _sf, fDol } from '../../utils/formatters';
+import { _sf, fDol as _fDol } from '../../utils/formatters';
 import { CURRENCIES, API_URL } from '../../constants/index.js';
 import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
 
@@ -377,7 +377,7 @@ export default function GastosTab() {
       if(ccy === "USD") return raw * 0.926;
       return raw;
     };
-    const ccySym = (ccy) => ({EUR:"€",USD:"$",CNY:"¥"}[(ccy||"EUR").toUpperCase()] || "€");
+    const _ccySym = (ccy) => ({EUR:"€",USD:"$",CNY:"¥"}[(ccy||"EUR").toUpperCase()] || "€");
 
     const filtered = gastosLog.filter(g => {
       if (gastosFilter.year !== "all" && !g.date?.startsWith(gastosFilter.year)) return false;

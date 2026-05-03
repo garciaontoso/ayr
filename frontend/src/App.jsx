@@ -1,9 +1,10 @@
 import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } from "react";
 import { useThemeStore } from './state/themeStore';
+import { usePortfolioStore } from './state/portfolioStore';
 import { _sf, fmtNumD, fmtPctFrac, fmtMul, fmtBnUsd } from './utils/formatters';
 import { CURRENCIES, DISPLAY_CCYS, DEFAULT_FX, YEARS, _CURRENT_YEAR, TABS, API_URL, HOME_TABS } from './constants/index.js';
-import { convertCcy, fetchFxRates } from './utils/currency.js';
-import { storageAvailable, saveCompanyToStorage, loadCompanyFromStorage, loadPortfolioIndex, removeCompanyFromStorage } from './utils/storage.js';
+import { convertCcy, fetchFxRates } from './utils/currency';
+import { storageAvailable, saveCompanyToStorage, loadCompanyFromStorage, loadPortfolioIndex, removeCompanyFromStorage } from './utils/storage';
 import { fetchViaFMP } from './api/fmp.js';
 import { generateReport } from './api/claude.js';
 import { fetchAllData } from './api/data.js';
@@ -222,7 +223,7 @@ export default function ARApp() {
   const [lastSaved, setLastSaved] = useState(null); // ISO date of last save for current ticker
   const [positionNotes, setPositionNotes] = useState(''); // current company notes (buy thesis)
   const [notesSaved, setNotesSaved] = useState(false); // "Guardado" indicator
-  const notesTimerRef = useRef(null);
+  const _notesTimerRef = useRef(null);
   const [recentTickers, setRecentTickers] = useState(() => {
     try { return JSON.parse(localStorage.getItem('ayr_recent') || '[]'); } catch { return []; }
   });
@@ -444,14 +445,18 @@ function buildPositionsFromCB() {
   return result;
 }
 
-  const [positions, setPositions] = useState(() => buildPositionsFromCB());
+  // ── Positions state — source of truth lives in portfolioStore (Zustand) ──
+  // Selectors use shallow equality so re-renders only fire when the map ref changes.
+  const positions = usePortfolioStore((s) => s.positions);
+  const setPositions = usePortfolioStore((s) => s.setPositions);
+  const patchPositions = usePortfolioStore((s) => s.patchPositions);
   // Re-build positions when D1 data loads (POS_STATIC changes from {} to 89 positions)
   useEffect(() => {
     if (Object.keys(POS_STATIC).length > 0) {
       setPositions(buildPositionsFromCB());
     }
   }, [D1_POSITIONS]);
-  const [editingPos, setEditingPos] = useState(null); // ticker being edited
+  const [_editingPos, _setEditingPos] = useState(null); // ticker being edited
   const [pricesLoading, setPricesLoading] = useState(false);
   const [pricesLastUpdate, setPricesLastUpdate] = useState(null);
 
@@ -468,7 +473,7 @@ function buildPositionsFromCB() {
       if (!resp.ok) throw new Error("Price API error");
       const data = await resp.json();
       if (data.prices && Object.keys(data.prices).length > 0) {
-        setPositions(prev => {
+        patchPositions(prev => {
           const updated = { ...prev };
           for (const [ticker, priceData] of Object.entries(data.prices)) {
             if (updated[ticker]) {
@@ -478,7 +483,7 @@ function buildPositionsFromCB() {
               const fx = p.fx || 1;
               // USD value: for USD stocks it's price*shares, for foreign it's price*shares*fx
               const ccy = p.currency || "USD";
-              const newUsdValue = ccy === "USD" ? newPrice * shares 
+              const newUsdValue = ccy === "USD" ? newPrice * shares
                 : ccy === "GBX" ? (newPrice / 100) * shares * fx  // GBX = pence, convert to GBP then to USD
                 : newPrice * shares * fx;
               // Recalculate P&L
@@ -510,7 +515,7 @@ function buildPositionsFromCB() {
       if (force) setToast({ message: "Error actualizando precios", type: "error" });
     }
     setPricesLoading(false);
-  }, []);
+  }, [patchPositions]);
 
   // Auto-refresh prices after initial data load
   useEffect(() => {
@@ -604,7 +609,7 @@ function buildPositionsFromCB() {
         body: JSON.stringify({ notes }),
       });
       // Update local positions state so badge appears without reload
-      setPositions(prev => {
+      patchPositions(prev => {
         if (!prev[ticker]) return prev;
         return { ...prev, [ticker]: { ...prev[ticker], notes } };
       });
@@ -798,7 +803,7 @@ function buildPositionsFromCB() {
     }
     const avgCost = totalBought > 0 ? totalCost / totalBought : adjBasis;
     // Update position with CB-derived values
-    setPositions(prev => {
+    patchPositions(prev => {
       const existing = prev[cbTicker] || {};
       return {...prev, [cbTicker]: {...existing, shares: finalShares, avgCost, adjustedBasis: adjBasis, totalDivs, totalOptCredit, hasCB: true}};
     });
@@ -836,18 +841,18 @@ function buildPositionsFromCB() {
   }, [cbTicker, saveTransactions]);
 
   const updatePosition = useCallback((ticker, data) => {
-    setPositions(prev => {
+    patchPositions(prev => {
       const next = {...prev, [ticker.toUpperCase()]: {...(prev[ticker.toUpperCase()]||{list:"portfolio"}), ...data}};
       return next;
     });
-  }, []);
+  }, [patchPositions]);
 
   const removePosition = useCallback((ticker) => {
-    setPositions(prev => {
+    patchPositions(prev => {
       const next = {...prev}; delete next[ticker.toUpperCase()];
       return next;
     });
-  }, []);
+  }, [patchPositions]);
 
   const portfolioList = useMemo(() => Object.entries(positions).filter(([,v])=>v.list==="portfolio"&&(v.shares>0||v.sh>0)).map(([k,v])=>({ticker:k,...v})), [positions]);
   const watchlistList = useMemo(() => Object.entries(positions).filter(([,v])=>v.list==="watchlist").map(([k,v])=>({ticker:k,...v})), [positions]);
@@ -930,7 +935,7 @@ function buildPositionsFromCB() {
     } catch(e) { console.error("Report fetch error:", e); }
     setReportLoading(false);
   }, []);
-  const closeReport = () => { setReportSymbol(null); setReportData(null); };
+  const _closeReport = () => { setReportSymbol(null); setReportData(null); };
   const [divCalYear, setDivCalYear] = useState(new Date().getFullYear().toString());
   
   const loadDivLog = useCallback(async () => {
@@ -1445,7 +1450,7 @@ function buildPositionsFromCB() {
       const r = await fetch(`${API_URL}/api/prices?tickers=${tickers}&live=1`);
       const d = await r.json();
       if (d.prices) {
-        setPositions(prev => {
+        patchPositions(prev => {
           const updated = { ...prev };
           for (const [ticker, priceInfo] of Object.entries(d.prices)) {
             if (updated[ticker] && priceInfo?.price) {
@@ -1477,7 +1482,7 @@ function buildPositionsFromCB() {
         });
       }
     } catch {}
-  }, [portfolioList]);
+  }, [portfolioList, patchPositions]);
 
   // Auto-refresh live prices every 10 seconds (skip when offline)
   useEffect(() => {
@@ -1726,7 +1731,7 @@ function buildPositionsFromCB() {
   }, [displayCcy, fxRates]);
 
   // Format amount in display currency
-  const fDisplay = useCallback((amount, fromCcy) => {
+  const _fDisplay = useCallback((amount, fromCcy) => {
     const converted = toDisplay(amount, fromCcy);
     if(converted == null || isNaN(converted)) return "—";
     const sym = CURRENCIES[displayCcy]?.symbol || "$";
@@ -1861,10 +1866,10 @@ function buildPositionsFromCB() {
     }
   }, [pendingAutoLoad, fmpLoading, loadFromAPI]);
   // ── Switch to a saved company from portfolio ──
-  const switchCompany = useCallback(async (ticker) => {
+  const _switchCompany = useCallback(async (ticker) => {
     const saved = await loadCompanyFromStorage(ticker);
     if (!saved?.fin) { setFmpError(`No hay datos guardados para ${ticker}`); return; }
-    setFin(prev => {
+    setFin(_prev => {
       const merged = {};
       YEARS.forEach(y => { merged[y] = {revenue:0,grossProfit:0,operatingIncome:0,netIncome:0,eps:0,dps:0,sharesOut:0,totalDebt:0,cash:0,equity:0,retainedEarnings:0,ocf:0,capex:0,interestExpense:0,depreciation:0,taxProvision:0}; });
       Object.keys(saved.fin).forEach(y => { merged[parseInt(y, 10)] = saved.fin[parseInt(y, 10)]; });
@@ -2005,9 +2010,9 @@ function buildPositionsFromCB() {
     const ccy = rawCcy === "GBX" ? "GBP" : rawCcy;
     const isGBX = rawCcy === "GBX";
     const origSym = CURRENCIES[ccy]?.symbol || "$";
-    const isForeign = ccy !== "USD";
-    const priceUSD = p.priceUSD ?? 0;
-    const costUSD = p.costUSD ?? 0;
+    const _isForeign = ccy !== "USD";
+    const _priceUSD = p.priceUSD ?? 0;
+    const _costUSD = p.costUSD ?? 0;
     const valueUSD = p.valueUSD ?? 0;
     const valueEUR = p.valueEUR ?? 0;
     const weight = p.weight ?? 0;
@@ -2591,7 +2596,7 @@ function buildPositionsFromCB() {
                     setScoresModalData(null);
                     try {
                       const r = await fetch(`${API_URL}/api/scores/compute?ticker=${encodeURIComponent(scoresModalTicker)}`,{method:"POST"});
-                      const d = await r.json();
+                      const _d = await r.json();
                       // Reload via GET
                       const r2 = await fetch(`${API_URL}/api/scores/${encodeURIComponent(scoresModalTicker)}`);
                       setScoresModalData(await r2.json());
@@ -2610,7 +2615,7 @@ function buildPositionsFromCB() {
               const sInputs = inputs.safety || {};
               // Migrated to shared helpers in utils/formatters.
               // fmt falls back to the raw value for non-numbers (e.g. string labels), so keep a tiny wrapper.
-              const fmt = (v, decimals=2) => (typeof v === 'number' ? fmtNumD(v, decimals) : (v == null ? "—" : v));
+              const _fmt = (v, decimals=2) => (typeof v === 'number' ? fmtNumD(v, decimals) : (v == null ? "—" : v));
               const fmtPct = fmtPctFrac;          // fraction → "X.X%"
               // fmtMul, fmtBn come from imports (fmtBn → fmtBnUsd alias below for local call sites)
               const fmtBn = fmtBnUsd;

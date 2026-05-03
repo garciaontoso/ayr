@@ -1,13 +1,13 @@
 import { useMemo, useCallback, useEffect } from 'react';
 import { n, div, _sf } from '../utils/formatters';
-import { rate, R } from '../utils/ratings.js';
+import { rate, R } from '../utils/ratings';
 import { YEARS } from '../constants/index.js';
 import { calcWACC } from '../calculators/wacc';
 import { calcPiotroski } from '../calculators/piotroski';
 import { calcAltmanZ } from '../calculators/altmanZ';
 import { calcGrowthRate } from '../calculators/growthRate';
 import { calcDividendAnalysis } from '../calculators/dividendAnalysis';
-import { isChronoAsc } from '../utils/userPrefs.js';
+import { isChronoAsc } from '../utils/userPrefs';
 
 export function useAnalysisMetrics({ fin, cfg, setSsd, fmpExtra }) {
   // 2026-05-03: chronoAsc = user prefers oldest→newest left-to-right order
@@ -217,8 +217,8 @@ export function useAnalysisMetrics({ fin, cfg, setSsd, fmpExtra }) {
     const ebitda = comp[latestDataYear]?.ebitda;
     const netDebt = comp[latestDataYear]?.netDebt;
     const ndEbitda = ebitda > 0 ? (netDebt || 0) / ebitda : 0;
-    const fcf = comp[latestDataYear]?.fcf;
-    const totalDivPaid = LD.dps > 0 && LD.sharesOut > 0 ? LD.dps * LD.sharesOut : 0;
+    const _fcf = comp[latestDataYear]?.fcf;
+    const _totalDivPaid = LD.dps > 0 && LD.sharesOut > 0 ? LD.dps * LD.sharesOut : 0;
 
     const payoutScore = payoutFCF < 0.4 ? 25 : payoutFCF < 0.6 ? 20 : payoutFCF < 0.75 ? 12 : 5;
     const consecScore = growthStreak >= 10 ? 20 : growthStreak >= 5 ? 15 : growthStreak >= 3 ? 10 : 3;

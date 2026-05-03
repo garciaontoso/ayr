@@ -2,7 +2,7 @@
 // Input: earnings_scorecard de /api/fg-history (40 quarters de EPS estimado vs actual).
 // Rendereo: stat tiles (beats/misses/beat-rate/avg surprise) + barras quarter-a-quarter
 // con color rojo/verde según sorpresa, hover tooltip con fecha/est/act.
-import { fP, fC } from '../../utils/formatters';
+import { fP as _fP, fC } from '../../utils/formatters';
 
 export default function AnalystScorecard({ scorecard }) {
   if (!scorecard || !scorecard.quarters?.length) {

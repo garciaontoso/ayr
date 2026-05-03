@@ -1,5 +1,5 @@
 import { API_URL } from '../constants/index.js';
-import { loadCompanyFromStorage } from '../utils/storage.js';
+import { loadCompanyFromStorage } from '../utils/storage';
 
 export async function fetchViaFMP(ticker, { forceRefresh = false } = {}) {
   const refreshParam = forceRefresh ? "&refresh=1" : "";
@@ -181,6 +181,6 @@ export async function fetchViaFMP(ticker, { forceRefresh = false } = {}) {
 }
 
 // Legacy wrapper
-export async function fetchViaClaudeAPI(ticker, apiKey) {
+export async function fetchViaClaudeAPI(ticker, _apiKey) {
   return fetchViaFMP(ticker);
 }

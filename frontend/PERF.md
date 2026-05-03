@@ -86,3 +86,63 @@ Lighthouse local (desktop preset, sólo el shell estático):
 `/.github/workflows/ci.yml` job `perf` corre `npm run size` (block) +
 `npm run lhci` (continue-on-error mientras endurecemos). Depende del
 job `frontend` (build + tests).
+
+## Source maps en R2 (debugging stacks de prod)
+
+Vite genera `dist/assets/*.js.map` cuando `build.sourcemap = true`. NO
+se publican en Cloudflare Pages (los `.map` se sirven desde R2 bajo
+demanda solo para el desarrollador). El upload corre dentro de
+`npm run deploy:frontend` justo después del build:
+
+```
+cd frontend && npm run build && npm run upload:sourcemaps && wrangler pages deploy dist
+```
+
+### Layout R2
+
+- Bucket: `ayr-earnings-archive` (reusado, prefijo `sourcemaps/`)
+- Key: `sourcemaps/{BUILD_ID}/{filename}.js.map`
+- BUILD_ID: `"{ISO timestamp sin colons}_{git short SHA}"` ej:
+  `2026-05-03_19-30-21_3933eb2`. Inyectado en bundle via
+  `import.meta.env.VITE_BUILD_ID` (vite.config.js).
+
+`main.jsx` y `ErrorBoundary.jsx` ya leen `VITE_BUILD_ID` y lo mandan
+en cada POST a `/api/error-log`. La columna `errors_log.build_id`
+sale en el dashboard.
+
+### Workflow para resolver un stack minificado
+
+1. Abre `/api/errors/dashboard` (UI) y copia `buildId` + stack.
+2. POST a `/api/errors/resolve-stack` con `{ buildId, stack }`:
+   ```
+   curl -X POST https://api.onto-so.com/api/errors/resolve-stack \
+     -H "X-AYR-Auth: $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"buildId":"2026-05-03_...","stack":"Vn.fetch at index-XYZ.js:1:5234"}'
+   ```
+   Devuelve los `mapKey`s y un comando `wrangler r2 object get` por
+   cada filename detectado.
+3. Descarga el `.map`:
+   ```
+   npx wrangler r2 object get ayr-earnings-archive/sourcemaps/.../index-XYZ.js.map \
+     --remote --file=/tmp/index-XYZ.js.map
+   ```
+4. En Chrome DevTools → Sources → Right-click → "Add source map…" →
+   apunta al fichero local. Las líneas minificadas mostraran
+   `componentName.jsx:42` reales.
+
+### Por qué NO resolvemos en el server
+
+La librería `source-map` (Mozilla) funciona en Workers pero pesa
+~150KB y consume CPU budget. El dashboard se mira <10x/día por el
+desarrollador, así que el round-trip manual de `wrangler r2 get` +
+DevTools es razonable. Si esto se vuelve doloroso, migrar a
+resolución server-side con la librería lazy-loaded (el endpoint ya es
+admin-only).
+
+### Tamaño y rotación
+
+Cada deploy sube ~5-10MB de `.map` (todos los chunks lazy incluidos).
+A 30 deploys/mes son ~250MB anuales, dentro del free tier de R2 (10GB).
+Los antiguos no se borran automaticamente — limpiar manualmente con
+`wrangler r2 object delete` cuando se acumule.

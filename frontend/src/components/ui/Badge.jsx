@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { rate } from '../../utils/ratings.js';
+import { rate } from '../../utils/ratings';
 
 const Badge = ({val,rules,showTip}) => {
   const r = rate(val,rules);

@@ -139,7 +139,7 @@ export default function TesisTab() {
     );
   }
 
-  const convictionStars = '⭐'.repeat(Math.max(0, Math.min(5, conviction || 0)));
+  const _convictionStars = '⭐'.repeat(Math.max(0, Math.min(5, conviction || 0)));
   const typeColors = {
     compounder: 'var(--green)',
     value: '#64d2ff',

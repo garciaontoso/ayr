@@ -126,7 +126,7 @@ describe('DEFAULT_FX', () => {
   });
 
   it('all rates are positive numbers', () => {
-    for (const [ccy, rate] of Object.entries(DEFAULT_FX)) {
+    for (const [_ccy, rate] of Object.entries(DEFAULT_FX)) {
       expect(typeof rate).toBe('number');
       expect(rate).toBeGreaterThan(0);
     }

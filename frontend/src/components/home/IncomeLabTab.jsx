@@ -98,7 +98,7 @@ const SECTOR_FALLBACK = {
 };
 
 export default function IncomeLabTab() {
-  const { portfolioTotals, portfolioList, positions, displayCcy, privacyMode, hide, openAnalysis, getCountry, FLAGS, POS_STATIC, ibData, CTRL_DATA } = useHome();
+  const { portfolioTotals, _portfolioList, _positions, _displayCcy, privacyMode, hide, openAnalysis, _getCountry, FLAGS, POS_STATIC, ibData, CTRL_DATA } = useHome();
   // Canonical NLV (live IB cash+margin+positions, fallback CTRL snapshot).
   // Was using portfolioTotals.totalValueUSD which omits cash/margin → DRIP underestimated.
   const canonicalNlv = useNetLiquidationValue({ ibData, ctrlData: CTRL_DATA });
@@ -112,7 +112,7 @@ export default function IncomeLabTab() {
   // Fetch historical income data for stacking chart
   const [incomeHistory, setIncomeHistory] = useState(null);
   useEffect(() => {
-    const year = new Date().getFullYear();
+    const _year = new Date().getFullYear();
     Promise.all([
       fetch(`${API_URL}/api/costbasis/all?tipo=OPTION&limit=2000&sort=fecha&dir=asc`).then(r=>r.json()).catch(()=>({results:[]})),
       fetch(`${API_URL}/api/dividendos`).then(r=>r.json()).catch(()=>[]),
@@ -167,14 +167,14 @@ export default function IncomeLabTab() {
     // Fall back to the quarterly-estimate heuristic only if the API failed
     // or returned nothing for this ticker.
     const history = calRaw?.history || {};
-    const posBySymbol = Object.fromEntries(
+    const _posBySymbol = Object.fromEntries(
       pos.map(p => [p.ticker, p])
     );
 
     pos.forEach(p => {
       const annual = p.divAnnualUSD || 0;
       if (annual <= 0 || !p.shares) return;
-      const perShare = annual / p.shares;
+      const _perShare = annual / p.shares;
       const hist = history[p.ticker] || [];
 
       if (hist.length >= 2) {

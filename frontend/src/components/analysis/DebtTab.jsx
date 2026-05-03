@@ -2,8 +2,8 @@ import { useState, useRef } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext';
 import { Badge, Card, MetricHistoryChart } from '../ui';
 import { fP, fX, fM, div } from '../../utils/formatters';
-import { R } from '../../utils/ratings.js';
-import { getPref, setPref, removePref } from '../../utils/userPrefs.js';
+import { R } from '../../utils/ratings';
+import { getPref, setPref, removePref } from '../../utils/userPrefs';
 
 const PREF_KEY = 'ayr-row-order-debt';
 const DEFAULT_ORDER = ["d2fcf","ic","nd2cap","d2ebit","nd2ocf","nd2rev","int2ocf"];

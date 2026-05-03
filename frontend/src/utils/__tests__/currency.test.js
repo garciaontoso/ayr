@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { convertCcy, fCcy } from '../currency.js';
+import { convertCcy, fCcy } from '../currency';
 
 const FX = {
   USD: 1,

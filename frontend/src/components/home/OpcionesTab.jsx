@@ -21,7 +21,7 @@
 // TDZ-safe: all useState/useRef declared BEFORE any useEffect (CLAUDE.md #1
 // recurring bug pattern).
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef as _useRef } from 'react';
 import { API_URL } from '../../constants/index.js';
 import { fmtUsdCompact as fmtUsd, fmtPctFrac, fmtNumD as fmtNum, fmtDateES as fmtDate } from '../../utils/formatters';
 
@@ -471,7 +471,7 @@ function Select({ label, value, onChange, options }) {
 }
 
 // ─── KPI strip ──────────────────────────────────────────────────────
-function KpiStrip({ kpis, strategy, color }) {
+function KpiStrip({ kpis, _strategy, color }) {
   const cards = [
     { lbl: 'Trades visibles', val: kpis.total, fmt: 'int' },
     { lbl: 'Abiertos', val: kpis.open, fmt: 'int' },
