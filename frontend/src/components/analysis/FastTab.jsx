@@ -488,7 +488,10 @@ export default function FastTab() {
   }));
   const fairHistPoly = fairHistPts.map(p => `${p.x},${p.yp}`).join(' ');
 
-  // Fair value projection (dashed) — use activePE EXCEPT in "normal" mode which collapses to avg P/E
+  // Fair value projection — use activePE EXCEPT in "normal" mode which collapses to avg P/E.
+  // 2026-05-03: el anchor de la proyección ahora usa getSmoothEps(lastHistY) en
+  // lugar de lastVal raw para conectarse perfectamente con el final de la línea
+  // histórica cuando smoothEps está activo. Antes había salto vertical visible.
   const projMultiplier = forecastMode === 'normal' && (history?.avg_pe_10y || history?.avg_pe_5y || history?.avg_pe_all)
     ? (history.avg_pe_10y || history.avg_pe_5y || history.avg_pe_all)
     : activePE;
@@ -497,9 +500,18 @@ export default function FastTab() {
     yp: yScale(d.val * projMultiplier),
     val: d.val * projMultiplier,
   }));
-  // Connect from last hist point
-  const projFairFull = validHist.length ? [{ x: xScale(lastHistY), yp: yScale(lastVal * projMultiplier), val: lastVal * projMultiplier }, ...projFairPts] : projFairPts;
+  // Connect from last hist point — usa getSmoothEps si smooth está ON, mismo
+  // valor que el último punto de fairHistPts → unión sin gap.
+  const anchorVal = validHist.length ? getSmoothEps(lastHistY) : 0;
+  const projFairFull = validHist.length ? [{ x: xScale(lastHistY), yp: yScale(anchorVal * projMultiplier), val: anchorVal * projMultiplier }, ...projFairPts] : projFairPts;
   const projFairPoly = projFairFull.map(p => `${p.x},${p.yp}`).join(' ');
+
+  // Combined fair value line (histórico + proyección) — UNA SOLA polyline
+  // sólida estilo FAST Graphs. Antes pintábamos dos polylines (sólida +
+  // rayada) y se notaba la transición. Ahora es continua porque el anchor
+  // de la proyección está alineado con el final del histórico.
+  const fairFullPts = [...fairHistPts, ...projFairPts];
+  const fairFullPoly = fairFullPts.map(p => `${p.x},${p.yp}`).join(' ');
 
   // Margin-of-error cones — uses real historical error de /api/fg-history.earnings_scorecard.
   // 1y cone applies to year+1 (small), 2y cone applies to year+2+ (larger).
@@ -696,10 +708,22 @@ export default function FastTab() {
   const peLow = pct(peValues, 0.15);   // percentil 15 ≈ "barato"
   const peMid = history?.avg_pe_10y || pct(peValues, 0.5);
   const peHigh = pct(peValues, 0.85);  // percentil 85 ≈ "caro"
-  const peBandLine = (peMult) => peMult == null ? '' : validHist.map(d => ({
-    x: xScale(d.y),
-    yp: yScale(clipY(getSmoothEps(d.y) * peMult)),
-  })).map(p => `${p.x},${p.yp}`).join(' ');
+  // 2026-05-03 fix: la línea Normal P/E (azul) ahora se extiende también a
+  // los años de proyección usando los EPS estimados (consensus o CAGR), igual
+  // que hace FAST Graphs. Antes terminaba en el último año histórico (2025)
+  // y dejaba un hueco a la derecha donde la línea naranja sí continuaba.
+  const peBandLine = (peMult) => {
+    if (peMult == null) return '';
+    const histPts = validHist.map(d => ({
+      x: xScale(d.y),
+      yp: yScale(clipY(getSmoothEps(d.y) * peMult)),
+    }));
+    const projPts = projData.filter(d => d.val != null).map(d => ({
+      x: xScale(d.y),
+      yp: yScale(clipY(d.val * peMult)),
+    }));
+    return [...histPts, ...projPts].map(p => `${p.x},${p.yp}`).join(' ');
+  };
   const bandLow = peBandLine(peLow);
   const bandMid = peBandLine(peMid);
   const bandHigh = peBandLine(peHigh);
@@ -1523,8 +1547,11 @@ export default function FastTab() {
                   la línea es suficiente. Es la señal más importante: precio si
                   la acción cotizara a su P/E histórico medio 10y. */}
               {visibleSeries.normalPE && bandMid && <polyline points={bandMid} fill="none" stroke="#4a90e2" strokeWidth={2.2} opacity={0.95} strokeLinejoin="round" strokeLinecap="round"/>}
-              {visibleSeries.normalPE && bandMid && validHist.map((d, i) => peMid ? (
-                <circle key={'npe'+i} cx={xScale(d.y)} cy={yScale(clipY(getSmoothEps(d.y) * peMid))} r={2.2} fill="#4a90e2" stroke="var(--bg)" strokeWidth={0.6}/>
+              {visibleSeries.normalPE && bandMid && [
+                ...validHist.map(d => ({ y: d.y, val: getSmoothEps(d.y), proj: false })),
+                ...projData.filter(d => d.val != null).map(d => ({ y: d.y, val: d.val, proj: true })),
+              ].map((d, i) => peMid ? (
+                <circle key={'npe'+i} cx={xScale(d.y)} cy={yScale(clipY(d.val * peMid))} r={2.2} fill="#4a90e2" stroke="var(--bg)" strokeWidth={0.6} opacity={d.proj ? 0.7 : 1}/>
               ) : null)}
 
               {/* Split flags — banderita vertical en cada stock split */}
@@ -1593,9 +1620,13 @@ export default function FastTab() {
                 </g>
               ))}
 
-              {/* Fair value curve (EPS × P/E custom) — línea naranja */}
-              {visibleSeries.fairValue && fairHistPts.length > 1 && (
-                <polyline points={fairHistPoly} fill="none" stroke="#f59e0b" strokeWidth={2.2} strokeLinejoin="round" strokeLinecap="round" strokeOpacity={0.95}/>
+              {/* Fair value curve UNIFICADA (histórico + proyección) — línea
+                  naranja única continua estilo FAST Graphs. Antes pintábamos
+                  fairHistPoly (sólida) + projFairPoly (rayada) y se notaba
+                  la transición; ahora una sola polyline solid que cubre
+                  todos los años, igual que FAST Graphs hace. */}
+              {visibleSeries.fairValue && fairFullPts.length > 1 && (
+                <polyline points={fairFullPoly} fill="none" stroke="#f59e0b" strokeWidth={2.2} strokeLinejoin="round" strokeLinecap="round" strokeOpacity={0.95}/>
               )}
 
               {/* Margin-of-error cone — shaded trapezoidal band around projection */}
@@ -1603,13 +1634,8 @@ export default function FastTab() {
                 <polygon points={conePoly} fill="#64d2ff" fillOpacity={0.10} stroke="#64d2ff" strokeOpacity={0.3} strokeWidth={0.5}/>
               )}
 
-              {/* Projection fair value line (dashed) */}
-              {visibleSeries.consensus && projFairFull.length > 1 && (
-                <polyline points={projFairPoly} fill="none" stroke={FORECAST_MODES.find(m=>m.id===forecastMode)?.color || '#64d2ff'} strokeWidth={2.5} strokeDasharray="5,3" strokeLinejoin="round" strokeLinecap="round"/>
-              )}
-
-              {/* Dots pequeños sobre la curva fair value */}
-              {visibleSeries.fairValue && fairHistPts.map((pt, i) => (
+              {/* Dots pequeños sobre la curva fair value (todos los años) */}
+              {visibleSeries.fairValue && fairFullPts.map((pt, i) => (
                 <circle key={'f'+i} cx={pt.x} cy={pt.yp} r={2} fill="#f59e0b" stroke="var(--bg)" strokeWidth={0.6}/>
               ))}
 
