@@ -1258,8 +1258,20 @@ function buildPositionsFromCB() {
         const ibCcy = ib.currency || "USD";
         const ibFx = ibCcy === "USD" ? 1 : (fxRates?.[ibCcy] ? 1 / fxRates[ibCcy] : (p.fx || 1));
         valueUSD = (ib.mktValue || 0) * (ibCcy === "USD" ? 1 : ibFx);
-        costTotalUSD = (ib.avgCost || 0) * (ib.shares || 0) * (ibCcy === "USD" ? 1 : ibFx);
-        pnlUSD = (ib.unrealizedPnl || 0) * (ibCcy === "USD" ? 1 : ibFx);
+        // 2026-05-03 fix: prefer the user's REAL adjusted cost basis from D1
+        // cost_basis (which reflects all trades + dividend reinvestments + option
+        // credits + partial sells with FIFO matching) over IB's reported avgCost.
+        // IB sometimes resets avgCost on corporate actions or carries stale
+        // numbers after partial liquidations — both lead to wrong P&L.
+        const realAdjBasis = p.adjustedBasis || 0; // already in local ccy from D1
+        const useRealCB = realAdjBasis > 0;
+        if (useRealCB) {
+          costTotalUSD = realAdjBasis * (ib.shares || 0) * (ibCcy === "USD" ? 1 : ibFx);
+          pnlUSD = valueUSD - costTotalUSD;
+        } else {
+          costTotalUSD = (ib.avgCost || 0) * (ib.shares || 0) * (ibCcy === "USD" ? 1 : ibFx);
+          pnlUSD = (ib.unrealizedPnl || 0) * (ibCcy === "USD" ? 1 : ibFx);
+        }
         pnlPct = costTotalUSD !== 0 ? pnlUSD / Math.abs(costTotalUSD) : 0;
         // DPS: LIVE_DPS now returns USD (bruto_usd), only fallback divTTM needs FX conversion
         const liveDps = LIVE_DPS[p.ticker];
@@ -1306,7 +1318,10 @@ function buildPositionsFromCB() {
       return {
         ...p, ccy, dataSource,
         shares, lastPrice,
-        adjustedBasis: ib?.avgCost || p.adjustedBasis || p.avgCost || 0,
+        // 2026-05-03 fix: prefer real cost basis from D1 over IB avgCost.
+        // Old behaviour `ib.avgCost || p.adjustedBasis` overwrote the truthful
+        // D1 value with IB's avg whenever IB had data, masking the bug.
+        adjustedBasis: p.adjustedBasis || ib?.avgCost || p.avgCost || 0,
         avgCost: ib?.avgCost || p.avgCost || 0,
         priceUSD: ccy === "USD" ? lastPrice : (valueUSD / (shares || 1)),
         costUSD: costTotalUSD / (shares || 1),
