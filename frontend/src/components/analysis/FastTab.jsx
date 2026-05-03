@@ -769,21 +769,62 @@ export default function FastTab() {
     };
   }).filter(Boolean) : [];
 
-  // Dividend overlay data
-  const divHist = histYrs.map(y => ({ y, dps: getDpsExt(y), eps: getMetricExt(y) }))
+  // Dividend overlay data — histórico + estimación forward.
+  // 2026-05-03: usuario reportó "la raya del dividendo no marca el dividendo
+  // que se espera ahora como hace la otra aplicación". FAST Graphs muestra
+  // 6/25 Div=$5.88 + 6/26E=$6.64 + 6/27E=$7.11 + 6/28E=$7.69 (E=estimado).
+  // Antes nuestro divHist sólo cogía años históricos. Ahora extendemos con
+  // proyección usando la mejor aproximación disponible:
+  //   1. DGR consenso si hay (history.dividendGrowthConsensus)
+  //   2. CAGR 5y de dividendos histórico
+  //   3. Crecimiento EPS aplicado proporcionalmente (asume payout estable)
+  //   4. Fallback 5%
+  const divHistRaw = histYrs.map(y => ({ y, dps: getDpsExt(y), eps: getMetricExt(y), proj: false }))
     .filter(d => d.dps > 0 && d.y >= (firstPriceYear || 0));
 
-  // Dots amarillos "Dividend POR" estilo FAST Graphs — siempre visibles
-  // (independiente de showDiv). Posicionados EN LA CURVA DPS × P/E activo,
-  // o sea al borde superior de la capa verde oscura. Esto coincide con el
-  // chart original donde los yellow dots marcan el "dividend-backed value"
-  // y quedan dentro de la zona verde oscura.
+  // Calcular CAGR 5y de DPS desde el divHistRaw
+  const divCagr5 = (() => {
+    if (divHistRaw.length < 5) return null;
+    const last = divHistRaw[divHistRaw.length - 1];
+    const first5y = divHistRaw[Math.max(0, divHistRaw.length - 6)];
+    if (!last?.dps || !first5y?.dps || first5y.dps <= 0) return null;
+    const years = last.y - first5y.y;
+    if (years <= 0) return null;
+    return Math.pow(last.dps / first5y.dps, 1 / years) - 1;
+  })();
+
+  // Growth rate para extender DPS forward — prioriza CAGR5 dividendos > EPS
+  // growth (consensus si está activo) > fallback 5%
+  const dpsGrowthForProj = (() => {
+    if (divCagr5 != null && divCagr5 > 0) return divCagr5;
+    if (forecastMode === 'consensus' && consensusImpliedGrowth != null && consensusImpliedGrowth > 0) {
+      // si EPS crece X%, asumir DPS crece igual (payout estable)
+      return Math.min(consensusImpliedGrowth, 0.20);
+    }
+    if (modeGrowth > 0) return Math.min(modeGrowth, 0.20);
+    return 0.05;
+  })();
+
+  // Extender DPS para fgProjYears años con dpsGrowthForProj
+  const lastDps = divHistRaw.length ? divHistRaw[divHistRaw.length - 1].dps : 0;
+  const lastDivYear = divHistRaw.length ? divHistRaw[divHistRaw.length - 1].y : lastHistY;
+  const divProj = lastDps > 0 ? Array.from({ length: fgProjYears }, (_, i) => ({
+    y: lastDivYear + i + 1,
+    dps: lastDps * Math.pow(1 + dpsGrowthForProj, i + 1),
+    eps: 0,
+    proj: true,
+  })) : [];
+
+  const divHist = [...divHistRaw, ...divProj];
+
+  // Dots amarillos "Dividend POR" — históricos sólidos + proyección con opacity 0.6
   const divPorDots = divHist.map(d => ({
     x: xScale(d.y),
     y: yScale(clipY(d.dps * activePE)),
     r: 3.2,
     dps: d.dps,
     year: d.y,
+    proj: d.proj,
   }));
 
   // Split flags — banderita vertical en el año de cada stock split.
@@ -810,11 +851,30 @@ export default function FastTab() {
     const yr = parseInt(p.date.slice(0, 4), 10);
     if (!priceByYear[yr]) priceByYear[yr] = p.close;
   }
-  // Yield: dps / price_at_year_end (aprox) · eje derecho 0–10%
-  const yieldPoints = divHist.filter(d => priceByYear[d.y] > 0 && d.dps > 0).map(d => ({
-    y: d.y,
-    yld: d.dps / priceByYear[d.y],
-  }));
+  // Yield: dps / price · eje derecho auto-escalado.
+  // 2026-05-03 v2: el ÚLTIMO punto histórico ahora usa cfg.price (precio
+  // actual) en lugar del precio fin-de-año, para que el final de la línea
+  // roja coincida exactamente con el "Div Yield" del sidebar (que también
+  // es DPS/precio actual). Antes el sidebar decía 3.17% pero la línea
+  // terminaba en 3.0% porque el precio de fin-de-año era distinto al actual.
+  // Los puntos proyectados también usan cfg.price (asume precio constante).
+  const _lastHistDivYear = divHistRaw.length ? divHistRaw[divHistRaw.length - 1].y : -Infinity;
+  const yieldPoints = divHist.filter(d => d.dps > 0 && (priceByYear[d.y] > 0 || d.proj || d.y === _lastHistDivYear)).map(d => {
+    let priceForYield;
+    if (d.proj) {
+      priceForYield = cfg?.price > 0 ? cfg.price : null;
+    } else if (d.y === _lastHistDivYear && cfg?.price > 0) {
+      // último año histórico → usa precio actual para que coincida con sidebar
+      priceForYield = cfg.price;
+    } else {
+      priceForYield = priceByYear[d.y];
+    }
+    return {
+      y: d.y,
+      yld: priceForYield > 0 ? d.dps / priceForYield : 0,
+      proj: d.proj,
+    };
+  });
   // Payout: dps/eps · eje derecho 0–100%
   const payoutPoints = divHist.filter(d => d.eps > 0 && d.dps > 0).map(d => ({
     y: d.y,
@@ -1638,8 +1698,8 @@ export default function FastTab() {
                   tamaño proporcional al DPS. Estilo FAST Graphs series-6. */}
               {divPorDots.map((d, i) => (
                 <g key={'dv'+i}>
-                  <title>{d.year} · DPS ${d.dps.toFixed(2)}</title>
-                  <circle cx={d.x} cy={d.y} r={d.r} fill="rgb(254, 210, 87)" stroke="var(--bg)" strokeWidth={0.8}/>
+                  <title>{d.year}{d.proj ? 'E' : ''} · DPS ${d.dps.toFixed(2)}{d.proj ? ' (estimado)' : ''}</title>
+                  <circle cx={d.x} cy={d.y} r={d.r} fill="rgb(254, 210, 87)" stroke="var(--bg)" strokeWidth={0.8} opacity={d.proj ? 0.6 : 1}/>
                 </g>
               ))}
 
