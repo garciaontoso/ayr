@@ -76,6 +76,7 @@ export const TABS = [
   // de Resumen (DashTab) como primer bloque. Si quieres restaurarla, descomenta:
   // {id:"fast",lbl:"FAST",ico:"⚡"},
   {id:"verdict",lbl:"Veredicto",ico:"★"},
+  {id:"veredicto-experto",lbl:"Veredicto Experto",ico:"🎓"},
   {id:"data",lbl:"Datos",ico:"▤"},
   {id:"report",lbl:"Informe",ico:"📄"},
   {id:"dst",lbl:"DividendST",ico:"📊"},

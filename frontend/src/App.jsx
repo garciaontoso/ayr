@@ -23,6 +23,7 @@ const CostBasisView = lazy(() => import('./components/views/CostBasisView'));
 const DashTab = lazy(() => import('./components/analysis/DashTab'));
 const ChartTab = lazy(() => import('./components/analysis/ChartTab'));
 const ClaudeTab = lazy(() => import('./components/analysis/ClaudeTab'));
+const VeredictoExpertoTab = lazy(() => import('./components/analysis/VeredictoExpertoTab'));
 const DataTab = lazy(() => import('./components/analysis/DataTab'));
 const QualityTab = lazy(() => import('./components/analysis/QualityTab'));
 const DebtTab = lazy(() => import('./components/analysis/DebtTab'));
@@ -1994,6 +1995,7 @@ function buildPositionsFromCB() {
     dash:() => <DashTab />,
     chart:() => <ChartTab />,
     claude:() => <ClaudeTab />,
+    "veredicto-experto":() => <VeredictoExpertoTab />,
     data:() => <DataTab />,
     // Mega-tabs that consolidate the old single-purpose sub-tabs.
     // The 11 individual entries (quality/dividends/valuation/big5/tencap/

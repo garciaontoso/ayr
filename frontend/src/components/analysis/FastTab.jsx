@@ -1215,6 +1215,28 @@ export default function FastTab() {
                 REIT · AFFO
               </span>
             )}
+            {/* GAAP / Adjusted toggle — solo visible cuando estamos en modo
+                EPS (eps_adj/eps_basic/eps_diluted). El usuario lo pidió:
+                Adjusted Operating es default (mismo que FAST Graphs) y
+                permite cambiar a GAAP basic para sanity check. */}
+            {(fgMode === 'eps_adj' || fgMode === 'eps_basic' || fgMode === 'eps_diluted') && (
+              <div style={{display:'inline-flex',alignItems:'center',gap:0,padding:0,borderRadius:5,border:'1px solid var(--border)',background:'var(--subtle-bg)',marginLeft:4,overflow:'hidden'}}
+                title="Adjusted = Operating EPS (estándar Wall Street, excluye one-time items, igual que FAST Graphs default).&#10;GAAP = Basic EPS (oficial SEC, incluye write-downs/SBC, más conservador).&#10;Diferencia típica 10-30%. Para dividend safety, usa GAAP.">
+                {[
+                  { id: 'eps_adj', lbl: 'Adj' },
+                  { id: 'eps_basic', lbl: 'GAAP' },
+                  { id: 'eps_diluted', lbl: 'Dil' },
+                ].map(m => {
+                  const active = fgMode === m.id;
+                  return (
+                    <button key={m.id} onClick={() => setFgMode(m.id)}
+                      style={{padding:'2px 8px',fontSize:9,fontWeight:700,fontFamily:'var(--fm)',border:'none',background:active?'var(--gold-dim)':'transparent',color:active?'var(--gold)':'var(--text-tertiary)',cursor:'pointer',letterSpacing:.3}}>
+                      {m.lbl}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </h2>
           {/* Price Correlated With dropdown — exacto FAST Graphs */}
           <div style={{display:'flex',alignItems:'center',gap:6,padding:'5px 10px',background:'rgba(255,159,10,.08)',border:'1px solid rgba(255,159,10,.25)',borderRadius:6}}>
