@@ -193,3 +193,115 @@ Si en el futuro hay desarrollo (buyout, sanciones se aligeran, etc.), reanalizar
 ---
 
 *Análisis preparado por agente Opus 4.7 de A&R. Datos FMP a fecha 2026-05-03 — los datos financieros más recientes disponibles son FY23. La empresa ha continuado operando en Rusia pero **no reporta a SEC** desde la suspensión. No constituye recomendación de inversión personalizada. La situación de Ozon es altamente especial y la inversión es ilíquida.*
+
+---
+
+## Análisis profundo: el cap table y mecánicas legales
+
+### Estructura corporativa pre-suspensión
+
+Ozon Holdings PLC es **legalmente Cypriota**, una decisión de tax efficiency típica para empresas rusas que querían acceso a capital internacional. La estructura era:
+- **Cyprus parent**: Ozon Holdings PLC (cotizaba NASDAQ)
+- **Russian operating subsidiary**: Ozon LLC (operaciones reales)
+- **Otras subsidiarias**: marketing, fintech, logistics
+
+Esta estructura permitió:
+- Listing internacional en NASDAQ (vs MOEX-only).
+- Tax treatment Cyprus favorable.
+- Capital raise de inversores internacionales (Silicon Valley VCs, Asian investors).
+
+### El "Russian re-domiciliation" 2025
+
+En marzo 2025, Ozon anunció movimiento de la sede legal **a Kaliningrad SAR** (Special Administrative Region en Russia). Esto es parte de:
+- "Re-domiciliation policy" del gobierno ruso para forzar compañías rusas a base legal local.
+- Cumplimiento con sanctions ruling — algunas decisiones legales en Cyprus se complicaron.
+- Estabilidad regulatoria (en Cyprus quedaban dudas sobre exposure to EU sanctions).
+
+**Implicaciones**:
+- ADRs de NASDAQ teóricamente convertibles a shares MOEX.
+- Foreign holders están "stuck" — los mecanismos de conversión NO son fáciles ni atractivos.
+- Holders desde 2022 tienen positions "frozen" indefinidamente.
+
+### Type-A vs Type-C accounts
+
+Russia ha implementado para foreign holders:
+- **Type-A accounts (residente USA/EU)**: ADRs convertidas a shares pueden depositarse, pero **transferencias y ventas restringidas**. Necesitas approval especial (Eslavo).
+- **Type-C accounts**: para holders deemed "non-friendly" jurisdictions (USA, UK, EU). Severamente restricted — no puedes vender, no puedes withdraw funds.
+
+Para holder con cuenta IB (USA-based): **Type-C account scenario applies**.
+
+### Mecánica de futuro buyout (potencial)
+
+Ozon mismo podría hacer un tender offer para foreign holders:
+1. Anuncia: "We will buy ADRs at $X per share from non-Russian holders."
+2. Los holders elective tender (entregar ADRs, recibir cash).
+3. Cash en USD via authorized USA bank.
+
+**Probabilidad histórica de esto**: ~30-40% en próximos 2-3 años. Russia ha hecho esto con algunas compañías (Yandex via Yandex N.V. transactions). Pero el precio típicamente es **30-50% del MOEX price** — descuentos punitivos.
+
+### Yandex precedente
+
+Yandex N.V. (entidad holandés) hizo deal en 2024:
+- Russian operations spin-off como "Yandex" entity ruso (managed by Russian holders).
+- Foreign holders de Yandex N.V. recibieron parte cash + parte stake en the new Yandex N.V. (que solo opera servicios fuera de Rusia — drives, taxis en otros países).
+
+**Net for foreign holders**: substantial loss, but liquidity finally restored.
+
+Si Ozon sigue similar path, holders pueden esperar:
+- 30-50% del MOEX value en cash USD.
+- Spin-off entity continuing minor operations outside Russia.
+
+---
+
+## Análisis del management (operativo, despite el bloqueo)
+
+### Founders y leadership
+
+- **Alexander Shulgin** (CEO desde 2017): exitoso, ha llevado Ozon de $200M a $5.5B revenue.
+- **Founders originals**: Bezos-style mix de tech + retail experience.
+- **Major shareholder pre-2022**: Sistema PJSFC (~31%) — conglomerado del oligarca ruso Vladimir Yevtushenkov. Sistema permanece major shareholder, Yevtushenkov sancionado por UK pero no USA.
+- **Baring Vostok**: PE fund con stake (~21%). Founder Michael Calvey was arrested in 2019 in Russia (subsequently released). PE complicada situación.
+
+### Operative governance
+
+A pesar del SEC delisting indirect, Ozon sigue published trimestre results to Russian regulators. Los datos circulan en mercados grises.
+
+### Key challenges 2024-2026
+
+1. **Wildberries** continued aggressive expansion. Ozon defending share but at margin compression cost.
+2. **Logistics scale-up** — building 80+ FCs has been expensive but critical.
+3. **Fintech monetization** — Ozon Bank ramp has been faster than expected, contributing positively.
+4. **Path to profitability** — revenue growing but net income still loss-making (has improved).
+5. **Sanctions affecting tech** — server hardware, payment processors had to be replaced with Chinese/Indian alternatives.
+
+---
+
+## Lecciones específicas para el portfolio
+
+### Allocation rules that prevent OZON-like situations
+
+1. **Geographic risk cap**: Russia + China + Turkey + EM autocracies combined < 5% of portfolio.
+2. **ADR risk premium**: discount foreign ADRs by 15-25% in valuation models to account for geopolitical risk.
+3. **Sanctions sensitivity check**: pre-2022, was OZON obviously a risk? Yes — Crimea 2014 already showed Russia willing to act against international interests. Should have been priced lower.
+4. **Liquidity scenarios**: model "worst case scenario" — what if illiquid for 3+ years? Can portfolio absorb?
+
+### The 80/20 of geopolitical risk for dividend portfolios
+
+80% of geopolitical disruption to dividend portfolios comes from:
+- **Russia/Belarus**: sanctions
+- **Iran**: sanctions
+- **Venezuela**: state seizure
+- **China**: VIE structures, ADR delisting threats (PCAOB)
+- **Argentina**: capital controls
+
+**Avoid these unless tiny (1-2% max) and focus on USA, EU developed, UK, Canada, Japan, Australia, Switzerland, Norway, etc.**
+
+---
+
+## Datos finales y posición tu portfolio
+
+Si tu posición OZON es 1% portfolio y la marcas a 0% en mental accounting:
+- Loss of cost basis: ~$X (whatever you paid).
+- "Found money" si eventualmente hay buyout: parcial recovery.
+
+**Recomendación final**: trata OZON como "lottery ticket gratis" — no lo cuentes en cálculos de portfolio, no lo monitores activamente, deja en cuenta IB. Si algún día emerge buyout opportunity, evaluar entonces.

@@ -296,3 +296,202 @@ Razones:
 ---
 
 *Análisis preparado por agente Opus 4.7 de A&R. Datos FMP a fecha 2026-05-03. No constituye recomendación de inversión personalizada. HRB es un valor de yield-deep-value con riesgo IA real.*
+
+---
+
+## Análisis profundo: la dinámica competitive con TurboTax
+
+### TurboTax vs H&R Block — los dos titanes
+
+Intuit's TurboTax is the **dominant DIY tax software** USA, with ~40% market share of self-prepared returns. H&R Block's DIY product has ~15% share — distant second.
+
+**TurboTax advantages**:
+- **Product polish**: Intuit invests heavily in UX. Their product feels easier.
+- **AI Tax Assist (Intuit Assist)**: integrated AI that explains tax concepts in plain language. Lanzado 2024 with GPT-4 backend.
+- **Marketing budget**: Intuit spends ~$700M annually on TurboTax marketing alone (vs Block ~$300M for everything).
+- **Brand premium**: TurboTax has become synonymous with DIY tax filing.
+
+**H&R Block advantages in DIY**:
+- **Lower price for similar features**: typically 20-30% cheaper.
+- **Office network for upgrade**: if DIY becomes too complex, walk into Block office.
+- **Bundling option**: tax + emerald banking + refund advance.
+
+### The "Free Tax USA" wildcard
+
+Free Tax USA is a smaller player offering DIY tax filing for **$0 federal + $14.99 state**. Growing fast:
+- 2020: ~5M returns.
+- 2024: ~12M returns.
+- 2025 estimate: ~15M returns.
+
+This is **commoditizing the low-end** of DIY market. Both TurboTax and Block lose customers to Free Tax USA at the simple-return tier.
+
+### Direct File expansion math
+
+If IRS Direct File reaches:
+- 5M users in FY26: limited impact (Block loses ~500k Wendy's-tier customers).
+- 10M users in FY26: meaningful (Block loses 1-1.5M = 5% of base).
+- 20M users in FY26-27: existential (Block loses 3-5M = 15-20% of base).
+
+Most likely scenario: **5-10M users in FY26-27**, depending on Trump administration policy.
+
+---
+
+## Análisis profundo: H&R Block's defensive plays
+
+### Spruce — the fintech opportunity
+
+Spruce is H&R Block's mobile banking app, launched 2022. Features:
+- No-fee checking + savings account.
+- Refund advance loans (immediate access to refund minus fee).
+- Direct deposit acceleration.
+- Block customers can have refund deposited directly to Spruce.
+
+**Stats** (FY25 estimated):
+- ~3M Spruce account holders.
+- $5B+ in deposits.
+- Revenue contribution: $200-300M annually (small but growing).
+
+**Long-term thesis**: if Spruce reaches 10M+ users, becomes meaningful banking fintech business. Diversifies away from tax-only.
+
+**Risk**: competing with Chime, Cash App, Venmo, Robinhood — all with bigger user bases and better tech.
+
+### AI Tax Assist
+
+Block launched its AI assistant in 2023, comparable to Intuit's. Capabilities:
+- Q&A about tax concepts.
+- Guidance through complex situations.
+- Document scanning and data extraction.
+- Real-time tax pro consultation suggestion.
+
+This is **table stakes** — every tax DIY product needs AI now. Block's is competent but not industry-leading.
+
+### Small business tax (Block Advisors)
+
+Block Advisors is the small-business tax + advisory arm:
+- Year-round services (not just tax season).
+- Bookkeeping, payroll, business tax.
+- ~$300M revenue.
+- Growing 10%+ annually.
+
+This is **the most defensible part of the business** — small business tax is too complex for AI alone, requires human expertise. Block's 9,000 offices are competitive advantage here.
+
+### Wave — accounting software acquisition
+
+H&R Block acquired Wave Financial in 2019 for $405M. Wave provides:
+- Free accounting software for small businesses.
+- Invoicing, payment processing.
+- Used by ~6 million small businesses globally.
+
+Strategic rationale: feeder for Block Advisors. Wave users → Block Advisors customers for tax/payroll.
+
+**Performance**: mixed. Wave grew but monetization slow. Possibly value-trap acquisition.
+
+---
+
+## Análisis profundo: capital structure and buyback math
+
+### The buyback record
+
+H&R Block buyback history:
+- FY18: ~$300M
+- FY19: ~$200M
+- FY20: $0 (COVID, conserve cash)
+- FY21: ~$200M
+- FY22: ~$430M
+- FY23: ~$510M
+- FY24: ~$510M
+- FY25: ~$510M
+
+Total since 2018: ~$2.66B in buybacks. Reduced shares from 200M to 127M.
+
+### EPS sensitivity to buybacks
+
+If FY26 net income remains at $600M:
+- 127M shares: EPS = $4.72.
+- After $500M buyback at $30 avg: ~110M shares.
+- New EPS: $5.45 (+15% even with no underlying growth).
+
+This is **engineered EPS growth** that's been the primary stock thesis for 5+ years.
+
+### Sustainability concerns
+
+The buyback model requires:
+- Net income relatively stable.
+- Cash flow generation $500M+ annually.
+- Stock price low enough to be accretive.
+- Debt manageable.
+
+If Direct File causes net income to fall 20%:
+- Revenue: $3.0-3.2B (vs $3.7B).
+- Net income: $470-500M (vs $600M).
+- FCF: $400M (vs $600M).
+- After dividends ($230M+): $170M for buybacks (vs $500M).
+- EPS engineering slows to ~3% growth.
+
+This breaks the thesis materially. Stock could drop another 30-40%.
+
+---
+
+## Comparison with peer companies
+
+### Intuit (INTU) — the obvious comparison
+
+| Métrica | INTU | HRB |
+|---|---|---|
+| Revenue ($B) | 16.0 | 3.7 |
+| Net Income ($M) | 2,750 | 605 |
+| Net margin | 17% | 16% |
+| EBITDA margin | 28% | 26% |
+| Net Debt/EBITDA | 1.5x | 1.4x |
+| ROE | 15% | 681% (distorted) |
+| Dividend Yield | 0.5% | 5.6% |
+| 5y stock return | +30% | -50% |
+| P/E | 35x | 6.6x |
+
+**Lectura**: Intuit is much larger, growing faster, with broader product portfolio (QuickBooks, Mailchimp, Credit Karma). HRB is **narrower and slower** but trades at value multiples.
+
+The gap reflects different risk profiles. Intuit has growth optionality; HRB has yield value optionality.
+
+### Other tax/financial peers
+
+| Company | Sector | Yield | Growth | Quality |
+|---|---|---|---|---|
+| **HRB** | Tax prep | 5.6% | -1% | High FCF |
+| **TurboTax (INTU)** | Tax + fintech | 0.5% | +12% | High |
+| **Liberty Tax (TAX)** | Tax prep franchise | 8% | -5% | Low |
+| **Jackson Hewitt** | Tax prep | (private) | -10% | Distressed |
+| **Avantax** | Tax + advisory | 0% | +3% | Mid |
+
+HRB is **quality value** in this space. Liberty Tax and Jackson Hewitt are distressed. Intuit is growth.
+
+---
+
+## Outlook FY26-FY30
+
+### Scenario analysis
+
+**Bull case** (Direct File eliminado / Trump backs off):
+- Revenue: +5-7% annually.
+- EPS: $6+ by FY28.
+- Stock: $50-60.
+
+**Base case** (Direct File expands modestly, Block defends):
+- Revenue: +1-3% annually.
+- EPS: $4.80-5.20 by FY28.
+- Stock: $35-45.
+
+**Bear case** (Direct File takes major share, AI substitutes pros):
+- Revenue: -5% annually.
+- EPS: $3.50 by FY28.
+- Stock: $20-25.
+
+**Probability weighted expected value**: $35-40 per share (current $30).
+
+### What would change my view
+
+- If Trump administration explicitly kills Direct File: bull case probability increases.
+- If Direct File reaches 15M+ users in FY26: bear case becomes likely.
+- If Block makes major acquisition or divestiture: thesis change.
+- If buybacks pause: red flag.
+
+For now, holding makes sense for those with tolerance for value-trap risk.

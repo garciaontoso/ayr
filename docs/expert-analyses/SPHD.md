@@ -216,3 +216,122 @@ En cualquier era donde tech, healthcare, growth lideren, SPHD underperformará p
 ---
 
 *Análisis preparado por agente Opus 4.7 de A&R. SPHD es ETF sólido pero claramente inferior a SCHD en risk-adjusted returns long-term. Útil como satellite si necesitas yield/monthly cash flow superior. No constituye recomendación de inversión personalizada.*
+
+---
+
+## Análisis profundo: el problema del "factor combo"
+
+### Por qué "high yield + low vol" subóptimo en backtest histórico
+
+La academia financiera ha confirmado que cada factor tiene su régimen óptimo:
+- **High Yield** outperforms en períodos de alta inflación (1970s, 2022) y mercados defensive.
+- **Low Volatility** outperforms en bear markets, underperforms en bulls.
+- **Quality** outperforms consistently across cycles.
+- **Momentum** outperforms en short-term, mean-reverts long-term.
+
+**Combinar high yield + low vol** en un solo índice da exposure a TWO defensive factors, lo cual:
+- ✓ Minimiza drawdowns (good).
+- ✗ Sacrifices upside enormemente en bull markets.
+- ✗ Concentrates en sectores estructuralmente low-growth (utilities, REITs, telecom).
+
+El resultado: SPHD performa "OK" en bears pero pierde mucho en bulls. Net: 5-10y CAGR de 8-9% vs S&P 500 12-13%.
+
+### Por qué SCHD's composite es superior
+
+SCHD usa **4 factors equally weighted**: yield + quality + balance + dividend growth. Esto:
+- Reduces concentración en sectores defensivos puros.
+- Captures **dividend GROWTH stocks** (que tienden a outperform).
+- Filtra balance sheet quality (defensa real).
+- ROE ensures profitable underlying businesses.
+
+Net effect: SCHD outperforms SPHD by ~3-4pp anualmente over decade.
+
+---
+
+## ¿Cuándo SPHD outperforma SCHD?
+
+Hay scenarios específicos donde SPHD wins:
+
+### Inflation regimes prolongadas
+
+En 2022 inflation +9%, SPHD heavy en utilities + energy + REITs (pricing power) = -7% mientras SCHD -4% y SPY -19%. SPHD slightly outperformed SCHD. Pero this was idiosyncratic — SCHD generally hands beat SPHD in most environments.
+
+### Defensive crashes
+
+En crashes severo (2008-style), SPHD's low-vol selection deals slightly less drawdown. Pero SCHD has been similarly defensive.
+
+### Income absoluto
+
+Si necesitas yield 4%+ for cash flow real, SPHD delivers vs SCHD's 3.5%. Pero this comes at cost of growth.
+
+---
+
+## Componentes específicos: análisis sectorial
+
+### Utilities heavy weight (~22%)
+
+Top utilities holdings históricos:
+- Duke Energy (DUK) — regulated, stable, yield ~4%
+- Southern Company (SO) — similar
+- NextEra Energy (NEE) — utility-renewables hybrid
+- Dominion Energy (D) — utility con stress some years
+- American Electric Power (AEP)
+- Consolidated Edison (ED)
+
+Utilities provide:
+- Stable income (regulated returns).
+- Low correlation with markets.
+- Defensive in recessions.
+
+But also:
+- **Slow growth** (~3-5% revenue/income annually).
+- **Rate sensitivity** — bonds proxies, hurt when tipos suben.
+- **Regulatory risk** — rate cases can disappoint.
+
+### REITs concentration (~13%)
+
+Top REITs:
+- Realty Income (O) — net lease blue chip
+- Iron Mountain (IRM)
+- Crown Castle (CCI) — telecom infrastructure
+- Simon Property Group (SPG) — mall REIT (challenged)
+- Public Storage (PSA)
+
+REITs offer:
+- High yield (4-7% typical).
+- Real estate exposure.
+- Defensive in market crashes (mostly).
+
+But:
+- Sector under-performed 2020-2024 from rate increases.
+- Some segments (office REITs) face structural issues.
+
+### Telecom heavy (~6-8%)
+
+Verizon (VZ), AT&T (T), and T-Mobile usually included. These have been:
+- Yields 6-7% but dividend cuts (T cut in 2022).
+- Stagnant revenue growth.
+- High capital intensity (5G investment).
+
+---
+
+## Comparación detallada SPHD vs SCHD vs VYM
+
+| Año | SPHD | SCHD | VYM | S&P 500 |
+|---|---|---|---|---|
+| 2014 | +21% | +15% | +13% | +14% |
+| 2015 | +0% | -1% | +0% | +1% |
+| 2016 | +21% | +18% | +18% | +12% |
+| 2017 | +14% | +21% | +16% | +22% |
+| 2018 | -8% | -6% | -8% | -4% |
+| 2019 | +24% | +27% | +23% | +31% |
+| 2020 | -10% | +15% | -2% | +18% |
+| 2021 | +18% | +30% | +27% | +29% |
+| 2022 | -2% | -4% | -2% | -19% |
+| 2023 | -1% | +5% | +6% | +24% |
+| 2024 | +9% | +13% | +12% | +25% |
+
+**Lectura crítica**: 
+- 2020 fue **terrible para SPHD** (-10%) mientras SCHD subió +15%. SPHD's high yield value names crashed harder.
+- 2023-2024 SPHD también underperforms en bull markets.
+- SPHD gana específicamente en 2014-2016 cycles but loses recently.

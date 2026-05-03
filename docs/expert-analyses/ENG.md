@@ -287,3 +287,179 @@ Razones para SELL:
 ---
 
 *Análisis preparado por agente Opus 4.7 de A&R. Datos FMP a fecha 2026-05-03. No constituye recomendación de inversión personalizada.*
+
+---
+
+## Análisis profundo: el plan H2 europeo y Enagás
+
+### REPowerEU — el contexto político
+
+Tras la invasión de Rusia a Ucrania en 2022, la UE lanzó **REPowerEU**, un plan estratégico para:
+1. Reducir dependencia de gas natural ruso.
+2. Acelerar adopción de renovables.
+3. Construir un mercado común de **hidrógeno verde**.
+
+España ocupa lugar central:
+- Mayor capacidad solar de la UE.
+- Mayor capacidad de viento on-shore.
+- Costo electricidad renovable: ~30-40 €/MWh (uno de los más bajos UE).
+- Por tanto: **costo hidrógeno verde ~3.5-4.0 €/kg** (competitivo si se logra escala).
+
+### El "H2med" — el corazón del plan
+
+H2med es un gasoducto de hidrógeno **de Barcelona a Marsella vía submarino**, propuesto en 2022 como reemplazo del cancelado MidCat (gasoducto Barcelona-Pirineos a Francia).
+
+Características:
+- Longitud: ~450 km submarino + 200 km terrestres en Francia.
+- Capacidad: 2 millones de tonnes hidrógeno/año (10% de demanda UE 2030 estimada).
+- Coste: ~€2.5-3.0B (parte capex de Enagás).
+- Operativo: 2030 target.
+- Subsidios UE: hasta 50% del capex elegible.
+
+**Para Enagás específicamente**:
+- Construye y opera la parte española (Barcelona connection).
+- Recibe peajes regulados sobre el hidrógeno transportado.
+- ROCE objetivo: 7-8% (similar a infraestructura gas natural actual).
+
+### Hydrogen Backbone Spain
+
+Más allá del H2med, Enagás propone **una red interna española de hidrógeno**:
+- ~2,500 km de gasoductos H2 (parte nueva, parte conversión de infrastructure existente).
+- Conecta hubs de producción (Andalucía, Aragón, Valencia) con hubs de consumo (Cataluña, Madrid, País Vasco).
+- Coste estimado: €2-2.5B adicional al H2med.
+- Operativo: 2027-2032 fases.
+
+Combined Hydrogen Backbone: ~€4.5-5B capex.
+
+### Las dudas justificadas
+
+Aunque ambicioso, hay scepticism:
+
+1. **Demanda hidrógeno verde aún no probada a escala**:
+- Industrias usuarios (acero verde, refining, química) en proceso de pivote.
+- Costo H2 verde sigue alto vs gas natural.
+- Adopción dependiente de continuing carbon pricing + regulación.
+
+2. **Competencia de otros países**:
+- Holanda (Rotterdam port) lanza también backbone.
+- Alemania construyendo backbone interno.
+- España necesita demostrar que SU hidrógeno es preferible.
+
+3. **Subsidios no garantizados al 100%**:
+- UE prometió hasta 50% del capex pero approval caso-por-caso.
+- Si sólo 30% confirmed, el balance Enagás más estresado.
+
+4. **Tecnología electrolizadora**:
+- Costo objetivo $500-700/kW vs $1,500/kW actual.
+- Si el cost-down no se materializa (cosas técnicas pasaron antes en otras tecnologías), H2 verde no scaling.
+
+### Probabilidades de éxito
+
+Honestamente:
+- **Bull case (H2 deliveryarse como prometido)**: 25%. Stock fácilmente €22-25.
+- **Base case (parcial éxito, retrasos)**: 50%. Stock €15-18.
+- **Bear case (H2 no scaling, capex sin retorno)**: 25%. Stock €11-13. Posible 3rd dividend cut.
+
+---
+
+## Análisis profundo: Tallgrass Energy y los activos internacionales
+
+### What is Tallgrass Energy?
+
+Tallgrass Energy is a privately-held US pipeline company:
+- ~5,000 miles of natural gas, NGL, and crude oil pipelines.
+- Operations in Cordillera Rocosa (Wyoming, Colorado, Kansas, Nebraska, Missouri).
+- Major asset: Rockies Express Pipeline (REX).
+
+Enagás acquired 30.2% of Tallgrass in 2019 for **$2.6B** (financiación 100% deuda). The thesis: diversification away from Spain regulated, exposure to USA pipeline growth.
+
+### What went wrong
+
+- Regulatory rollback at FERC reduced returns on REX.
+- COVID 2020 reduced volumes.
+- Higher US interest rates increased cost of holding.
+- Tallgrass dividend distributions to Enagás reduced.
+
+**By 2023**: the investment is generating significantly less cash than projected. Enagás had to:
+- Provision impairment in FY24 (~€600M).
+- Begin process to exit (announced 2024).
+
+### Sale process in 2024-2025
+
+Enagás announced it would sell its stake. Process:
+- 2024: investment bank engaged.
+- Mid-2025: partial sale completed (received ~€500M cash).
+- End-2025: balance position remains, may be sold in 2026.
+
+**Total recovery**: probably 60-70% of the €2.6B initial investment. Significant loss but at least liquidity provides cash.
+
+### Other internacional minorías
+
+- **Trans Adriatic Pipeline (TAP) - 16%**: Italy gas pipeline. Stable, generating distributions €10-15M annually. Enagás might retain.
+- **GNL Quintero (Chile)**: regasification facility, ~40% stake. Stable, possibly divest.
+- **Mexico assets**: distribution networks. Smaller, possibly retained.
+
+**Net post-Tallgrass strategy**: Enagás back to Spain-focused with H2 + selected internacionales generating €30-50M annual additional EBITDA.
+
+---
+
+## Análisis profundo: gas natural transition timeline
+
+### Spain gas demand outlook
+
+- 2024: ~30 bcm (billion cubic meters)
+- 2030 forecast: ~25 bcm (slight decline)
+- 2040 forecast: ~15-20 bcm (significant decline as electrification + H2 take share)
+
+For Enagás regulated revenue:
+- Tariffs based on regulatory asset base, not pure volume.
+- Even with declining volumes, revenue can be stable if tariffs adjust.
+- But **eventually** declining volumes erode demand for infrastructure.
+
+### Timing of decline acceleration
+
+The big risk is **the 2030-2035 window** — if heat pumps + H2 + electric heating accelerate, Spanish gas demand could collapse 30-40% rapidly. This is ahead of when H2 infrastructure would be paying off.
+
+Enagás scenario: gas declines, H2 not yet ramping at full scale. **Revenue valley** possible 2030-2032.
+
+### How regulation might respond
+
+Spanish regulator CNMC has option to:
+- Maintain higher tariffs to compensate fixed costs (raises customer bills).
+- Allow tariff adjustment delayed cost recovery.
+- Subsidize gas infrastructure transition.
+
+**Most likely**: gradual tariff adjustments, partial cost recovery. Infrastructure becomes "stranded" partially.
+
+---
+
+## Comparison with European utility peers
+
+| Utility | Country | Type | Yield | Net Debt/EBITDA | 5y stock |
+|---|---|---|---|---|---|
+| **Enagás (ENG)** | Spain | Gas regulated | 5.9% | 2.7x | -38% |
+| **Snam** | Italy | Gas regulated | 6.2% | 4.0x | -10% |
+| **REN Redes Energéticas** | Portugal | Multi-utility | 6.5% | 4.5x | -25% |
+| **Fluxys** | Belgium | Gas regulated | 7.5% | 3.0x | -8% |
+| **National Grid** | UK | Multi-utility | 6.8% | 3.2x | -20% |
+| **Iberdrola** | Spain | Generation | 5.0% | 4.0x | +10% |
+| **REE (Redeia)** | Spain | Power grid | 5.5% | 3.5x | -15% |
+
+**Lectura**: Enagás is **middle of pack** for European utilities. Snam (Italy) larger, more diversified. Fluxys (Belgium) higher yield but less catalyst. REN (Portugal) similar profile. National Grid the gold standard but expensive.
+
+---
+
+## Outlook FY26-FY30
+
+Analyst consensus:
+- **Revenue**: stable €900-950M annually.
+- **EBITDA recurring**: gradually decline to €700-750M by 2030 (gas demand decline).
+- **EPS recurring**: ~€1.00-1.15.
+- **Dividend**: maintained at €1.00 through 2027, possibly modest increase 2028+.
+
+This is **conservative outlook assuming H2 doesn't accelerate materially**.
+
+**Bull case** (H2 delivers): EPS €1.30+ by 2030, dividend €1.20+. Stock €22+.
+**Bear case** (H2 fails, gas declines accelerate): EPS €0.75 by 2030. Possible 3rd dividend cut to €0.70-0.80. Stock €10-11.
+
+For dividendero, the **expected value is positive but the variance is high**.

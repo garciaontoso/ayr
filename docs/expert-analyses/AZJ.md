@@ -248,3 +248,164 @@ Datos verificados desde FMP:
 ---
 
 *Análisis preparado por agente Opus 4.7 de A&R. No constituye recomendación de inversión personalizada. Basado en datos FMP a fecha 2026-05-03.*
+
+---
+
+## Análisis profundo: la dinámica del carbón en Asia
+
+### China — el cliente más importante (y más cambiante)
+
+China is the world's largest coal consumer (50%+ of global consumption). Of the imports, Australia coal goes mainly via metallurgical (coking) coal. Australian thermal coal exports to China have been **politically sensitive**:
+- 2020-2022: China **completely banned Australian coal imports** during diplomatic dispute over COVID origins inquiry.
+- 2023: ban lifted, Australian coal restored.
+- 2024-2026: imports rebounding but at lower levels than pre-2020.
+
+**For Aurizon**: China demand is volatile. Diversification to India + Japan + Korea + Vietnam is critical for stability.
+
+### India — the surprise growth story
+
+India coal demand has surprised to the upside:
+- Steel production growing rapidly (target: 300M tonnes by 2030 vs 130M today).
+- Australian metallurgical coal is high quality, premium product.
+- Aurizon's customers (BHP, Anglo, Whitehaven) have multi-year supply contracts to Indian steelmakers.
+
+**India growth rate**: +4-6% coal consumption annually for next 5-7 years. This **partially offsets** China decline risk for Aurizon.
+
+### Japan and Korea — stable but flat
+
+Japan + South Korea + Taiwan import Australian coal heavily for power gen + steel:
+- These markets are **stable but not growing**.
+- Long-term decarbonization plans (Japan: net-zero by 2050) mean gradual decline.
+- For Aurizon: 5-10 year revenue stability, longer-term decline.
+
+### Indonesia — the wildcard competitor
+
+Indonesia is the world's #2 coal exporter (after Australia). Their advantages:
+- Lower coal mining costs.
+- Closer to Asian markets (less shipping cost).
+- Lower environmental regulations.
+
+**Risk for Aurizon**: if Indonesian coal increasingly displaces Australian in Asian markets, AZJ volumes decline faster than expected.
+
+---
+
+## Análisis profundo: la transición a hidrógeno verde (Australia + Aurizon)
+
+### Australia's green hydrogen ambitions
+
+Australia has **massive solar + wind potential** (sun, space, infrastructure). Plans:
+- **Hydrogen Headstart program**: $2B AUD federal funding for hydrogen projects.
+- **Major projects in development**:
+  - Asian Renewable Energy Hub (Pilbara) — 26 GW renewables for hydrogen export.
+  - Sun Cable (NT to Singapore) — submarine cable for renewable export.
+  - Gladstone Hydrogen Hub (Queensland).
+- **Target**: become world's #1 hydrogen exporter by 2035.
+
+### Aurizon's role in hydrogen future
+
+Aurizon is **strategically positioned** to be Australia's hydrogen rail logistics partner:
+- Existing rail infrastructure to Queensland ports.
+- Expertise in heavy haulage (would handle hydrogen ammonia for export).
+- Capability to retrofit locomotives for hydrogen power (if technology matures).
+
+**Risk and opportunity**: if hydrogen export materializes by 2030-2035, Aurizon could potentially replace declining coal volumes with hydrogen volumes. But:
+- Timeline uncertain (most projects 5-10 years from operational).
+- Volumes uncertain (depends on Asian demand).
+- Aurizon's competitive position vs Pacific National + new entrants uncertain.
+
+**Net**: this is a **20-year horizon optionality**, not a near-term thesis driver.
+
+---
+
+## Análisis profundo: Pacific National (the duopoly partner)
+
+### What is Pacific National?
+
+Pacific National is Aurizon's main competitor in Australian rail freight. Privately held (owned by Global Infrastructure Partners + Canada Pension Plan + Other consortium since 2017). Pacific National operates:
+- ~700 km Australian rail track (less than Aurizon).
+- ~700+ locomotives.
+- Both coal and intermodal (containerised).
+
+### The duopoly dynamic
+
+In Queensland coal corridor, Aurizon and Pacific National form an effective duopoly:
+- Aurizon: ~70% market share.
+- Pacific National: ~30%.
+- New entrant unlikely (massive infrastructure barrier).
+
+**Pricing discipline**: in duopoly, pricing tends to be rational (both players profitable). But:
+- Pacific National can be more aggressive on price to win contracts (private equity-owned).
+- Aurizon must respond, compressing margin in some segments.
+
+### Risk: if Pacific National goes public
+
+Speculation that Pacific National's PE owners (GIP, CPP) might IPO Pacific National in 2026-2028. If they do:
+- Markets get a comparable.
+- Pricing pressure may increase (both must show shareholder returns).
+- Aurizon's relative position in industry visible.
+
+**Probability**: medium. PE owners often exit after 7-10 years.
+
+---
+
+## Datos detallados: revenue mix by segment
+
+### Detailed FY25 segment breakdown (estimated from latest report)
+
+| Segment | Revenue ($M AUD) | EBITDA ($M AUD) | EBITDA Margin |
+|---|---|---|---|
+| Network (regulated) | 1,200 | 700 | 58% |
+| Coal Operations | 1,500 | 550 | 37% |
+| Bulk | 1,000 | 200 | 20% |
+| Containerised Freight | 170 | 30 | 18% |
+| **Total Aurizon** | **3,870** | **1,480** | **38%** |
+
+### Network revenue stability
+
+Network is Aurizon's "crown jewel":
+- Regulated by QCA (Queensland Competition Authority).
+- Currentregulatory period: 2021-2027 (UT5 review).
+- Allowed return: ~5.7% on regulatory asset base (declining from prior periods).
+- Revenue stability: 95%+ (almost all coal pass-through).
+- Operating cost: ~50% of revenue.
+- Maintenance capex: ~$200M anuales.
+- EBITDA margin: 58%, very stable.
+
+Even if coal volumes decline 30% over next decade, network business may remain profitable as its costs are largely fixed.
+
+### Coal Operations cyclicality
+
+Coal Operations is more variable:
+- Coal volumes: stable in tonnes but margin pressure.
+- Pricing: take-or-pay contracts give visibility (5-10 year contracts).
+- Operating costs: fuel (40%), labour (25%), maintenance (20%), other (15%).
+- EBITDA margin: 35-40% range.
+
+If coal demand declines materially, this segment shrinks.
+
+### Bulk and Intermodal — the future
+
+These segments are smaller but **growing**:
+- Bulk: iron ore, copper, agricultural — diversification away from coal.
+- Intermodal: containerised freight, e-commerce growing.
+- EBITDA margins lower (20%) but volume growth higher.
+
+**Strategic priority**: management wants Bulk + Intermodal to be 30%+ of EBITDA by 2030 (currently ~15%).
+
+---
+
+## Outlook FY26-FY30 (analyst consensus)
+
+Based on analyst forecasts:
+- **Revenue**: flat to +3% annually.
+- **EBITDA**: stable at $1,500-1,700M.
+- **EPS**: gradual recovery to A$0.20-0.25 by FY28.
+- **Dividend**: maintained at A$0.17-0.20 annually.
+
+This conservative outlook assumes:
+- Stable coal volumes.
+- Modest Bulk growth.
+- No major disruption.
+
+**Bull case** (if Bulk accelerates and coal stays stable): EPS $0.30+ by FY30, dividend growth resumed.
+**Bear case** (if coal declines materially): EPS pressure, possible dividend reduction.

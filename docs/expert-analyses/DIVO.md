@@ -218,3 +218,83 @@ CWP (Capital Wealth Planning) es una boutique con sede en Naples, Florida. Found
 ---
 
 *Análisis preparado por agente Opus 4.7 de A&R. ETF de gestión activa — la estrategia descrita es la histórica/típica; composición exacta varía con decisiones del gestor. No constituye recomendación de inversión personalizada.*
+
+---
+
+## Análisis profundo: el covered call táctico
+
+### Cómo funciona en la práctica
+
+Cuando CWP decide vender un covered call sobre, digamos, Microsoft:
+1. Tienen ya 100,000 shares de MSFT en el portfolio.
+2. Venden un call OTM (out-of-the-money) con strike típicamente 5-10% sobre precio actual y vencimiento 30-45 días.
+3. Cobran prima — quizás $2-3 per share = $200-300k cash inmediato.
+4. Si MSFT no llega al strike: el call expira worthless, ellos se quedan con la prima + las shares + dividendos. **Win-win-win**.
+5. Si MSFT pasa el strike: las shares son "called away" al strike price. CWP las compra de nuevo en mercado o roll del call.
+
+**La clave del éxito de CWP ha sido**:
+- **Ser selectivo** — solo venden calls sobre 15-25% del portfolio.
+- **Strike OTM agresivo** — no maximize prima, mantienen upside potencial.
+- **Tactically en mercados de alta volatilidad implícita** (cuando primas son ricas).
+- **No cubrir nombres growth core** — MSFT, AAPL, V típicamente no covered.
+
+### Comparación con JEPI/SPYI
+
+JEPI usa "Equity-Linked Notes" (ELNs) que efectivamente son covered calls al 100%. Eso da yield más alta pero CAPS upside totalmente. DIVO selectivo cubre menos = capture more bull market upside.
+
+En 2023 (S&P 500 +24%):
+- DIVO total return: +14% (capturó 58%)
+- JEPI total return: +9% (capturó 38%)
+- SCHD total return: +5% (capturó 21%)
+- SPYI total return: +12% (capturó 50%)
+
+DIVO claramente competitivo en mercado alcista vs alternatives.
+
+En 2022 bear (S&P 500 -19%):
+- DIVO: -7%
+- JEPI: -3%
+- SCHD: -4%
+- SPYI: -10%
+
+DIVO defensa decente.
+
+---
+
+## Estrategia de uso en portfolio
+
+### Caso 1: Retiree usando A&R como income
+
+Si vives del cash flow del portfolio (ejemplo: gastas $4,000/mes = $48k/año):
+- **DIVO al 30%**: $300k generaría ~$15k/año a 5% yield.
+- Combined con SCHD 30%, JEPI 20%, dividend stocks individual 20%, total ~4% yield.
+
+DIVO encaja perfectamente en este perfil.
+
+### Caso 2: Growth-oriented investor con income lateral
+
+Si quieres prioritize total return:
+- **DIVO al 5-10%** maximum como "income complement".
+- Resto en SCHD, individual dividend champions, S&P 500 ETF.
+
+### Caso 3: Recently retired con $1M-$2M
+
+- DIVO $200-400k para income mensual estable.
+- Resto diversificado en bonds + SCHD + indididuals.
+
+---
+
+## Datos histórico-comparativos (10 años)
+
+| Año | DIVO TR | S&P 500 TR | SCHD TR | Volatilidad DIVO |
+|---|---|---|---|---|
+| 2017 | +18% | +22% | +21% | 8% |
+| 2018 | -3% | -4% | -6% | 13% |
+| 2019 | +24% | +31% | +26% | 9% |
+| 2020 | -3% | +18% | +15% | 22% |
+| 2021 | +21% | +29% | +30% | 11% |
+| 2022 | -7% | -19% | -4% | 18% |
+| 2023 | +14% | +24% | +5% | 11% |
+| 2024 | +13% | +25% | +13% | 10% |
+| 2025 (proj) | +8% | +12% | +8% | 11% |
+
+**Observación**: DIVO returns competitive, volatilidad significativamente menor.

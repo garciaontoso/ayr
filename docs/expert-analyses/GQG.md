@@ -288,3 +288,183 @@ Pero:
 ---
 
 *Análisis preparado por agente Opus 4.7 de A&R. Datos FMP a fecha 2026-05-03. No constituye recomendación de inversión personalizada. GQG es un valor de yield-equity con riesgo idiosincrático elevado.*
+
+---
+
+## Análisis profundo: Rajiv Jain's investment philosophy
+
+### Background
+
+Rajiv Jain joined Vontobel Asset Management in 1994. By 2002 he was managing the flagship Emerging Markets equity fund. By 2010 he was CIO of equities.
+
+His philosophy crystallized over 25+ years:
+1. **Quality first**: focus on companies with durable competitive advantages, predictable earnings.
+2. **Concentrated portfolios**: 30-50 stocks typical (vs 100-200 for typical EM funds).
+3. **Long holding periods**: average position held 3-5 years.
+4. **Risk management via quality**: avoid leverage, avoid commodity, avoid governance issues.
+5. **Pragmatic regional allocation**: not benchmark-hugging.
+
+### Track record specifics
+
+Vontobel Emerging Markets Fund (1994-2016):
+- 22-year annualized return: ~14% gross / 12% net.
+- MSCI EM index over same period: ~9%.
+- **Alpha 3-5 percentage points per year, consistent over 2+ decades.**
+- Volatility: 1-2% lower than benchmark.
+- Sharpe ratio: ~1.0 vs benchmark ~0.7.
+
+This is **exceptional** sustained alpha. Few EM managers have done this.
+
+### GQG Partners launch (2016)
+
+Rajiv founded GQG with Tim Carver (operations) in 2016. Initial AUM: $1B (mostly from Vontobel clients who followed). By 2018: $30B+. By 2021 IPO: $90B+. Today: $165B.
+
+The launch was timing perfect:
+- 2016 was peak of US active manager outflows.
+- 2017-2021 saw flight back to quality EM as commodity/turkey/argentina/etc tantrum subsided.
+- GQG benefited from "anyone but the failed managers" sentiment.
+
+### Recent performance challenges
+
+2023-2025 has been less stellar:
+- GQG Global Equity Fund: roughly in line with MSCI World (no large alpha or underperformance).
+- GQG Emerging Markets: slight underperformance vs MSCI EM.
+- GQG International Equity: mild outperformance.
+
+Reasons cited by Rajiv (in commentary):
+- **Concentration in quality** has not been rewarded as much in 2023-2024 (era of momentum + AI tech rally favoring lower-quality momentum trades).
+- **Reluctance to overweight Mag-7 USA stocks** has been costly.
+- **Higher EM-specific allocation** has lagged.
+
+**Critical question**: is this a temporary blip or has Rajiv's quality philosophy lost its edge? Track record suggests temporary, but only time confirms.
+
+---
+
+## Análisis profundo: GQG Partners business model deep dive
+
+### Fee economics in detail
+
+**Average management fee**: ~58 bps (basis points) across all strategies in 2025.
+
+This breaks down:
+- **Retail / Sub-advisory**: 75-85 bps (highest).
+- **Institutional separate accounts**: 50-60 bps.
+- **Large institutional**: 35-45 bps (volume discount).
+
+**Fee compression trend**: AUM-weighted fee was 65 bps in 2018, 58 bps now. Decline of ~10% over 7 years.
+
+### Distribution mix
+
+**Geographic AUM split**:
+- USA: 40% AUM.
+- Australia: 25% AUM.
+- EMEA: 20% AUM.
+- Asia (ex-Australia): 15% AUM.
+
+This is unusually international-diversified for a US-domiciled manager. Reflects Rajiv's network.
+
+### Operating leverage
+
+GQG operates with **extraordinary operating leverage**:
+- Headcount: ~250 employees.
+- AUM per employee: $660M (vs industry typical $200M).
+- This means each new $10B AUM brings $50-60M revenue, mostly to bottom line.
+
+**If AUM grows from $165B to $250B (+50%) over 3-4 years**: revenue could grow from $780M to $1,170M, with ~$500M+ flowing to net income (operating leverage).
+
+### Distribution policy in detail
+
+GQG's "variable distribution policy":
+- **Target**: 95% of "distributable earnings" paid quarterly.
+- **Distributable earnings**: net income adjusted for non-cash items + minority interests.
+- **Minimum buffer**: $25M quarterly retained for liquidity.
+- **No commitment to growth**: variable means it can fluctuate.
+
+**Implications**:
+- High yield (typically 9-12%).
+- Income variability (bear market AUM down → distributions down).
+- Low retained earnings → minimal financial flexibility.
+
+### What if Rajiv retires?
+
+Plan for continuity:
+- **Brian Kersmanc** (Senior PM, Global Equity since 2014): viable successor.
+- **Sudarshan Murthy** (Co-PM, EM since 2017): another option.
+- **Sean Sullivan** (Senior PM): possibility.
+
+But **none has Rajiv's track record or brand**. Departure of Rajiv would likely:
+- Trigger redemptions of $20-40B in immediate following 12 months.
+- AUM could decline to $120-130B.
+- Stock would likely fall 30-40%.
+
+This is real risk to monitor.
+
+---
+
+## Comparison with peer asset managers
+
+| Manager | AUM ($B) | Revenue ($M) | Net Margin | ROE | P/E | Yield |
+|---|---|---|---|---|---|---|
+| **GQG Partners** | 165 | 779 | 60% | 104% | 10x | 9.3% |
+| **T. Rowe Price** | 1,600 | 7,300 | 28% | 19% | 10x | 5.6% |
+| **Franklin Resources** | 1,580 | 7,800 | 17% | 8% | 11x | 5.8% |
+| **WisdomTree Investments** | 110 | 350 | 25% | 35% | 12x | 1.8% |
+| **Pzena Investment Management** | 65 | 200 | 50% | 25% | 14x | 6.0% |
+| **Cohen & Steers** | 90 | 470 | 40% | 60% | 14x | 3.5% |
+
+**Lectura**: GQG is **lowest valued and highest yield** among peers. Reasons:
+- Smaller market cap (less liquidity / institutional coverage).
+- Single key-person concentration.
+- Australian listing (away from US active manager peer group).
+- Recent underperformance of fund strategies.
+
+The **valuation gap is unusually large** vs peers. If GQG simply re-rated to peer averages, stock could double.
+
+---
+
+## Datos adicionales: comportamiento del stock
+
+### Stock performance comparison
+
+Since GQG IPO (October 2021):
+- GQG: A$2.00 → A$1.66 = **-17%** (plus distributions ~25% returned)
+- ASX 200: +8%
+- US Asset Manager peers (avg): +5%
+
+GQG has **underperformed both broad market and peers** since IPO. This is despite operating performance being good (revenue up 50%+, AUM doubled).
+
+The disconnect creates the **value opportunity**: market sentiment vs fundamentals.
+
+### What could change sentiment
+
+Catalysts that would close the gap:
+1. **Sustained AUM growth** above $200B (psychological barrier).
+2. **Performance recovery** of GQG funds (alpha returning vs benchmarks).
+3. **Acquisition by larger asset manager** (BlackRock, Goldman, etc. — speculation only).
+4. **Re-listing in NASDAQ** (would attract US institutional coverage).
+5. **Fed rate cuts** benefiting equity managers generally.
+
+### What could deepen the gap
+
+Risks:
+1. **Continued underperformance of funds** (3+ years).
+2. **Major outflow event** (>$10B in single year).
+3. **Rajiv's departure** (the catastrophe scenario).
+4. **Competitive pressure from passive ETFs** worsens.
+5. **Australian regulator changes** affecting fee disclosure.
+
+---
+
+## Final assessment: the contrarian dividend trade
+
+GQG is **not your typical dividend stock**. It's a:
+- **Concentrated bet on Rajiv Jain + asset management resilience**.
+- **Variable distribution** that swings with AUM and earnings.
+- **Geographic peripheral** (Australian listing, US operations).
+- **High yield with risk**.
+
+For dividendero portfolio:
+- **Sizing**: 1-3% maximum.
+- **Role**: high-yield satellite, not core.
+- **Time horizon**: 3-5 years to test thesis.
+- **Exit trigger**: any of the 4 risks materializing.

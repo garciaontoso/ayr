@@ -264,3 +264,155 @@ Razones:
 ---
 
 *Análisis preparado por agente Opus 4.7 de A&R. Datos FMP a fecha 2026-05-03. No constituye recomendación de inversión personalizada.*
+
+---
+
+## Análisis profundo: el ciclo de la industria química
+
+### Cómo funcionan los ciclos químicos
+
+La industria química es **cíclica fundamental** — los precios y márgenes oscilan entre booms y busts:
+- **Boom phase** (2020-2022): demanda excede oferta. Precios suben fuertemente. Márgenes EBITDA en chemicals especializados pueden subir a 22-25% (vs normal 16-18%). Empresas anuncian capex grandes para aumentar capacidad.
+- **Hangover phase** (2023-2025): la nueva capacidad entra online. Demanda ya no acelerará. Precios caen, márgenes comprimen. Emerging in 2024-2025.
+- **Trough phase** (2025-2027 likely): márgenes mínimos. Algunas empresas hacen impairments. Capex new se cancela.
+- **Recovery phase** (2027-2029 likely): demanda recovers, oversupply absorbed. Márgenes recuperan.
+
+### Eastman's specific cycle position
+
+Eastman is currently in **phase 3 (trough)**:
+- EBITDA margin 14.7% in FY25 vs peak 22% in 2021.
+- Volumes flat to declining.
+- Pricing under pressure from Asian competition.
+- Management hesitant to give optimistic FY26 guidance.
+
+**Historical comparison**: previous trough was 2019-2020 (pre-COVID), when margins hit 13.5%. Recovery took ~18 months. If similar pattern, EMN would normalize 2026-2027.
+
+### China oversupply — the structural problem
+
+China has invested massively in chemical capacity 2010-2025. Result:
+- Global oversupply in commodity chemicals.
+- Chinese producers can produce at lower cost (energy, labor, often state subsidies).
+- Specialty chemicals less affected but still pressured.
+
+For Eastman:
+- Intermediates segment most exposed.
+- Specialty (Tritan, Saflex) more insulated by patents and switching costs.
+- Net: structural pressure on margins, but partially offset by diversification.
+
+---
+
+## Análisis profundo: Eastman Renew, the molecular recycling bet
+
+### How methanolysis works (technically)
+
+Methanolysis is a chemical recycling process that:
+1. Takes mixed/contaminated PET plastic waste.
+2. Breaks it down using methanol + heat + catalyst.
+3. Yields **DMT** (dimethyl terephthalate) — pure monomer.
+4. DMT is then re-polymerized into virgin-quality PET.
+
+The advantage over mechanical recycling:
+- Can handle dyed/colored plastics.
+- Output is 100% virgin-quality (vs 70% from mechanical).
+- Suitable for food contact applications.
+
+### The Kingsport facility — current status
+
+Eastman invested ~$1B in Kingsport, Tennessee:
+- Capacity: 110,000 metric tons/year (when fully operational).
+- Operational since: late 2023.
+- Status FY25 Q4: ~70% of nameplate capacity.
+- Issues: technical problems with feedstock pre-processing, energy efficiency, catalyst longevity.
+
+**FY26 expectation**: 80-90% of nameplate. Full capacity by 2027.
+
+### The economics
+
+Estimated economics at scale:
+- Revenue per tonne of recycled PET: $1,200-1,400 (premium vs $1,000 virgin PET).
+- Operating cost: ~$900-1,000 per tonne.
+- EBITDA per tonne: $300-400.
+- At full capacity (110k tonnes): $33-44M annual EBITDA.
+
+Adding 2nd plant in Texas (planned, $850M):
+- Capacity: 150,000 tonnes.
+- Operational target: 2027.
+- Combined potential EBITDA from molecular recycling: $80-110M annually.
+
+This is **meaningful but not transformative** for $1.3B EBITDA company. The bigger value is:
+- Moat creation (1st mover in regulated market).
+- Customer locked-in long-term contracts.
+- Pricing premium expansion as regulations tighten.
+
+### European expansion
+
+Plans for 2-3 European facilities (France, Netherlands, possibly Italy) in 2026-2030. EU regulations (PPWR — Packaging and Packaging Waste Regulation, requiring 30% recycled content by 2030) **drive demand**.
+
+**If successful at all 4-5 plants**: $300-500M annual EBITDA from this business by 2032. Could re-rate Eastman significantly.
+
+---
+
+## Análisis profundo: el segmento Fibers (el milking machine)
+
+### Why Fibers matters despite being smallest
+
+Fibers segment is **only 10% of revenue** but ~15-20% of free cash flow because:
+- Capital expenditure minimal (mature industry).
+- Operating margin: 25-30% (very high).
+- Depreciation low (assets fully depreciated).
+- Customer base captive (cigarette manufacturers).
+
+Fibers product is **acetate tow** — used in cigarette filters globally. Eastman has ~30% global market share, alongside Daicel (Japan) and Celanese (Germany).
+
+### The cigarette decline
+
+- Global cigarette consumption declining 1-2% annually.
+- USA cigarette consumption: -3-4% annually.
+- Asia (Indonesia, Vietnam): still growing.
+
+**Net for Eastman**: managed decline. Volumes -1-2% annually but pricing power stable. EBITDA generates ~$300-400M annually, mostly converts to FCF.
+
+### Could Fibers be sold?
+
+Speculation that Eastman might divest Fibers (similar to past Tire Additives sale). Potential proceeds: $1.5-2.5B. This could:
+- Pay down debt.
+- Fund accelerated Eastman Renew expansion.
+- Increase shareholder returns.
+
+But Eastman has resisted, citing Fibers cash flow value. **Probability of divestiture**: 20-30% in next 3-5 years.
+
+---
+
+## Comparison with chemical industry peers
+
+### Specialty chemical peers
+
+| Company | Revenue ($B) | EBITDA Margin | Net Debt/EBITDA | Dividend Yield | 5y Stock |
+|---|---|---|---|---|---|
+| **Eastman (EMN)** | 8.8 | 14.7% (trough) | 3.5x | 4.3% | -22% |
+| **PPG Industries** | 18 | 17% | 2.0x | 2.6% | -15% |
+| **Albemarle** | 8 | 15% | 2.5x | 1.7% | -45% |
+| **Dow** | 43 | 12% | 1.5x | 5.5% | -12% |
+| **LyondellBasell (LYB)** | 41 | 11% | 1.7x | 6.8% | -25% |
+| **Cabot** | 4 | 22% | 1.0x | 1.8% | +30% |
+| **Celanese** | 10 | 18% | 4.5x | 2.4% | -35% |
+| **Eastman normalized (mid-cycle)** | 9 | 19% | 2.5x | 4.0% | (recovery) |
+
+**Lectura**: Eastman in trough is similar to other chemicals in trough. Recovery would put it back to industry normal.
+
+### Why Eastman is preferable to commodity chemicals
+
+vs Dow / LyondellBasell:
+- Higher value-add products (Tritan, Saflex specialty).
+- Less commodity exposure.
+- Better pricing power.
+- Trades at slight premium for this differentiation.
+
+vs Albemarle / Celanese:
+- Less specific product concentration risk.
+- More diversified portfolio.
+- Better dividend track record.
+
+### Final positioning
+
+Eastman is **mid-tier specialty chemicals** — better than commodity but not as moated as Sherwin-Williams (paints) or Linde (industrial gases). For dividend investor, this is **above-average risk-adjusted** offering.

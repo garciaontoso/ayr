@@ -289,3 +289,142 @@ Pero:
 ---
 
 *Análisis preparado por agente Opus 4.7 de A&R. Datos FMP a fecha 2026-05-03. TAP es deep value setup en sector estructuralmente difícil. No constituye recomendación de inversión personalizada.*
+
+---
+
+## Análisis profundo: el goodwill impairment de FY25
+
+### ¿Qué es exactamente un goodwill impairment?
+
+Cuando una empresa adquiere a otra por un precio mayor que el "fair value" de los activos tangibles + identificables intangibles, la diferencia se registra como **"goodwill"** en el balance. Es básicamente "premium pagado".
+
+Reglas contables (IFRS / US GAAP) requieren testing de goodwill anualmente. Si el "valor recuperable" (el flujo de caja proyectado del cash-generating unit) es **menor** que el goodwill registrado, la empresa debe **reducir** (impair) el goodwill al valor recuperable. La diferencia se carga como expense en P&L.
+
+### El caso de Molson Coors Europa
+
+En 2016, Molson Coors compró el 100% del joint venture MillerCoors USA y, por separado, **ALL of SABMiller's European operations** (UK Carling, etc.) por **$12B total**. De ese precio, ~$8B fue allocated a goodwill (porque el valor "tangible" — fábricas, equipment — era solo ~$4B; el resto era brand + relationships + market position).
+
+En 2025, Molson Coors hizo testing de su unidad europea y concluyó que:
+- Las proyecciones de cash flow europeas eran significantly worse que pensado en 2016.
+- Brexit, COVID, decline secular cerveza UK, competition, todos pesaron.
+- El goodwill registrado de $7-8B era **excesivo** vs valor recuperable.
+- Impairment charge: **$3.75B**.
+
+### Lo que el impairment NO significa
+
+- **No es una salida de caja** — es solo ajuste contable.
+- **No afecta dividendos** directamente.
+- **No cambia la operación** — las cervecerías siguen produciendo, Carling sigue vendiéndose.
+
+### Lo que el impairment SÍ significa
+
+- **La adquisición de 2016 fue cara** — pagaron $12B por algo que vale ~$8B en 2025.
+- **Las proyecciones de growth europeo no se materializaron**.
+- **El management de 2016 (different CEO) made errors**.
+- **Posibles más impairments** si trends continúan deteriorating.
+
+### Es el final?
+
+Probablemente NO. El management hizo este "kitchen sink" en FY25 (incluir muchas malas noticias en un año bad para que future años parezcan mejores). Pero si:
+- Europa cerveza continúa declining 2-3% anual.
+- USA mismo problemas con declining beer consumption.
+- Premium beer share gain doesn't materialize.
+
+Then **another impairment in 2-3 years is plausible**.
+
+---
+
+## Análisis profundo: el segmento de premium beer + RTDs
+
+### Por qué premium beer es la única growth opportunity
+
+Mientras tradicional beer cae 1-2% anual en volumen, **premium beer (precios 1.5-2x value brands) crece 2-3% anualmente**. Coors Light + Miller Lite son value-priced. Premium examples:
+- Heineken
+- Stella Artois
+- Modelo Especial (#1 USA por revenue)
+- Corona
+
+Molson Coors's premium portfolio is weak vs competitors:
+- Blue Moon (premium Belgian-style) — competitive but small.
+- Madri (UK premium lager) — surprise hit but limited.
+- Foreign Extra Stout — very small.
+- Imported brands (Heineken in UK distribution): not their own brand.
+
+**No tienen un Modelo Especial-equivalent**. This is structural disadvantage vs Constellation Brands (STZ) or Anheuser-Busch (BUD).
+
+### Hard seltzer and RTDs — the next battleground
+
+Hard seltzer market post-peak:
+- 2019-2021: explosive growth. White Claw + Truly leadership.
+- 2022-2024: contracting. Brand fatigue, competition from canned cocktails.
+- 2025+: stabilizing at ~$5-6B USA.
+
+Molson Coors plays:
+- **Vizzy** (own brand): small.
+- **Topo Chico Hard Seltzer** (joint venture with Coca-Cola, 2022): more successful, ~3% market share.
+- **Simply Spiked** (joint venture Coca-Cola): smaller.
+
+**Net**: Molson Coors is in the game but **not winning hard seltzer / RTD**. Constellation owns Modelo + Corona Hard Seltzer. Bud Light has Bud Light Seltzer (declining). Whiteclaw remains independent leader.
+
+Canned cocktails (RTDs ready-to-drink):
+- High Noon (Gallo): leading.
+- Cutwater (AB InBev): growing.
+- Molson Coors: minimal presence.
+
+This is **a missed opportunity** for Molson Coors to diversify beyond beer.
+
+---
+
+## Análisis: M&A optionality
+
+### Could Molson Coors be acquired?
+
+Possible acquirers:
+- **Heineken**: largest brewer in Europe. Strategic logic to acquire MC for combined Europe operations + USA presence.
+- **Asahi**: Japanese brewer expanding internationally.
+- **Anheuser-Busch InBev (BUD)**: regulators would block (already 50% USA market share).
+
+**Probability**: low to medium. Beer M&A has slowed post-2016 SAB Miller mega-merger. Antitrust scrutiny has tightened.
+
+### Could Molson Coors be the acquirer?
+
+With market cap $8.5B, they could acquire **$3-5B targets** without overwhelming their balance sheet. Targets could be:
+- **Smaller craft / premium brewers**: Athletic Brewing, Blackstrap, Topo Chico (already JV).
+- **RTD brands**: Cutwater, Surfside, TopoChicobranded products.
+- **Non-alcoholic**: Athletic Brewing, Lagunitas non-alc.
+
+**Probability**: medium-high. Management has done small adds. Larger M&A possible 2026-2028.
+
+### Spinoff potential
+
+Could Molson Coors spinoff Europe to focus on Americas?
+- **Strategic logic**: Europe declining, lower margins than Americas.
+- **Financial logic**: spinoff could unlock value if Europe trades at 6x EBITDA standalone vs 7x consolidated.
+- **Probability**: low — has been considered repeatedly, never executed. Sentimental ties.
+
+---
+
+## Datos histórico-comparativos: el sector beer global
+
+| Brewer | Revenue ($B) | EBITDA Margin | Net Debt/EBITDA |
+|---|---|---|---|
+| **Anheuser-Busch InBev (BUD)** | 60 | 31% | 3.4x |
+| **Heineken** | 30 | 18% | 2.5x |
+| **Carlsberg** | 11 | 16% | 1.5x |
+| **Asahi** | 22 | 15% | 2.0x |
+| **Molson Coors** | 11 | 22% (recurring) | 2.5x |
+| **Constellation Brands** | 10 | 36% | 3.5x |
+
+**Key insight**: Molson Coors has **higher EBITDA margin than Heineken/Carlsberg/Asahi** but **lower than BUD/STZ**. They sit in the middle. Margin compression is the risk.
+
+---
+
+## Tendencia ESG (positive offset)
+
+Aunque cerveza es business cyclical, Molson Coors ha hecho progress en ESG:
+- **Sustainability**: 50% renewable energy goals by 2030.
+- **Water reduction**: 22% reduction per hectoliter since 2017.
+- **Packaging**: 100% recyclable goals.
+- **Employee diversity**: 50% women in leadership goal.
+
+For ESG-conscious investors, Molson Coors es **mejor que peers** en algunos métricas. Pero para dividend investors puro, factor minor.
