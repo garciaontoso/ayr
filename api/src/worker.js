@@ -6854,19 +6854,22 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       if (path === "/api/credit-rating" && request.method === "GET") {
         await ensureMigrations(env);
         const sym = (url.searchParams.get('symbol') || '').toUpperCase();
+        const force = url.searchParams.get('force') === '1';
         if (!sym) return json({ error: 'Missing ?symbol=' }, corsHeaders, 400);
         const cacheKey = `credit_rating:${sym}`;
-        try {
-          const cached = await env.DB.prepare(
-            "SELECT value, updated_at FROM agent_memory WHERE key = ?"
-          ).bind(cacheKey).first();
-          if (cached?.value && cached.updated_at) {
-            const age = Date.now() - new Date(cached.updated_at).getTime();
-            if (age < 24 * 3600 * 1000) {
-              return json({ ok: true, cached: true, ...JSON.parse(cached.value) }, corsHeaders);
+        if (!force) {
+          try {
+            const cached = await env.DB.prepare(
+              "SELECT value, updated_at FROM agent_memory WHERE key = ?"
+            ).bind(cacheKey).first();
+            if (cached?.value && cached.updated_at) {
+              const age = Date.now() - new Date(cached.updated_at).getTime();
+              if (age < 24 * 3600 * 1000) {
+                return json({ ok: true, cached: true, ...JSON.parse(cached.value) }, corsHeaders);
+              }
             }
-          }
-        } catch {}
+          } catch {}
+        }
         // Try FMP /credit-ratings (Premium plan endpoint)
         const FMP_KEY_LOCAL = env.FMP_KEY;
         const result = { symbol: sym, sp: null, moody: null, fitch: null, fmp_quality: null };
@@ -6898,21 +6901,50 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             }
           }
         } catch {}
-        // Try /credit-ratings (some FMP plans expose this for S&P/Moody's)
-        try {
-          const r3 = await fetch(`https://financialmodelingprep.com/stable/credit-ratings?symbol=${encodeURIComponent(sym)}&apikey=${FMP_KEY_LOCAL}`, {
-            signal: AbortSignal.timeout(15000),
-          });
-          if (r3.ok) {
-            const arr3 = await r3.json().catch(() => []);
-            if (Array.isArray(arr3) && arr3[0]) {
-              result.sp = arr3[0].spRating || arr3[0].standardPoorRating || null;
-              result.moody = arr3[0].moodysRating || arr3[0].moodyRating || null;
-              result.fitch = arr3[0].fitchRating || null;
-              result.raw = arr3[0];
+        // Try multiple FMP endpoint variants for S&P/Moody's/Fitch credit ratings.
+        // Plan FMP Ultimate del usuario debería incluir alguno de estos.
+        const tries = [
+          { url: `https://financialmodelingprep.com/stable/credit-ratings?symbol=${encodeURIComponent(sym)}&apikey=${FMP_KEY_LOCAL}`, label: 'stable/credit-ratings' },
+          { url: `https://financialmodelingprep.com/api/v3/credit-ratings/${encodeURIComponent(sym)}?apikey=${FMP_KEY_LOCAL}`, label: 'v3/credit-ratings' },
+          { url: `https://financialmodelingprep.com/api/v4/credit-rating-snapshot?symbol=${encodeURIComponent(sym)}&apikey=${FMP_KEY_LOCAL}`, label: 'v4/credit-rating-snapshot' },
+          { url: `https://financialmodelingprep.com/stable/credit-rating-snapshot?symbol=${encodeURIComponent(sym)}&apikey=${FMP_KEY_LOCAL}`, label: 'stable/credit-rating-snapshot' },
+          { url: `https://financialmodelingprep.com/api/v3/credit-rating/${encodeURIComponent(sym)}?apikey=${FMP_KEY_LOCAL}`, label: 'v3/credit-rating' },
+          { url: `https://financialmodelingprep.com/api/v4/historical-rating/${encodeURIComponent(sym)}?apikey=${FMP_KEY_LOCAL}`, label: 'v4/historical-rating' },
+        ];
+        result.endpoint_attempts = [];
+        for (const t of tries) {
+          try {
+            const r3 = await fetch(t.url, { signal: AbortSignal.timeout(15000) });
+            const status = r3.status;
+            const body = await r3.json().catch(() => null);
+            const sample = Array.isArray(body) ? (body[0] || null) : body;
+            const hasData = sample && typeof sample === 'object' && Object.keys(sample).length > 0
+              && !sample['Error Message'] && status === 200;
+            result.endpoint_attempts.push({
+              endpoint: t.label,
+              status,
+              has_data: !!hasData,
+              keys: hasData ? Object.keys(sample).slice(0, 15) : null,
+              error: body?.['Error Message'] || null,
+            });
+            if (hasData) {
+              // map possible field names from different FMP versions
+              const sp = sample.spRating || sample.standardPoorRating || sample.sp_rating || sample.standardAndPoorsRating;
+              const mo = sample.moodysRating || sample.moodyRating || sample.moodys_rating;
+              const fi = sample.fitchRating || sample.fitch_rating;
+              if (sp || mo || fi) {
+                result.sp = result.sp || sp || null;
+                result.moody = result.moody || mo || null;
+                result.fitch = result.fitch || fi || null;
+                result.source_endpoint = t.label;
+                result.raw = sample;
+                break;
+              }
             }
+          } catch (e) {
+            result.endpoint_attempts.push({ endpoint: t.label, error: e.message });
           }
-        } catch {}
+        }
         // Persist cache
         try {
           await env.DB.prepare(

@@ -25,6 +25,26 @@ error tracking propio + Zod + Vitest + CI. Cualquier sesión nueva debe
 leer ese fichero primero, ver qué está hecho ✅ y qué está EN CURSO 🚧,
 y continuar por ahí en lugar de empezar features nuevas.
 
+## 💳 FMP plan + endpoints DEPRECATED
+- Usuario paga **FMP Ultimate (el plan más caro)** — no escatimar pidiéndole upgrade
+- **FMP DESCONTINUÓ credit ratings (S&P/Moody's/Fitch) el 31 agosto 2025**.
+  Verificado 2026-05-03 con todos los endpoint variants:
+  - `/v3/credit-ratings/{symbol}` → 403 "Legacy Endpoint"
+  - `/v3/credit-rating/{symbol}` → 403 "Legacy Endpoint"
+  - `/v4/credit-rating-snapshot` → 403 "Legacy Endpoint"
+  - `/v4/historical-rating/{symbol}` → 403 "Legacy Endpoint"
+  - `/stable/credit-ratings` → 404 (no existe nuevo)
+  - `/stable/credit-rating-snapshot` → 404
+- **Lo que SÍ tenemos en FMP Ultimate**: `/stable/ratings-snapshot` (FMP
+  Quality Rating composite A+/A/B+...) y `/stable/grades-historical`
+  (analyst Buy/Hold/Sell). Esos son DIFERENTES de S&P credit rating.
+- **Para mostrar S&P real como FAST Graphs**:
+  - Plan A: contratar otra fuente (S&P Global API, Polygon, etc.)
+  - Plan B: mapeo manual de los 76 tickers en cartera
+  - Plan C: aceptar que A&R no compite con FAST Graphs en credit ratings
+  - **Decisión actual**: Plan C con label claro "FMP Quality" en vez de
+    "Credit Rating" para no confundir.
+
 ## 📚 Bug Patterns Catalog
 Lista viva de bugs recurrentes con causa raíz + fix + prevención: `docs/bug-patterns.md`.
 **Cuando arregles un bug nuevo, AÑADE entrada al final.** Antes de tocar
