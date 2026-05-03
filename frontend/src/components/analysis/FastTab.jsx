@@ -1835,80 +1835,138 @@ export default function FastTab() {
           )}
         </div>
 
-        {/* Sidebar de métricas — columna derecha estilo FAST Graphs. Agrupa
-            las 18 métricas clave en 3 bloques: Valoración / Retornos /
-            Perfil. Apilado vertical, compacto. */}
+        {/* ── Sidebar — réplica EXACTA del orden de FAST Graphs ──────────
+            Verificado contra ZTS y O (Realty Income) en app.fastgraphs.com.
+            Orden FAST Graphs:
+              1. FAST Facts (3 cajas grandes coloreadas):
+                 Growth Rate (verde) · Fair Value Ratio (naranja) · Normal P/E (azul)
+              2. Lista de métricas:
+                 Blended P/E · EPS Yield · Div Yield · S&P Credit Rating ·
+                 Market Cap · TEV · LT Debt/Capital · Country ·
+                 GICS Sub-industry · Type
+              3. (Mis extras debajo: Precio justo, Price Target, Backtest,
+                 Future projection, Consenso ΔEPS, Beta)
+
+            En modo REIT (AFFO): los labels P/E → P/AFFO y EPS Yield → AFFO Yield. */}
         <aside style={{display:'flex',flexDirection:'column',gap:10,minWidth:0}}>
-          <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:12}}>
-            <div style={{fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)',letterSpacing:.5,textTransform:'uppercase',marginBottom:8}}>Valoración</div>
-            <div style={{display:'flex',flexDirection:'column',gap:6}}>
-              <MetricRow label="Growth Rate (CAGR)" value={metricCAGR != null ? fP(metricCAGR) : '—'} color={metricCAGR && metricCAGR > 0.05 ? '#30d158' : 'var(--text-primary)'}/>
-              <MetricRow label="P/E actual (blended)" value={blendedPE ? blendedPE.toFixed(2)+'x' : '—'} color="var(--gold)"/>
-              <MetricRow label="Normal P/E (10y)" value={history?.avg_pe_10y ? history.avg_pe_10y.toFixed(1)+'x' : '—'}/>
-              <MetricRow label="Normal P/E (5y)" value={history?.avg_pe_5y ? history.avg_pe_5y.toFixed(1)+'x' : '—'}/>
-              <MetricRow label="Fair Value Ratio" value={mosVsFair != null ? fP(mosVsFair) : '—'} color={mosVsFair && mosVsFair > 0.15 ? '#30d158' : mosVsFair && mosVsFair > 0 ? 'var(--gold)' : '#ff453a'}/>
-              <MetricRow label="Precio justo" value={fC(fairValue)} color="var(--gold)"/>
-              <MetricRow label="Price Target" value={priceTarget ? fC(priceTarget) + (history?.price_target?.analysts ? ` (${history.price_target.analysts})` : '') : '—'} color="#bf5af2"/>
-            </div>
-          </div>
-
-          <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:12}}>
-            <div style={{fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)',letterSpacing:.5,textTransform:'uppercase',marginBottom:8}}>Retornos</div>
-            <div style={{display:'flex',flexDirection:'column',gap:6}}>
-              <MetricRow label="Precio futuro proj." value={fC(futureFair)} color="#64d2ff"/>
-              <MetricRow label="Retorno anual impl." value={futureReturn != null ? fP(futureReturn) : '—'} color={futureReturn && futureReturn > 0.10 ? '#30d158' : futureReturn && futureReturn > 0.05 ? 'var(--gold)' : '#ff453a'}/>
-              <MetricRow label="Consenso ΔEPS" value={consensusImpliedGrowth != null ? fP(consensusImpliedGrowth) : '—'} color={consensusImpliedGrowth && consensusImpliedGrowth > 0.08 ? '#30d158' : '#64d2ff'}/>
-              <MetricRow label="EPS Yield" value={epsYield != null ? fP(epsYield) : '—'}/>
-              <MetricRow label="Div Yield" value={divYield != null ? fP(divYield) : '—'} color="var(--gold)"/>
-            </div>
-          </div>
-
-          {backtest && (
-            <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:12}}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:8}}>
-                <div style={{fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)',letterSpacing:.5,textTransform:'uppercase'}}>Backtest</div>
-                <div style={{display:'flex',gap:2}}>
-                  {[5, 10, 15, 20].map(y => (
-                    <button key={y} onClick={()=>setBacktestYears(y)}
-                      style={{padding:'2px 6px',fontSize:8,fontWeight:700,borderRadius:3,border:`1px solid ${backtestYears===y?'var(--gold)':'var(--border)'}`,background:backtestYears===y?'var(--gold-dim)':'transparent',color:backtestYears===y?'var(--gold)':'var(--text-secondary)',cursor:'pointer',fontFamily:'var(--fm)'}}>
-                      {y}y
-                    </button>
-                  ))}
+          {(() => {
+            // Computar variables locales que no estaban definidas
+            const isAffoMode = isReit && (fgMode === 'fcfe' || fgMode === 'ocf');
+            const peLabel = isAffoMode ? 'P/AFFO' : 'P/E';
+            const yldLabel = isAffoMode ? 'AFFO Yield' : 'EPS Yield';
+            // TEV ≈ Market Cap + Total Debt - Cash
+            const lastF = fin[lastHistY] || {};
+            const mktCap = profile.mktCap || 0;
+            const totalDebt = lastF.totalDebt || 0;
+            const cash = lastF.cash || 0;
+            const tev = mktCap > 0 ? mktCap + totalDebt - cash : null;
+            const fmtB = (v) => v == null ? '—' : `$${(v/1e9).toFixed(2)}B`;
+            // Type — instrumento. FMP profile.type or fallback heuristic.
+            const instrumentType = (() => {
+              if (profile.type) return profile.type.toUpperCase();
+              if (profile.isEtf || profile.isFund) return 'ETF';
+              return 'SHARE';
+            })();
+            // GICS sub-industry — FMP nos da industry, no GICS sub. Lo más
+            // cercano. Para REITs FAST muestra "Retail REITs", "Apartment
+            // REITs" etc. Nuestro `profile.industry` ya tiene formato similar.
+            const gicsSub = profile.industry || profile.sector || '—';
+            return <>
+              {/* ── 1. FAST Facts — 3 cajas top (réplica FAST Graphs) ── */}
+              <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:10}}>
+                <div style={{fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)',letterSpacing:.5,textTransform:'uppercase',marginBottom:8}}>FAST Facts</div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}}>
+                  {/* Growth Rate (verde) */}
+                  <div style={{padding:'8px 6px',background:'rgba(48,209,88,.10)',border:'1px solid rgba(48,209,88,.25)',borderRadius:8,textAlign:'center'}}>
+                    <div style={{fontSize:13,fontWeight:800,color:'#30d158',fontFamily:'var(--fm)',lineHeight:1.1}}>
+                      {metricCAGR != null ? (metricCAGR*100).toFixed(2)+'%' : '—'}
+                    </div>
+                    <div style={{fontSize:8,color:'var(--text-tertiary)',marginTop:3,fontFamily:'var(--fm)'}}>Growth Rate</div>
+                  </div>
+                  {/* Fair Value Ratio (naranja) */}
+                  <div style={{padding:'8px 6px',background:'rgba(255,159,10,.10)',border:'1px solid rgba(255,159,10,.25)',borderRadius:8,textAlign:'center'}}>
+                    <div style={{fontSize:13,fontWeight:800,color:'#ff9f0a',fontFamily:'var(--fm)',lineHeight:1.1}}>
+                      {fgPE.toFixed(2)}x
+                    </div>
+                    <div style={{fontSize:8,color:'var(--text-tertiary)',marginTop:3,fontFamily:'var(--fm)'}}>Fair Value Ratio</div>
+                  </div>
+                  {/* Normal P/E or P/AFFO (azul) */}
+                  <div style={{padding:'8px 6px',background:'rgba(74,144,226,.10)',border:'1px solid rgba(74,144,226,.25)',borderRadius:8,textAlign:'center'}}>
+                    <div style={{fontSize:13,fontWeight:800,color:'#4a90e2',fontFamily:'var(--fm)',lineHeight:1.1}}>
+                      {isAffoMode ? '—' : (history?.avg_pe_10y ? history.avg_pe_10y.toFixed(2)+'x' : '—')}
+                    </div>
+                    <div style={{fontSize:8,color:'var(--text-tertiary)',marginTop:3,fontFamily:'var(--fm)'}}>Normal {peLabel} Ratio</div>
+                  </div>
                 </div>
               </div>
-              <div style={{fontSize:11,color:'var(--text-secondary)',fontFamily:'var(--fm)',lineHeight:1.4,marginBottom:4}}>
-                Si compraste en <strong style={{color:'var(--text-primary)'}}>{backtest.startDate.slice(0,7)}</strong> @${backtest.startPrice.toFixed(2)}:
-              </div>
-              <div style={{display:'flex',justifyContent:'space-between',fontSize:10,fontFamily:'var(--fm)',marginBottom:3}}>
-                <span style={{color:'var(--text-tertiary)'}}>CAGR</span>
-                <span style={{fontWeight:700,color:backtest.cagr > 0.1 ? '#30d158' : backtest.cagr > 0.03 ? 'var(--gold)' : '#ff453a'}}>
-                  {(backtest.cagr * 100).toFixed(1)}%/año
-                </span>
-              </div>
-              <div style={{display:'flex',justifyContent:'space-between',fontSize:10,fontFamily:'var(--fm)',marginBottom:3}}>
-                <span style={{color:'var(--text-tertiary)'}}>Total</span>
-                <span style={{fontWeight:700,color:backtest.totalReturn > 0 ? '#30d158' : '#ff453a'}}>
-                  {(backtest.totalReturn * 100).toFixed(0)}%
-                </span>
-              </div>
-              <div style={{display:'flex',justifyContent:'space-between',fontSize:10,fontFamily:'var(--fm)'}}>
-                <span style={{color:'var(--text-tertiary)'}}>Div acum.</span>
-                <span style={{fontWeight:700,color:'var(--gold)'}}>${backtest.divsAccum.toFixed(2)}</span>
-              </div>
-            </div>
-          )}
 
-          <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:12}}>
-            <div style={{fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)',letterSpacing:.5,textTransform:'uppercase',marginBottom:8}}>Perfil</div>
-            <div style={{display:'flex',flexDirection:'column',gap:6}}>
-              <MetricRow label="S&P Rating" value={history?.rating?.overall || '—'}/>
-              <MetricRow label="Market Cap" value={profile.mktCap ? `$${(profile.mktCap/1e9).toFixed(1)}B` : '—'}/>
-              <MetricRow label="LT Debt/Capital" value={debtCap != null ? fP(debtCap) : '—'}/>
-              <MetricRow label="Country" value={profile.country || '—'}/>
-              <MetricRow label="Industry" value={profile.industry || '—'} small/>
-              <MetricRow label="Beta" value={profile.beta != null ? profile.beta.toFixed(2) : '—'}/>
-            </div>
-          </div>
+              {/* ── 2. Lista plana — orden EXACTO FAST Graphs ── */}
+              <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:14,padding:12}}>
+                <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                  <MetricRow label={`Blended ${peLabel}`} value={blendedPE ? blendedPE.toFixed(2)+'x' : '—'} color="var(--gold)"/>
+                  <MetricRow label={yldLabel} value={epsYield != null ? fP(epsYield) : '—'}/>
+                  <MetricRow label="Div Yield" value={divYield != null ? fP(divYield) : '—'} color="var(--gold)"/>
+                  <MetricRow label="S&P Credit Rating" value={history?.rating?.overall || '—'}/>
+                  <MetricRow label="Market Cap" value={fmtB(mktCap)}/>
+                  <MetricRow label="TEV" value={fmtB(tev)} small/>
+                  <MetricRow label="LT Debt/Capital" value={debtCap != null ? fP(debtCap) : '—'}/>
+                  <MetricRow label="Country" value={profile.country || '—'}/>
+                  <MetricRow label="GICS Sub-industry" value={gicsSub} small/>
+                  <MetricRow label="Type" value={instrumentType}/>
+                </div>
+              </div>
+
+              {/* ── 3. EXTRAS A&R — debajo de la réplica FAST Graphs ── */}
+              <div style={{background:'rgba(200,164,78,.04)',border:'1px solid rgba(200,164,78,.15)',borderRadius:14,padding:12}}>
+                <div style={{fontSize:9,color:'var(--gold)',fontFamily:'var(--fm)',letterSpacing:.5,textTransform:'uppercase',marginBottom:8}}>+ Extras A&R</div>
+                <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                  <MetricRow label="Fair Value $" value={fC(fairValue)} color="var(--gold)"/>
+                  <MetricRow label="Margen vs Fair" value={mosVsFair != null ? fP(mosVsFair) : '—'} color={mosVsFair && mosVsFair > 0.15 ? '#30d158' : mosVsFair && mosVsFair > 0 ? 'var(--gold)' : '#ff453a'}/>
+                  <MetricRow label="Price Target" value={priceTarget ? fC(priceTarget) + (history?.price_target?.analysts ? ` (${history.price_target.analysts})` : '') : '—'} color="#bf5af2"/>
+                  <MetricRow label="Precio futuro proj." value={fC(futureFair)} color="#64d2ff"/>
+                  <MetricRow label="Retorno anual impl." value={futureReturn != null ? fP(futureReturn) : '—'} color={futureReturn && futureReturn > 0.10 ? '#30d158' : futureReturn && futureReturn > 0.05 ? 'var(--gold)' : '#ff453a'}/>
+                  <MetricRow label="Consenso ΔEPS" value={consensusImpliedGrowth != null ? fP(consensusImpliedGrowth) : '—'} color={consensusImpliedGrowth && consensusImpliedGrowth > 0.08 ? '#30d158' : '#64d2ff'}/>
+                  <MetricRow label="Beta" value={profile.beta != null ? profile.beta.toFixed(2) : '—'}/>
+                </div>
+              </div>
+
+              {/* Backtest — caja propia (extra A&R, sigue separada porque tiene controles 5/10/15/20y) */}
+              {backtest && (
+                <div style={{background:'rgba(200,164,78,.04)',border:'1px solid rgba(200,164,78,.15)',borderRadius:14,padding:12}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:8}}>
+                    <div style={{fontSize:9,color:'var(--gold)',fontFamily:'var(--fm)',letterSpacing:.5,textTransform:'uppercase'}}>+ Backtest A&R</div>
+                    <div style={{display:'flex',gap:2}}>
+                      {[5, 10, 15, 20].map(y => (
+                        <button key={y} onClick={()=>setBacktestYears(y)}
+                          style={{padding:'2px 6px',fontSize:8,fontWeight:700,borderRadius:3,border:`1px solid ${backtestYears===y?'var(--gold)':'var(--border)'}`,background:backtestYears===y?'var(--gold-dim)':'transparent',color:backtestYears===y?'var(--gold)':'var(--text-secondary)',cursor:'pointer',fontFamily:'var(--fm)'}}>
+                          {y}y
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{fontSize:11,color:'var(--text-secondary)',fontFamily:'var(--fm)',lineHeight:1.4,marginBottom:4}}>
+                    Si compraste en <strong style={{color:'var(--text-primary)'}}>{backtest.startDate.slice(0,7)}</strong> @${backtest.startPrice.toFixed(2)}:
+                  </div>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:10,fontFamily:'var(--fm)',marginBottom:3}}>
+                    <span style={{color:'var(--text-tertiary)'}}>CAGR</span>
+                    <span style={{fontWeight:700,color:backtest.cagr > 0.1 ? '#30d158' : backtest.cagr > 0.03 ? 'var(--gold)' : '#ff453a'}}>
+                      {(backtest.cagr * 100).toFixed(1)}%/año
+                    </span>
+                  </div>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:10,fontFamily:'var(--fm)',marginBottom:3}}>
+                    <span style={{color:'var(--text-tertiary)'}}>Total</span>
+                    <span style={{fontWeight:700,color:backtest.totalReturn > 0 ? '#30d158' : '#ff453a'}}>
+                      {(backtest.totalReturn * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:10,fontFamily:'var(--fm)'}}>
+                    <span style={{color:'var(--text-tertiary)'}}>Div acum.</span>
+                    <span style={{fontWeight:700,color:'var(--gold)'}}>${backtest.divsAccum.toFixed(2)}</span>
+                  </div>
+                </div>
+              )}
+            </>;
+          })()}
         </aside>
       </div>
       )}{/* /innerTab summary */}
