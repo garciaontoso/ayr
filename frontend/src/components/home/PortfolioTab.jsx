@@ -8,6 +8,82 @@ import { TrustBadge } from '../ui/TrustBadge.jsx';
 import FiveFiltersBars from '../ui/FiveFiltersBars.jsx';
 import BuyWizard from '../ui/BuyWizard.jsx';
 import { API_URL } from '../../constants/index.js';
+import { getPref, setPref } from '../../utils/userPrefs.js';
+
+// 5 colores de categoría que el usuario asigna a cada ticker (per-user).
+// Click cell → ciclo o dropdown picker. Persistente vía userPrefs `ayr-cat-{ticker}`.
+const CATEGORY_COLORS = [
+  { key: '',       label: 'Sin categoría', dot: 'transparent' },
+  { key: 'green',  label: 'Verde',         dot: '#30d158' },
+  { key: 'yellow', label: 'Amarillo',      dot: '#ffd60a' },
+  { key: 'blue',   label: 'Azul',          dot: '#5b9bd5' },
+  { key: 'orange', label: 'Naranja',       dot: '#ff9f0a' },
+  { key: 'red',    label: 'Rojo',          dot: '#ff453a' },
+];
+
+function CategoryDot({ ticker }) {
+  const [val, setVal] = useState(() => getPref(`ayr-cat-${ticker}`, '') || '');
+  const [open, setOpen] = useState(false);
+  const current = CATEGORY_COLORS.find(c => c.key === val) || CATEGORY_COLORS[0];
+  return (
+    <div style={{ position: 'relative', display: 'inline-block', lineHeight: 0 }}>
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
+        title={current.label + ' — click para cambiar'}
+        aria-label={`Categoría: ${current.label}`}
+        style={{
+          width: 14, height: 14, borderRadius: '50%',
+          background: current.dot,
+          border: val ? '1px solid rgba(0,0,0,.3)' : '1px dashed rgba(255,255,255,.25)',
+          cursor: 'pointer', padding: 0,
+          boxShadow: val ? `0 0 6px ${current.dot}66` : 'none',
+        }}
+      />
+      {open && (
+        <>
+          <div
+            onClick={(e) => { e.stopPropagation(); setOpen(false); }}
+            style={{ position: 'fixed', inset: 0, zIndex: 50 }}
+          />
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'absolute', top: 18, left: -2, zIndex: 51,
+              background: 'var(--card)', border: '1px solid var(--border)',
+              borderRadius: 8, padding: 4, display: 'flex', gap: 4,
+              boxShadow: '0 6px 20px rgba(0,0,0,.4)',
+            }}
+          >
+            {CATEGORY_COLORS.map(c => (
+              <button key={c.key}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setVal(c.key);
+                  setPref(`ayr-cat-${ticker}`, c.key);
+                  setOpen(false);
+                }}
+                title={c.label}
+                style={{
+                  width: 18, height: 18, borderRadius: '50%',
+                  background: c.dot,
+                  border: c.key === val ? '2px solid var(--gold)'
+                        : c.key === '' ? '1px dashed rgba(255,255,255,.25)'
+                                       : '1px solid rgba(0,0,0,.3)',
+                  cursor: 'pointer', padding: 0,
+                  position: 'relative',
+                }}
+              >
+                {c.key === '' && (
+                  <span style={{ fontSize: 10, color: 'var(--text-tertiary)', lineHeight: 1, display: 'inline-block', verticalAlign: 'middle' }}>—</span>
+                )}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 const ALERTS_KEY = "ayr_price_alerts";
 const COLS_KEY = "ayr_portfolio_cols";
@@ -33,6 +109,13 @@ const getSectorColor = (sector) => {
 export const COL_DEFS = [
   { id:"ticker", label:"TICKER", group:"Core", w:"68px", align:"left", locked:true, defaultOn:true,
     val:p=>p.ticker, fmt:v=>v, sortV:p=>(p.ticker||"").toLowerCase() },
+  // 2026-05-03: user-assignable category dot (per-user via userPrefs).
+  // Custom render path: cellRenderType='categoryDot' so the row renderer
+  // bypasses fmt() and mounts the <CategoryDot/> component instead.
+  { id:"categoria", label:"CATEGORÍA", group:"Core", w:"38px", defaultOn:true, cellRenderType:'categoryDot',
+    val:p=>getPref(`ayr-cat-${p.ticker}`, '') || '',
+    fmt:v=>v||"—",
+    sortV:p=>{ const v=getPref(`ayr-cat-${p.ticker}`, '')||'zzz'; return v; } },
   { id:"name", label:"NOMBRE", group:"Core", w:"110px", align:"left", defaultOn:true,
     val:p=>p.name||p.ticker, fmt:v=>v, sortV:p=>(p.name||p.ticker).toLowerCase() },
   { id:"price", label:"PRECIO", group:"Core", w:"58px", defaultOn:true,
@@ -1122,6 +1205,12 @@ export default function PortfolioTab() {
                           const cellColor = c.color ? c.color(val) : "var(--text-primary)";
                           const tooltip = `DGR ${p.ticker}\n1Y: ${fmtDGR(d.dgr1)}\n3Y: ${fmtDGR(d.dgr3)}\n5Y: ${fmtDGR(d.dgr5)}\n10Y: ${fmtDGR(d.dgr10)}\nStreak: ${d.streak||0} yrs`;
                           return (<td key={c.id} title={tooltip} style={{padding:"3px 3px",textAlign:"right",verticalAlign:"middle",fontFamily:"var(--fm)",fontSize:10,fontWeight:600,color:cellColor,whiteSpace:"nowrap",cursor:"help"}}>{formatted}</td>);
+                        }
+                        // Custom cell: category color dot picker (per-user persistence)
+                        if (c.cellRenderType === 'categoryDot') {
+                          return (<td key={c.id} onClick={e=>e.stopPropagation()} style={{padding:"3px 3px",textAlign:"center",verticalAlign:"middle",whiteSpace:"nowrap",overflow:"visible"}}>
+                            <CategoryDot ticker={p.ticker} />
+                          </td>);
                         }
                         const val = c.val(p);
                         const formatted = c.fmt(val, p);

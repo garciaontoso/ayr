@@ -23,6 +23,7 @@ const SCOPED_KEYS = [
   'ayr-cols-*',
   'ayr-row-order-*',     // per-analysis-tab row (metric) order
   'ayr-section-order-*', // per-tab section (card block) order
+  'ayr-cat-*',           // per-portfolio-row category color (verde/amarillo/azul/naranja/rojo)
   'ayr-theme',
   'ayr-currency',
   'ayr-zoom',
