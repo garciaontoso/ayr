@@ -1805,6 +1805,16 @@ export default function HomeView() {
         {/* Claude API consumption dashboard */}
         <ClaudeUsageButton />
 
+        {/* 🛒 Evaluar compra — discreto en el header (antes era un FAB
+            grandote dorado abajo a la derecha que el usuario consideraba
+            feo). Mantiene la misma funcionalidad, abre BuyWizard. */}
+        <button
+          onClick={() => setShowBuyWizard(true)}
+          aria-label="Evaluar compra"
+          title="🛒 Evaluar compra — síntesis agentes + sector + tesis + alerta"
+          style={{padding:"4px 7px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-tertiary)",fontSize:10,cursor:"pointer"}}
+        >🛒</button>
+
         {/* Offline mode — download all data for airplane */}
         <AirplaneMode portfolioList={portfolioList} />
 
@@ -1902,49 +1912,10 @@ export default function HomeView() {
     )}
 
     {/* Buy Wizard modal — global, always available */}
+    {/* 2026-05-03: el FAB grande dorado bottom-right fue retirado por
+        feedback del usuario ("feísima"). Ahora se abre desde el icono 🛒
+        discreto del header (junto a 🩺 / IB / Claude). */}
     <BuyWizard open={showBuyWizard} onClose={() => setShowBuyWizard(false)} />
-
-    {/* 🛒 Floating Action Button — siempre visible bottom-right.
-        Abre el Buy Wizard desde cualquier tab. Diseñado prominente porque
-        el botón en el header se perdía entre los iconos pequeños. */}
-    {!showBuyWizard && (
-      <button
-        onClick={() => setShowBuyWizard(true)}
-        aria-label="Evaluar compra"
-        title="🛒 Evaluar compra — síntesis agentes + sector + tesis + alerta en 1 pantalla"
-        style={{
-          position: 'fixed',
-          right: 20,
-          bottom: 20,
-          zIndex: 9000,
-          padding: '14px 22px',
-          borderRadius: 100,
-          border: '2px solid var(--gold)',
-          background: 'linear-gradient(135deg, #c8a44e, #a08540)',
-          color: '#000',
-          fontSize: 14,
-          fontWeight: 800,
-          fontFamily: 'var(--fm)',
-          cursor: 'pointer',
-          boxShadow: '0 8px 24px rgba(200,164,78,0.5), 0 0 0 4px rgba(200,164,78,0.15)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          letterSpacing: '0.5px',
-          transition: 'transform 0.15s, box-shadow 0.15s',
-        }}
-        onMouseEnter={e => {
-          e.currentTarget.style.transform = 'translateY(-2px) scale(1.04)';
-          e.currentTarget.style.boxShadow = '0 12px 32px rgba(200,164,78,0.7), 0 0 0 6px rgba(200,164,78,0.2)';
-        }}
-        onMouseLeave={e => {
-          e.currentTarget.style.transform = 'translateY(0) scale(1)';
-          e.currentTarget.style.boxShadow = '0 8px 24px rgba(200,164,78,0.5), 0 0 0 4px rgba(200,164,78,0.15)';
-        }}
-      >
-        <span style={{ fontSize: 18 }}>🛒</span> Evaluar compra
-      </button>
-    )}
 
     {/* Health Check Panel */}
     {showHealthCheck && (
