@@ -1082,18 +1082,15 @@ export default function FastTab() {
       {/* Header */}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14,flexWrap:'wrap',gap:12}}>
         <div>
-          <h2 style={{margin:'0 0 4px',fontSize:20,fontWeight:700,color:'var(--text-primary)',fontFamily:'var(--fd)',display:'flex',alignItems:'center',gap:8}}>
-            ⚡ FAST — Precio vs Valor
+          <h2 style={{margin:0,fontSize:18,fontWeight:700,color:'var(--text-primary)',fontFamily:'var(--fd)',display:'flex',alignItems:'center',gap:8}}
+              title={`Línea blanca = precio histórico · Línea dorada = ${METRIC_LABEL[fgMode] || 'EPS'} × ${activePE?activePE.toFixed(1):fgPE}x · Azul = proyección · Punto rojo = precio actual${isReit?'\nMODO REIT: comparamos vs AFFO igual que FAST Graphs':''}`}>
+            ⚡ FAST
             {isReit && (
-              <span title="Detectado REIT. FAST Graphs valora REITs con AFFO en lugar de EPS — auto-conmutado a Free FCFE/AFFO." style={{fontSize:9,fontWeight:700,padding:'2px 7px',borderRadius:4,background:'rgba(168,85,247,.12)',color:'#a855f7',border:'1px solid rgba(168,85,247,.3)',letterSpacing:.3}}>
-                MODO REIT · AFFO
+              <span style={{fontSize:9,fontWeight:700,padding:'2px 7px',borderRadius:4,background:'rgba(168,85,247,.12)',color:'#a855f7',border:'1px solid rgba(168,85,247,.3)',letterSpacing:.3}}>
+                REIT · AFFO
               </span>
             )}
           </h2>
-          <p style={{margin:0,fontSize:11,color:'var(--text-secondary)',lineHeight:1.45}}>
-            Línea blanca = precio histórico mensual · Línea dorada = {METRIC_LABEL[fgMode] || 'EPS'} × {activePE ? activePE.toFixed(1)+'x' : fgPE+'x'} P/E · Punteada azul = proyección · Punto rojo = precio actual
-            {isReit && <span style={{color:'#a855f7'}}> · Para REITs comparamos vs AFFO igual que FAST Graphs (mejor proxy que EPS).</span>}
-          </p>
         </div>
         <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
           {/* Metric dropdown */}
@@ -1180,27 +1177,11 @@ export default function FastTab() {
         )}
       </div>
 
-      {/* Per-metric comparison panel — muestra valores de TODAS las métricas para el último año.
-          Permite ver de un vistazo cuánto cambia cada métrica y diagnosticar si algún campo
-          falta en el cache de FMP (mostrará "—"). */}
-      <div style={{marginBottom:10,background:'var(--card)',border:'1px solid var(--border)',borderRadius:10,padding:'8px 12px'}}>
-        <div style={{fontSize:8,color:'var(--text-tertiary)',fontFamily:'var(--fm)',letterSpacing:.5,textTransform:'uppercase',marginBottom:6}}>Valor por métrica — último año {lastHistY || ''} (click para seleccionar)</div>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(135px,1fr))',gap:6}}>
-          {METRIC_OPTIONS.map(m => {
-            const v = allMetricValues[m.id];
-            const active = fgMode === m.id;
-            return (
-              <button key={m.id} onClick={()=>setFgMode(m.id)}
-                style={{padding:'6px 8px',borderRadius:6,border:`1px solid ${active?'var(--gold)':'var(--border)'}`,background:active?'var(--gold-dim)':'transparent',color:active?'var(--gold)':'var(--text-secondary)',textAlign:'left',cursor:'pointer',fontFamily:'var(--fm)',fontSize:9}}>
-                <div style={{fontSize:8,opacity:.7}}>{m.label.split(' ')[0]}{m.label.includes('(') ? ' '+m.label.split('(')[1].replace(')','') : ''}</div>
-                <div style={{fontSize:14,fontWeight:800,color:active?'var(--gold)':v!=null&&v!==0?'var(--text-primary)':'var(--text-tertiary)',marginTop:2}}>
-                  {v != null && v !== 0 && Number.isFinite(v) ? '$'+v.toFixed(2) : '—'}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      {/* "VALOR POR MÉTRICA" 8-cards grid eliminado 2026-05-03 a petición
+          del usuario (redundante con el dropdown "Correlacionar con" de
+          arriba que hace exactamente lo mismo: cambiar fgMode). FAST
+          Graphs no tiene equivalente. Se conservaba para "diagnosticar"
+          campos faltantes pero el dropdown ya muestra "—" si vacío. */}
 
       {/* Sliders row */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:10,marginBottom:14}}>
@@ -1275,14 +1256,11 @@ export default function FastTab() {
             <span style={{fontSize:13,fontWeight:700,color:'#bf5af2',fontFamily:'var(--fm)',minWidth:30}}>{fgProjYears}a</span>
           </div>
         </div>
-        <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:10,padding:'8px 12px'}}>
-          <div style={{fontSize:8,color:'var(--text-secondary)',fontWeight:600,textTransform:'uppercase',fontFamily:'var(--fm)',letterSpacing:.5}}>Último valor</div>
-          <div style={{fontSize:16,fontWeight:700,color:'var(--text-primary)',fontFamily:'var(--fm)',marginTop:2}}>{fC(latestMetric)}</div>
-        </div>
-        <div style={{background:'var(--card)',border:'1px solid var(--border)',borderRadius:10,padding:'8px 12px'}}>
-          <div style={{fontSize:8,color:'var(--text-secondary)',fontWeight:600,textTransform:'uppercase',fontFamily:'var(--fm)',letterSpacing:.5}}>Precio actual</div>
-          <div style={{fontSize:16,fontWeight:700,color:'var(--text-primary)',fontFamily:'var(--fm)',marginTop:2}}>{fC(cfg?.price)}</div>
-        </div>
+        {/* Cards "Último valor" y "Precio actual" eliminadas 2026-05-03
+            — duplicaban info de la franja superior compacta del Resumen
+            (logo + nombre + precio + IV + cap...). FAST Graphs no tiene
+            estas cards en la zona de controles, sólo el precio en el
+            header de página. */}
       </div>
 
       {/* Tab bar estilo FAST Graphs — 5 secciones enfocadas.
