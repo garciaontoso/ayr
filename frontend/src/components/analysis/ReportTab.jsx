@@ -1,20 +1,37 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext.jsx';
 import { _sf } from '../../utils/formatters';
 
 // ── A&R Professional Report ──
 function ARReport() {
   const { reportData, reportLoading, reportSymbol, cfg, openReport, priceChartData } = useAnalysis();
+  // Prevent infinite retry loop when offline (openReport returns null data → re-triggers → loop)
+  // hasFetched resets when the ticker changes so a genuine ticker switch re-fetches.
+  const hasFetched = useRef(false);
+  const lastFetchedTicker = useRef(null);
 
   // Auto-load report when ticker changes — must be in useEffect, not render body
   useEffect(() => {
-    if (!reportLoading && (!reportData || reportSymbol !== cfg?.ticker)) {
-      openReport(cfg?.ticker);
+    const ticker = cfg?.ticker;
+    if (!ticker) return;
+    // Reset if ticker changed
+    if (lastFetchedTicker.current !== ticker) {
+      hasFetched.current = false;
+      lastFetchedTicker.current = ticker;
+    }
+    // Only attempt once per ticker — avoids infinite loop when offline returns no data
+    if (!hasFetched.current && !reportLoading && (!reportData || reportSymbol !== ticker)) {
+      hasFetched.current = true;
+      openReport(ticker);
     }
   }, [cfg?.ticker]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
   if (reportLoading) return <div style={{padding:60,textAlign:"center",color:"var(--gold)",fontSize:13}}>Generando informe profesional de {cfg?.ticker}...</div>;
-  if (!reportData) return <div style={{padding:60,textAlign:"center"}}><button onClick={()=>openReport(cfg?.ticker)} style={{padding:"14px 28px",borderRadius:10,border:"1px solid var(--gold)",background:"var(--gold-dim)",color:"var(--gold)",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>Generar Informe de {cfg?.ticker}</button></div>;
+  if (!reportData) return <div style={{padding:60,textAlign:"center"}}>
+    {isOffline && <div style={{marginBottom:14,fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Sin conexión — informe no disponible offline para este ticker</div>}
+    <button onClick={()=>{ hasFetched.current = false; openReport(cfg?.ticker); }} style={{padding:"14px 28px",borderRadius:10,border:"1px solid var(--gold)",background:"var(--gold-dim)",color:"var(--gold)",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>{isOffline ? "Sin datos offline" : `Generar Informe de ${cfg?.ticker}`}</button>
+  </div>;
 
   const r = reportData, yrs = r.years||[], L = yrs[yrs.length-1]||{}, F = yrs[0]||{};
   const s = r.currency==="EUR"?"€":r.currency==="GBP"?"£":"$";

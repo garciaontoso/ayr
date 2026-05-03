@@ -925,6 +925,25 @@ function buildPositionsFromCB() {
   const [reportSymbol, setReportSymbol] = useState(null);
 
   const openReport = useCallback(async (sym) => {
+    // Offline guard: if there is no connectivity skip the network call entirely
+    // so the spinner never hangs and the "Generar Informe" button stays visible.
+    // The monkey-patched fetch in main.jsx will serve from ayr-offline-data if a
+    // cached copy exists (populated by AirplaneMode Phase 7).
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      // Still attempt cache lookup via the patched fetch
+      setReportSymbol(sym);
+      setReportLoading(true);
+      setReportData(null);
+      try {
+        const resp = await fetch(`${API_URL}/api/report?symbol=${sym}`);
+        if (resp.ok) {
+          const d = await resp.json();
+          if (!d?.error) { setReportData(d); }
+        }
+      } catch (_) {}
+      setReportLoading(false);
+      return;
+    }
     setReportSymbol(sym);
     setReportLoading(true);
     setReportData(null);
@@ -1937,12 +1956,15 @@ function buildPositionsFromCB() {
   } = useAnalysisMetrics({ fin, cfg, setSsd, fmpExtra });
 
 
-  // When "Informe" or "DividendST" tab is selected, load report data
+  // When "Informe" or "DividendST" tab is selected, load report data.
+  // NOTE: "report" tab also has its own auto-trigger inside ReportTab.jsx — the
+  // ref guard there prevents double-fetch. This effect only covers "dst" which has
+  // no internal trigger. Do not add "report" here to avoid racing with the component.
   useEffect(() => {
-    if (viewMode === "analysis" && tab === "dst" && cfg?.ticker && reportSymbol !== cfg.ticker && !reportLoading) {
+    if (viewMode === "analysis" && tab === "dst" && cfg?.ticker && reportSymbol !== cfg.ticker && !reportLoading && !reportData) {
       openReport(cfg.ticker);
     }
-  }, [tab, viewMode, cfg?.ticker, reportSymbol, reportLoading, openReport]);
+  }, [tab, viewMode, cfg?.ticker, reportSymbol, reportLoading, reportData, openReport]);
 
   const _sec = {fontSize:13,fontWeight:700,color:"var(--gold)",fontFamily:"var(--fd)",margin:"28px 0 12px",paddingBottom:6,borderBottom:"2px solid rgba(212,175,55,.2)"};
 

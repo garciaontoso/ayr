@@ -1298,6 +1298,9 @@ function AirplaneMode({ portfolioList }) {
           cacheFetch(`${API}/api/fg-history?ticker=${enc}&years=20`),  // FAST tab data
           cacheFetch(`${API}/api/debt-maturity?ticker=${enc}`),         // Debt tab
           cacheFetch(`${API}/api/directiva?ticker=${enc}`),             // Directiva tab
+          cacheFetch(`${API}/api/report?symbol=${enc}`),                // Informe + DividendST tabs
+          cacheFetch(`${API}/api/company/${enc}/transcript-summary`),   // Transcripts tab
+          cacheFetch(`${API}/api/earnings-transcripts?ticker=${enc}`),  // Transcripts list
         ]);
       }));
       setDlCurrent(Math.min(i + 8, usTickers.length));

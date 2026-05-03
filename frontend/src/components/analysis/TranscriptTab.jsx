@@ -113,6 +113,8 @@ export default function TranscriptTab() {
     );
   }
 
+  const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+
   const ageLabel = (() => {
     if (!generatedAt) return null;
     const ageMs = Date.now() - new Date(generatedAt).getTime();
@@ -150,9 +152,14 @@ export default function TranscriptTab() {
         </div>
       </div>
 
+      {isOffline && (
+        <div style={{padding: '8px 12px', background: 'rgba(255,214,10,.06)', border: '1px solid rgba(255,214,10,.25)', borderRadius: 8, color: '#ffd60a', fontSize: 11, marginBottom: 12, fontFamily: 'var(--fm)'}}>
+          Sin conexion — mostrando datos cacheados. Las acciones de generacion/descarga requieren red.
+        </div>
+      )}
       {error && (
         <div style={{padding: 12, background: 'rgba(248,113,113,.1)', border: '1px solid rgba(248,113,113,.3)', borderRadius: 8, color: 'var(--red)', fontSize: 12, marginBottom: 16, fontFamily: 'var(--fm)'}}>
-          ⚠️ {error}
+          {error}
         </div>
       )}
 

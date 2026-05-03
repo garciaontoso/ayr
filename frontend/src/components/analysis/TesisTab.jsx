@@ -261,9 +261,16 @@ export default function TesisTab() {
     );
   }
 
+  const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+
   // ─── READ MODE ───────────────────────────────────────────
   return (
     <div>
+      {isOffline && (
+        <div style={{padding: '8px 12px', background: 'rgba(255,214,10,.06)', border: '1px solid rgba(255,214,10,.25)', borderRadius: 8, color: '#ffd60a', fontSize: 11, marginBottom: 12, fontFamily: 'var(--fm)'}}>
+          Sin conexion — mostrando datos cacheados. La generacion con IA requiere red.
+        </div>
+      )}
       {/* Header */}
       <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, gap: 16, flexWrap: 'wrap'}}>
         <div>

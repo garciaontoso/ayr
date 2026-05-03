@@ -153,6 +153,22 @@
 - **Archivos**: múltiples (App.jsx reconciliación)
 - **Commit**: `be2eace`
 
+### Bug #012 — openReport infinite retry loop offline (Informe + DividendST tabs hang)
+- **Sintoma**: Al abrir pestaña "Informe" o "DividendST" offline, la UI se queda colgada o hace peticiones 504 en bucle sin fin.
+- **Causa raiz**: `openReport()` en App.jsx no tenia guard offline. ReportTab.jsx tenia un `useEffect` que comprobaba `!reportData || reportSymbol !== ticker` — offline la fetch devuelve 504 (no ok), `reportData` queda null, condicion siempre true, llama `openReport` en cada render → bucle infinito de fetches 504. DSTTab se activaba desde el useEffect del App (linea ~1961) igualmente sin guard `!reportData`.
+- **Fix**: (a) `openReport` usa el fetch parchado de main.jsx que ya prueba la cache offline — si no hay dato deja `reportData = null` y sale. (b) ReportTab.jsx usa un `useRef hasFetched` por ticker para intentar exactamente una vez y no reintentar. (c) App.jsx useEffect para DST añade `&& !reportData` para no retriggear cuando ya hay datos.
+- **Prevencion**: Cualquier `useEffect` que llame a un fetch y su condicion dependa de que `data === null` DEBE tener un guard de "ya-intentado" (ref) para no loops. Especialmente critico en tabs que auto-cargan al activarse.
+- **Archivos**: `frontend/src/App.jsx` linea ~927, `frontend/src/components/analysis/ReportTab.jsx` lineas 10-14, `frontend/src/components/analysis/DSTTab.jsx` linea 8-11
+- **Commit**: 2026-05-03
+
+### Bug #013 — /api/report?symbol=TICKER no cacheado en AirplaneMode (Informe + DividendST vacios offline)
+- **Sintoma**: Tras activar modo avion, pestañas Informe y DividendST muestran boton "Generar" en lugar de datos, aunque el usuario habia descargado todo el portfolio.
+- **Causa raiz**: AirplaneMode Phase 7 cacheaba theses, scores, fg-history, debt-maturity y directiva por ticker — pero NO `/api/report?symbol=TICKER`, que es el unico endpoint que sirve datos para ambas pestañas. Tampoco cacheaba `/api/company/:ticker/transcript-summary` ni `/api/earnings-transcripts?ticker=` usados por TranscriptTab.
+- **Fix**: Añadir los 3 endpoints a la lista `Promise.all` de Phase 7 en `HomeView.jsx AirplaneMode`.
+- **Prevencion**: Cada vez que se añade un tab nuevo con fetch propio → auditarlo contra la lista de Phase 7. Regla: si el tab tiene `useEffect + fetch` y NO es solo interactivo (generate/POST), sus endpoints GET deben estar en Phase 7.
+- **Archivos**: `frontend/src/components/views/HomeView.jsx` linea ~1294
+- **Commit**: 2026-05-03
+
 ---
 
 ## 📊 Estadísticas hoy 2026-05-03

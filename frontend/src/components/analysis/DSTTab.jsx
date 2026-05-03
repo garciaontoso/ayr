@@ -5,9 +5,11 @@ import { _sf } from '../../utils/formatters';
 function DSTTab() {
   const { reportData, reportLoading, reportSymbol, cfg, openReport } = useAnalysis();
 
+  const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
   if (reportLoading) return <div style={{padding:60,textAlign:"center",color:"var(--gold)",fontSize:13,fontFamily:"var(--fm)"}}>Cargando informe DividendST de {cfg?.ticker}...</div>;
   if (!reportData || reportSymbol !== cfg?.ticker) return <div style={{padding:60,textAlign:"center"}}>
-    <button onClick={()=>openReport(cfg?.ticker)} style={{padding:"14px 28px",borderRadius:10,border:"1px solid var(--gold)",background:"var(--gold-dim)",color:"var(--gold)",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"var(--fm)"}}>Generar Informe DividendST de {cfg?.ticker}</button>
+    {isOffline && <div style={{marginBottom:14,fontSize:11,color:"var(--text-tertiary)",fontFamily:"var(--fm)"}}>Sin conexión — informe DividendST no disponible offline para este ticker</div>}
+    <button onClick={()=>openReport(cfg?.ticker)} disabled={isOffline} style={{padding:"14px 28px",borderRadius:10,border:"1px solid var(--gold)",background:"var(--gold-dim)",color:"var(--gold)",fontSize:14,fontWeight:700,cursor:isOffline?"not-allowed":"pointer",fontFamily:"var(--fm)",opacity:isOffline?0.5:1}}>{isOffline ? "Sin datos offline" : `Generar Informe DividendST de ${cfg?.ticker}`}</button>
   </div>;
 
   const d = reportData; if(d.error) return <div style={{padding:40,color:"var(--red)"}}>{d.error}</div>;
