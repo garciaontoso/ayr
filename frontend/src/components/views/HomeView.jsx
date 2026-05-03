@@ -1514,6 +1514,166 @@ export default function HomeView() {
     return () => { cancelled = true; };
   }, []);
 
+  // ── Group order (top-level: Radar | Cartera | Ingresos | …) ────────────
+  // Persistido vía /api/preferences con key `ui_home_groups_order` (cross-
+  // device). Si el usuario añade un grupo nuevo en HOME_TAB_GROUPS y nunca
+  // lo había arrastrado, aparece al final automáticamente.
+  const [groupOrder, setGroupOrder] = useState(() => {
+    try {
+      const cached = localStorage.getItem('ui_home_groups_order');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return null;
+  });
+  const [draggedGroupId, setDraggedGroupId] = useState(null);
+  const [dragOverGroupId, setDragOverGroupId] = useState(null);
+
+  // Hidratar desde D1 al montar
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(API_URL + "/api/preferences/ui_home_groups_order");
+        const d = await r.json();
+        if (cancelled) return;
+        const v = d?.value;
+        if (Array.isArray(v)) {
+          setGroupOrder(v);
+          try { localStorage.setItem('ui_home_groups_order', JSON.stringify(v)); } catch {}
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Lista ordenada: orden guardado primero + grupos nuevos al final
+  const orderedGroups = (() => {
+    if (!groupOrder || !Array.isArray(groupOrder)) return HOME_TAB_GROUPS;
+    const byId = Object.fromEntries(HOME_TAB_GROUPS.map(g => [g.id, g]));
+    const seen = new Set();
+    const out = [];
+    for (const id of groupOrder) {
+      if (byId[id] && !seen.has(id)) { out.push(byId[id]); seen.add(id); }
+    }
+    for (const g of HOME_TAB_GROUPS) if (!seen.has(g.id)) out.push(g);
+    return out;
+  })();
+
+  const persistGroupOrder = useCallback(async (newOrder) => {
+    setGroupOrder(newOrder);
+    try { localStorage.setItem('ui_home_groups_order', JSON.stringify(newOrder)); } catch {}
+    try {
+      await fetch(API_URL + "/api/preferences", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: "ui_home_groups_order", value: newOrder }),
+      });
+    } catch (e) { console.error("persist group order failed:", e); }
+  }, []);
+
+  const handleGroupDragStart = (e, groupId) => {
+    setDraggedGroupId(groupId);
+    try { e.dataTransfer.setData("text/plain", "group:" + groupId); e.dataTransfer.effectAllowed = "move"; } catch {}
+  };
+  const handleGroupDragOver = (e, groupId) => {
+    e.preventDefault();
+    try { e.dataTransfer.dropEffect = "move"; } catch {}
+    if (dragOverGroupId !== groupId) setDragOverGroupId(groupId);
+  };
+  const handleGroupDragEnd = () => {
+    setDraggedGroupId(null);
+    setDragOverGroupId(null);
+  };
+  const handleGroupDrop = (e, targetId) => {
+    e.preventDefault();
+    const sourceId = draggedGroupId || (() => {
+      try {
+        const raw = e.dataTransfer.getData("text/plain") || '';
+        return raw.startsWith("group:") ? raw.slice(6) : null;
+      } catch { return null; }
+    })();
+    setDraggedGroupId(null);
+    setDragOverGroupId(null);
+    if (!sourceId || sourceId === targetId) return;
+    const currentIds = orderedGroups.map(g => g.id);
+    const fromIdx = currentIds.indexOf(sourceId);
+    const toIdx = currentIds.indexOf(targetId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const newOrder = [...currentIds];
+    newOrder.splice(fromIdx, 1);
+    newOrder.splice(toIdx, 0, sourceId);
+    persistGroupOrder(newOrder);
+  };
+
+  // Touch drag para iPad: mismo patrón long-press 400ms del tab drag
+  const groupTouchDragRef = useRef({ groupId: null, timer: null, active: false, pointerId: null });
+  const handleGroupPointerDown = (e, groupId) => {
+    if (e.pointerType !== 'touch') return;
+    groupTouchDragRef.current.groupId = groupId;
+    groupTouchDragRef.current.pointerId = e.pointerId;
+    groupTouchDragRef.current.active = false;
+    if (groupTouchDragRef.current.timer) clearTimeout(groupTouchDragRef.current.timer);
+    groupTouchDragRef.current.timer = setTimeout(() => {
+      groupTouchDragRef.current.active = true;
+      setDraggedGroupId(groupId);
+      try { navigator.vibrate && navigator.vibrate(30); } catch {}
+    }, 400);
+  };
+  const handleGroupPointerMove = (e) => {
+    if (e.pointerType !== 'touch') return;
+    if (!groupTouchDragRef.current.active) {
+      if (groupTouchDragRef.current.timer) {
+        clearTimeout(groupTouchDragRef.current.timer);
+        groupTouchDragRef.current.timer = null;
+      }
+      return;
+    }
+    e.preventDefault();
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const btn = el?.closest('[data-group-id]');
+    const overId = btn?.getAttribute('data-group-id');
+    if (overId && overId !== dragOverGroupId) setDragOverGroupId(overId);
+  };
+  const handleGroupPointerUp = (e) => {
+    if (e.pointerType !== 'touch') return;
+    if (groupTouchDragRef.current.timer) {
+      clearTimeout(groupTouchDragRef.current.timer);
+      groupTouchDragRef.current.timer = null;
+    }
+    if (groupTouchDragRef.current.active) {
+      const sourceId = groupTouchDragRef.current.groupId;
+      const targetId = dragOverGroupId;
+      if (sourceId && targetId && sourceId !== targetId) {
+        const currentIds = orderedGroups.map(g => g.id);
+        const fromIdx = currentIds.indexOf(sourceId);
+        const toIdx = currentIds.indexOf(targetId);
+        if (fromIdx >= 0 && toIdx >= 0) {
+          const newOrder = [...currentIds];
+          newOrder.splice(fromIdx, 1);
+          newOrder.splice(toIdx, 0, sourceId);
+          persistGroupOrder(newOrder);
+        }
+      }
+    }
+    groupTouchDragRef.current.active = false;
+    groupTouchDragRef.current.groupId = null;
+    setDraggedGroupId(null);
+    setDragOverGroupId(null);
+  };
+  const handleGroupPointerCancel = () => {
+    if (groupTouchDragRef.current.timer) {
+      clearTimeout(groupTouchDragRef.current.timer);
+      groupTouchDragRef.current.timer = null;
+    }
+    groupTouchDragRef.current.active = false;
+    groupTouchDragRef.current.groupId = null;
+    setDraggedGroupId(null);
+    setDragOverGroupId(null);
+  };
+
   // Compute ordered tabs for a given group: saved order first, then any new
   // tabs not yet in the saved order (so adding tabs to a group is safe).
   const orderedTabsForGroup = (groupId) => {
@@ -1683,15 +1843,22 @@ export default function HomeView() {
       {/* Divider */}
       <div style={{width:1,height:20,background:"var(--border)",flexShrink:0}}/>
 
-      {/* Group selector — top-level navigation (Cartera | Ingresos | …) */}
+      {/* Group selector — top-level navigation (Radar | Cartera | Ingresos | …)
+          Drag-and-drop reorder: arrastra un grupo a otra posición. El orden
+          persiste por usuario en /api/preferences (cross-device). En iPad
+          mantén pulsado 400ms para entrar en modo drag (haptic feedback). */}
       <div style={{position:"relative",flex:1,minWidth:0}}>
         <div className="ar-home-tabs" style={{display:"flex",alignItems:"center",gap:3,overflowX:"auto",flexWrap:"nowrap",scrollbarWidth:"none",padding:"2px 0"}}>
-          {HOME_TAB_GROUPS.map(g=>{
+          {orderedGroups.map(g=>{
             const isActive = activeGroupId === g.id;
+            const isDragging = draggedGroupId === g.id;
+            const isDragOver = dragOverGroupId === g.id && draggedGroupId && draggedGroupId !== g.id;
             return (
               <button
                 key={g.id}
+                data-group-id={g.id}
                 onClick={()=>{
+                  if (groupTouchDragRef.current.active) return;
                   setActiveGroupId(g.id);
                   // If current homeTab isn't in the new group, jump to its first tab
                   if (!g.tabs.some(t=>t.id===homeTab)) {
@@ -1699,15 +1866,29 @@ export default function HomeView() {
                     if (ordered[0]) setHomeTab(ordered[0].id);
                   }
                 }}
+                draggable
+                onDragStart={(e)=>handleGroupDragStart(e, g.id)}
+                onDragOver={(e)=>handleGroupDragOver(e, g.id)}
+                onDragLeave={()=>{ if (dragOverGroupId === g.id) setDragOverGroupId(null); }}
+                onDrop={(e)=>handleGroupDrop(e, g.id)}
+                onDragEnd={handleGroupDragEnd}
+                onPointerDown={(e)=>handleGroupPointerDown(e, g.id)}
+                onPointerMove={handleGroupPointerMove}
+                onPointerUp={handleGroupPointerUp}
+                onPointerCancel={handleGroupPointerCancel}
+                title="Arrastra para reordenar grupos · click para abrir"
                 style={{
                   display:"flex",alignItems:"center",gap:4,
                   padding:"5px 12px",borderRadius:7,
-                  border:`1px solid ${isActive?"var(--gold)":"transparent"}`,
-                  background:isActive?"var(--gold-dim)":"transparent",
+                  border:`1px solid ${isDragOver?"var(--gold)":isActive?"var(--gold)":"transparent"}`,
+                  background:isDragOver?"rgba(200,164,78,.25)":isActive?"var(--gold-dim)":"transparent",
                   color:isActive?"var(--gold)":"var(--text-tertiary)",
                   fontSize:12,fontWeight:isActive?700:500,
-                  cursor:"pointer",fontFamily:"var(--fb)",whiteSpace:"nowrap",flexShrink:0,
+                  cursor: isDragging ? "grabbing" : "pointer",
+                  fontFamily:"var(--fb)",whiteSpace:"nowrap",flexShrink:0,
                   transition:"all .12s ease",userSelect:"none",
+                  opacity: isDragging ? 0.4 : 1,
+                  touchAction: 'manipulation',
                 }}>
                 <span style={{fontSize:12}}>{g.ico}</span>{g.lbl}
               </button>
