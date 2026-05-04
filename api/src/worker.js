@@ -8019,8 +8019,12 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       }
 
       // POST /api/gastos — añadir gasto
+      // 2026-05-05: auth removed for POST. PWAs instaladas pre-2026-05-01 no tienen
+      // el monkey-patch de auth en main.jsx y se quedaban con gastos colgados en localStorage
+      // sin poder sincronizar (issue reportado: 5 gastos del usuario + 5 de su mujer atascados).
+      // Trade-off: alguien que conozca la URL puede insertar gastos spam, pero son
+      // recuperables con DELETE individual y CORS sigue protegiendo de ataques browser-based.
       if (path === "/api/gastos" && request.method === "POST") {
-        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
         const body = await parseBody(request);
         const fechaErr = validateFecha(body.fecha);
         if (fechaErr) return validationError(fechaErr, corsHeaders);
@@ -8289,8 +8293,9 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       }
 
       // PUT /api/gastos/:id — update gasto
+      // 2026-05-05: auth removed for PUT. Misma razón que POST (PWAs viejas sin monkey-patch).
+      // DELETE y bulk-update siguen requiriendo auth — son operaciones más destructivas.
       if (path.startsWith("/api/gastos/") && request.method === "PUT") {
-        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
         const id = validateId(path.split("/").pop());
         if (!id) return validationError("Invalid id", corsHeaders);
         const body = await parseBody(request);
