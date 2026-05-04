@@ -10735,13 +10735,22 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             const qty = Number(e.shares) || 0;
             const price = Number(e.price) || 0;
             const commission = Number(e.commission) || 0;
-            const coste = qty * price + commission;
+            // 2026-05-05 BUG FIX: 2 bugs identificados por usuario en SPX trades:
+            // (1) Faltaba multiplier ×100 para opciones (precio=64.20 → coste=$64 en vez de $6,420)
+            // (2) Signo de coste invertido vs convención Flex import:
+            //     Convención correcta: coste = OUTFLOW de bolsillo
+            //     - BUY (qty>0): coste NEGATIVO (sale dinero)
+            //     - SELL (qty<0): coste POSITIVO (entra dinero)
+            //     - Formula: coste = -qty * price * multiplier + commission
+            // Verificado match con Flex import histórico (SPX id=11805: BUY 1@75.8 → coste=-7581.74)
+            const multiplier = isOpt ? (Number(e.multiplier) || 100) : 1;
+            const coste = -qty * price * multiplier + commission;
             const expiry = e.opt_expiry
               ? `${e.opt_expiry.slice(0,4)}-${e.opt_expiry.slice(4,6)}-${e.opt_expiry.slice(6,8)}`
               : null;
             const optContracts = isOpt ? Math.abs(qty) : 0;
             const optCreditTotal = isOpt ? -coste : 0;
-            const optCreditPerShare = isOpt && qty !== 0 ? optCreditTotal / (Math.abs(qty) * 100) : 0;
+            const optCreditPerShare = isOpt && qty !== 0 ? optCreditTotal / (Math.abs(qty) * multiplier) : 0;
 
             stmts.push(env.DB.prepare(
               `INSERT OR IGNORE INTO cost_basis
