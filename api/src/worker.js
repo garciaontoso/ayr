@@ -2390,7 +2390,15 @@ export default {
       "/api/dividendos",       // 2154 dividendos
       "/api/transferencias",   // movimientos bancarios
       "/api/patrimonio",       // patrimonio mensual
-      "/api/gastos",           // gastos personales
+      // 2026-05-05: /api/gastos removido del global PROTECTED_READ check.
+      // La PWA standalone /gastos.html que usa el usuario en China no envia
+      // X-AYR-Auth y necesita poder LEER los gastos para mostrar la lista de
+      // RECIENTES. POST/PUT ya estan sin auth (commit 768b3b8). DELETE sigue
+      // protegido en su check inline (operacion destructiva).
+      // Trade-off: alguien con la URL puede leer historial de gastos del usuario.
+      // CORS allowlist (gastos.onto-so.com + ayr.onto-so.com) limita exposicion
+      // a navegadores legitimos. Aceptable para datos de gastos personales.
+      // "/api/gastos",           // gastos personales — RELAJADO 2026-05-05
       "/api/nomina",           // sueldo
       "/api/costbasis",        // cost basis con $ exacto
       "/api/ib-portfolio", "/api/ib-summary", "/api/ib-pnl", "/api/ib-ledger",
