@@ -10544,8 +10544,17 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // Auth check para TODO /api/ib-bridge/* salvo /health (que CF Tunnel
       // probe necesita sin token). Cualquier request sin X-AYR-Auth válido
       // devuelve 401 con shape consistente.
+      //
+      // 2026-05-05: cambiado de AYR_BRIDGE_AUTH → AYR_WORKER_TOKEN.
+      // Antes había contradicción: el global check (PROTECTED_WRITE línea 2441)
+      // exigía AYR_WORKER_TOKEN, mientras este inline exigía AYR_BRIDGE_AUTH.
+      // Como el frontend solo puede enviar UN X-AYR-Auth, era imposible pasar
+      // ambos checks. El IBControlButton fallaba con "No se pudo arrancar:
+      // HTTP 401: auth_required" (reportado por usuario 2026-05-05).
+      // AYR_BRIDGE_AUTH sigue existiendo como secret del bridge (NAS) pero
+      // ya no se usa para auth cliente→worker.
       if (path.startsWith("/api/ib-bridge/") && path !== "/api/ib-bridge/health") {
-        const expected = env.AYR_BRIDGE_AUTH || "";
+        const expected = env.AYR_WORKER_TOKEN || "";
         const provided = request.headers.get("X-AYR-Auth") || "";
         if (!expected || !provided || provided !== expected) {
           return json({ error: "auth_required", source: "ib-bridge" }, corsHeaders, 401);
