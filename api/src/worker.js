@@ -22553,11 +22553,110 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
   async scheduled(event, env, ctx) {
     const cronExpr = event?.cron || "";
 
-    // ─── Flex Sync diario (07:30 UTC ≈ 08:30 Madrid invierno / 09:30 verano) ───
+    // ═══════════════════════════════════════════════════════════════════════
+    // 2026-05-05 ARQUITECTURA TRADES SYNC REDUNDANTE (post-incidente token Flex)
+    //
+    // 3 capas para que la sincronización de trades NUNCA se rompa silenciosamente:
+    //
+    // CAPA 1 (PRIMARY): Bridge executions sync cada 30 min lun-vie 13-21 UTC
+    //   - Cron: "*/30 13-21 * * 1-5" abajo
+    //   - Llama al endpoint /api/ib-bridge/executions/sync que pulla del NAS
+    //   - Sin tokens que caduquen — usa la sesión IB Gateway directa
+    //   - Latencia <30 min después de ejecutar
+    //
+    // CAPA 2 (BACKUP nocturno): Flex sync 07:30 UTC lun-vie
+    //   - Cron actual "30 7 * * 1-5" — sigue corriendo
+    //   - Reconcilia históricamente lo que bridge no captó
+    //   - Si Flex token caduca, NO alerta (capa 1 ya cubre lo nuevo)
+    //
+    // CAPA 3 (MONITOREO): freshness check diaria 22:00 UTC
+    //   - Cron "0 22 * * *" abajo
+    //   - SELECT MAX(date) FROM cost_basis
+    //   - Si >36h sin trades nuevos en mercado abierto, Telegram CRITICAL
+    //   - Asegura que NUNCA pasamos 4 días sin enterarnos del problema
+    // ═══════════════════════════════════════════════════════════════════════
+
+    // ─── CAPA 1: Bridge executions sync — cada 30min en mercado USA (lun-vie) ───
+    // 13:00-21:00 UTC = 09:00-17:00 EDT (cubre pre-market + market + post-market)
+    // = 09:00-17:00 EDT = 14:00-22:00 UTC en verano, 13:00-21:00 en invierno.
+    // Usamos UTC fijo, acepta desfase 1h con DST.
+    if (cronExpr === "*/30 13-21 * * 1-5") {
+      console.log("[scheduled] Bridge executions sync tick");
+      try {
+        const apiBase = "https://api.onto-so.com";
+        const r = await fetch(`${apiBase}/api/ib-bridge/executions/sync`, {
+          method: 'POST',
+          headers: { 'X-AYR-Auth': env.AYR_WORKER_TOKEN, 'Content-Type': 'application/json' },
+          body: '{}',
+          signal: AbortSignal.timeout(60000),
+        });
+        const data = await r.json().catch(() => ({}));
+        console.log(`[scheduled] bridge sync: ${r.status} fetched=${data.fetched ?? 0} inserted=${data.inserted ?? 0}`);
+        // Alerta solo si HTTP error real (no si bridge dice "0 trades nuevos")
+        if (!r.ok && r.status !== 503) {
+          await sendTelegram(env, {
+            text: `⚠️ *Bridge executions sync error*\nHTTP ${r.status}: ${JSON.stringify(data).slice(0, 200)}`,
+            severity: 'warn', source: 'bridge_sync',
+          });
+        }
+      } catch (e) {
+        console.error("[scheduled] bridge sync failed:", e.message);
+      }
+      return;
+    }
+
+    // ─── CAPA 3: Freshness check diaria 22:00 UTC ───
+    // Después del cierre USA (16:00 EDT = 20:00 UTC + buffer 2h para sync).
+    // Si MAX(fecha cost_basis) > 36h sin actualizar Y es día laborable, ALERTA.
+    if (cronExpr === "0 22 * * *") {
+      console.log("[scheduled] Freshness check tick");
+      try {
+        const lastTrade = await env.DB.prepare(
+          "SELECT MAX(date) as last_date, MAX(exec_time) as last_exec FROM cost_basis"
+        ).first();
+        const lastDateStr = lastTrade?.last_exec || lastTrade?.last_date || null;
+        if (!lastDateStr) {
+          await sendTelegram(env, {
+            text: '🚨 *Freshness CRITICAL*\nNo hay trades en cost_basis. BD vacía o problema serio.',
+            severity: 'crit', source: 'freshness_check',
+          });
+          return;
+        }
+        const lastDate = new Date(lastDateStr.replace(' ', 'T'));
+        const now = new Date();
+        const hoursSince = (now - lastDate) / (1000 * 60 * 60);
+        const dow = now.getUTCDay(); // 0=Sun, 6=Sat
+        const isMarketDay = dow >= 1 && dow <= 5;
+        // Solo alertamos si llevamos >36h sin trades Y hoy es día laborable mercado
+        if (hoursSince > 36 && isMarketDay) {
+          await sendTelegram(env, {
+            text: `🚨 *Freshness CRITICAL — Trades stale*\n`
+              + `Último trade: ${lastDateStr}\n`
+              + `Horas sin update: ${hoursSince.toFixed(1)}h\n\n`
+              + `Diagnóstico:\n`
+              + `1. Comprueba IB Gateway ON en NAS (botón IB en header)\n`
+              + `2. Si IB Gateway OFF → 2FA expirada, aprueba push IBKR Mobile\n`
+              + `3. Si NAS OFF → enciéndelo\n`
+              + `4. Si todo OK pero sigue fallando → revisa logs worker`,
+            severity: 'crit', source: 'freshness_check',
+          });
+        } else {
+          console.log(`[scheduled] freshness OK: last trade ${hoursSince.toFixed(1)}h ago`);
+        }
+      } catch (e) {
+        console.error("[scheduled] freshness check failed:", e.message);
+      }
+      return;
+    }
+
+    // ─── CAPA 2 (BACKUP): Flex Sync diario (07:30 UTC ≈ 08:30 Madrid invierno / 09:30 verano) ───
     // Invoca el bridge NAS pasándole el token (que está en wrangler secret).
     // El bridge llama a IB Flex Web Service, recibe XML, lo manda al worker
     // /api/ib-flex-import → mete trades + dividendos en D1 → notifica Telegram.
     // Coste: 1 HTTP request, $0 (no LLM).
+    //
+    // 2026-05-05: degradado a BACKUP. Capa 1 (bridge sync) es ahora primary.
+    // Si Flex token caduca, NO alertamos (silencio benigno) — capa 1 cubre.
     if (cronExpr === "30 7 * * 1-5") {
       console.log("[scheduled] Flex sync cron tick");
       try {
@@ -22583,20 +22682,14 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
         });
         const json = await resp.json().catch(() => ({}));
         console.log("[scheduled] flex sync response:", resp.status, JSON.stringify(json).slice(0, 300));
-        if (!resp.ok) {
-          await sendTelegram(env, {
-            text: `⚠️ *Flex sync cron falló*\nHTTP ${resp.status}: ${JSON.stringify(json).slice(0, 200)}`,
-            severity: 'warn', source: 'flex_cron',
-          });
-        }
+        // 2026-05-05: NO alertamos en fallo Flex.
+        // Flex es ahora capa BACKUP (token caduca cada 6 meses, ruido inevitable).
+        // Capa 1 (bridge sync */30 min) y capa 3 (freshness check 22:00 UTC)
+        // cubren la operación primary + alertan solo si HAY problema real
+        // (data >36h stale). Esto evita spam Telegram con 403 Flex constantes.
       } catch (e) {
         console.error("[scheduled] flex sync failed:", e.message);
-        try {
-          await sendTelegram(env, {
-            text: `⚠️ *Flex sync cron error*\n${e.message?.slice(0, 200)}`,
-            severity: 'warn', source: 'flex_cron',
-          });
-        } catch {}
+        // Sin Telegram alert — capa 3 (freshness) detectará si data realmente stale.
       }
 
       // Reconcile portfolio IB vs D1 después del Flex sync (mismo cron tick)

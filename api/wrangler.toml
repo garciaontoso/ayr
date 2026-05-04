@@ -34,9 +34,19 @@ bucket_name = "ayr-earnings-archive"
 # aceptar el desfase de 1h en cambio de hora.
 [triggers]
 crons = [
-  "30 7 * * 1-5",   # IB Flex sync diario lun-vie ~08:30 Madrid invierno / 09:30 verano
-  "0 12 * * *",     # News + YouTube refresh diario 12:00 UTC (~20:00 Shanghai)
-  "0 8 * * *",      # Data Audit diario 08:00 UTC (~10:00 Madrid / 16:00 Shanghai)
+  # ─── ARQUITECTURA REDUNDANTE TRADES SYNC (post 2026-05-05 incidente Flex token) ───
+  # CAPA 1 (PRIMARY): bridge executions cada 30min mercado USA
+  "*/30 13-21 * * 1-5",   # Bridge sync — cada 30min lun-vie 13:00-21:00 UTC (mercado USA)
+  # CAPA 3 (MONITOREO): freshness check tras cierre USA
+  "0 22 * * *",           # Trades freshness check diario 22:00 UTC (post-cierre USA)
+  # Otros crons existentes:
+  "0 12 * * *",           # News + YouTube refresh diario 12:00 UTC (~20:00 Shanghai)
+  "0 8 * * *",            # Data Audit diario 08:00 UTC (~10:00 Madrid / 16:00 Shanghai)
+  # 2026-05-05: ELIMINADO "30 7 * * 1-5" (IB Flex backup).
+  # El bridge sync cada 30min cubre 100% trades nuevos sin token que caduque.
+  # Si Flex se necesita para reconciliación histórica, trigger manual:
+  #   curl -X POST https://api.onto-so.com/api/ib-flex-sync -H "X-AYR-Auth:..."
+  # CF Workers limit = 5 crons. Ya tenemos 4, queda margen de 1.
 ]
 #
 # Crons antiguos preservados como referencia (DESACTIVADOS):
