@@ -10772,12 +10772,122 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             } catch { skipped += batch.length; }
           }
 
+          // 2026-05-05: POST-SYNC AUTO RECONCILE positions table.
+          // Sin esto, nuevos tickers comprados (LVMH MC) NO aparecen en portfolio,
+          // y posiciones vendidas completamente (AZJ) siguen mostrando shares.
+          // Usuario reportó tras sesión 2026-05-05 con frustración explícita.
+          let positions_inserted = 0, positions_updated = 0, positions_zeroed = 0;
+          const closedTickers = [];
+          try {
+            // Step A: Pull bridge positions actuales
+            const bp = await ibBridgeFetch(env, '/positions').catch(() => ({}));
+            const bridgePositions = (bp.positions || []).filter(p =>
+              p.secType === 'STK' && Math.abs(p.qty || 0) > 0
+            );
+
+            // Step B: UPSERT cada bridge position en positions table
+            const upsertStmts = [];
+            for (const p of bridgePositions) {
+              const t = mapTicker(p.symbol || '');
+              if (!t) continue;
+              const shares = Number(p.qty) || 0;
+              const avgCost = Number(p.avg_cost) || 0;
+              const lastPrice = Number(p.market_price) || 0;
+              const marketValue = Number(p.market_value) || (shares * lastPrice);
+              const ccy = p.currency || 'USD';
+              const totalInvested = shares * avgCost;
+              const pnlAbs = marketValue - totalInvested;
+              const pnlPct = totalInvested > 0 ? pnlAbs / totalInvested : 0;
+              upsertStmts.push(env.DB.prepare(`
+                INSERT INTO positions (
+                  ticker, name, last_price, avg_price, cost_basis, shares,
+                  currency, fx, strategy, category, list,
+                  market_value, usd_value, total_invested,
+                  pnl_pct, pnl_abs, ib_shares, ib_avg_cost, ib_price,
+                  updated_at
+                ) VALUES (?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+                ON CONFLICT(ticker) DO UPDATE SET
+                  shares=excluded.shares, ib_shares=excluded.ib_shares,
+                  avg_price=excluded.avg_price, ib_avg_cost=excluded.ib_avg_cost,
+                  last_price=excluded.last_price, ib_price=excluded.ib_price,
+                  market_value=excluded.market_value, usd_value=excluded.usd_value,
+                  total_invested=excluded.total_invested,
+                  pnl_pct=excluded.pnl_pct, pnl_abs=excluded.pnl_abs,
+                  updated_at=datetime('now')
+              `).bind(
+                t, p.localSymbol || t, lastPrice, avgCost, avgCost, shares,
+                ccy, 'YO', 'COMPANY', 'portfolio',
+                marketValue, marketValue, totalInvested,
+                pnlPct, pnlAbs, shares, avgCost, lastPrice
+              ));
+            }
+            for (let i = 0; i < upsertStmts.length; i += 50) {
+              const results = await env.DB.batch(upsertStmts.slice(i, i + 50)).catch(() => []);
+              for (const r of results) {
+                if (r.meta?.last_row_id > 0 && r.meta?.changes > 0) positions_inserted++;
+                else if (r.meta?.changes > 0) positions_updated++;
+              }
+            }
+
+            // Step C: Detectar posiciones cerradas (SELL all → SUM(shares)=0 en cost_basis)
+            // y zero-out en positions. Solo aplica a tickers con AL MENOS 1 BUY histórico
+            // (para no falsear posiciones T3/TT que no tienen cost_basis).
+            try { await env.DB.prepare(`CREATE TABLE IF NOT EXISTS previously_held (
+              ticker TEXT PRIMARY KEY,
+              name TEXT,
+              last_avg_price REAL,
+              total_realized_pnl REAL,
+              first_held DATE,
+              last_held DATE,
+              zeroed_at DATETIME DEFAULT (datetime('now'))
+            )`).run(); } catch {}
+
+            const closed = await env.DB.prepare(`
+              SELECT ticker, MIN(fecha) as first_d, MAX(fecha) as last_d, SUM(coste) as realized_pnl
+              FROM cost_basis
+              WHERE tipo='EQUITY'
+              GROUP BY ticker
+              HAVING SUM(shares) = 0
+                AND SUM(CASE WHEN shares > 0 THEN 1 ELSE 0 END) > 0
+            `).all().catch(() => ({results: []}));
+
+            const zeroStmts = [];
+            const archiveStmts = [];
+            for (const c of (closed.results || [])) {
+              closedTickers.push(c.ticker);
+              zeroStmts.push(env.DB.prepare(`
+                UPDATE positions SET
+                  shares=0, ib_shares=0, market_value=0, usd_value=0,
+                  pnl_abs=0, pnl_pct=0, updated_at=datetime('now')
+                WHERE ticker=? AND (shares > 0 OR ib_shares > 0)
+              `).bind(c.ticker));
+              archiveStmts.push(env.DB.prepare(`
+                INSERT OR REPLACE INTO previously_held
+                  (ticker, total_realized_pnl, first_held, last_held, zeroed_at)
+                VALUES (?, ?, ?, ?, datetime('now'))
+              `).bind(c.ticker, c.realized_pnl || 0, c.first_d || null, c.last_d || null));
+            }
+            if (zeroStmts.length > 0) {
+              const results = await env.DB.batch(zeroStmts).catch(() => []);
+              positions_zeroed = results.filter(r => r.meta?.changes > 0).length;
+              await env.DB.batch(archiveStmts).catch(() => {});
+            }
+          } catch (reconcileErr) {
+            console.error('[executions/sync] post-reconcile error:', reconcileErr.message);
+          }
+
           return json({
             ok: true,
             fetched: execs.length,
             inserted,
             skipped,
             since: today,
+            positions: {
+              inserted: positions_inserted,
+              updated: positions_updated,
+              zeroed: positions_zeroed,
+              closed_tickers: closedTickers,
+            },
           }, corsHeaders);
         } catch(e) {
           return json({ error: e.message, source: "ib-bridge" }, corsHeaders, 503);
