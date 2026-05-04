@@ -13301,12 +13301,17 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           }
 
           // Apply inserts
+          // 2026-05-05 fix: cambiado ON CONFLICT(exec_id) DO NOTHING → INSERT OR IGNORE.
+          // El UNIQUE INDEX en exec_id es PARCIAL (WHERE exec_id IS NOT NULL),
+          // y ON CONFLICT no funciona con partial unique indexes en SQLite/D1.
+          // INSERT OR IGNORE sí funciona porque chequea contra cualquier UNIQUE.
+          // Bug reportado por usuario: 56 OTM cleanup fallaba con SQLITE_ERROR
+          // "ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint".
           for (const ins of inserts) {
             try {
               await env.DB.prepare(
-                `INSERT INTO cost_basis (ticker, fecha, tipo, shares, precio, comision, coste, opt_strike, opt_expiry, opt_tipo, opt_credit_total, underlying, account, exec_id)
-                 VALUES (?, ?, 'OPTION', ?, 0, 0, 0, ?, ?, ?, 0, ?, ?, ?)
-                 ON CONFLICT(exec_id) DO NOTHING`
+                `INSERT OR IGNORE INTO cost_basis (ticker, fecha, tipo, shares, precio, comision, coste, opt_strike, opt_expiry, opt_tipo, opt_credit_total, underlying, account, exec_id)
+                 VALUES (?, ?, 'OPTION', ?, 0, 0, 0, ?, ?, ?, 0, ?, ?, ?)`
               ).bind(
                 ins.ticker, ins.fecha, ins.shares,
                 ins.strike_num, ins.expiry, ins.tipo,
