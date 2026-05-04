@@ -7,6 +7,12 @@ export const ALLOWED_ORIGINS = [
   "https://ayr.onto-so.com",
   "https://onto-so.com",
   "https://ayr-196.pages.dev",   // Cloudflare Pages production alias
+  // 2026-05-05: PWA legacy de la familia instalada en gastos.onto-so.com (v3.4).
+  // Estaba sirviendo un build viejo y todas las llamadas API fallaban por CORS,
+  // bloqueando la sincronización de 5 gastos del usuario + 5 de su mujer.
+  // Mantenemos este origen permanentemente porque ambas PWAs ya están instaladas
+  // y reinstalarlas perdería la cola pendiente.
+  "https://gastos.onto-so.com",
 ];
 
 /**
