@@ -205,7 +205,11 @@ body{padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom) 0}
 </div>
 
 <script>
-const API = 'https://aar-api.garciaontoso.workers.dev';
+// 2026-05-05: cambiado de aar-api.garciaontoso.workers.dev → api.onto-so.com.
+// El dominio workers.dev usa IPs Cloudflare bloqueadas en China (188.114.96.x),
+// por lo que la PWA del usuario no podía sincronizar gastos desde hace meses.
+// Custom domain api.onto-so.com usa IPs accesibles desde China.
+const API = 'https://api.onto-so.com';
 const DB_NAME = 'gastos-pwa';
 const DB_VERSION = 1;
 const STORE = 'pending';
@@ -262,7 +266,7 @@ async function loadFxRates() {
       const d = JSON.parse(cached);
       if (Date.now() - d.ts < 6 * 3600 * 1000) { fxRates = d.rates; return; }
     }
-    const resp = await fetch('https://aar-api.garciaontoso.workers.dev/api/fx');
+    const resp = await fetch('https://api.onto-so.com/api/fx');
     if (resp.ok) {
       const data = await resp.json();
       if (data.EUR) { fxRates = data; localStorage.setItem('gastos-fx', JSON.stringify({rates:data,ts:Date.now()})); }
