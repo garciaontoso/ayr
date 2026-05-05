@@ -326,7 +326,8 @@ export default function ResearchTab() {
       {id:"pastores_dividendo",name:"Pastores del Dividendo",desc:"19 empresas EU con rangos de compra propios",color:"#c8a44e",tickers:["SAB.MC","CABK.MC","BBVA.MC","TEF.MC","REP.MC","TTE.PA","ACS.MC","FER.MC","AENA.MC","CIE.MC","GEST.MC","LOG.MC","MC.PA","RACE.MI","P911.DE","SU.PA","AI.PA","ALV.DE","ULVR.L","RKT.L"]},
       // 2026-05-05: empresas vendidas por completo (SUM(shares)=0 en cost_basis).
       // Para reentry watch + análisis comparativo. Auto-poblada por bridge sync.
-      {id:"previously_held",name:"Empresas que he tenido",desc:`${previouslyHeld.length} vendidas — para reentry watch o aprender de la decisión`,color:"#94a3b8",tickers:previouslyHeld},
+      // Default ventana 24m en endpoint (filtra ruido histórico 2020-2023).
+      {id:"previously_held",name:"Empresas que he tenido",desc:`${previouslyHeld.length} vendidas (últimos 24m) — reentry watch o aprender de la decisión`,color:"#94a3b8",tickers:previouslyHeld},
     ];
     const lists = [...defaultLists, ...customLists];
     const activeId = researchOpenList || 'portfolio';

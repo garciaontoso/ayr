@@ -12446,6 +12446,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // GET /api/positions/previously-held — empresas que el usuario tuvo
       // y vendió todo. Detectado en /api/ib-bridge/executions/sync via
       // SUM(shares)=0 + ≥1 BUY histórico. Para watchlist "Empresas que he tenido".
+      // Default ventana 24m (recientes/relevantes). Override con ?days=N.
       if (path === "/api/positions/previously-held" && request.method === "GET") {
         try {
           await env.DB.prepare(`CREATE TABLE IF NOT EXISTS previously_held (
@@ -12457,11 +12458,15 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             last_held DATE,
             zeroed_at DATETIME DEFAULT (datetime('now'))
           )`).run().catch(() => {});
+          const days = parseInt(url.searchParams.get('days') || '730', 10);
+          const minDate = `date('now','-${Math.max(1, Math.min(36500, days))} days')`;
           const { results } = await env.DB.prepare(
             `SELECT ticker, name, last_avg_price, total_realized_pnl, first_held, last_held, zeroed_at
-             FROM previously_held ORDER BY zeroed_at DESC LIMIT 500`
+             FROM previously_held
+             WHERE last_held >= ${minDate}
+             ORDER BY last_held DESC LIMIT 500`
           ).all();
-          return json({ tickers: (results || []).map(r => r.ticker), items: results || [], count: (results||[]).length }, corsHeaders);
+          return json({ tickers: (results || []).map(r => r.ticker), items: results || [], count: (results||[]).length, window_days: days }, corsHeaders);
         } catch (e) { return json({ error: e.message, tickers: [], items: [] }, corsHeaders, 500); }
       }
 
