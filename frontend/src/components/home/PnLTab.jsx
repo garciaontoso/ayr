@@ -917,15 +917,17 @@ export default function PnLTab() {
   const [filter, setFilter] = useState('all');
   // Strategy sub-filter (when filter === 'opt')
   const [selectedStrategy, setSelectedStrategy] = useState(null);
+  // 2026-05-05: broker filter — 'ALL' | 'IB' | 'TT' (Tastytrade transactions sync´d 2026-05-05)
+  const [broker, setBroker] = useState(() => localStorage.getItem('pnl_broker') || 'ALL');
 
   const abortRef = useRef(null);
-  const load = useCallback(async (y) => {
+  const load = useCallback(async (y, br) => {
     if (abortRef.current) abortRef.current.abort();
     abortRef.current = new AbortController();
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_URL}/api/pnl/monthly?year=${y}`, { signal: abortRef.current.signal });
+      const res = await fetch(`${API_URL}/api/pnl/monthly?year=${y}&broker=${br || 'ALL'}`, { signal: abortRef.current.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const j = await res.json();
       if (j.error) throw new Error(j.error);
@@ -943,9 +945,9 @@ export default function PnLTab() {
   useEffect(() => () => { if (abortRef.current) abortRef.current.abort(); }, []);
 
   useEffect(() => {
-    load(year);
+    load(year, broker);
     setSelectedMonth(null);
-  }, [year, load]);
+  }, [year, broker, load]);
 
   // ── ALL useMemo declared BEFORE any early return (Rules of Hooks) ──────
   const monthly = data?.monthly || [];
@@ -1006,8 +1008,29 @@ export default function PnLTab() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-      {/* Year selector + lifetime */}
+      {/* Year selector + Broker toggle + lifetime */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Broker:</span>
+        {[
+          { id: 'ALL', l: 'Todo', t: 'IB + Tastytrade combinados' },
+          { id: 'IB',  l: 'IB',   t: 'Solo IBKR (4 cuentas)' },
+          { id: 'TT',  l: 'TT',   t: 'Solo Tastytrade (3 cuentas)' },
+        ].map(b => (
+          <button key={b.id}
+            onClick={() => { setBroker(b.id); try { localStorage.setItem('pnl_broker', b.id); } catch {} }}
+            title={b.t}
+            style={{
+              padding: '4px 10px', borderRadius: 6,
+              border: `1px solid ${broker === b.id ? '#a855f7' : 'var(--border)'}`,
+              background: broker === b.id ? 'rgba(168,85,247,.12)' : 'transparent',
+              color: broker === b.id ? '#a855f7' : 'var(--text-tertiary)',
+              fontSize: 10, fontWeight: broker === b.id ? 700 : 500, cursor: 'pointer',
+              fontFamily: 'var(--fm)',
+            }}>
+            {b.l}
+          </button>
+        ))}
+        <span style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 4px' }} />
         <span style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Año:</span>
         {(availableYears.length ? availableYears : [year]).map(y => (
           <button key={y}

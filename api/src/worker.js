@@ -9001,6 +9001,108 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         }
       }
 
+      // POST /api/tastytrade/transactions/sync — sync trades TT → cost_basis
+      // Para cada cuenta TT, fetch transactions del bridge passthrough /tt/*
+      // y INSERT OR IGNORE en cost_basis con account='TT_<num>'.
+      // UNIQUE INDEX exec_id evita duplicados. Convención coste:
+      //   BUY  qty>0 → coste = -qty * price * mult + commission (negativo)
+      //   SELL qty<0 → coste = -qty * price * mult + commission (positivo)
+      // 2026-05-05: pendiente PnL TT pendía de aquí.
+      if (path === "/api/tastytrade/transactions/sync" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          const acctData = await ttBridgeFetch(env, "/marketdata/accounts");
+          const accounts = (acctData?.accounts || []).filter(a => !a.is_closed).map(a => a.account_number);
+          let inserted = 0, skipped = 0, scanned = 0;
+          const errors = [];
+
+          for (const acct of accounts) {
+            try {
+              // Paginate: TT max per-page = 2000. Loop hasta agotar.
+              let page = 1;
+              while (page < 20) {
+                const data = await ttBridgeFetch(env, `/tt/accounts/${encodeURIComponent(acct)}/transactions?per-page=2000&page-offset=${(page-1)*2000}`);
+                const items = data?.data?.items || [];
+                if (items.length === 0) break;
+                scanned += items.length;
+
+                const stmts = [];
+                for (const t of items) {
+                  // Solo Trade transactions (no Money Movement, no Receive Deliver, etc)
+                  if (t["transaction-type"] !== "Trade") continue;
+                  const action = t.action || "";
+                  if (!/Buy|Sell/i.test(action)) continue;
+
+                  const isOpt = t["instrument-type"] === "Equity Option" || t["instrument-type"] === "Future Option";
+                  const isBuy = /^Buy/i.test(action);
+                  const qtyAbs = Math.abs(Number(t.quantity || 0));
+                  const qty = isBuy ? qtyAbs : -qtyAbs;
+                  const price = Number(t.price || 0);
+                  const commission = Number(t.commission || 0) + Number(t["clearing-fees"] || 0) + Number(t["regulatory-fees"] || 0) + Number(t["proprietary-index-option-fees"] || 0);
+                  const mult = isOpt ? 100 : 1;
+                  const coste = -qty * price * mult + commission;
+
+                  // OCC parsing para opciones
+                  let optExpiry = null, optStrike = null, optTipo = null, ticker = t["underlying-symbol"] || t.symbol;
+                  if (isOpt && t.symbol) {
+                    const m = t.symbol.match(/^(\S+)\s+(\d{6})([CP])(\d{8})$/);
+                    if (m) {
+                      const yy = m[2].slice(0,2), mm = m[2].slice(2,4), dd = m[2].slice(4,6);
+                      optExpiry = `20${yy}-${mm}-${dd}`;
+                      optTipo = m[3] === "C" ? "CALL" : "PUT";
+                      optStrike = Number(m[4]) / 1000;
+                    }
+                  }
+
+                  stmts.push(env.DB.prepare(`
+                    INSERT OR IGNORE INTO cost_basis (
+                      ticker, fecha, tipo, shares, precio, comision, coste,
+                      opt_expiry, opt_tipo, opt_strike, opt_contracts,
+                      exec_id, account, underlying, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                  `).bind(
+                    ticker,
+                    t["transaction-date"],
+                    isOpt ? "OPTION" : "EQUITY",
+                    qty,
+                    price,
+                    commission,
+                    coste,
+                    optExpiry,
+                    optTipo,
+                    optStrike,
+                    isOpt ? qtyAbs : null,
+                    `TT_${t["exec-id"] || t.id}`,
+                    `TT_${acct}`,
+                    t["underlying-symbol"] || ticker
+                  ));
+                }
+
+                if (stmts.length > 0) {
+                  for (let i = 0; i < stmts.length; i += 50) {
+                    const results = await env.DB.batch(stmts.slice(i, i+50)).catch(() => []);
+                    for (const r of results) {
+                      if (r.meta?.changes > 0) inserted++;
+                      else skipped++;
+                    }
+                  }
+                }
+
+                if (items.length < 2000) break;  // no hay más páginas
+                page++;
+              }
+            } catch(e) {
+              errors.push(`${acct}: ${e.message?.slice(0, 100)}`);
+            }
+          }
+
+          return json({ ok: true, inserted, skipped, scanned, accounts: accounts.length, errors }, corsHeaders);
+        } catch(e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
       // GET /api/tastytrade/iv-rank/:underlying — IV rank en vivo (vía bridge)
       if (path.startsWith("/api/tastytrade/iv-rank/") && request.method === "GET") {
         const underlying = decodeURIComponent(path.split("/").pop());
@@ -12823,6 +12925,13 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // Auth: PROTECTED_READ.
       if (path === "/api/pnl/monthly" && request.method === "GET") {
         const yearParam = url.searchParams.get("year");
+        // 2026-05-05: filtro broker. 'IB' = excluye TT_*, 'TT' = solo TT_*, ALL = todo
+        const brokerFilter = (url.searchParams.get("broker") || "ALL").toUpperCase();
+        const cbBrokerWhere = brokerFilter === "IB"
+          ? " AND (account IS NULL OR account NOT LIKE 'TT_%')"
+          : brokerFilter === "TT"
+          ? " AND account LIKE 'TT_%'"
+          : "";
         try {
           // ── Helpers ─────────────────────────────────────────────────────
           const monthOf = (fecha) => {
@@ -12847,7 +12956,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
           // ── 1) Realized stock P&L via FIFO (across ALL years) ───────────
           const { results: equity } = await env.DB.prepare(
-            "SELECT ticker, fecha, shares, precio, comision, coste FROM cost_basis WHERE tipo='EQUITY' ORDER BY ticker ASC, fecha ASC, orden ASC"
+            `SELECT ticker, fecha, shares, precio, comision, coste FROM cost_basis WHERE tipo='EQUITY'${cbBrokerWhere} ORDER BY ticker ASC, fecha ASC, orden ASC`
           ).all();
 
           const realizedByYearMonth = {};
@@ -12903,7 +13012,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           //  2. Filter shares=0 ghost rows from the SELECT.
           //  3. Fallback to coste flips sign (coste = -opt_credit_total in IB).
           const { results: optTrades } = await env.DB.prepare(
-            "SELECT ticker, COALESCE(underlying, ticker) AS group_ticker, fecha, shares, opt_expiry, opt_tipo, opt_strike, opt_credit_total, coste FROM cost_basis WHERE tipo='OPTION' AND shares != 0 ORDER BY fecha ASC, orden ASC"
+            `SELECT ticker, COALESCE(underlying, ticker) AS group_ticker, fecha, shares, opt_expiry, opt_tipo, opt_strike, opt_credit_total, coste FROM cost_basis WHERE tipo='OPTION' AND shares != 0${cbBrokerWhere} ORDER BY fecha ASC, orden ASC`
           ).all();
 
           const optGroups = new Map();
@@ -13042,12 +13151,19 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           }
 
           // ── 3) Dividend income from canonical dividendos table ──────────
+          // Broker filter: TT user doesn't have TT dividends yet, so broker=TT
+          // returns 0 dividends. broker=IB filters out NULL+TT_* (defensive).
+          const divBrokerWhere = brokerFilter === "TT"
+            ? " WHERE account LIKE 'TT_%'"
+            : brokerFilter === "IB"
+            ? " WHERE (account IS NULL OR account NOT LIKE 'TT_%')"
+            : "";
           const { results: divs } = await env.DB.prepare(
             `SELECT ticker, fecha,
                     CASE WHEN bruto_usd > 0 THEN bruto_usd ELSE bruto END AS gross_usd,
                     CASE WHEN neto_usd  > 0 THEN neto_usd  ELSE neto  END AS net_usd,
                     COALESCE(wht_amount, 0) AS wht
-             FROM dividendos`
+             FROM dividendos${divBrokerWhere}`
           ).all();
 
           const divByYearMonth = {};
@@ -23088,6 +23204,20 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
         console.log(`[audit-cron] earnings refresh: ${r.status} inserted=${d.inserted ?? '?'} updated=${d.updated ?? '?'}`);
       } catch (e) {
         console.error('[audit-cron] earnings refresh failed:', e.message);
+      }
+
+      // 2026-05-05: piggyback TT transactions sync — mantiene cost_basis.account='TT_*'
+      // al día. INSERT OR IGNORE evita duplicados (UNIQUE INDEX exec_id).
+      try {
+        const r = await fetch(`${apiBase}/api/tastytrade/transactions/sync`, {
+          method: 'POST',
+          headers: { 'X-AYR-Auth': env.AYR_WORKER_TOKEN, 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(120000),
+        });
+        const d = await r.json().catch(() => ({}));
+        console.log(`[audit-cron] tt sync: ${r.status} inserted=${d.inserted ?? '?'} skipped=${d.skipped ?? '?'} accounts=${d.accounts ?? '?'}`);
+      } catch (e) {
+        console.error('[audit-cron] tt sync failed:', e.message);
       }
       return;
     }
