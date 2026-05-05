@@ -12443,6 +12443,28 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
       }
 
+      // GET /api/positions/previously-held — empresas que el usuario tuvo
+      // y vendió todo. Detectado en /api/ib-bridge/executions/sync via
+      // SUM(shares)=0 + ≥1 BUY histórico. Para watchlist "Empresas que he tenido".
+      if (path === "/api/positions/previously-held" && request.method === "GET") {
+        try {
+          await env.DB.prepare(`CREATE TABLE IF NOT EXISTS previously_held (
+            ticker TEXT PRIMARY KEY,
+            name TEXT,
+            last_avg_price REAL,
+            total_realized_pnl REAL,
+            first_held DATE,
+            last_held DATE,
+            zeroed_at DATETIME DEFAULT (datetime('now'))
+          )`).run().catch(() => {});
+          const { results } = await env.DB.prepare(
+            `SELECT ticker, name, last_avg_price, total_realized_pnl, first_held, last_held, zeroed_at
+             FROM previously_held ORDER BY zeroed_at DESC LIMIT 500`
+          ).all();
+          return json({ tickers: (results || []).map(r => r.ticker), items: results || [], count: (results||[]).length }, corsHeaders);
+        } catch (e) { return json({ error: e.message, tickers: [], items: [] }, corsHeaders, 500); }
+      }
+
       // PUT /api/positions/:ticker/notes — save position notes (buy thesis)
       // PATCH /api/positions/:ticker — partial update position fields
       if (path.match(/^\/api\/positions\/[^/]+$/) && !path.includes("/notes") && request.method === "PATCH") {
@@ -23045,6 +23067,22 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
             severity: 'warn', source: 'audit_cron',
           });
         } catch {}
+      }
+
+      // 2026-05-05: piggyback earnings_calendar refresh en este mismo cron
+      // (no consume slot 5/5). Antes nadie llamaba a /briefing/refresh y
+      // los datos quedaban 28 días stale. Universal Freshness Monitor
+      // detectó el problema; aquí lo arreglamos sin nuevo cron.
+      try {
+        const r = await fetch(`${apiBase}/api/earnings/briefing/refresh`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${env.AYR_WORKER_TOKEN}` },
+          signal: AbortSignal.timeout(60000),
+        });
+        const d = await r.json().catch(() => ({}));
+        console.log(`[audit-cron] earnings refresh: ${r.status} inserted=${d.inserted ?? '?'} updated=${d.updated ?? '?'}`);
+      } catch (e) {
+        console.error('[audit-cron] earnings refresh failed:', e.message);
       }
       return;
     }

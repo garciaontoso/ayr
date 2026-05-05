@@ -196,6 +196,19 @@ export default function ResearchTab() {
     })();
   }, []);
 
+  // ─── Empresas que he tenido — tickers detectados como cerrados (SUM=0)
+  // por el bridge sync. Watchlist para reentry watch / análisis comparativo.
+  const [previouslyHeld, setPreviouslyHeld] = useState([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(`${API_URL}/api/positions/previously-held`);
+        const d = await r.json();
+        if (Array.isArray(d?.tickers)) setPreviouslyHeld(d.tickers);
+      } catch {}
+    })();
+  }, []);
+
   // ─── Oracle verdicts for the table — cached only (no auto-gen) ─────────
   // When a list is selected, we batch-fetch cached verdicts for its tickers.
   // User clicks the 🎯 cell to open BuyWizard and generate a verdict.
@@ -311,6 +324,9 @@ export default function ResearchTab() {
       // (Excel original + LVMH/Aena ya incluidos + Unilever/Reckitt sin rango aún).
       // Los rangos viven en data/pastoresDividendo.js para no duplicar.
       {id:"pastores_dividendo",name:"Pastores del Dividendo",desc:"19 empresas EU con rangos de compra propios",color:"#c8a44e",tickers:["SAB.MC","CABK.MC","BBVA.MC","TEF.MC","REP.MC","TTE.PA","ACS.MC","FER.MC","AENA.MC","CIE.MC","GEST.MC","LOG.MC","MC.PA","RACE.MI","P911.DE","SU.PA","AI.PA","ALV.DE","ULVR.L","RKT.L"]},
+      // 2026-05-05: empresas vendidas por completo (SUM(shares)=0 en cost_basis).
+      // Para reentry watch + análisis comparativo. Auto-poblada por bridge sync.
+      {id:"previously_held",name:"Empresas que he tenido",desc:`${previouslyHeld.length} vendidas — para reentry watch o aprender de la decisión`,color:"#94a3b8",tickers:previouslyHeld},
     ];
     const lists = [...defaultLists, ...customLists];
     const activeId = researchOpenList || 'portfolio';
