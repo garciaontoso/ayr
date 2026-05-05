@@ -22729,46 +22729,117 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
       return;
     }
 
-    // ─── CAPA 3: Freshness check diaria 22:00 UTC ───
-    // Después del cierre USA (16:00 EDT = 20:00 UTC + buffer 2h para sync).
-    // Si MAX(fecha cost_basis) > 36h sin actualizar Y es día laborable, ALERTA.
+    // ─── CAPA 3: UNIVERSAL FRESHNESS MONITOR — diaria 22:00 UTC ───
+    //
+    // 2026-05-05 v2: extendido de "solo trades" a SISTEMA UNIVERSAL.
+    // Monitorea TODAS las tablas críticas. Si CUALQUIERA está stale > threshold,
+    // single Telegram alert listando todas las stale + diagnóstico individualizado.
+    //
+    // PHILOSOPHY: cualquier nuevo cron que añadamos en el futuro queda
+    // automáticamente monitoreado añadiendo entry a SOURCES array abajo.
+    // No depende del cron mismo (ese puede fallar) — independent monitor.
+    //
+    // Razón: usuario reportó múltiples silent failures (Flex token, earnings
+    // calendar, etc.) que llevaron días/semanas detectarse. Pattern repetido
+    // aunque cada cron individual tenía su propio Telegram alert.
     if (cronExpr === "0 22 * * *") {
-      console.log("[scheduled] Freshness check tick");
+      console.log("[scheduled] Universal freshness monitor tick");
       try {
-        const lastTrade = await env.DB.prepare(
-          "SELECT MAX(date) as last_date, MAX(exec_time) as last_exec FROM cost_basis"
-        ).first();
-        const lastDateStr = lastTrade?.last_exec || lastTrade?.last_date || null;
-        if (!lastDateStr) {
-          await sendTelegram(env, {
-            text: '🚨 *Freshness CRITICAL*\nNo hay trades en cost_basis. BD vacía o problema serio.',
-            severity: 'crit', source: 'freshness_check',
-          });
-          return;
-        }
-        const lastDate = new Date(lastDateStr.replace(' ', 'T'));
         const now = new Date();
-        const hoursSince = (now - lastDate) / (1000 * 60 * 60);
         const dow = now.getUTCDay(); // 0=Sun, 6=Sat
         const isMarketDay = dow >= 1 && dow <= 5;
-        // Solo alertamos si llevamos >36h sin trades Y hoy es día laborable mercado
-        if (hoursSince > 36 && isMarketDay) {
+
+        // Tablas críticas a monitorear. Cada entry:
+        //   table: nombre tabla
+        //   dateCol: columna a leer MAX() (created_at, updated_at, fecha, etc.)
+        //   thresholdHours: stale si excede
+        //   onlyMarketDay: alertar solo días laborables
+        //   diagnosis: texto incluido en Telegram cuando stale
+        const SOURCES = [
+          {
+            name: 'Trades (cost_basis)',
+            table: 'cost_basis',
+            dateCol: 'created_at',
+            thresholdHours: 36,
+            onlyMarketDay: true,
+            diagnosis: 'IB Gateway down? Bridge sync failed? Comprueba botón IB header.',
+          },
+          {
+            name: 'Earnings calendar',
+            table: 'earnings_calendar',
+            dateCol: 'updated_at',
+            thresholdHours: 168, // 7 días — earnings sync menos frecuente
+            onlyMarketDay: false,
+            diagnosis: 'FMP earnings API failing? Cron earnings sync revisar.',
+          },
+          {
+            name: 'Dividendos',
+            table: 'dividendos',
+            dateCol: 'created_at',
+            thresholdHours: 168, // 7 días — divs are weekly typically
+            onlyMarketDay: false,
+            diagnosis: 'Bridge sync dividends path failing? Flex backup también?',
+          },
+          {
+            name: 'Positions (IB live)',
+            table: 'positions',
+            dateCol: 'updated_at',
+            thresholdHours: 36,
+            onlyMarketDay: true,
+            diagnosis: 'Bridge /positions sync failing? IB Gateway OFF?',
+          },
+          {
+            name: 'NLV history',
+            table: 'nlv_history',
+            dateCol: 'fecha',
+            thresholdHours: 48,
+            onlyMarketDay: true,
+            diagnosis: 'NLV snapshot cron failing? Bridge NAV endpoint broken?',
+          },
+          {
+            name: 'Price cache',
+            table: 'price_cache',
+            dateCol: 'updated_at',
+            thresholdHours: 24,
+            onlyMarketDay: true,
+            diagnosis: 'FMP price API rate-limited or down?',
+          },
+        ];
+
+        const stale = [];
+        for (const src of SOURCES) {
+          if (src.onlyMarketDay && !isMarketDay) continue;
+          try {
+            const result = await env.DB.prepare(
+              `SELECT MAX(${src.dateCol}) as last FROM ${src.table}`
+            ).first().catch(() => null);
+            if (!result || !result.last) {
+              stale.push({ ...src, hoursSince: '∞', last: 'NEVER' });
+              continue;
+            }
+            const lastDate = new Date(String(result.last).replace(' ', 'T'));
+            const hoursSince = (now - lastDate) / (1000 * 60 * 60);
+            if (hoursSince > src.thresholdHours) {
+              stale.push({ ...src, hoursSince: hoursSince.toFixed(1), last: result.last });
+            }
+          } catch (e) {
+            console.error(`[freshness] error checking ${src.name}:`, e.message);
+          }
+        }
+
+        if (stale.length > 0) {
+          const lines = stale.map(s =>
+            `• *${s.name}*: ${s.hoursSince}h sin update (límite ${s.thresholdHours}h)\n  Last: ${s.last}\n  → ${s.diagnosis}`
+          ).join('\n\n');
           await sendTelegram(env, {
-            text: `🚨 *Freshness CRITICAL — Trades stale*\n`
-              + `Último trade: ${lastDateStr}\n`
-              + `Horas sin update: ${hoursSince.toFixed(1)}h\n\n`
-              + `Diagnóstico:\n`
-              + `1. Comprueba IB Gateway ON en NAS (botón IB en header)\n`
-              + `2. Si IB Gateway OFF → 2FA expirada, aprueba push IBKR Mobile\n`
-              + `3. Si NAS OFF → enciéndelo\n`
-              + `4. Si todo OK pero sigue fallando → revisa logs worker`,
-            severity: 'crit', source: 'freshness_check',
+            text: `🚨 *FRESHNESS CRITICAL — ${stale.length} fuente${stale.length>1?'s':''} stale*\n\n${lines}`,
+            severity: 'crit', source: 'freshness_monitor',
           });
         } else {
-          console.log(`[scheduled] freshness OK: last trade ${hoursSince.toFixed(1)}h ago`);
+          console.log(`[freshness] all OK — ${SOURCES.length} sources fresh`);
         }
       } catch (e) {
-        console.error("[scheduled] freshness check failed:", e.message);
+        console.error("[scheduled] universal freshness monitor failed:", e.message);
       }
       return;
     }
