@@ -184,6 +184,18 @@ export default function ResearchTab() {
     if (setHomeTab) setHomeTab('alert-rules');
   }, [setHomeTab]);
 
+  // ─── Veredicto Experto — set de tickers con análisis disponible ─────────
+  const [expertSet, setExpertSet] = useState(new Set());
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(`${API_URL}/api/expert-analysis/list`);
+        const d = await r.json();
+        if (d?.items) setExpertSet(new Set(d.items.map(i => i.ticker)));
+      } catch {}
+    })();
+  }, []);
+
   // ─── Oracle verdicts for the table — cached only (no auto-gen) ─────────
   // When a list is selected, we batch-fetch cached verdicts for its tickers.
   // User clicks the 🎯 cell to open BuyWizard and generate a verdict.
@@ -245,9 +257,11 @@ export default function ResearchTab() {
       <div style={{fontSize:11,color:"var(--text-tertiary)",fontWeight:600,marginBottom:8,fontFamily:"var(--fm)"}}>EMPRESAS GUARDADAS</div>
       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
         {portfolio.map(t=>(
-          <button key={t} onClick={()=>openAnalysis(t)} style={{padding:"6px 14px",borderRadius:8,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text-secondary)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)",transition:"all .15s"}}
+          <button key={t} onClick={()=>openAnalysis(t)}
+            title={expertSet.has(t) ? `${t} · Veredicto Experto disponible 🎓` : t}
+            style={{padding:"6px 14px",borderRadius:8,border:"1px solid var(--border)",background:"var(--card)",color:"var(--text-secondary)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)",transition:"all .15s"}}
             onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--gold)";e.currentTarget.style.color="var(--gold)";}}
-            onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";e.currentTarget.style.color="var(--text-secondary)";}}>{t}</button>
+            onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";e.currentTarget.style.color="var(--text-secondary)";}}>{t}{expertSet.has(t) && <span style={{marginLeft:4,color:'#a855f7'}}>🎓</span>}</button>
         ))}
       </div>
     </div>
@@ -449,6 +463,7 @@ export default function ResearchTab() {
                             <div style={{display:'flex',alignItems:'baseline',gap:5}}>
                               <span style={{fontSize:11,fontWeight:700,color:'var(--text-primary)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{p.name}</span>
                               <span style={{fontSize:8,color:'var(--text-tertiary)',fontFamily:'var(--fm)'}}>{p.ticker}</span>
+                              {expertSet.has(p.ticker) && <span title="Veredicto Experto disponible" style={{fontSize:9,color:'#a855f7'}}>🎓</span>}
                             </div>
                             <div style={{fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)',marginTop:1}}>
                               {cur}{lo}–{cur}{hi} · ahora <span style={{color:c.fg,fontWeight:700}}>{cur}{px}</span>
@@ -486,7 +501,7 @@ export default function ResearchTab() {
                         onMouseEnter={e=>e.currentTarget.style.background="var(--gold-glow)"} onMouseLeave={e=>e.currentTarget.style.background=i%2?"var(--row-alt)":"transparent"}
                         onClick={()=>openAnalysis(item.symbol)}>
                         <td style={{...cs,textAlign:"center"}}><span style={{padding:"2px 7px",borderRadius:4,background:`${sc(item.score)}18`,color:sc(item.score),fontWeight:800,fontSize:11}}>{item.score}</span></td>
-                        <td style={{...cs,fontWeight:700,color:ip?"var(--gold)":"var(--text-primary)"}}>{ip?"● ":""}{item.symbol}<span style={{fontSize:7,marginLeft:4,padding:"1px 4px",borderRadius:3,fontWeight:500,background:item.capSize==="Mega Cap"?"rgba(52,211,153,.1)":item.capSize==="Large Cap"?"rgba(96,165,250,.1)":item.capSize==="Mid Cap"?"rgba(200,164,78,.1)":"rgba(248,113,113,.1)",color:item.capSize==="Mega Cap"?"#34d399":item.capSize==="Large Cap"?"#60a5fa":item.capSize==="Mid Cap"?"#c8a44e":"#f87171",verticalAlign:"middle"}}>{item.capSize==="Mega Cap"?"MEGA":item.capSize==="Large Cap"?"LARGE":item.capSize==="Mid Cap"?"MID":item.capSize==="Small Cap"?"SMALL":"MICRO"}</span></td>
+                        <td style={{...cs,fontWeight:700,color:ip?"var(--gold)":"var(--text-primary)"}}>{ip?"● ":""}{item.symbol}{expertSet.has(item.symbol) && <span title="Veredicto Experto disponible" style={{fontSize:9,marginLeft:4,color:'#a855f7'}}>🎓</span>}<span style={{fontSize:7,marginLeft:4,padding:"1px 4px",borderRadius:3,fontWeight:500,background:item.capSize==="Mega Cap"?"rgba(52,211,153,.1)":item.capSize==="Large Cap"?"rgba(96,165,250,.1)":item.capSize==="Mid Cap"?"rgba(200,164,78,.1)":"rgba(248,113,113,.1)",color:item.capSize==="Mega Cap"?"#34d399":item.capSize==="Large Cap"?"#60a5fa":item.capSize==="Mid Cap"?"#c8a44e":"#f87171",verticalAlign:"middle"}}>{item.capSize==="Mega Cap"?"MEGA":item.capSize==="Large Cap"?"LARGE":item.capSize==="Mid Cap"?"MID":item.capSize==="Small Cap"?"SMALL":"MICRO"}</span></td>
                         <td title={item.name} style={{...cs,color:"var(--text-secondary)",maxWidth:130,overflow:"hidden",textOverflow:"ellipsis"}}>{item.name}</td>
                         {!researchAdvanced && <>
                           <td style={{...cs,color:"var(--text-tertiary)",fontSize:9}}>{item.sector}</td>
@@ -542,8 +557,8 @@ export default function ResearchTab() {
                   {noData.map(t => (
                     <div key={t} style={{display:"inline-flex",alignItems:"center",border:"1px solid var(--border)",borderRadius:6,background:"transparent"}}>
                       <button onClick={()=>openAnalysis(t)}
-                        title="Analizar"
-                        style={{padding:"4px 8px",border:"none",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)"}}>{t}</button>
+                        title={expertSet.has(t) ? "Analizar · Veredicto Experto disponible 🎓" : "Analizar"}
+                        style={{padding:"4px 8px",border:"none",background:"transparent",color:"var(--text-tertiary)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)"}}>{t}{expertSet.has(t) && <span style={{marginLeft:3,color:'#a855f7'}}>🎓</span>}</button>
                       <button onClick={()=>openAlertForTicker(t)}
                         title={`Alarma para ${t}`}
                         style={{padding:"4px 5px",border:"none",borderLeft:"1px solid var(--border)",background:"transparent",color:"var(--orange)",fontSize:9,cursor:"pointer",fontFamily:"var(--fm)"}}>🔔</button>
