@@ -22859,12 +22859,30 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
         });
         const data = await r.json().catch(() => ({}));
         console.log(`[scheduled] bridge sync: ${r.status} fetched=${data.fetched ?? 0} inserted=${data.inserted ?? 0}`);
-        // Alerta solo si HTTP error real (no si bridge dice "0 trades nuevos")
+        // 2026-05-06: CIRCUIT BREAKER para evitar Telegram spam.
+        // Antes: cada 30min con bridge caído → 18 alertas/día (incidente real).
+        // Ahora: máximo 1 alerta cada 6h por mismo error code. Universal Freshness
+        // Monitor (22:00 UTC) ya cubre detección de stale data como segunda capa.
         if (!r.ok && r.status !== 503) {
-          await sendTelegram(env, {
-            text: `⚠️ *Bridge executions sync error*\nHTTP ${r.status}: ${JSON.stringify(data).slice(0, 200)}`,
-            severity: 'warn', source: 'bridge_sync',
-          });
+          const memKey = `bridge_sync_alert_${r.status}`;
+          const last = await env.DB.prepare(
+            `SELECT updated_at FROM agent_memory WHERE key = ? LIMIT 1`
+          ).bind(memKey).first().catch(() => null);
+          const hoursAgo = last?.updated_at
+            ? (Date.now() - new Date(last.updated_at + 'Z').getTime()) / 3600000
+            : 999;
+          if (hoursAgo >= 6) {
+            await sendTelegram(env, {
+              text: `⚠️ *Bridge sync error* (no se repetirá en 6h)\nHTTP ${r.status}: ${JSON.stringify(data).slice(0, 200)}\nDiagnóstico: revisa botón IB en header (¿gateway off? 2FA caducó?).`,
+              severity: 'warn', source: 'bridge_sync',
+            });
+            await env.DB.prepare(
+              `INSERT INTO agent_memory (key, value, updated_at) VALUES (?, ?, datetime('now'))
+               ON CONFLICT(key) DO UPDATE SET updated_at = datetime('now')`
+            ).bind(memKey, JSON.stringify({ status: r.status, last: new Date().toISOString() })).run().catch(() => {});
+          } else {
+            console.log(`[scheduled] bridge sync error suppressed (last alert ${hoursAgo.toFixed(1)}h ago)`);
+          }
         }
       } catch (e) {
         console.error("[scheduled] bridge sync failed:", e.message);
@@ -23218,6 +23236,22 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
         console.log(`[audit-cron] tt sync: ${r.status} inserted=${d.inserted ?? '?'} skipped=${d.skipped ?? '?'} accounts=${d.accounts ?? '?'}`);
       } catch (e) {
         console.error('[audit-cron] tt sync failed:', e.message);
+      }
+
+      // 2026-05-06: piggyback NLV snapshot diario. Antes nlv_history se
+      // actualizaba solo cuando la app cargaba en Mac (sessionStorage flag).
+      // Después del incidente IB Gateway 34h caído + NLV 8 días stale, este
+      // cron garantiza snapshot diario independiente del cliente.
+      try {
+        const r = await fetch(`${apiBase}/api/ib-auto-sync`, {
+          method: 'POST',
+          headers: { 'X-AYR-Auth': env.AYR_WORKER_TOKEN, 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(60000),
+        });
+        const d = await r.json().catch(() => ({}));
+        console.log(`[audit-cron] nlv snapshot: ${r.status} nlv=${d.nlv ?? '?'} fecha=${d.fecha ?? '?'}`);
+      } catch (e) {
+        console.error('[audit-cron] nlv snapshot failed:', e.message);
       }
       return;
     }
