@@ -5578,6 +5578,30 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           return json({ error: "result_json required (the full Stage 3 Analyzer output)" }, corsHeaders, 400);
         }
 
+        // 2026-05-06 (A2): output_schema validator inspired by Anthropic FSI
+        // cookbooks. Catches AHRT-style hallucination bugs ($64K shares
+        // fallback) and shape drift before they hit D1. Returns 400 if invalid.
+        const VALID_VERDICTS = new Set(['BUY','ACCUMULATE','HOLD','TRIM','SELL','AVOID']);
+        const VALID_CONFIDENCE = new Set(['low','medium','high']);
+        const errors = [];
+        if (!/^[A-Z][A-Z0-9._:-]{0,15}$/.test(ticker)) errors.push(`ticker '${ticker}' fails regex`);
+        if (!VALID_VERDICTS.has(verdict)) errors.push(`verdict '${verdict}' not in {${[...VALID_VERDICTS].join(',')}}`);
+        if (!VALID_CONFIDENCE.has(confidence)) errors.push(`confidence '${confidence}' not in {low,medium,high}`);
+        for (const [k, v] of [['safety_score', safety_score], ['growth_score', growth_score], ['honesty_score', honesty_score]]) {
+          if (!Number.isFinite(v) || v < 0 || v > 10) errors.push(`${k}=${v} out of [0,10]`);
+        }
+        if (cut_prob != null && (cut_prob < 0 || cut_prob > 1)) errors.push(`cut_probability_3y=${cut_prob} out of [0,1]`);
+        if (raise_prob != null && (raise_prob < 0 || raise_prob > 1)) errors.push(`raise_probability_12m=${raise_prob} out of [0,1]`);
+        // result_json shape sanity (cap arrays to prevent runaway memory)
+        try {
+          const flags = body.result_json["3_red_and_green_flags"] || {};
+          if ((flags.red || []).length > 50) errors.push(`red_flags array length ${flags.red.length} > 50 cap`);
+          if ((flags.green || []).length > 50) errors.push(`green_flags array length ${flags.green.length} > 50 cap`);
+        } catch {}
+        if (errors.length > 0) {
+          return json({ error: 'output_schema validation failed', errors }, corsHeaders, 400);
+        }
+
         // Compute composite score (safety 0.5 + growth 0.3 + honesty 0.2)
         const composite = Math.round((safety_score * 0.5 + growth_score * 0.3 + honesty_score * 0.2) * 10) / 10;
 
@@ -6234,6 +6258,15 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         }
         if (extractions.length === 0) return json({ error: "No extractions produced" }, corsHeaders, 500);
 
+        // 2026-05-06 (A1) — WRITE-ISOLATION INVARIANT (per Anthropic FSI cookbook):
+        //   Extractor → reads UNTRUSTED transcripts/filings + writes ONLY its
+        //                output JSON to a sandboxed cache row (not main tables).
+        //   Historian → READ-ONLY (env.DB SELECT only, returns JSON).
+        //   Analyzer  → READ-ONLY (env.DB SELECT only, returns JSON).
+        //   Devil's   → READ-ONLY (env.DB SELECT only, returns JSON).
+        //   Orchestr. → only writer to main `deep_dividend_analysis` table.
+        // DO NOT add INSERT/UPDATE/DELETE inside the 4 functions below.
+        // Untrusted-input agents must not be able to mutate canonical state.
         const historian = await deepDividendHistorian(env, ticker, sector_bucket, extractions);
         const baseline = { latest_quarter: `as_of_${asOfDate}` };
         const analyzer_output = await deepDividendAnalyzer(env, ticker, sector_bucket, extractions, historian, baseline);
@@ -7305,6 +7338,58 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           },
         };
         return json({ ok: true, summary, issues, generated_at: new Date().toISOString() }, corsHeaders);
+      }
+
+      // GET /api/audit/unsourced — escanea expert_analyses y deep_dividend
+      // por números sin source-attribution. Inspirado por convención
+      // [UNSOURCED] tag de Anthropic Financial Services cookbooks (2026-05-05).
+      // Cualquier número (>$1K, >5%, >10x) en un análisis SIN cita inmediata
+      // (paréntesis con fuente, footnote, tag literal [UNSOURCED]) se flagea.
+      // Coverage tier: low/med/high % numbers cited.
+      if (path === "/api/audit/unsourced" && request.method === "GET") {
+        await ensureMigrations(env);
+        try {
+          const { results: analyses } = await env.DB.prepare(
+            `SELECT ticker, narrative, version, updated_at FROM expert_analyses WHERE narrative IS NOT NULL ORDER BY updated_at DESC LIMIT 200`
+          ).all();
+          const items = [];
+          // Patterns: $X,XXX / X% / Xx multiple / "X million|billion"
+          const numRe = /(\$[\d,]+(?:\.\d+)?[KMBkmb]?|\d+(?:\.\d+)?%|\d+(?:\.\d+)?x\b|\d+(?:\.\d+)?\s*(?:million|billion|millones|billones))/gi;
+          // Indicadores de sourcing: paréntesis con keyword, footnote, hyperlink, [UNSOURCED] explícito
+          const sourceRe = /\((?:fuente|source|según|per|via|cf\.|10-K|10-Q|8-K|FMP|GuruFocus|FAST|Yahoo|FactSet|Bloomberg|GAAP|IFRS|FY\d+|Q\d+\s*\d+|p\.\s?\d+|TTM|YTD|YoY|QoQ|H1|H2|2[0-9]{3}|estimate|consensus|análisis propio|estimación)/i;
+          const unsourcedTag = /\[UNSOURCED\]/i;
+          for (const a of analyses) {
+            const txt = a.narrative || '';
+            const nums = txt.match(numRe) || [];
+            if (nums.length === 0) continue;
+            // contar nums sin source en el mismo statement (200 chars window)
+            let sourced = 0, unsourced = 0;
+            let untagged = 0;
+            for (const m of [...txt.matchAll(numRe)]) {
+              const idx = m.index || 0;
+              const window = txt.slice(idx, Math.min(idx + 200, txt.length));
+              if (sourceRe.test(window) || /\[\d+\]/.test(window) || /\bhttps?:\/\//.test(window)) sourced++;
+              else if (unsourcedTag.test(window)) unsourced++;
+              else untagged++;
+            }
+            const total = sourced + unsourced + untagged;
+            const coverage = total > 0 ? sourced / total : 0;
+            const tier = coverage >= 0.7 ? 'high' : coverage >= 0.4 ? 'med' : 'low';
+            items.push({
+              ticker: a.ticker, version: a.version, updated_at: a.updated_at,
+              total_numbers: total, sourced, unsourced_tagged: unsourced, untagged,
+              coverage_pct: Math.round(coverage * 100), tier,
+            });
+          }
+          items.sort((a, b) => a.coverage_pct - b.coverage_pct);
+          const summary = {
+            scanned: items.length,
+            tier_low: items.filter(i => i.tier === 'low').length,
+            tier_med: items.filter(i => i.tier === 'med').length,
+            tier_high: items.filter(i => i.tier === 'high').length,
+          };
+          return json({ ok: true, summary, items, convention: 'Inspired by Anthropic FSI [UNSOURCED] tag — every number needs (source) within 200 chars or explicit [UNSOURCED] tag.' }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
       }
 
       // POST /api/audit/portfolio/auto-fix — sincroniza positions.sector con
@@ -17468,6 +17553,110 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         // the worker single-request-scope and the UI in control of progress).
         return json({ ok: true, queue: missing, count: missing.length, min_weight_pct: minWeight }, corsHeaders);
       }
+      // GET /api/theses/:ticker/scorecard — Thesis Tracker activo (2026-05-06)
+      // Inspirado por skill thesis-tracker de Anthropic FSI cookbook.
+      // Compara thesis original vs datos actuales del position. Detecta drift:
+      //   - thesis_age_months
+      //   - conviction_mismatch (alta conviction + Q+S bajo)
+      //   - weight_off_target (peso real fuera del banda min/max)
+      //   - dividend_safety_drift (cut_probability_3y > umbral)
+      // Returns scorecard con flags + "trend" por pillar.
+      if (path.startsWith("/api/theses/") && path.endsWith("/scorecard") && request.method === "GET") {
+        const ticker = decodeURIComponent(path.slice("/api/theses/".length, -"/scorecard".length));
+        try {
+          const thesis = await env.DB.prepare(
+            "SELECT * FROM theses WHERE ticker = ? AND is_current = 1 LIMIT 1"
+          ).bind(ticker).first();
+          if (!thesis) return json({ error: 'no thesis for ticker', ticker }, corsHeaders, 404);
+
+          const pos = await env.DB.prepare(
+            `SELECT ticker, name, shares, avg_price, last_price, market_value, usd_value, div_yield, yoc FROM positions WHERE ticker = ? LIMIT 1`
+          ).bind(ticker).first();
+          const portfolioTotal = (await env.DB.prepare(
+            `SELECT COALESCE(SUM(COALESCE(usd_value, market_value, 0)), 0) AS total FROM positions WHERE shares > 0`
+          ).first())?.total || 0;
+          const posValue = pos?.usd_value || pos?.market_value || 0;
+          const currentWeight = portfolioTotal > 0 ? (posValue / portfolioTotal) * 100 : 0;
+
+          const qs = await env.DB.prepare(
+            `SELECT quality_score, safety_score, snapshot_date FROM quality_safety_scores WHERE ticker = ? ORDER BY snapshot_date DESC LIMIT 1`
+          ).bind(ticker).first();
+
+          const dda = await env.DB.prepare(
+            `SELECT verdict, confidence, safety_score AS dda_safety, cut_probability_3y, created_at FROM deep_dividend_analysis WHERE ticker = ? ORDER BY created_at DESC LIMIT 1`
+          ).bind(ticker).first();
+
+          // Drift checks
+          const updatedAt = new Date(thesis.updated_at + (thesis.updated_at?.includes('Z') ? '' : 'Z'));
+          const ageMonths = (Date.now() - updatedAt.getTime()) / (1000 * 60 * 60 * 24 * 30);
+          const flags = [];
+          if (ageMonths > 6) flags.push({ severity: 'warn', code: 'stale_thesis', msg: `Thesis last updated ${ageMonths.toFixed(1)}m ago` });
+          if (thesis.conviction >= 4 && qs?.quality_score != null && qs.quality_score < 60) {
+            flags.push({ severity: 'red', code: 'conviction_quality_mismatch', msg: `Conviction ${thesis.conviction}/5 vs Quality ${qs.quality_score}/100` });
+          }
+          const twMin = thesis.target_weight_min || 0, twMax = thesis.target_weight_max || 0;
+          if (twMax > 0 && currentWeight > twMax) flags.push({ severity: 'warn', code: 'overweight', msg: `Weight ${currentWeight.toFixed(1)}% > target_max ${twMax}%` });
+          if (twMin > 0 && currentWeight < twMin) flags.push({ severity: 'warn', code: 'underweight', msg: `Weight ${currentWeight.toFixed(1)}% < target_min ${twMin}%` });
+          if (dda?.cut_probability_3y != null && dda.cut_probability_3y > 0.3) {
+            flags.push({ severity: 'red', code: 'dividend_at_risk', msg: `Deep Dividend says cut_probability_3y=${(dda.cut_probability_3y * 100).toFixed(0)}%` });
+          }
+          if (dda?.verdict && ['SELL', 'TRIM', 'AVOID'].includes(dda.verdict) && thesis.conviction >= 3) {
+            flags.push({ severity: 'red', code: 'verdict_conviction_mismatch', msg: `Deep Dividend verdict ${dda.verdict} but conviction ${thesis.conviction}/5` });
+          }
+
+          // Pillar scorecard (uses Anthropic-style table format)
+          const pillars = [
+            {
+              pillar: 'Calidad fundamental',
+              expectation: 'Quality ≥ 70',
+              current: qs?.quality_score != null ? `${qs.quality_score}/100` : '—',
+              trend: qs?.quality_score == null ? '?' : qs.quality_score >= 70 ? 'on_track' : qs.quality_score >= 50 ? 'watch' : 'concerning',
+            },
+            {
+              pillar: 'Seguridad dividendo',
+              expectation: 'Safety ≥ 70 + cut_prob ≤ 20%',
+              current: qs?.safety_score != null ? `${qs.safety_score}/100${dda?.cut_probability_3y != null ? `, cut ${(dda.cut_probability_3y * 100).toFixed(0)}%` : ''}` : '—',
+              trend: qs?.safety_score == null ? '?' : (qs.safety_score >= 70 && (dda?.cut_probability_3y == null || dda.cut_probability_3y <= 0.2)) ? 'on_track' : (dda?.cut_probability_3y > 0.3 ? 'concerning' : 'watch'),
+            },
+            {
+              pillar: 'Peso en cartera',
+              expectation: twMin > 0 || twMax > 0 ? `${twMin}-${twMax}%` : 'sin target definido',
+              current: `${currentWeight.toFixed(1)}%`,
+              trend: (twMax > 0 && currentWeight > twMax) || (twMin > 0 && currentWeight < twMin) ? 'watch' : 'on_track',
+            },
+            {
+              pillar: 'Verdict externo (Deep Dividend)',
+              expectation: 'BUY / ACCUMULATE / HOLD',
+              current: dda ? `${dda.verdict} (${dda.confidence})` : '—',
+              trend: dda?.verdict && ['BUY','ACCUMULATE'].includes(dda.verdict) ? 'on_track' : dda?.verdict === 'HOLD' ? 'watch' : dda?.verdict ? 'concerning' : '?',
+            },
+          ];
+
+          return json({
+            ok: true,
+            ticker,
+            thesis: {
+              version: thesis.version,
+              why_owned: thesis.why_owned,
+              what_would_make_sell: thesis.what_would_make_sell,
+              conviction: thesis.conviction,
+              age_months: Math.round(ageMonths * 10) / 10,
+              updated_at: thesis.updated_at,
+            },
+            current: {
+              weight_pct: Math.round(currentWeight * 10) / 10,
+              quality_score: qs?.quality_score ?? null,
+              safety_score: qs?.safety_score ?? null,
+              dda_verdict: dda?.verdict ?? null,
+              cut_probability_3y: dda?.cut_probability_3y ?? null,
+            },
+            pillars,
+            flags,
+            overall_health: flags.filter(f => f.severity === 'red').length > 0 ? 'red' : flags.length > 0 ? 'yellow' : 'green',
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
       if (path.startsWith("/api/theses/") && request.method === "GET") {
         const ticker = decodeURIComponent(path.slice("/api/theses/".length));
         const { results } = await env.DB.prepare(
