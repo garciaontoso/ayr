@@ -3668,22 +3668,16 @@ OUTPUT: solo el markdown report. NO json wrapper, NO comentarios meta.`;
 <sources>${JSON.stringify(sources)}</sources>
 <documents>${combined}</documents>`;
 
-          const resp = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-            body: JSON.stringify({
-              model: "claude-opus-4-7",
-              max_tokens: 5000,
-              system: systemPrompt,
-              messages: [{ role: "user", content: userContent }],
-            }),
-          });
-          if (!resp.ok) {
-            const errText = await resp.text();
-            return json({ error: `anthropic api ${resp.status}`, detail: errText.slice(0, 300) }, corsHeaders, 502);
+          // 2026-05-06 cleanup: usar callClaudeText con retry (429/5xx/529)
+          // en vez de raw fetch sin retry. Mismo pattern que deep-dividend pipeline.
+          let markdown = '';
+          try {
+            markdown = await callClaudeText(env, systemPrompt, userContent, {
+              model: "claude-opus-4-7", maxTokens: 5000,
+            });
+          } catch (e) {
+            return json({ error: `anthropic api: ${e.message}`, detail: String(e).slice(0, 300) }, corsHeaders, 502);
           }
-          const data = await resp.json();
-          const markdown = data.content?.[0]?.text || '';
           if (!markdown) return json({ error: 'empty response from Opus' }, corsHeaders, 500);
 
           // 4. Save to R2
@@ -5542,19 +5536,11 @@ dilo. En español.`;
         catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
         const ticker = String(body.ticker || "").trim().toUpperCase();
         const force = !!body.force;
-        const useDeep = !!body.deep;
         if (!ticker) return json({ error: "ticker required" }, corsHeaders, 400);
 
-        // ── NEW DEEP PIPELINE (2026-04-09) ──
-        if (useDeep) {
-          try {
-            const result = await runDeepDividendPipeline(env, { ticker, force });
-            return json(result, corsHeaders, result.ok ? 200 : 404);
-          } catch (e) {
-            console.error(`[deep-dividend] pipeline failed for ${ticker}:`, e.message);
-            return json({ ok: false, error: `Deep pipeline failed: ${e.message}` }, corsHeaders, 500);
-          }
-        }
+        // 2026-05-06 cleanup: removed useDeep branch (zero frontend callers,
+        // duplicated logic of /api/deep-dividend/run which is canonical entry
+        // point. Audit findings post Anthropic FSI session).
 
         // ── LEGACY MONOLITHIC PATH (kept for backwards compatibility) ──
         const cacheKey = `earnings_archive_analysis:${ticker}`;
@@ -19464,6 +19450,11 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
       // Same TTL (24h) and same dashboard rendering as Opus-generated verdicts.
       if (path === "/api/oracle-verdict/upload-manual" && request.method === "POST") {
         await ensureMigrations(env);
+        // 2026-05-06 SECURITY FIX: añadido ytRequireToken — antes cualquiera
+        // podía sobrescribir oracle verdicts. Pattern matches deep-dividend,
+        // earnings/auto-update, expert-analysis upload-manual endpoints.
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
         let body;
         try { body = await request.json(); }
         catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
