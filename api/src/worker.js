@@ -3714,6 +3714,105 @@ OUTPUT: solo el markdown report. NO json wrapper, NO comentarios meta.`;
         } catch(e) { return json({ error: e.message }, corsHeaders, 500); }
       }
 
+      // POST /api/earnings/auto-update/upload-manual — guarda report generado
+      // por Claude Code en sesión (coste $0 al usuario, Claude Code via subscription).
+      // Mismo patrón que /api/deep-dividend/upload-manual y /api/expert-analysis/upload.
+      // Body: {ticker, markdown, sources?, date?}
+      if (path === "/api/earnings/auto-update/upload-manual" && request.method === "POST") {
+        await ensureMigrations(env);
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, corsHeaders, 400); }
+        const ticker = String(body.ticker || '').trim().toUpperCase();
+        const markdown = String(body.markdown || '');
+        const sources = Array.isArray(body.sources) ? body.sources : [];
+        const dateStr = String(body.date || new Date().toISOString().slice(0, 10));
+        if (!ticker || !markdown) return json({ error: 'ticker and markdown required' }, corsHeaders, 400);
+        if (markdown.length < 500) return json({ error: 'markdown too short (<500 chars)' }, corsHeaders, 400);
+        if (markdown.length > 200000) return json({ error: 'markdown too long (>200KB)' }, corsHeaders, 400);
+        if (!/^[A-Z][A-Z0-9._:-]{0,15}$/.test(ticker)) return json({ error: `ticker '${ticker}' fails regex` }, corsHeaders, 400);
+        try {
+          const r2Key = `earnings-updates/${ticker}/${dateStr}.md`;
+          await env.EARNINGS_R2.put(r2Key, markdown, {
+            httpMetadata: { contentType: 'text/markdown; charset=utf-8' },
+          });
+          await env.DB.prepare(`CREATE TABLE IF NOT EXISTS earnings_updates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticker TEXT NOT NULL, date TEXT NOT NULL, r2_key TEXT NOT NULL,
+            size_bytes INTEGER, sources_json TEXT, created_at DATETIME DEFAULT (datetime('now'))
+          )`).run().catch(() => {});
+          const ins = await env.DB.prepare(
+            `INSERT INTO earnings_updates (ticker, date, r2_key, size_bytes, sources_json) VALUES (?, ?, ?, ?, ?)`
+          ).bind(ticker, dateStr, r2Key, markdown.length, JSON.stringify(sources)).run();
+          return json({ ok: true, id: ins.meta?.last_row_id, ticker, date: dateStr, r2_key: r2Key, length: markdown.length }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // GET /api/earnings/auto-update/pending — empresas que reportaron sin update
+      // + las que reportarán pronto. Usado por cron Telegram daily + Claude Code
+      // session start para que Claude se acuerde por ti.
+      if (path === "/api/earnings/auto-update/pending" && request.method === "GET") {
+        try {
+          await env.DB.prepare(`CREATE TABLE IF NOT EXISTS earnings_updates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticker TEXT NOT NULL, date TEXT NOT NULL, r2_key TEXT NOT NULL,
+            size_bytes INTEGER, sources_json TEXT, created_at DATETIME DEFAULT (datetime('now'))
+          )`).run().catch(() => {});
+
+          // Tickers en cartera (con shares > 0) — solo nos importan los que tenemos
+          const { results: portfolio } = await env.DB.prepare(
+            `SELECT DISTINCT ticker FROM positions WHERE shares > 0`
+          ).all();
+          const portfolioSet = new Set((portfolio || []).map(p => p.ticker));
+
+          // Earnings reportados en últimos 14 días + próximos 7 días, solo de cartera
+          const { results: cal } = await env.DB.prepare(
+            `SELECT ticker, name, earnings_date, eps_estimate, revenue_estimate
+             FROM earnings_calendar
+             WHERE earnings_date >= date('now', '-14 days') AND earnings_date <= date('now', '+7 days')
+             ORDER BY earnings_date ASC`
+          ).all();
+
+          const today = new Date().toISOString().slice(0, 10);
+          const reported = []; // ya pasaron
+          const upcoming = []; // próximos 7d
+          for (const e of (cal || [])) {
+            if (!portfolioSet.has(e.ticker)) continue;
+            if (e.earnings_date <= today) reported.push(e);
+            else upcoming.push(e);
+          }
+
+          // Cruzar reported con earnings_updates ya generados
+          const pending = [];
+          for (const r of reported) {
+            const existing = await env.DB.prepare(
+              `SELECT id, date FROM earnings_updates WHERE ticker = ? AND date >= ? ORDER BY date DESC LIMIT 1`
+            ).bind(r.ticker, r.earnings_date).first();
+            if (!existing) {
+              pending.push({
+                ticker: r.ticker,
+                name: r.name,
+                earnings_date: r.earnings_date,
+                days_ago: Math.round((Date.now() - new Date(r.earnings_date).getTime()) / 86400000),
+              });
+            }
+          }
+
+          return json({
+            ok: true,
+            pending,
+            pending_count: pending.length,
+            upcoming,
+            upcoming_count: upcoming.length,
+            generated_at: new Date().toISOString(),
+            workflow: pending.length > 0
+              ? `Pídele a Claude Code: "genera earnings updates para ${pending.slice(0,3).map(p=>p.ticker).join(', ')}${pending.length>3?', ...':''}"`
+              : 'Sin pendientes',
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message, pending: [], upcoming: [] }, corsHeaders, 500); }
+      }
+
       // GET /api/earnings/auto-update/list — lista de earnings updates generados
       if (path === "/api/earnings/auto-update/list" && request.method === "GET") {
         try {
@@ -23594,6 +23693,53 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
         console.log(`[audit-cron] tt sync: ${r.status} inserted=${d.inserted ?? '?'} skipped=${d.skipped ?? '?'} accounts=${d.accounts ?? '?'}`);
       } catch (e) {
         console.error('[audit-cron] tt sync failed:', e.message);
+      }
+
+      // 2026-05-06: Earnings Update Reports pending check + Telegram alert.
+      // Detecta empresas en cartera que reportaron <14d sin earnings update
+      // generado por Claude Code (manual via /upload-manual). Envía Telegram
+      // para que el usuario abra Claude Code y pida los reports — coste $0.
+      try {
+        const r = await fetch(`${apiBase}/api/earnings/auto-update/pending`);
+        const d = await r.json().catch(() => ({}));
+        const pending = d.pending || [];
+        const upcoming = d.upcoming || [];
+        console.log(`[audit-cron] earnings updates: ${pending.length} pending, ${upcoming.length} upcoming`);
+        if (pending.length > 0) {
+          const lines = [
+            `📊 *Earnings Updates pendientes (${pending.length})*`,
+            ``,
+            ...pending.slice(0, 10).map(p => `• ${p.ticker} — reportó hace ${p.days_ago}d (${p.earnings_date})`),
+            ``,
+            `🤖 Abre Claude Code en /AyR y dile:`,
+            `\`genera earnings updates para ${pending.slice(0,3).map(p=>p.ticker).join(', ')}${pending.length>3?', ...':''}\``,
+            ``,
+            `Coste $0 (Claude Code subscription, no API tokens).`,
+          ];
+          await sendTelegram(env, {
+            text: lines.join('\n'),
+            severity: pending.some(p => p.days_ago <= 2) ? 'warn' : 'info',
+            source: 'earnings_updates_pending',
+          });
+        }
+        const tomorrow = upcoming.filter(u => {
+          const d = (new Date(u.earnings_date) - Date.now()) / 86400000;
+          return d >= 0 && d <= 1.5;
+        });
+        if (tomorrow.length > 0) {
+          const lines = [
+            `📅 *Earnings mañana (${tomorrow.length})*`,
+            ``,
+            ...tomorrow.map(t => `• ${t.ticker} — ${t.earnings_date}${t.eps_estimate ? ` · EPS est ${t.eps_estimate}` : ''}`),
+          ];
+          await sendTelegram(env, {
+            text: lines.join('\n'),
+            severity: 'info',
+            source: 'earnings_upcoming',
+          });
+        }
+      } catch (e) {
+        console.error('[audit-cron] earnings updates check failed:', e.message);
       }
 
       // 2026-05-06: piggyback NLV snapshot diario. Antes nlv_history se
