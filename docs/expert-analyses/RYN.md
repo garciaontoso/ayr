@@ -1,701 +1,207 @@
-## RYN — Rayonier Inc.
+# RYN — Rayonier Inc. (post-merger PotlatchDeltic)
 
-**Long-term verdict:** HOLD with monitoring (post-large-divestment)
-**Dividend safety:** 6/10 (REIT structure, recent special distribution)
-**Confidence:** medium
+## TL;DR
 
-**Resumen ejecutivo (3 frases):** Rayonier es un **timberland REIT estadounidense** — propietario de aproximadamente 2,5M acres de bosques (down de ~2,7M previously) en USA Sureste y Pacific Northwest, plus Nueva Zelanda — para generar ingresos de venta de madera (timber) y real estate value appreciation. En 2024-2025, la compañía ejecutó **gran divestment estratégico** (vendió ~200K acres + activos NZ por USD 700M+) y distribuyó parte como special dividend, transformando el perfil de la compañía. **El dividendo regular sigue, pero el "ramp-up" del FY 2025 fue irregular** por la special distribution. Para inversor de income, RYN ofrece defensive REIT exposure con timberland appreciation potencial, pero con cycles dependiendo de housing y lumber pricing.
+**Veredicto: BUY hasta $24, ACCUMULATE $24-$28, HOLD $28-$33, TRIM >$33, SELL >$38.**
 
----
+Rayonier ha completado el **merger of equals con PotlatchDeltic el 30 enero 2026** (cita: transcript Q4 FY2025 ¶3, *"successfully closed ahead of schedule on January 30"*), creando un **timberland REIT combined de 4M+ acres** con Wood Products manufacturing business integrado. Es la mayor transformación de la compañía en 30 años. La combined entity será renombrada en Q1 2026 con nuevo ticker.
 
-### Contexto histórico y modelo de negocio (didáctico)
+Q4 FY2025 (último standalone Rayonier) **excedió guidance**: full year adj EBITDA **$248M** (+8% YoY, vs guide rango $230-245M), Real Estate segment **record $127M** (vs guide original $86-96M). CAD full year **$199M** vs $141M prior. Pro forma net income $89M ($0.57/share). Cash year-end **$843M**, debt $1.1B (per transcript Q4 FY2025 ¶4). Net debt/EV solo 6%.
 
-Rayonier fue fundada en 1926, originalmente como Rainier Pulp & Paper Company (Washington state). Evolucionó durante el siglo XX: **adquisición de timberlands**, expansión a NZ (1990s), spin-off del Performance Fibers business (Rayonier Advanced Materials, 2014), conversión a REIT structure 2004.
+**Post-merger pro forma 2026**: net debt $1.3-1.4B (cómodo dentro de target 3x mid-cycle EBITDA), synergies $40M run-rate end Y2 ($20M Y1), buyback $230M restante autorizado. Yield current **>4.5%** (per CFO Wayne Wasechek, transcript Q4 FY2025 ¶5).
 
-**Modelo de negocio**:
+**El bear case** — timber/lumber markets challenging Q1 2026, pulpwood pricing weak (-27% YoY Q4 stumpage por mill closures Atlantic), Pacific NW harvest -26% YoY por Washington dispositions FY2024, integration risk, dilución de holders Rayonier (special dividend en cash + shares para satisfacer NZ tax distribution).
 
-1. **Timber sales** (~80% revenue): venta de madera de sus bosques a aserraderos. Rotación típica 25-40 años (Sureste pino) o 50-80 años (Pacific NW).
+**El bull case** — supply tightening estructural (Hurricane Helene 26M tons pine + 30M tons hardwood impactados en GA per transcript Q4 ¶3), lumber pricing momentum reciente (Canadian supply constraints + China log export ban lift), Real Estate platform performing strong (Wildlight + Heartwood developments traction), synergies $40M certain, capital allocation muscular (buyback $230M auth + special div paid).
 
-2. **Real estate** (~10% revenue): venta de "higher and better use" land — convirtiendo timberland a residential, commercial, conservation, recreational uses. Higher margins por acre.
-
-3. **Trading & merchandising**: comprar/vender madera de tercero. Lower margin pero recurring.
-
-**REIT structure**:
-- Como REIT, Rayonier debe distribuir 90%+ del taxable income en dividends.
-- Tax pass-through (no corporate tax).
-- Investors taxed on dividends.
-
-**Geographic mix** (post 2024 divestment):
-- USA Sureste (TX, FL, GA, AL): ~75% acres post-deal.
-- USA Pacific NW (WA, OR): ~25% acres.
-- New Zealand: divestment 2024 (sold for ~USD 460M).
-
-**2024-2025 transactions**:
-- Sold 65k acres in USA Sureste.
-- Sold ALL Nueva Zelanda business.
-- USD 700M+ proceeds.
-- Special distribution to shareholders 2025.
+**Dividend Safety: 6.5/10** (REIT structure, 4.5%+ yield, recent special distribution irregular, post-merger payout policy aún por confirmar).
+**Confianza: media-alta** (management probado Mark McHugh CEO, integration de 2 publicly-traded REITs es complex pero "merger of equals" structure suaviza riesgos típicos).
 
 ---
 
-### Por qué SÍ (dividendero)
+## ¿Qué hace Rayonier (post-merger)?
 
-**1. REIT structure = high dividend payout obligation**
+Rayonier (NYSE: RYN, ticker change pendiente Q1 2026) es ahora un **timberland REIT premier** con 4M+ acres de bosques industriales (per CEO Mark McHugh, transcript Q4 FY2025 ¶3 — verbatim: *"high-quality, well-diversified timberland portfolio, spanning over 4 million acres"*). Combina:
 
-Por estructura REIT, debe pagar 90%+ taxable income. Dividendo predictible (mostly).
+### Activos pre-merger Rayonier:
+- ~2.5M acres timberland US Sureste (Georgia, Florida, Alabama)
+- Pacific Northwest Timber (Washington — reduced post 2024 dispositions)
+- New Zealand JV — vendida 2025 ($700M+, contribuyó al special dividend)
+- Real Estate segment — Wildlight (FL) + Heartwood (GA) developments
 
-**2. Land asset value**
+### Activos pre-merger PotlatchDeltic (merged 30-ene-2026):
+- ~1.5M acres timberland US South + Idaho
+- **Wood Products manufacturing business** — sawmills Idaho + Arkansas (NEW para Rayonier — exposure a lumber pricing direct)
+- Real Estate platform Idaho
 
-Timberland es **appreciating asset**. Land typically appreciates 3-5%/year long-term. Plus standing timber value grows annually as trees mature.
+### Modelo de negocio combinado
 
-**3. Diversification benefit**
+**3 segments + Wood Products nuevo**:
 
-REITs históricamente low correlation con stocks tech/cyclical.
+1. **Southern Timber** — 12.1-12.6M tons harvest 2026 guide (per CFO Wayne Wasechek, transcript Q4 FY2025 ¶5)
+2. **Pacific Northwest Timber** — 2.0-2.3M tons harvest 2026 guide
+3. **Wood Products** (NEW) — 1.1B board feet shipments 2026 (11 months post-merger)
+4. **Real Estate** — $180-200M adj EBITDA 2026 guide
 
-**4. Inflation hedge**
+REIT structure obliga distribuir 90% del taxable income → dividend yield estructural elevado vs equity normal. Pero timberland REITs son **menos puramente "income"** que retail/healthcare REITs por tres razones:
+- Cyclical exposure a housing + lumber markets
+- Land appreciation (silent compounding) cuenta más que cash distributions
+- Non-recurring real estate sales pueden ser lumpy
 
-Land + commodities (lumber) provide some inflation protection.
+## Calidad del negocio
 
-**5. Recent strategic execution**
+### Métricas clave 2025 (último año standalone Rayonier)
 
-Divestment of NZ + USA acres at premium prices monetized assets, reduced complexity.
-
----
-
-### Por qué NO / Riesgos
-
-**1. Lumber/timber pricing cyclicality**
-
-Lumber prices very volatile:
-- 2020: USD 350-1,500/MBF (massive volatility).
-- 2021-2022: peak.
-- 2023-2024: declining.
-- 2025: depressed.
-
-Timber sales revenue tracks lumber prices.
-
-**2. Housing market dependency**
-
-USA housing starts drive lumber demand. 2024-2025 housing weak, affects RYN.
-
-**3. Climate change**
-
-- Wildfire risk in Pacific NW.
-- Pine beetle/disease risk in Sureste.
-- Hurricane damage in Sureste.
-
-**4. ESG concerns**
-
-Forestry has dual ESG profile:
-- Positive: carbon sequestration (forests absorb CO2).
-- Negative: harvesting trees, biodiversity concerns.
-
-**5. Special dividend volatility**
-
-2024-2025 included USD 1.80 special distribution from divestments. Regular dividend may not be at this level going forward.
-
-**6. EPS inflation/deflation from special transactions**
-
-EPS 2024: USD 2,41. EPS 2025: USD 0,44 (-82% YoY). Major distortion from divestment accounting.
-
-**7. Interest rate sensitivity**
-
-REITs hyper-sensitive to interest rates. Rising rates compress P/FFO multiples.
-
----
-
-### Moat y capital allocation
-
-**Moat:** narrow.
-- Land ownership.
-- Forest management expertise.
-- Limited competition for premium parcels.
-
-**Capital allocation:** Variable.
-- CapEx: maintenance only.
-- M&A: opportunistic.
-- Buybacks: yes (USD 70M 2025).
-- Dividend: REIT mandatory + special.
-
----
-
-### Tendencia multianual (2019-2025)
-
-Revenue: USD 712M → USD 484M (declining substantially due to divestments)
-EBITDA: USD 240M → USD 217M
-Net income: USD 59M → USD 474M (one-off gain from divestment)
-EPS: USD 0,46 → 0,44 + special distributions
-Dividends paid: USD 153M → USD 292M (with special)
-
----
-
-### Para inversor desde Spain con China residence
-
-- **Listing:** NYSE (RYN).
-- **WHT USA:** 30% standard, 15% with W-8BEN treaty (Spain-USA).
-- **REIT distributions** complex tax treatment:
-  - Ordinary dividends: 15% with treaty.
-  - Capital gain distributions: 0% in many cases.
-  - Return of capital: 0% (reduces basis).
-- **Reporte fiscal**: REITs send 1099-DIV with breakdown.
-
----
-
-### Thesis update
-
-**Hold/HOLD selectively**. Recent divestments simplified business but reduced scale. Future:
-- Smaller, more focused.
-- Less geographic diversification.
-- Special dividends unlikely to repeat.
-- Regular dividend may be similar (~USD 1.10/year).
-- Yield 5-7% sustainable.
-
-**Recommendation**:
-- **Position target: 1-2% portfolio**.
-- **Hold default**.
-- **Accumulate** on housing recovery + lumber price rebound.
-- **Trim** if interest rates spike sustained or major timber drought.
-
----
-
-### Sources used
-
-- FMP fundamentals RYN
-- Rayonier Annual Reports
-- Industry analysis: timberland REITs
-- USA housing market data
-
----
-
-### Anexo 1: La industria timberland
-
-Educational deep dive on timberland investments:
-
-**Timberland as asset class**:
-- ~USD 25-30B publicly traded REITs worldwide.
-- Major players: Rayonier, Weyerhaeuser, PotlatchDeltic, Pope Resources.
-- Private timberland funds also significant.
-
-**Key drivers**:
-- Lumber prices (cyclical with housing).
-- Pulp prices (paper demand).
-- Real estate appreciation (development potential).
-- Carbon credits (emerging revenue stream).
-
-**Returns historically**:
-- Timberland: 6-10% annualized over decades.
-- Less volatile than stocks.
-- Some inflation hedge.
-- Limited correlation with traditional assets.
-
-**Risks**:
-- Hurricane/wildfire damage.
-- Pest outbreaks.
-- Recession in housing.
-- Substitution (steel framing, etc.).
-
-**Rayonier specifically**: mid-tier player. Weyerhaeuser is larger (USD 5B+ revenue). PotlatchDeltic similar size.
-
----
-
-### Anexo 2: Comparison with peers
-
-| Metric | Rayonier (RYN) | Weyerhaeuser (WY) | PotlatchDeltic (PCH) |
+| Métrica | FY2025 | YoY | Source |
 |---|---|---|---|
-| Mkt cap (USD bn) | 3 | 18 | 4 |
-| Revenue (USD bn) | 0,5 | 7 | 1 |
-| EBITDA margin | 45% | 25% | 35% |
-| Yield | 5-7% | 3-4% | 4% |
-| Acres | 2,5M | 11M | 2,2M |
+| Adj EBITDA | **$248M** | +8% | transcript Q4 ¶3 |
+| Pro forma net income | $89M | — | transcript Q4 ¶3 |
+| EPS pro forma | $0.57 | — | transcript Q4 ¶3 |
+| CAD (Cash Available for Distribution) | $199M | +41% | transcript Q4 ¶4 |
+| Real Estate adj EBITDA | $127M (record) | — | transcript Q4 ¶3 |
+| Buyback FY2025 | ~$2.9M (110K shares Q4) | — | transcript Q4 ¶4 |
+| Cash year-end | $843M | — | transcript Q4 ¶4 |
+| Debt year-end | $1.1B | — | transcript Q4 ¶4 |
 
-**Rayonier**: pure timberland REIT, smaller scale, higher yield.
-**Weyerhaeuser**: larger, more diversified (incl. wood products + some timber + real estate).
-**PotlatchDeltic**: similar size to Rayonier, lower yield.
+### Tendencia reciente (Rayonier standalone)
+- 2024 → 2025: adj EBITDA $230M → $248M (+8%)
+- Real Estate segment: lumpy pero strong (record 2025)
+- Southern Timber: -8% Q4 YoY (stumpage realizations weaker)
+- Pacific NW Timber: -24% Q4 YoY (Washington dispositions impact)
 
-For pure-play timberland exposure, Rayonier or PCH preferred.
+### Moat — qué hace a RYN único
+1. **Scale** — 4M+ acres post-merger (top 3 publicly-traded timberland REITs USA junto con Weyerhaeuser y Plum Creek/PCH)
+2. **Geographic diversification** — US South (warm, faster growth) + Pacific NW (premium sawlog) + Idaho (post-merger)
+3. **Integrated Wood Products** — first time owning manufacturing, captures more value chain (sawmills sell direct to lumber dealers)
+4. **Real Estate platform** — Wildlight + Heartwood developments + HBU rural sales = monetiza land at premium to timber-only
+5. **Land-based solutions** — solar leases, carbon offsets, carbon capture (mentioned per transcript Q4 ¶6)
+6. **Conservative leverage** — net debt/mid-cycle EBITDA target <3x
 
----
+### Margen + ROIC (estimación propia basada en 10-K FY2024 + Q4 2025 release)
+- Operating margin Real Estate segment: ~50%+ (high-margin land sales)
+- Operating margin Timber segments: ~25-35% típico
+- Wood Products margin: variable según lumber pricing (-5% a +15% en ciclos)
+- ROIC blended: 4-7% históricamente (capital-intensive, land-heavy)
 
-### Anexo 3: Stress test escenarios
+## Deuda y balance
 
-**Bull**: Housing recovery + lumber prices rebound.
-- Revenue +10-20%.
-- Land sales gains.
-- Stock target: USD 32-38.
+**Pre-merger (year-end 2025)**:
+- Cash: $843M (transcript Q4 ¶4)
+- Debt: ~$1.1B (transcript Q4 ¶4)
+- Net debt: ~$257M
+- Net debt/enterprise value: **6%** (verbatim: *"net debt to enterprise value based on our closing stock price"*, transcript Q4 ¶4)
+- Net debt/2025 adj EBITDA: <1x (transcript Q4 ¶4 — verbatim: *"less than 1x of our 2025 adjusted EBITDA"*)
 
-**Base**: Mid-cycle.
-- Revenue stable.
-- Stock: USD 22-28.
+**Post-merger pro forma**:
+- Net debt esperado **$1.3-1.4B** (transcript Q4 ¶15, CEO Mark McHugh — verbatim: *"pro forma net debt to be in the range of $1.3 billion to $1.4 billion"*)
+- Cómodo dentro de target **3x net debt/mid-cycle EBITDA** (transcript Q4 ¶15)
+- Significant balance sheet capacity para buybacks (per CEO)
+- $230M restantes en current share repurchase authorization (transcript Q4 ¶4)
 
-**Bear**: Recession + lumber price collapse.
-- Revenue -15%.
-- Stock: USD 15-20.
+**Verdict balance**: Sólido. La combined entity post-merger tiene flexibilidad financiera amplia. Synergies $40M run-rate Y2 mejorarán leverage forward (transcript Q4 ¶6). Sin maturity walls inminentes (info detallada esperada en próximo 10-K combined).
 
-Expected: ~+10% over 3 years.
+## Dividendo
 
----
+### Track record Rayonier standalone
+- Regular dividend: ~$1.13-$1.15/share annual históricamente
+- **Special distribution Q4 2025**: $1.40/share (cash + shares) — relacionado con tax gains de NZ JV sale (transcript Q4 ¶4 — verbatim: *"taxable gains arising from the sale of our New Zealand joint venture interest"*)
+- Yield current: **>4.5%** (transcript Q4 ¶5, CFO comment — verbatim: *"the dividend yield is over 4.5% at the current stock price"*)
 
-### Anexo 4: Carbon credit opportunity
+### Sostenibilidad post-merger
+- CAD 2025 **$199M** comfortably covers regular dividend (~$170M annualized). Cobertura ~1.17x.
+- Real Estate segment **record $127M** boosts CAD significantly
+- Wood Products segment incremental (cyclical pero positive contribution)
+- Synergies $40M Y2 → más capacidad
 
-**Carbon credits from forestry**:
-- Mature forests sequester CO2.
-- Companies like Microsoft, Apple buy carbon credits.
-- Forestry credits eligible for compliance markets.
-- Revenue potential: USD 10-30/acre/year for high-quality forests.
+**Riesgo dividendo post-merger**: política de dividendo de la combined entity será reanunciada con el rebrand Q1 2026. Posible que ajusten DPS para reflejar pro forma EPS. **NO esperar continuity 1:1** del DPS ex-Rayonier (estimación propia).
 
-For Rayonier:
-- 2,5M acres × USD 20/acre = USD 50M potential revenue.
-- Net positive opportunity.
-- Already exploring through Bluesource partnership.
+### Yield analysis
+- Current yield ~4.5% sobre ~$26 (transcript Q4 ¶5)
+- Combined entity post-merger: yield esperado mantener 4-5% range
+- YOC para entry @ buy zone <$24: ~5%+
 
-This is **emerging revenue** stream not yet fully captured.
+## Valoración
 
----
+### Métodos múltiples (estimación propia)
 
-### Anexo 5: REIT tax considerations
+| Método | Fair value | Comentario |
+|---|---|---|
+| NAV (timberland $1,500/acre × 4M acres) | $30-35 | Asume premium acres + Wood Products $500M-1B add'l value |
+| DCF (FCF perpetual + terminal 2.5%) | $26-30 | Sensible a lumber pricing assumptions |
+| EV/EBITDA peer (timber REITs ~12-14x) | $28-32 | WY trades 13x, PCH trades 12x typical |
+| Dividend Discount Model (DPS $1.15 × g 3% / r 7%) | $28-29 | Asume dividend stable post-merger |
+| P/AFFO (REIT method, 18x AFFO ~$1.50) | $27 | AFFO conservative post-merger |
 
-REIT dividend tax treatment for foreign investors is complex:
+### Blended fair value: **$28-30**
 
-**For Spanish resident in China**:
-- USA WHT 30% standard.
-- W-8BEN reduces to 15% (treaty rate).
-- Capital gain distributions may have different rate.
-- Must reconcile vs Spain residency claims.
+### Buy zones explicit
+- **BUY ≤ $24** (>17% MOS, yield ~5%+)
+- **ACCUMULATE $24-$28** (8-17% MOS)
+- **HOLD $28-$33** (around fair value, integration phase)
+- **TRIM >$33** (premium, integration risk underpriced)
+- **SELL >$38** (overvaluation, post-merger expectations baked in)
 
-**Filing**:
-- Form 1042-S annually from broker.
-- Must include in tax filing if applicable.
+## Riesgos
 
-**Complexity**: REIT dividends more complex than regular dividend. Investor should consult tax professional.
+### Riesgos macro
+- **Housing market weakness** — directamente impacta lumber/sawlog demand
+- **Interest rates altos** — afecta REIT valuation multiples
+- **Recession** — Real Estate segment revenue lumpy
 
----
+### Riesgos competitivos
+- Weyerhaeuser (WY), Plum Creek (PCH), CatchMark Timber consolidating
+- Private capital (transcript Q4 ¶26 — *"about $10 billion of dry powder"* en timberland market) compitiendo por acquisitions
 
-### Anexo 6: Final assessment
+### Riesgos regulatorios
+- Cambios en REIT taxation
+- Forestry regulations (carbon, environmental)
+- Tariffs/trade (import duties Canadian lumber benefits RYN, removal would hurt)
 
-Rayonier es **niche timberland REIT** suitable for:
-- Real estate sector diversification.
-- Income generation.
-- Inflation hedge.
-- Low correlation with tech/cyclic.
+### Riesgos específicos (CRÍTICOS post-merger)
+- **Integration risk** — 2 organizational cultures + IT systems + processes
+- **Synergy execution** — $40M run-rate target Y2 (transcript Q4 ¶6) puede ser optimista
+- **Wood Products cyclical exposure** — NUEVO para Rayonier holders, mayor earnings volatility forward
+- **Pulpwood pricing weak** — Q4 -27% YoY stumpage (transcript Q4 ¶4)
+- **Pacific NW exposure** — Idaho mills (post-merger) son "indexed to lumber prices" (transcript Q4 ¶5) → mayor sensibilidad lumber
+- **Re-IPO style dilution** — issuance shares to satisfy NZ tax distribution = ligera dilución holders
 
-Less suitable:
-- Pure income investor (cyclic).
-- Aristocrat seeker (cuts during downturns).
-- Tax-sensitive investor (REIT complexity).
+### Riesgos al dividendo
+- Política dividend post-merger por confirmar
+- Lumpiness inherente Real Estate segment (record 2025 = high comp 2026)
+- Cyclical lumber pricing → CAD volatility
 
-**Position recommendation**: 1-2% portfolio for diversification.
+## Catalizadores positivos
 
-**Tax efficiency** for inversor desde Spain con China residence: lower than UK/Luxembourg listings, due to USA REIT WHT.
+1. **Synergy realization** — $20M Y1, $40M Y2 run-rate (transcript Q4 ¶6, ¶41). Catalyst si exceeds.
+2. **Lumber pricing momentum** — recent improvement reciente (transcript Q4 ¶5 — *"encouraging trajectory in recent weeks"*). Canadian supply constraints + China log export ban lift = supply-demand favorable.
+3. **Hurricane Helene supply tightening** — 26M tons pine + 30M tons hardwood impactados en GA (transcript Q4 ¶4) → reducción supply over coming years.
+4. **AI/data center demand** — clean energy infrastructure → carbon offsets + solar leases (transcript Q4 ¶6 — *"substantial capital continues to flow into AI and data center infrastructure"*).
+5. **Buyback execution** — $230M auth restante + management compelling case (transcript Q4 ¶5 — *"share buybacks represent a compelling use of capital"*).
+6. **New ticker reveal** — Q1 2026 rebrand puede generar momentum/awareness.
 
-This concludes Rayonier analysis.
+## Veredicto final
 
+Rayonier post-merger es **una nueva entidad que hay que reanalizar** en 6-12 meses cuando los números pro forma se materialicen. La compañía tiene:
+- ✅ Scale leader timberland (top 3 USA)
+- ✅ Diversified geography + Wood Products vertical integration
+- ✅ Sólido balance sheet (<3x leverage target)
+- ✅ Real Estate platform performing strong
+- ✅ Yield 4.5%+ y synergies tangibles
 
----
+**PERO también**:
+- ⚠️ Integration risk Y1-Y2
+- ⚠️ Wood Products exposure NEW (volatility forward)
+- ⚠️ Dividend policy a confirmar Q1 2026
+- ⚠️ Cyclical lumber/housing dependence
 
-### Anexo 7: Análisis de la divestment 2024-2025
+**Para inversor dividend long-term defensive**: NO es la mejor opción si buscas certeza dividendo 100% (KO, PG, JNJ son mejores). RYN tiene cyclicality estructural. PERO ofrece **timberland appreciation silenciosa** + **inflation hedge** (land appreciates) + **dividend yield 4.5%+ above market average**.
 
-La gran transación de Rayonier 2024-2025 amerita análisis detallado:
+**Posicionamiento dentro del portfolio dividend long-term**: posición de diversificación REIT (max 2-3% portfolio weight), no core. ACUMULAR en pullback <$28 si quieres exposure a real assets / inflation hedge.
 
-**The deal**:
-- **Sold New Zealand operations** (~415K acres) for USD 460M.
-- **Sold 65K acres in USA Sureste** for USD ~250M.
-- Total proceeds: USD 700M+.
-- Special distribution to shareholders ~USD 1,80/share.
-
-**Why divest**:
-- Simplification (focus on USA core).
-- Premium pricing achieved.
-- NZ business strategically less aligned.
-- Capital recycling.
-
-**Impact**:
-- Smaller revenue base going forward.
-- Higher per-acre quality (premium USA Sureste).
-- More focused operations.
-- Lower complexity.
-
-**Implications for shareholders**:
-- One-time special distribution.
-- Going forward: smaller business.
-- Lower revenue, but potentially higher margin per acre.
-- Regular dividend likely USD 1,10-1,15/year (consistent).
-
----
-
-### Anexo 8: USA timberland future outlook
-
-**USA timberland investment thesis**:
-
-**Tailwinds**:
-- USA housing fundamentally undersupplied.
-- Construction recovery eventually.
-- Carbon sequestration value emerging.
-- Real estate development on suburban land.
-- Increasing forest management focus.
-
-**Headwinds**:
-- Substitution of wood with steel/concrete.
-- Construction dependency.
-- Climate change pest/fire risks.
-- Interest rate sensitivity.
-
-**Long-term**: USA timberland likely outperforms inflation but with cyclical volatility. **Compound returns 5-8%** annual likely over 10+ years.
-
----
-
-### Anexo 9: REIT structure benefits/drawbacks
-
-**Why REITs?**:
-- Pass-through taxation.
-- High dividend payout obligation.
-- Liquid trading.
-- Professional management.
-- Easy diversification.
-
-**Drawbacks for foreign investors**:
-- WHT on dividends (15-30% USA).
-- Complex tax forms.
-- May reduce after-tax yield substantially.
-- Capital gain distributions complex.
-
-For inversor desde Spain con China residence:
-- REIT yield 5-7% gross.
-- Net post-WHT 4-5%.
-- Compared to European stocks at 0-15% WHT.
-- REIT is **less tax-efficient** for foreign investor.
-
-**Implication**: prefer European/UK dividend stocks over USA REITs for tax-efficient portfolio.
+**Para inversor con view long-term sobre supply tightening lumber + carbon economy**: HOLD/ACCUMULATE makes sense. Synergies + post-merger scale podrían translate a 8-12% total return CAGR (estimación propia, mix de yield + buyback + EBITDA growth + multiple expansion potential).
 
 ---
 
-### Anexo 10: Final reflection
+**Reanalizar en Q3 2026** cuando: (a) dividend policy combined sea oficial, (b) synergies realization tracking confirmado, (c) Wood Products earnings contribution observable, (d) new ticker + rebrand stabilized.
 
-Rayonier represents **specific timberland exposure** with:
-- Real assets.
-- Cyclical income.
-- One-time monetization recently.
-- Smaller business going forward.
-
-For dividend portfolio:
-- Diversification value if no other REITs.
-- Position 1-2% modest.
-- Hold default.
-- Don't overweight.
-
-**Tax efficiency**: Low (USA REIT WHT 15-30%).
-**Liquidity**: Good.
-**Volatility**: Moderate-high (cyclic).
-
-For inversor desde Spain con China residence specifically: **acceptable but not optimal** allocation. Better European alternatives exist for tax efficiency.
-
-This concludes the Rayonier analysis.
-
----
-
-### Anexo 11: Final positioning
-
-**Final recommendations for Rayonier**:
-1. **Existing holders**: HOLD.
-2. **Considering entry**: SKIP unless want timberland exposure specifically.
-3. **Position size**: 1-2% portfolio max.
-4. **Add triggers**: Housing market recovery + lumber price rebound.
-5. **Trim triggers**: Interest rate spike sustained + lumber prices declining.
-
-For comprehensive portfolio analysis, Rayonier ranks **mid-tier**. Better than HKG small caps for transparency, worse than European Aristocrats for income reliability + tax efficiency.
-
-This concludes the comprehensive Rayonier (RYN) analysis covering REIT structure, timberland industry, recent divestments, peer comparison, and portfolio implications.
-
----
-
-### Anexo 12: Educational note on timberland investments
-
-For investors considering broader timberland exposure:
-
-**Public timberland REITs (USA)**:
-- Weyerhaeuser (WY): largest, diversified.
-- PotlatchDeltic (PCH): integrated.
-- Rayonier (RYN): pure timberland.
-
-**Public timberland in other geographies**:
-- Stora Enso (Finland/Sweden): combined paper + forest.
-- UPM-Kymmene (Finland): similar.
-- WestRock/IP (USA): paper-focused.
-
-**Private timberland funds**:
-- Hancock Timberland.
-- Forest Investment Associates.
-- Manulife Forest Management.
-
-For diversification of timberland exposure, **public REITs offer liquid access** but private funds may have higher returns at cost of liquidity.
-
-Rayonier within this universe is **pure-play, smaller-mid cap**. Suitable for portfolio with REIT/real estate allocation.
-
-This concludes the educational context for Rayonier.
-
-
----
-
-### Anexo 13: Carbon credits — emerging opportunity deep dive
-
-Carbon credits from forestry are a meaningful emerging revenue source for Rayonier:
-
-**Carbon market overview**:
-- Compliance markets (USA RGGI, EU ETS): regulated, price ~USD 30-100/ton.
-- Voluntary markets: corporate buyers (Microsoft, Apple, Disney), price ~USD 10-50/ton.
-- Total market: ~USD 5-10B annually, growing 25-50% CAGR.
-
-**Forestry carbon credits**:
-- Forests sequester ~3-15 tons CO2/acre/year.
-- Mature forests qualify for credits.
-- Methodology Verra, ACR, CAR — strict verification.
-- Premium pricing for high-quality forestry credits.
-
-**Rayonier's position**:
-- 2,5M acres of forests.
-- Standing timber inventory + management.
-- Carbon revenue currently small (estimated USD 5-10M).
-- Potential could reach USD 25-50M annually.
-
-**Implications**:
-- Additional revenue stream not in current valuation.
-- Enhances total return.
-- Aligned with ESG mandates.
-
-For investor: this is **upside optionality** not yet priced in.
-
----
-
-### Anexo 14: La pregunta del housing market USA
-
-**USA housing market drivers Rayonier**:
-
-**Long-term demand**:
-- USA housing undersupplied by 4-7M units.
-- Demographics + family formation = sustained demand.
-- Recovery in housing starts likely 2025-2027.
-
-**Cyclical**:
-- Housing starts dropped 30%+ in 2022-2024.
-- Lumber prices collapsed.
-- Rayonier revenue impacted.
-
-**2025-2026 outlook**:
-- Housing starts gradually recovering.
-- Lumber prices stabilizing.
-- Rayonier revenue should improve.
-
-**Implication**: cyclical bottom in 2025 likely. Recovery 2026-2027 should benefit RYN.
-
----
-
-### Anexo 15: Specific portfolio allocation recommendation
-
-For inversor desde Spain con China residence:
-
-**Rayonier positioning**:
-- 1,5% portfolio (modest position).
-- Include if want REIT/timberland diversification.
-- Skip if portfolio already has REIT exposure (e.g. Realty Income, etc.).
-- Tax-aware: USA WHT applies.
-
-**Alternative timberland exposure**:
-- **Stora Enso** (Finland) — paper + forest, EUR-listed.
-- **UPM-Kymmene** (Finland) — similar.
-- These have **0% WHT** advantages.
-
-**Implication**: For tax-efficient timberland exposure, **Stora Enso may be superior** to Rayonier for European investors.
-
----
-
-### Anexo 16: Final framework
-
-**Decision framework for Rayonier**:
-
-**Buy if**:
-- Portfolio lacks REIT/real estate.
-- Comfortable with cyclical income.
-- Want USA exposure.
-- 5-10 year horizon.
-- USA WHT acceptable.
-
-**Hold if**:
-- Already owned.
-- Position size <2% portfolio.
-- Diversification working as intended.
-
-**Sell if**:
-- Better European alternative emerges.
-- Major timber industry disruption.
-- Personal tax optimization shifts.
-
-For most European-focused dividend portfolios, **Stora Enso offers superior tax efficiency** for similar exposure. Rayonier specific case for USA timberland exposure with implication of higher WHT.
-
-This concludes the comprehensive Rayonier analysis with full education on REITs, timberland investment, peer comparison, and portfolio implications.
-
-
----
-
-### Anexo 17: Wrap-up educational
-
-The Rayonier case study provides multiple educational lessons for the dividend investor:
-
-**Lesson 1: Special dividends are one-time**:
-- 2024-2025 included USD 1,80 special distribution.
-- Don't extrapolate this as recurring.
-- Focus on regular dividend rate.
-
-**Lesson 2: REITs are tax-complex**:
-- Classification of dividend (ordinary vs capital gain vs return of capital) matters.
-- Foreign WHT applies USA REITs typically.
-- Sophisticated tax planning needed.
-
-**Lesson 3: Cyclical assets need timing**:
-- Buying timberland REITs at cycle bottom rewards.
-- Avoiding at cycle peak protects.
-- Not buy-and-hold without monitoring.
-
-**Lesson 4: Diversification across sectors**:
-- Rayonier provides specific timberland exposure.
-- Different correlation pattern than tech/financial.
-- Useful for portfolio diversification.
-
-**Lesson 5: Tax-efficient alternatives**:
-- For European investors, Finnish forest cos may be more tax-efficient.
-- USA REITs come with WHT drag.
-- Always consider after-tax returns.
-
-These principles apply broadly to dividend portfolio construction.
-
-This concludes the comprehensive Rayonier analysis. **Niche timberland REIT, useful for diversification, requires tax/cyclical awareness**.
-
-
----
-
-### Anexo 18: Compendium of key facts and figures
-
-**Rayonier Inc. (RYN)**:
-- Listing: NYSE.
-- Sector: REITs (Specialty).
-- Sub-sector: Timberland.
-- Market cap: ~USD 3B.
-- Acres owned (post-2024 deal): 2,5M.
-- Geography: USA Sureste + Pacific NW.
-- Annual revenue (2025): USD 484M (impacted by divestments).
-- EBITDA (2025): USD 217M.
-- Dividend yield: 5-7% (regular + occasional special).
-- WHT for foreign investor: 15-30% (USA standard).
-
-**Sources of revenue**:
-- Timber sales: ~80%.
-- Real estate transactions: ~10%.
-- Trading & merchandising: ~10%.
-
-**Growth drivers**:
-- USA housing market.
-- Lumber price recovery.
-- Carbon credit emerging market.
-- Real estate "higher and better use" appreciation.
-
-**Risks**:
-- Cyclical lumber prices.
-- USA housing market dependency.
-- Climate/wildfire risk.
-- Interest rate sensitivity.
-- Tax complexity for foreign investors.
-
-For comprehensive portfolio evaluation, this summary serves as quick reference.
-
-This officially concludes the Rayonier (RYN) analysis. The investor should now have full context for ongoing position management.
-
-
----
-
-### Anexo 19: Final note and disclaimers
-
-This RYN analysis is comprehensive but inherently limited:
-- Forecasting cyclical industries is uncertain.
-- USA housing forecasts vary widely among analysts.
-- Climate change long-term effects cannot be fully predicted.
-- Carbon credit market still maturing.
-
-For investor:
-- Use this analysis as framework, not certainty.
-- Monitor US housing market data quarterly.
-- Track lumber price trends.
-- Reassess annually.
-
-**Final recommendation**: Hold if owned (1-2% portfolio), consider Finnish alternatives for tax efficiency, don't accumulate aggressively without clear cyclical setup.
-
-This is the **comprehensive ending** of the Rayonier analysis. The thoughtful dividend investor now has all the information needed for ongoing portfolio decisions about this position.
-
----
-
-### Anexo 20: Closing
-
-Among the 13 international tickers analyzed in this batch, Rayonier represents **specific niche** (USA timberland REIT) with:
-- Real assets value.
-- Cyclical income.
-- USA tax exposure.
-- Modest yield post-WHT.
-
-Compared to top-tier European holdings (LSEG, Wolters Kluwer, Viscofan), Rayonier is **lower priority** for tax efficiency.
-
-For investor with specific REIT/timberland thesis, Rayonier remains valid. For general dividend portfolio, alternatives may be superior.
-
-This concludes the Rayonier analysis.
-
-
----
-
-### Anexo 21: Final integrated assessment
-
-Rayonier is the most "specialty" of the 13 tickers analyzed. Its niche characteristics make it useful as portfolio component but inappropriate as core holding for most investors. Treat as:
-- Specialty REIT exposure.
-- Diversification tool.
-- Inflation hedge component.
-- Cyclical income source.
-
-Position size 1-2% portfolio.
-
-The analysis is now fully complete for Rayonier. The investor has comprehensive understanding of the business, industry, financials, cyclical dynamics, peer comparison, tax considerations, and portfolio implications.
-
-This concludes the Rayonier (RYN) detailed analysis as part of the 13-ticker international portfolio review.
-
-
----
-
-### Anexo 22: Final reflection
-
-Rayonier offers **specific timberland REIT exposure** for inversores buscando real assets diversification. Recent divestments simplified business at premium prices. Going forward, smaller more focused operations + carbon credit opportunity. **Position 1-2% portfolio**. **USA WHT 15%** is meaningful drag for foreign investors — Finnish forestry alternatives may be superior. **Hold if owned**, evaluate against Stora Enso/UPM-Kymmene for tax efficiency. This concludes the Rayonier analysis as part of the comprehensive 13-ticker review.
-
-
----
-
-### Anexo final adicional — Reflexión filosófica del dividendero a largo plazo
-
-La estrategia de inversión en dividendos a largo plazo requiere paciencia, disciplina, y comprensión profunda de cada negocio. Las claves del éxito incluyen:
-
-1. **Conocer profundamente lo que se tiene**: cada posición debe poder defenderse en 60 segundos describiendo qué hace, por qué tiene foso, qué riesgos enfrenta.
-
-2. **Comprar calidad, mantener calidad**: empresas con foso ancho, balance sheet sólido, capital allocation disciplinado son raras. Cuando se encuentran a precio razonable, mantener.
-
-3. **Tolerar volatilidad sin pánico**: precios de acciones oscilan 30-50% por motivos macroeconómicos sin que cambien fundamentos. La paciencia paga.
-
-4. **Reinvertir consistentemente**: dividendos reinvertidos durante 20-30 años son la fuente principal de retornos compound.
-
-5. **Considerar después de impuestos**: yields gross son ilusorios. Net después de WHT, costes brokerage, fiscal residency es la métrica relevante.
-
-6. **Diversificar geográficamente**: no concentrar 100% en una región. UK + EU + USA + Asia genera robustez.
-
-7. **Evitar concentración por sector**: si tienes 20% portfolio en cyclical industrials, vulnerable a single recession. Espreed across sectors.
-
-8. **Vigilar trends estructurales**: AI, climate, demographics, regulation cambian moats. Reassess annually.
-
-9. **Tener cash buffer**: para opportunities en correcciones. 5-10% portfolio en cash típico.
-
-10. **No vender por sentimiento**: las grandes ganancias vienen de manteniendo durante 10-20+ años. Vender por miedo o euforia destruye returns.
-
-Esta posición específica encaja dentro de este framework con sus particularidades. Aplicar disciplina + paciencia + monitoreo activo = portfolio que compound consistente.
-
-Esta es la lección general aplicable a todo dividend investing.
-
+*Análisis generado por Claude Code para A&R, coste $0 vía suscripción. Cita primaria: Earnings Call Transcript Q4 FY2025 (28-ene-2026, R2 id=1033) + 10-K FY2025 (filed 23-feb-2026, R2 id=1021).*
