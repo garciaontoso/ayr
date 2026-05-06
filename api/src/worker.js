@@ -3582,6 +3582,171 @@ export default {
       }
 
       // GET /api/earnings/archive/stats — summary counts for dashboards.
+      // POST /api/earnings/auto-update?ticker=X — Earnings Update Report (B3 2026-05-06)
+      // Inspirado por skill earnings-analysis de Anthropic FSI cookbook (8-12pp,
+      // 3-5K palabras, beat/miss, cita SEC). Genera report on-demand para un
+      // ticker que acaba de reportar. Toma el último 10-Q/transcript del archivo
+      // y llama a Opus con system prompt institucional. Guarda en R2.
+      if (path === "/api/earnings/auto-update" && request.method === "POST") {
+        await ensureMigrations(env);
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        if (!env.ANTHROPIC_API_KEY) return json({ error: 'ANTHROPIC_API_KEY not set' }, corsHeaders, 500);
+        const ticker = (url.searchParams.get('ticker') || '').toUpperCase();
+        if (!ticker) return json({ error: 'ticker required' }, corsHeaders, 400);
+        try {
+          // 1. Cargar último 10-Q y/o transcript desde R2
+          const docs = await env.DB.prepare(
+            `SELECT id, doc_type, fiscal_year, fiscal_quarter, filing_date, r2_key, size_bytes
+             FROM earnings_documents WHERE ticker = ?
+             ORDER BY filing_date DESC LIMIT 4`
+          ).bind(ticker).all();
+          const items = docs.results || [];
+          if (items.length === 0) return json({ error: `no earnings documents for ${ticker} en R2 — sube primero via /api/earnings/archive/upload` }, corsHeaders, 404);
+
+          let combined = '';
+          const sources = [];
+          for (const d of items.slice(0, 3)) {
+            try {
+              const obj = await env.EARNINGS_R2.get(d.r2_key);
+              if (!obj) continue;
+              const txt = (await obj.text()).slice(0, 20000);
+              combined += `\n\n=== ${d.doc_type.toUpperCase()} FY${d.fiscal_year}${d.fiscal_quarter ? ' Q' + d.fiscal_quarter : ''} (${d.filing_date}) ===\n${txt}`;
+              sources.push({ doc_type: d.doc_type, fiscal_period: `FY${d.fiscal_year}${d.fiscal_quarter ? ' Q' + d.fiscal_quarter : ''}`, filing_date: d.filing_date });
+            } catch (e) { console.warn(`r2 fetch ${d.r2_key} failed:`, e.message); }
+          }
+          if (!combined) return json({ error: 'no documents readable from R2' }, corsHeaders, 500);
+
+          // 2. Position context (si está en cartera)
+          const pos = await env.DB.prepare(
+            `SELECT ticker, name, shares, avg_price, last_price, market_value, div_yield FROM positions WHERE ticker = ? LIMIT 1`
+          ).bind(ticker).first();
+          const thesis = await env.DB.prepare(
+            `SELECT why_owned, what_would_make_sell, conviction FROM theses WHERE ticker = ? AND is_current = 1 LIMIT 1`
+          ).bind(ticker).first();
+
+          // 3. System prompt — formato Anthropic earnings-analysis adaptado a A&R
+          const systemPrompt = `Eres un analista equity research senior generando un EARNINGS UPDATE REPORT institucional para un inversor dividendero long-term que YA tiene cobertura sobre ${ticker}.
+
+FORMATO (estilo JPMorgan/Goldman/Morgan Stanley equity research note):
+- Longitud: 1500-2500 palabras
+- Foco: BEAT/MISS, NUEVO vs prior quarter, IMPACTO EN TESIS
+- NO repitas company background extensamente (asume reader lo conoce)
+- Tono profesional, conclusión clara
+
+ESTRUCTURA OBLIGATORIA:
+## Executive Summary
+- 1ª línea: BEAT / MISS / IN-LINE en revenue + EPS, magnitud
+- 2-3 frases: qué fue lo más importante del quarter
+- Verdict de la tesis: INTACT / WEAKENED / STRENGTHENED
+
+## Resultados vs Estimates
+- Tabla: Revenue actual vs estimate, EPS actual vs estimate, key segments
+- Drivers del beat/miss
+
+## ¿Qué hay de nuevo?
+- Guidance changes (raised/lowered/maintained)
+- Management commentary destacable (cita VERBATIM ≤15 palabras)
+- Capital allocation updates (buybacks, dividends, M&A)
+
+## Impacto en la tesis
+- ¿Cambia algo en los pillars de calidad/seguridad/dividendo?
+- ¿Algún criterio de venta del usuario se acerca a triggerse?
+- Recomendación: HOLD / TRIM / ACCUMULATE
+
+## Riesgos surgidos / mitigados este quarter
+
+## Cita las fuentes
+- Lista los 10-Q/8-K/transcripts usados al final
+${CITATION_RULES_BLOCK}
+
+OUTPUT: solo el markdown report. NO json wrapper, NO comentarios meta.`;
+
+          const userContent = `<ticker>${ticker}</ticker>
+<position>${pos ? JSON.stringify(pos) : 'no en cartera'}</position>
+<thesis>${thesis ? JSON.stringify(thesis) : 'sin tesis'}</thesis>
+<sources>${JSON.stringify(sources)}</sources>
+<documents>${combined}</documents>`;
+
+          const resp = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+            body: JSON.stringify({
+              model: "claude-opus-4-7",
+              max_tokens: 5000,
+              system: systemPrompt,
+              messages: [{ role: "user", content: userContent }],
+            }),
+          });
+          if (!resp.ok) {
+            const errText = await resp.text();
+            return json({ error: `anthropic api ${resp.status}`, detail: errText.slice(0, 300) }, corsHeaders, 502);
+          }
+          const data = await resp.json();
+          const markdown = data.content?.[0]?.text || '';
+          if (!markdown) return json({ error: 'empty response from Opus' }, corsHeaders, 500);
+
+          // 4. Save to R2
+          const dateStr = new Date().toISOString().slice(0, 10);
+          const r2Key = `earnings-updates/${ticker}/${dateStr}.md`;
+          try {
+            await env.EARNINGS_R2.put(r2Key, markdown, {
+              httpMetadata: { contentType: 'text/markdown; charset=utf-8' },
+            });
+          } catch (e) { console.warn('r2 put failed:', e.message); }
+
+          // 5. Log to D1
+          try {
+            await env.DB.prepare(`CREATE TABLE IF NOT EXISTS earnings_updates (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              ticker TEXT NOT NULL, date TEXT NOT NULL, r2_key TEXT NOT NULL,
+              size_bytes INTEGER, sources_json TEXT, created_at DATETIME DEFAULT (datetime('now'))
+            )`).run().catch(() => {});
+            await env.DB.prepare(
+              `INSERT INTO earnings_updates (ticker, date, r2_key, size_bytes, sources_json) VALUES (?, ?, ?, ?, ?)`
+            ).bind(ticker, dateStr, r2Key, markdown.length, JSON.stringify(sources)).run();
+          } catch {}
+
+          return json({
+            ok: true, ticker, date: dateStr, r2_key: r2Key, length: markdown.length,
+            sources, markdown,
+          }, corsHeaders);
+        } catch(e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // GET /api/earnings/auto-update/list — lista de earnings updates generados
+      if (path === "/api/earnings/auto-update/list" && request.method === "GET") {
+        try {
+          await env.DB.prepare(`CREATE TABLE IF NOT EXISTS earnings_updates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticker TEXT NOT NULL, date TEXT NOT NULL, r2_key TEXT NOT NULL,
+            size_bytes INTEGER, sources_json TEXT, created_at DATETIME DEFAULT (datetime('now'))
+          )`).run().catch(() => {});
+          const ticker = url.searchParams.get('ticker');
+          let q = `SELECT id, ticker, date, r2_key, size_bytes, created_at FROM earnings_updates`;
+          if (ticker) q += ` WHERE ticker = '${ticker.toUpperCase().replace(/[^A-Z0-9._-]/g, '')}'`;
+          q += ` ORDER BY created_at DESC LIMIT 100`;
+          const { results } = await env.DB.prepare(q).all();
+          return json({ ok: true, items: results || [], count: (results||[]).length }, corsHeaders);
+        } catch (e) { return json({ error: e.message, items: [] }, corsHeaders, 500); }
+      }
+
+      // GET /api/earnings/auto-update/get?id=X — devuelve markdown del update
+      if (path === "/api/earnings/auto-update/get" && request.method === "GET") {
+        const id = url.searchParams.get('id');
+        if (!id) return json({ error: 'id required' }, corsHeaders, 400);
+        try {
+          const row = await env.DB.prepare(
+            `SELECT * FROM earnings_updates WHERE id = ? LIMIT 1`
+          ).bind(parseInt(id)).first();
+          if (!row) return json({ error: 'not found' }, corsHeaders, 404);
+          const obj = await env.EARNINGS_R2.get(row.r2_key);
+          if (!obj) return json({ error: 'r2 object not found', row }, corsHeaders, 404);
+          const markdown = await obj.text();
+          return json({ ok: true, ...row, markdown }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
       if (path === "/api/earnings/archive/stats" && request.method === "GET") {
         await ensureMigrations(env);
         const total = await env.DB.prepare(
@@ -5374,6 +5539,7 @@ dilo. En español.`;
 Tu tarea: producir un INFORME DE EQUITY RESEARCH INSTITUCIONAL completo de la empresa, leyendo los 10-K, 10-Q y transcripts de earnings calls que te paso (hasta 7 años de historia, ~2 ciclos económicos completos).
 
 El informe debe ser EXTENSO (~4000-6000 palabras) y NUMÉRICAMENTE RIGUROSO. Cada afirmación debe estar respaldada con números específicos extraídos de los filings. Si dices "revenue grew", cita la cifra exacta y el año. Si dices "margin compressed", pon las basis points.
+${CITATION_RULES_BLOCK}
 
 FORMATO DE SALIDA: JSON con dos campos principales:
 1. \`markdown_report\` — el informe completo en formato markdown (~4000-6000 palabras, con headers, tablas, listas)
@@ -19676,6 +19842,7 @@ Tu estilo:
 - Rechazas: apalancamiento excesivo sin justificar, ingeniería financiera agresiva, compensación perversa, crecimiento por compras sin retorno, negocios en commoditización estructural.
 - Aplicas siempre "margen de seguridad": precio vs valor intrínseco estimado, con colchón para errores.
 - Distingues entre "buena empresa" (holdeable) y "buena idea hoy" (entry point razonable).
+${CITATION_RULES_BLOCK}
 
 Tienes acceso a:
 - Deep Dividend Report institucional (8K palabras, ya sintetizado con cross-validation + devil's advocate)
@@ -24634,6 +24801,19 @@ async function logClaudeCall(env, { endpoint, model, tokens_in = 0, tokens_out =
   }
 }
 
+// 2026-05-06: Citation discipline block injected into Opus system prompts.
+// Inspirado por Anthropic FSI cookbooks ("cite every number" rule). Cuando
+// el agent no tiene fuente clara para un número, debe usar tag [UNSOURCED]
+// en lugar de inventarlo. /api/audit/unsourced cataloga compliance.
+const CITATION_RULES_BLOCK = `
+
+REGLAS DE CITACIÓN (no negociables):
+1. Cada número concreto ($X, X%, Xx multiple, "X millones") debe tener fuente identificable: 10-K/10-Q/8-K, FMP, GuruFocus, FAST Graphs, Yahoo Finance, FactSet, Bloomberg, "estimación propia", o un año/trimestre específico (FY2024, Q3 2025, TTM, YoY).
+2. Si NO puedes identificar la fuente exacta de un número, escribe el tag literal [UNSOURCED] inmediatamente después del número. Es preferible admitir falta de fuente que inventar una.
+3. Para datos derivados de tu razonamiento (proyecciones, sensibilidades), usa "estimación propia" o "(análisis propio)".
+4. NO inventes ratios ni cifras. Si no las tienes, omite el número o usa [UNSOURCED].
+5. Las hipervínculos markdown a SEC EDGAR / earnings releases cuentan como fuente.`;
+
 async function callAgentClaude(env, systemPrompt, userContent, opts = {}) {
   const model = opts.model || "claude-haiku-4-5-20251001";
   const maxTokens = opts.maxTokens || 3000;
@@ -25605,6 +25785,7 @@ REGLAS NO NEGOCIABLES:
 6. El usuario es residente fiscal en China — dividendos US pagan 10% WHT.
    Calcula yield NETO cuando relevante.
 7. NUNCA recomiendes SELL en quality companies por dips temporales.
+${CITATION_RULES_BLOCK}
 
 ${checklist}
 
