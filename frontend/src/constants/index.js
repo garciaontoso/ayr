@@ -133,6 +133,7 @@ export const HOME_TAB_GROUPS = [
       {id:"dashboard",lbl:"Dashboard",ico:"📊"},
       {id:"trades",lbl:"Trades",ico:"📈"},
       {id:"earnings",lbl:"Earnings",ico:"📅"},
+      {id:"earnings-updates",lbl:"Updates",ico:"📊"},  // 2026-05-06: B3 Earnings Updates ($0)
       {id:"advisor",lbl:"Advisor",ico:"🧭"},
       {id:"earnings-archive",lbl:"Archive",ico:"🗄"},
       {id:"deep-dividend",lbl:"Deep Dividend",ico:"🔬"},

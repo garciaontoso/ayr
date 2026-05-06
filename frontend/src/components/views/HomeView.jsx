@@ -41,6 +41,7 @@ const PeerCompareTab     = lazy(() => import('../home/PeerCompareTab'));
 const CurrencyTab        = lazy(() => import('../home/CurrencyTab'));
 const MacroTab           = lazy(() => import('../home/MacroTab'));
 const EarningsTab        = lazy(() => import('../home/EarningsTab'));
+const EarningsUpdatesTab = lazy(() => import('../home/EarningsUpdatesTab'));
 const NewsTab            = lazy(() => import('../home/NewsTab'));
 const DailyBriefingTab   = lazy(() => import('../home/DailyBriefingTab'));
 const CanteraTab         = lazy(() => import('../home/CanteraTab'));
@@ -2250,6 +2251,7 @@ export default function HomeView() {
         {homeTab==="currency" && <CurrencyTab />}
         {homeTab==="macro" && <MacroTab />}
         {homeTab==="earnings" && <EarningsTab />}
+        {homeTab==="earnings-updates" && <EarningsUpdatesTab />}
         {homeTab==="news" && <NewsTab />}
         {homeTab==="track-record" && <AlertTrackRecordTab />}
         {homeTab==="alert-rules" && <AlertRulesTab />}
