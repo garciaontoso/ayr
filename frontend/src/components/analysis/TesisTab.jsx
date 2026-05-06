@@ -28,6 +28,7 @@ export default function TesisTab() {
 
   // TDZ-safe: all state first
   const [thesis, setThesis] = useState(null);
+  const [scorecard, setScorecard] = useState(null);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -56,7 +57,16 @@ export default function TesisTab() {
     setLoading(false);
   }, [ticker]);
 
-  useEffect(() => { fetchThesis(); }, [fetchThesis]);
+  const fetchScorecard = useCallback(async () => {
+    if (!ticker) return;
+    try {
+      const r = await fetch(`${API_URL}/api/theses/${encodeURIComponent(ticker)}/scorecard`);
+      if (r.ok) setScorecard(await r.json());
+      else setScorecard(null);
+    } catch { setScorecard(null); }
+  }, [ticker]);
+
+  useEffect(() => { fetchThesis(); fetchScorecard(); }, [fetchThesis, fetchScorecard]);
 
   const generateWithAI = async () => {
     setGenerating(true);
@@ -271,6 +281,62 @@ export default function TesisTab() {
           Sin conexion — mostrando datos cacheados. La generacion con IA requiere red.
         </div>
       )}
+      {/* Thesis Tracker scorecard — Anthropic FSI cookbook pattern (2026-05-06).
+          Compara thesis original vs datos actuales: 4 pilares + drift flags.
+          Solo visible cuando hay thesis. */}
+      {scorecard?.ok && thesis && (() => {
+        const sc = scorecard;
+        const trendC = (t) => t === 'on_track' ? '#30d158' : t === 'watch' ? '#ffd60a' : t === 'concerning' ? '#ff453a' : '#8e8e93';
+        const trendL = (t) => t === 'on_track' ? '✓ on track' : t === 'watch' ? '⚠ watch' : t === 'concerning' ? '⛔ concerning' : '— sin data';
+        const sevC = (s) => s === 'red' ? '#ff453a' : '#ffd60a';
+        const overallC = sc.overall_health === 'red' ? '#ff453a' : sc.overall_health === 'yellow' ? '#ffd60a' : '#30d158';
+        const overallL = sc.overall_health === 'red' ? 'TESIS EN RIESGO' : sc.overall_health === 'yellow' ? 'VIGILAR' : 'TESIS INTACTA';
+        return (
+          <Card style={{padding:16, marginBottom:16, borderLeft:`3px solid ${overallC}`}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,flexWrap:'wrap',gap:8}}>
+              <div>
+                <div style={{fontSize:9,color:'var(--text-tertiary)',textTransform:'uppercase',letterSpacing:.6,fontFamily:'var(--fm)',marginBottom:2}}>Thesis Tracker · scorecard</div>
+                <div style={{fontSize:13,fontWeight:700,color:overallC,fontFamily:'var(--fm)'}}>{overallL}</div>
+              </div>
+              <div style={{fontSize:9,color:'var(--text-tertiary)',fontFamily:'var(--fm)',textAlign:'right'}}>
+                Conviction <b style={{color:'var(--gold)'}}>{sc.thesis.conviction}/5</b> · age {sc.thesis.age_months}m · v{sc.thesis.version}
+              </div>
+            </div>
+            {/* Pillars table */}
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:11,fontFamily:'var(--fm)',marginBottom:sc.flags?.length ? 12 : 0}}>
+              <thead>
+                <tr style={{borderBottom:'1px solid var(--border)',color:'var(--text-tertiary)',fontSize:9,letterSpacing:.4}}>
+                  <th style={{textAlign:'left',padding:'4px 6px',fontWeight:600}}>PILAR</th>
+                  <th style={{textAlign:'left',padding:'4px 6px',fontWeight:600}}>EXPECTATIVA</th>
+                  <th style={{textAlign:'left',padding:'4px 6px',fontWeight:600}}>ACTUAL</th>
+                  <th style={{textAlign:'right',padding:'4px 6px',fontWeight:600}}>TENDENCIA</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sc.pillars.map((p,i) => (
+                  <tr key={i} style={{borderBottom:'1px solid var(--subtle-bg)'}}>
+                    <td style={{padding:'7px 6px',color:'var(--text-secondary)'}}>{p.pillar}</td>
+                    <td style={{padding:'7px 6px',color:'var(--text-tertiary)',fontSize:10}}>{p.expectation}</td>
+                    <td style={{padding:'7px 6px',color:'var(--text-primary)',fontWeight:600}}>{p.current}</td>
+                    <td style={{padding:'7px 6px',textAlign:'right',color:trendC(p.trend),fontWeight:600,fontSize:10}}>{trendL(p.trend)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {sc.flags?.length > 0 && (
+              <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                {sc.flags.map((f,i) => (
+                  <div key={i} style={{padding:'6px 10px',borderRadius:6,background:`${sevC(f.severity)}15`,border:`1px solid ${sevC(f.severity)}40`,color:sevC(f.severity),fontSize:11,fontFamily:'var(--fm)',display:'flex',gap:8}}>
+                    <span style={{fontSize:9,fontWeight:700,letterSpacing:.5,opacity:.8}}>{f.code.toUpperCase()}</span>
+                    <span style={{flex:1,color:'var(--text-secondary)'}}>{f.msg}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        );
+      })()}
+
       {/* Header */}
       <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, gap: 16, flexWrap: 'wrap'}}>
         <div>

@@ -7355,8 +7355,10 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const items = [];
           // Patterns: $X,XXX / X% / Xx multiple / "X million|billion"
           const numRe = /(\$[\d,]+(?:\.\d+)?[KMBkmb]?|\d+(?:\.\d+)?%|\d+(?:\.\d+)?x\b|\d+(?:\.\d+)?\s*(?:million|billion|millones|billones))/gi;
-          // Indicadores de sourcing: paréntesis con keyword, footnote, hyperlink, [UNSOURCED] explícito
-          const sourceRe = /\((?:fuente|source|según|per|via|cf\.|10-K|10-Q|8-K|FMP|GuruFocus|FAST|Yahoo|FactSet|Bloomberg|GAAP|IFRS|FY\d+|Q\d+\s*\d+|p\.\s?\d+|TTM|YTD|YoY|QoQ|H1|H2|2[0-9]{3}|estimate|consensus|análisis propio|estimación)/i;
+          // Indicadores de sourcing — relaxed 2026-05-06 para detectar patrones
+          // reales en análisis español: keywords sin paréntesis, FY/Q standalone,
+          // markdown hyperlinks, año en paréntesis, brackets SEC.
+          const sourceRe = /(?:\b(?:fuente|según|per|via|cf\.)\b|\(\s*\d{4}\s*\)|\bFY\s*\d{2,4}|\bQ[1-4]\s*\d{2,4}|\b(?:10-?K|10-?Q|8-?K)\b|\bFMP\b|\bGuruFocus\b|\bFAST\s*Graphs?\b|\bYahoo\s*Finance|\bFactSet\b|\bBloomberg\b|\bSEC\b|\bGAAP\b|\bIFRS\b|\bTTM\b|\bYoY\b|\bQoQ\b|\bestimate\b|\bconsensus\b|\bestimación\b|\banálisis\s*propio\b|\b20[12][0-9]\b|\[[^\]]+\]\(https?:\/\/|https?:\/\/)/i;
           const unsourcedTag = /\[UNSOURCED\]/i;
           for (const a of analyses) {
             const txt = a.narrative || '';
@@ -26114,6 +26116,26 @@ async function runDeepDividendPipeline(env, opts = {}) {
   const red_flags_count = (analyzer_output?.["3_red_and_green_flags"]?.red || []).length;
   const green_flags_count = (analyzer_output?.["3_red_and_green_flags"]?.green || []).length;
   const moat_score = analyzer_output?.["2_dividend_safety"]?.moat_score || null;
+
+  // 12.5 (A2 2026-05-06) — output_schema validation antes de persistir.
+  // Inspirado por Anthropic FSI cookbook: agentes devuelven JSON; validar
+  // shape antes de INSERT. Catches AHRT-style hallucinations + drift.
+  const VALID_VERDICTS = new Set(['BUY','ACCUMULATE','HOLD','TRIM','SELL','AVOID','STRONG_BUY']);
+  const VALID_CONFIDENCE = new Set(['low','medium','high']);
+  const _errs = [];
+  if (!/^[A-Z][A-Z0-9._:-]{0,15}$/.test(ticker)) _errs.push(`ticker '${ticker}' fails regex`);
+  if (final_verdict && !VALID_VERDICTS.has(final_verdict)) _errs.push(`verdict '${final_verdict}' invalid`);
+  if (final_confidence && !VALID_CONFIDENCE.has(final_confidence)) _errs.push(`confidence '${final_confidence}' invalid`);
+  for (const [k, v] of [['safety', safety], ['growth', growth], ['honesty', honesty]]) {
+    if (v != null && (!Number.isFinite(v) || v < 0 || v > 10)) _errs.push(`${k}=${v} out of [0,10]`);
+  }
+  if (cut_prob != null && (cut_prob < 0 || cut_prob > 1)) _errs.push(`cut_prob=${cut_prob} out of [0,1]`);
+  if (red_flags_count > 50) _errs.push(`red_flags_count ${red_flags_count} > 50 cap`);
+  if (green_flags_count > 50) _errs.push(`green_flags_count ${green_flags_count} > 50 cap`);
+  if (_errs.length > 0) {
+    console.error(`[deep-dividend] schema validation FAILED for ${ticker}:`, _errs);
+    return { ok: false, ticker, error: 'output_schema validation failed', validation_errors: _errs };
+  }
 
   // 13. Store in deep_dividend_analysis
   const now = Math.floor(Date.now() / 1000);
