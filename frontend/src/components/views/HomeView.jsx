@@ -1113,8 +1113,20 @@ function AirplaneMode({ portfolioList }) {
       "/api/dividend-dps-live", "/api/dividend-forward",
       "/api/cached-pnl",
       // 2026-05-03: tabs / panels frequently accessed in flight
-      "/api/pnl/monthly?year=" + new Date().getFullYear(),
+      // 2026-05-06: PnL/monthly ahora soporta ?broker=ALL|IB|TT — cachear las 3
+      "/api/pnl/monthly?year=" + new Date().getFullYear() + "&broker=ALL",
+      "/api/pnl/monthly?year=" + new Date().getFullYear() + "&broker=IB",
+      "/api/pnl/monthly?year=" + new Date().getFullYear() + "&broker=TT",
+      "/api/pnl/monthly?year=" + (new Date().getFullYear() - 1) + "&broker=ALL",
+      "/api/pnl/monthly?year=" + (new Date().getFullYear() - 1) + "&broker=IB",
+      "/api/pnl/monthly?year=" + new Date().getFullYear(),  // backward compat (sin broker = ALL)
       "/api/pnl/monthly?year=" + (new Date().getFullYear() - 1),
+      // 2026-05-06: nuevos endpoints adaptados de Anthropic FSI cookbooks
+      "/api/positions/previously-held",          // Watchlist "Empresas que he tenido"
+      "/api/expert-analysis/list",               // Badge 🎓 en Research
+      "/api/earnings/auto-update/list",          // Lista global earnings updates Claude Code
+      "/api/earnings/auto-update/pending",       // Pending check (read-only offline)
+      "/api/audit/unsourced",                    // Audit citation coverage
       "/api/options/open-portfolio",
       "/api/elite-desk/prompts",
       "/api/elite-desk/history?limit=200",
@@ -1293,6 +1305,7 @@ function AirplaneMode({ portfolioList }) {
         const enc = encodeURIComponent(t);
         await Promise.all([
           cacheFetch(`${API}/api/theses/${enc}`),
+          cacheFetch(`${API}/api/theses/${enc}/scorecard`),             // 2026-05-06: Thesis Tracker scorecard (Anthropic FSI)
           cacheFetch(`${API}/api/scores/${enc}`),
           cacheFetch(`${API}/api/agent-insights?ticker=${enc}&days=30`),
           cacheFetch(`${API}/api/fg-history?ticker=${enc}&years=20`),  // FAST tab data
@@ -1302,10 +1315,31 @@ function AirplaneMode({ portfolioList }) {
           cacheFetch(`${API}/api/company/${enc}/transcript-summary`),   // Transcripts tab
           cacheFetch(`${API}/api/earnings-transcripts?ticker=${enc}`),  // Transcripts list
           cacheFetch(`${API}/api/expert-analysis?ticker=${enc}`),       // 🎓 Veredicto Experto tab
+          cacheFetch(`${API}/api/earnings/auto-update/list?ticker=${enc}`),  // 2026-05-06: B3 Earnings Updates per ticker
         ]);
       }));
       setDlCurrent(Math.min(i + 8, usTickers.length));
     }
+
+    // ── Phase 7.5 (2026-05-06): Earnings Update Reports — markdown bodies ──
+    // Cachear el body de cada earnings update generado para que se lea offline.
+    // Equivalente a Elite Desk Phase 8 (memos).
+    setDlPhase("Earnings Updates (markdown)");
+    try {
+      const eulResp = await fetch(`${API}/api/earnings/auto-update/list`);
+      if (eulResp.ok) {
+        await cache.put(`${API}/api/earnings/auto-update/list`, eulResp.clone());
+        const eulJ = await eulResp.json();
+        const ids = (eulJ.items || []).map(it => it.id);
+        setDlTotal(ids.length || 1); setDlCurrent(0);
+        for (let i = 0; i < ids.length; i += 6) {
+          const batch = ids.slice(i, i + 6);
+          await Promise.all(batch.map(id => cacheFetch(`${API}/api/earnings/auto-update/get?id=${id}`)));
+          setDlCurrent(Math.min(i + 6, ids.length));
+        }
+        if (ids.length === 0) setDlCurrent(1);
+      }
+    } catch (e) { errors++; console.warn('[Offline] earnings updates:', e.message); }
 
     // ── Phase 8: Elite Desk catalog + memos ──
     // Cache the prompts list (catalog), the history list (so the panel renders),
