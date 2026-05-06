@@ -118,6 +118,19 @@ export async function ensureMigrations(env) {
     )`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_elite_memos_pid_ctx ON elite_memos(prompt_id, ctx_key)`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_elite_memos_generated ON elite_memos(generated_at DESC)`).run();
+    // earnings_updates — B3 Earnings Update Reports (added 2026-05-06).
+    // Antes la tabla se creaba inline en 4 path handlers (worker.js:3694, 3734,
+    // 3751, 3813) — audit FSI cleanup la consolida aquí. Cold-start safe.
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS earnings_updates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      date TEXT NOT NULL,
+      r2_key TEXT NOT NULL,
+      size_bytes INTEGER,
+      sources_json TEXT,
+      created_at DATETIME DEFAULT (datetime('now'))
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_earnings_updates_ticker_date ON earnings_updates(ticker, date DESC)`).run();
     // presupuesto table (budget items)
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS presupuesto (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -3689,13 +3689,8 @@ OUTPUT: solo el markdown report. NO json wrapper, NO comentarios meta.`;
             });
           } catch (e) { console.warn('r2 put failed:', e.message); }
 
-          // 5. Log to D1
+          // 5. Log to D1 (table created in ensureMigrations)
           try {
-            await env.DB.prepare(`CREATE TABLE IF NOT EXISTS earnings_updates (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              ticker TEXT NOT NULL, date TEXT NOT NULL, r2_key TEXT NOT NULL,
-              size_bytes INTEGER, sources_json TEXT, created_at DATETIME DEFAULT (datetime('now'))
-            )`).run().catch(() => {});
             await env.DB.prepare(
               `INSERT INTO earnings_updates (ticker, date, r2_key, size_bytes, sources_json) VALUES (?, ?, ?, ?, ?)`
             ).bind(ticker, dateStr, r2Key, markdown.length, JSON.stringify(sources)).run();
@@ -3731,11 +3726,7 @@ OUTPUT: solo el markdown report. NO json wrapper, NO comentarios meta.`;
           await env.EARNINGS_R2.put(r2Key, markdown, {
             httpMetadata: { contentType: 'text/markdown; charset=utf-8' },
           });
-          await env.DB.prepare(`CREATE TABLE IF NOT EXISTS earnings_updates (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ticker TEXT NOT NULL, date TEXT NOT NULL, r2_key TEXT NOT NULL,
-            size_bytes INTEGER, sources_json TEXT, created_at DATETIME DEFAULT (datetime('now'))
-          )`).run().catch(() => {});
+          // Table created in ensureMigrations
           const ins = await env.DB.prepare(
             `INSERT INTO earnings_updates (ticker, date, r2_key, size_bytes, sources_json) VALUES (?, ?, ?, ?, ?)`
           ).bind(ticker, dateStr, r2Key, markdown.length, JSON.stringify(sources)).run();
@@ -3748,12 +3739,7 @@ OUTPUT: solo el markdown report. NO json wrapper, NO comentarios meta.`;
       // session start para que Claude se acuerde por ti.
       if (path === "/api/earnings/auto-update/pending" && request.method === "GET") {
         try {
-          await env.DB.prepare(`CREATE TABLE IF NOT EXISTS earnings_updates (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ticker TEXT NOT NULL, date TEXT NOT NULL, r2_key TEXT NOT NULL,
-            size_bytes INTEGER, sources_json TEXT, created_at DATETIME DEFAULT (datetime('now'))
-          )`).run().catch(() => {});
-
+          // Table created in ensureMigrations (called at request entry)
           // Tickers en cartera (con shares > 0) — solo nos importan los que tenemos
           const { results: portfolio } = await env.DB.prepare(
             `SELECT DISTINCT ticker FROM positions WHERE shares > 0`
@@ -3761,11 +3747,13 @@ OUTPUT: solo el markdown report. NO json wrapper, NO comentarios meta.`;
           const portfolioSet = new Set((portfolio || []).map(p => p.ticker));
 
           // Earnings reportados en últimos 14 días + próximos 7 días, solo de cartera
+          // 2026-05-06 fix: earnings_calendar no tiene columna 'name' → JOIN con positions.name
           const { results: cal } = await env.DB.prepare(
-            `SELECT ticker, name, earnings_date, eps_estimate, revenue_estimate
-             FROM earnings_calendar
-             WHERE earnings_date >= date('now', '-14 days') AND earnings_date <= date('now', '+7 days')
-             ORDER BY earnings_date ASC`
+            `SELECT e.ticker, p.name, e.earnings_date, e.eps_estimate, e.revenue_estimate
+             FROM earnings_calendar e
+             LEFT JOIN positions p ON p.ticker = e.ticker
+             WHERE e.earnings_date >= date('now', '-14 days') AND e.earnings_date <= date('now', '+7 days')
+             ORDER BY e.earnings_date ASC`
           ).all();
 
           const today = new Date().toISOString().slice(0, 10);
@@ -3810,11 +3798,7 @@ OUTPUT: solo el markdown report. NO json wrapper, NO comentarios meta.`;
       // GET /api/earnings/auto-update/list — lista de earnings updates generados
       if (path === "/api/earnings/auto-update/list" && request.method === "GET") {
         try {
-          await env.DB.prepare(`CREATE TABLE IF NOT EXISTS earnings_updates (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ticker TEXT NOT NULL, date TEXT NOT NULL, r2_key TEXT NOT NULL,
-            size_bytes INTEGER, sources_json TEXT, created_at DATETIME DEFAULT (datetime('now'))
-          )`).run().catch(() => {});
+          // Table created in ensureMigrations
           const ticker = url.searchParams.get('ticker');
           let q = `SELECT id, ticker, date, r2_key, size_bytes, created_at FROM earnings_updates`;
           if (ticker) q += ` WHERE ticker = '${ticker.toUpperCase().replace(/[^A-Z0-9._-]/g, '')}'`;
@@ -5469,11 +5453,16 @@ dilo. En español.`;
       }
 
       // POST /api/earnings/archive/analyze/manual
-      // Upsert a pre-computed analysis JSON into the cache, bypassing the
-      // Opus API call. Used when the user's Claude Code session generates
-      // the analysis directly (free) instead of invoking the API.
-      // Body: { ticker, analysis: {...same schema as /analyze...} }
-      // Auth: trusted origin OR bearer token (same as other mutations)
+      // ⚠️ DEPRECATED 2026-05-06 (audit FSI cleanup):
+      // - Zero frontend callers detectados en frontend/src/
+      // - Reemplazado por:
+      //   · /api/expert-analysis/upload (long-form analyses, 96+ writes)
+      //   · /api/earnings/auto-update/upload-manual (B3 earnings reports)
+      //   · /api/deep-dividend/upload-manual (deep dividend pipeline)
+      // - El endpoint sigue funcional pero NO debe usarse para nuevas integrations.
+      //   El heatmap (/api/earnings/archive/analyses-cached) lee de app_config →
+      //   confirmar migración antes de borrar definitivamente.
+      // - Upsert a pre-computed analysis JSON into the cache, bypassing the Opus API.
       if (path === "/api/earnings/archive/analyze/manual" && request.method === "POST") {
         const unauth = ytRequireToken(request, env);
         if (unauth) return unauth;
