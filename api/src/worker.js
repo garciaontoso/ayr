@@ -7502,6 +7502,87 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return json({ ok: true, summary, audit, generated_at: new Date().toISOString() }, corsHeaders);
       }
 
+      // GET /api/audit/identity — detecta mismatches entre positions.name y
+      // el primer paragraph del expert_analyses.narrative. Bug #017 (5 casos):
+      // HKG:1052, RHI, HKG:9616, LANDP, RAND tenían narratives describiendo
+      // empresas equivocadas. Heurística: tokens significativos del positions.name
+      // deben aparecer en los primeros 800 chars del narrative.
+      if (path === "/api/audit/identity" && request.method === "GET") {
+        await ensureMigrations(env);
+        try {
+          // Get positions con names
+          const { results: positions } = await env.DB.prepare(
+            `SELECT ticker, name FROM positions WHERE shares > 0 AND name IS NOT NULL AND name != ''`
+          ).all();
+          // Get analyses con narratives
+          const { results: analyses } = await env.DB.prepare(
+            `SELECT ticker, SUBSTR(narrative, 1, 800) AS narr_head FROM expert_analyses WHERE narrative IS NOT NULL`
+          ).all();
+          const analysesByTicker = {};
+          for (const a of (analyses || [])) {
+            analysesByTicker[a.ticker] = a.narr_head || "";
+          }
+
+          const STOP_WORDS = new Set([
+            "inc", "corp", "ltd", "limited", "holdings", "group", "company", "co",
+            "plc", "spa", "sa", "ag", "nv", "sas", "the", "class", "series",
+            "common", "preferred", "shares", "trust", "capital", "fund",
+          ]);
+
+          // Normalize: lowercase + strip diacritics (NFD + remove combining marks)
+          // Resuelve falsos positivos como "Enagas" (positions) vs "Enagás" (narrative)
+          const normalize = (s) => (s || "")
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[̀-ͯ]/g, "");
+
+          const issues = [];
+          for (const p of (positions || [])) {
+            const narr = analysesByTicker[p.ticker];
+            if (!narr) continue; // no analysis yet, skip
+            const tokens = (p.name || "").split(/[\s\.,\(\)\/-]+/)
+              .filter(w => w.length >= 4)
+              .filter(w => !STOP_WORDS.has(w.toLowerCase()))
+              .map(w => normalize(w));
+            if (tokens.length === 0) continue;
+            const narrLower = normalize(narr);
+            const matched = tokens.filter(t => narrLower.includes(t));
+            const matchRatio = tokens.length > 0 ? matched.length / tokens.length : 1;
+            if (matched.length === 0) {
+              issues.push({
+                ticker: p.ticker,
+                positions_name: p.name,
+                tokens_searched: tokens,
+                matched: [],
+                severity: "high",
+                note: "Narrative no menciona ninguno de los tokens significativos del nombre",
+              });
+            } else if (matchRatio < 0.5) {
+              issues.push({
+                ticker: p.ticker,
+                positions_name: p.name,
+                tokens_searched: tokens,
+                matched,
+                severity: "med",
+                note: `Solo ${matched.length}/${tokens.length} tokens matched`,
+              });
+            }
+          }
+          return json({
+            ok: true,
+            scanned: Object.keys(analysesByTicker).length,
+            positions_with_analysis: positions.filter(p => analysesByTicker[p.ticker]).length,
+            issues,
+            issue_count: issues.length,
+            high: issues.filter(i => i.severity === "high").length,
+            med: issues.filter(i => i.severity === "med").length,
+            generated_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
       // GET /api/health/check — comprehensive health check de toda la app.
       // Detecta silent failures: data freshness, secrets caducados, bridge OFF,
       // cron jobs sin run reciente. Devuelve summary + items con severity.
@@ -10466,6 +10547,22 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           severity: 'info',
           source: 'manual_test',
         });
+        return json(result, corsHeaders);
+      }
+
+      // POST /api/telegram/notify — envía mensaje arbitrario (para scripts Mac/NAS).
+      // Body: { text, severity?, source? }. Auth obligatorio.
+      // Usado por sync-flex.sh para alertar fallos (Bug #015 prevention).
+      if (path === "/api/telegram/notify" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        let body;
+        try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const text = String(body.text || "").slice(0, 4000);
+        if (!text) return json({ error: "text required" }, corsHeaders, 400);
+        const severity = String(body.severity || "info").toLowerCase();
+        const source = String(body.source || "external_script").slice(0, 50);
+        const result = await sendTelegram(env, { text, severity, source });
         return json(result, corsHeaders);
       }
 

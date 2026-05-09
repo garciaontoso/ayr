@@ -1,7 +1,8 @@
 #!/bin/bash
 # Sync IB Flex Query trades + dividends to A&R API
-# Run this manually or via crontab: 0 8 * * 1-5 /path/to/sync-flex.sh
-# 2026-05-10: Updated FLEX_TOKEN + QUERY_ID. Removed deprecated sync-dividends call.
+# Run this manually or via crontab/launchd: 08:30 weekdays
+# 2026-05-10: Updated FLEX_TOKEN + QUERY_ID. Removed deprecated sync-dividends.
+#             Added Telegram alert on failure (Bug #015 prevention).
 
 FLEX_TOKEN="4287951836214747115211682"
 QUERY_ID="1503189"
@@ -16,12 +17,24 @@ if [ -z "$AYR_WORKER_TOKEN" ]; then
   exit 1
 fi
 
+# Send Telegram alert via worker on failure (Bug #015 prevention).
+notify_failure() {
+  local msg="$1"
+  curl -sS -X POST "$API_URL/api/telegram/notify" \
+    -H "Content-Type: application/json" \
+    -H "Origin: https://ayr.onto-so.com" \
+    -H "X-AYR-Auth: $AYR_WORKER_TOKEN" \
+    -d "{\"text\":\"🔴 *sync-flex.sh FAILED* (Mac)\n\n$msg\",\"severity\":\"critical\",\"source\":\"sync_flex_mac\"}" \
+    > /dev/null 2>&1 || true
+}
+
 echo "📡 Requesting Flex Query $QUERY_ID..."
 SEND_RESP=$(curl -s "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService/SendRequest?t=$FLEX_TOKEN&q=$QUERY_ID&v=3")
 REF_CODE=$(echo "$SEND_RESP" | grep -o '<ReferenceCode>[^<]*</ReferenceCode>' | sed 's/<[^>]*>//g')
 
 if [ -z "$REF_CODE" ]; then
   echo "❌ SendRequest failed: $SEND_RESP"
+  notify_failure "SendRequest failed (probable token caducado o query inválida).\n\n\`\`\`\n$(echo "$SEND_RESP" | head -c 300)\n\`\`\`"
   exit 1
 fi
 
@@ -61,5 +74,6 @@ if echo "$STATEMENT" | grep -q "FlexQueryResponse"; then
   echo "🎉 Done!"
 else
   echo "❌ Statement not ready after retry: $(echo "$STATEMENT" | head -5)"
+  notify_failure "Statement not ready after retry (ref: $REF_CODE).\n\n\`\`\`\n$(echo "$STATEMENT" | head -c 300)\n\`\`\`"
   exit 1
 fi
