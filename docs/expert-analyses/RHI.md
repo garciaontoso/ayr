@@ -1,731 +1,392 @@
-## RHI — RHI Magnesita N.V. (NOTE: ticker confusion - see below)
+# RHI — Robert Half Inc.
 
-**IMPORTANT**: El ticker `RHI` en USA refers to **Rochester Holding Inc** (small healthcare). El user posiblemente se refiere a **RHI Magnesita N.V.** (Austria/Netherlands), cuyo ticker correcto es **RHIM.L** (London) o **RHIM.AS** (Amsterdam) o **RHIM.VI** (Vienna). Este análisis cubre **RHI Magnesita** (RHIM.L data confirmed).
+## TL;DR
 
-**Long-term verdict:** HOLD with caution
-**Dividend safety:** 6/10
-**Confidence:** medium
+**Veredicto: BUY ≤ $35, ACCUMULATE $35-$42, HOLD $42-$55, TRIM >$55, SELL >$65.**
 
-**Resumen ejecutivo (3 frases):** RHI Magnesita es **el líder mundial en refractarios** — los materiales cerámicos especiales que recubren hornos de altas temperaturas en industrias como acero, cemento, vidrio, química, no-ferrosos. Es un negocio **niche pero crítico** (la fábrica de acero NO PUEDE operar sin refractarios — son consumibles industriales) con cuota mundial ~30%, **muy cíclico** (depende de demand acero/cemento/vidrio), y con dividendo decente. Para 2024-2025, el sector ha sido **brutal**: revenue cayendo, EPS cayendo -41% YoY, márgenes compresivos. **Cyclical hold** que requiere paciencia.
+Robert Half Inc. (NYSE: RHI, CIK 0000315213) es el referente global del staffing **especializado en finanzas, contabilidad, tecnología y legal**, dueño además de **Protiviti** (consultoría global con ~11.200 profesionales). El año 2025 ha sido el peor del ciclo: los **service revenues cayeron a $5.379B desde $5.796B en 2024 (-7,2%) y desde $6.393B en 2023 (-15,9% en dos años)** [10-K FY2025, Item 7]. El **net income FY2025 fue de $133M ($1,33 diluted EPS) frente a $252M ($2,44 EPS) en 2024 — una caída del 47,1%** [10-K FY2025, Statements of Operations]. El operating income se desplomó a **$76M (1,4% margin) desde $241M en 2024 y $465M en 2023** [10-K FY2025], reflejando el apalancamiento operativo brutal de un negocio cíclico al pasar de boom a downturn.
 
----
+Sin embargo, **Q4 2025 marcó la primera vez en más de tres años que talent solutions volvió a crecimiento secuencial positivo en same-day constant currency**, según declaró el CEO Keith Waddell en la earnings call: "talent solutions and enterprise revenues return to positive sequential growth on a same-day constant currency basis for the first time in over 3 years" [Transcript Q4 2025, 29 enero 2026]. Q1 2026 confirmó la inflexión: revenue $1.300M (-3,8% YoY pero ya con guidance de **vuelta a crecimiento YoY positivo en Q3 2026** según Waddell) y EPS diluted $0,14 [10-Q Q1 2026, Statements of Operations]. El dividendo trimestral se mantuvo en $0,59/share, el mismo nivel desde 2024 [10-Q Q1 2026, Subsequent Events].
 
-### Contexto histórico y modelo de negocio (didáctico)
+**La tesis dividendera funciona si el ciclo gira**: balance sin deuda, $278M cash, $776M cuentas por cobrar netas, **streak de incrementos consecutivos de 23 años** [Score A&R inputs FY2026], y **payout ratio FCF de 89% TTM** que requiere recovery para no comprimirse. Es una posición contrarian al recovery del mercado laboral profesional con upside material si Q3 2026 confirma inflexión, pero **dividend safety frágil si el downturn se extiende otros 12-18 meses**.
 
-RHI Magnesita es resultado de fusión entre RHI AG (Austria, 2017) y Magnesita Refratarios SA (Brasil, 2017). El holding tiene domicile en Netherlands pero operates globally en 32 países, 70+ producción sites.
-
-**Refractarios**: Materiales cerámicos resistentes a temperaturas extremas (1,200-2,000°C), abrasion, corrosión química. Recubren hornos en:
-
-1. **Acería (steel)**: ~50% revenue. Convertidores BOF, hornos arco eléctrico, ladles. Material consumible, repone cada 3-12 meses.
-2. **Cemento**: ~20% revenue. Hornos rotativos.
-3. **Vidrio**: ~10% revenue.
-4. **Química/Petroquímica**: ~10% revenue.
-5. **No-ferrosos** (aluminio, cobre): ~10% revenue.
-
-**Pricing power**: Modesto. Refractarios son ~3-5% del coste de producción de un kg de acero. Steel mills negocian agresivo en grandes contratos.
-
-**Matérias primas**:
-- **Magnesia/dolomita**: minerales naturales, RHI tiene minas propias (vertical integration).
-- **Otros**: corindón, alúmina, grafito, carburos.
+**Dividend Safety: 5/10** (streak 23 años + balance sin deuda son fortalezas, pero FCF coverage 1,12x TTM y payout 89% son ajustados; un trimestre malo más comprimiría margen para subidas futuras)
+**Confianza: media** (modelo cíclico documentado, management con 29 años en Fortune Most Admired, pero visibility a 6 meses muy limitada y AI introduce incertidumbre estructural)
 
 ---
 
-### Por qué SÍ (dividendero)
+## ¿Qué hace Robert Half?
 
-**1. Líder mundial — escala**
+Robert Half Inc. (fundada en 1948) es la mayor firma estadounidense de **specialized talent solutions y business consulting**, con HQ en Menlo Park, California [10-K FY2025, Item 1]. La empresa opera bajo dos marcas paraguas:
 
-#1 globally en refractarios, ~30% market share. Vesuvius (UK) es #2 con 15%, Krosaki, Imerys, Calderys, etc.
+1. **Robert Half®** — staffing especializado en accounting/finance, tech, marketing/creative, legal y administrativo.
+2. **Protiviti®** — subsidiaria 100% propia de consultoría global, con ~11.200 empleados a fin de 2025 [10-K FY2025, Human Capital + Transcript Q4 2025].
 
-**2. Vertical integration**
+A 31 de diciembre de 2025 la compañía contaba con **~14.500 internal staff**, **~7.100 dedicados a Protiviti**, y **~94.300 engagement professionals colocados** durante el año [10-K FY2025, Human Capital Management].
 
-Posee minas magnesia/dolomita en Austria, Turquía, Brasil. Reduce dependencia de proveedores.
+### Modelo de negocio
 
-**3. Recurring revenue**
+Robert Half es un **principal**, no un agente. En contract staffing, los engagement professionals son **empleados de Robert Half** mientras están en asignación cliente — Robert Half asume payroll, taxes, fringe benefits, y el riesgo de cobro [10-K FY2025, Note A]. El cliente paga una **tarifa por hora trabajada**; el spread entre lo que paga el cliente y lo que cobra el contractor es el revenue.
 
-Refractarios son consumibles. Steel mills replace them cyclically. Recurring sales pattern.
+En **permanent placement** la empresa cobra una **fee del cliente al cerrar la colocación** (típicamente porcentaje del salario anual, pagado solo si el placement se materializa) [10-K FY2025, Item 1]. Es un modelo "no win, no fee" pero el ciclo de venta es más largo y la sensibilidad al ciclo macro es mayor.
 
-**4. Decent dividend**
+**Protiviti** es consultoría tradicional time-and-materials: factura horas a tarifas más altas, con managed solutions y proyectos. Compite directamente con las **Big Four** (Deloitte, PwC, EY, KPMG) [10-K FY2025, Competition].
 
-DPS recently:
-- 2019: €1,80
-- 2023: €1,80
-- 2024: €1,87
-- 2025: probably maintained
+### Estructura por segmentos (FY2025)
 
-Yield 4-5% historical.
+| Segmento | Revenue 2025 | Revenue 2024 | Var YoY | % del total |
+|---|---:|---:|---:|---:|
+| Contract Talent Solutions | $2.99B | $3.36B | -11,0% | 55,6% |
+| Permanent Placement | $440M | $487M | -9,8% | 8,2% |
+| Protiviti | $1.95B | $1.95B | -0,1% | 36,2% |
+| **Total** | **$5.379B** | **$5.796B** | **-7,2%** | 100% |
 
----
+Fuente: [10-K FY2025, Item 7 — segment revenue commentary].
 
-### Por qué NO / Riesgos
+**Lectura clave**: en 2025 Protiviti fue **el ancla** que sostuvo la cuenta cuando el negocio core staffing perdió 11% en hours worked (-14,1%) y 13,6% en placements [10-K FY2025, Item 7]. El bill rate creció 3,5% (contract) y 3,8% (perm) — el negocio tiene pricing power dentro del ciclo, lo que se ha desplomado son **horas trabajadas y nuevos hires**, no las tarifas.
 
-**1. EXTREME cyclicality**
+Q1 2026 mantiene este patrón [10-Q Q1 2026]:
+- Contract Talent: $725M (-5,0% YoY)
+- Permanent Placement: $109M (-2,8% YoY)
+- Protiviti: $466M (-2,2% YoY)
+- **Total: $1.300M (-3,8% YoY) — pero secuencialmente flat vs Q4 2025**
 
-EPS:
-- 2019: €2,82
-- 2021: €5,10 (peak)
-- 2024: €3,01
-- 2025: €1,79 (-41%)
+### Geografías
 
-Revenue 2025: €3,30B vs €3,57B 2023 (-7%).
+Robert Half opera **en EEUU + 18 países más** para talent solutions, y **EEUU + 13 países** para Protiviti más una red de member firms en 28 jurisdicciones [10-K FY2025, Item 1]. La mezcla:
 
-**2. Steel demand correlation**
+- **EEUU: $4.17B (77,6% del revenue 2025)**
+- **Internacional: $1.21B (22,4%)**
 
-Refractarios revenue tracks global steel production. Steel demand is hyper-cyclical.
+[10-K FY2025, Item 7]. Los principales mercados internacionales mencionados por el CEO son Alemania, Reino Unido, Canadá y Brasil, todos creciendo "no muy diferente al US" [Transcript Q4 2025].
 
-**3. China steel pressure**
+### Marcas / clientes / competencia
 
-China overcapacity in steel + "common prosperity" pricing pressure on steel. Affects RHI margins.
+La empresa es **non-dependent** de un único cliente: ningún government contract representó más de 1,0% de service revenues en 2025 [10-K FY2025, Item 1]. La cartera está **70% SMB (small-medium business), 30% mid-cap enterprise** según el propio CEO en Q4 2025 [Transcript Q4 2025] — un dato importante porque históricamente el SMB **lidera el ciclo (rebota antes pero también cae antes)**.
 
-**4. Energy costs**
-
-Refractarios production is energy-intensive. Europa energy costs high impacting RHI.
-
-**5. ESG concerns**
-
-Steel industry is high-emissions. Refractarios sector exposed to:
-- Carbon taxes.
-- Steel demand reduction (decarbonization).
-- New technologies (hydrogen DRI, low-emission steel).
-
-**6. Net Debt high**
-
-Net Debt €1,5B+ vs EBITDA €495M = 3,1x. **Manageable but elevated**.
+Competencia: en staffing los rivales principales son **Kelly Services, Kforce, ManpowerGroup y Resources Connection** [10-K FY2025, Stock Performance Graph]. En consulting Protiviti compite con las Big Four. El "moat" reside en la **especialización funcional** (no son generalistas; cada vertical — accounting, tech, legal — tiene reclutadores especialistas) y en una **base de datos propia de candidatos con performance ratings** que el management remarca como diferencial vs LinkedIn/Upwork [Transcript Q4 2025].
 
 ---
 
-### Moat y capital allocation
+## Calidad del negocio
 
-**Moat:** narrow.
-- Brand reputation.
-- Vertical integration.
-- Customer relationships.
+### Métricas clave FY2025 + Q1 2026
 
-**Capital allocation:** average.
-- CapEx high (manufacturing).
-- M&A occasional.
-- Dividend maintained.
-- Buybacks limited.
+| Métrica | FY2025 | FY2024 | FY2023 | Q1 2026 |
+|---|---:|---:|---:|---:|
+| Service revenues | $5.379B | $5.796B | $6.393B | $1.300B |
+| Gross margin | $2.002B (37,2%) | $2.247B (38,8%) | $2.575B (40,3%) | $480M (36,9%) |
+| Operating income | $76M | $241M | $465M | $37M |
+| Op margin | 1,4% | 4,2% | 7,3% | 2,8% |
+| Net income | $133M | $252M | $411M | $14M |
+| Diluted EPS | $1,33 | $2,44 | $3,88 | $0,14 |
+| OCF | $320M | $410M | $487M (estimación FY2023, no en este 10-K) | n/d |
+| FCF (OCF - capex) | ~$267M (TTM A&R) | ~$354M ($410M - $56M capex) | n/d | n/d |
 
----
+Fuentes: [10-K FY2025, Statements of Operations + Cash Flows + Liquidity], [10-Q Q1 2026 Statements of Operations], [Score A&R inputs 2026-04-07 — TTM FCF $266,8M].
 
-### Tendencia multianual
+### Tendencia 5 años (revenue + EPS)
 
-Revenue: €2,9B (2019) → €3,3B (2025) — modest growth
-EBITDA: €449M → €495M — flat
-Net income: €139M → €84M — declining
-EPS: €2,82 → €1,79 — declining
+| Año | Revenue | EPS diluted | DPS declared |
+|---:|---:|---:|---:|
+| 2021 | ~$6,5B [estimación propia, peak post-COVID; cifra exacta en 10-K 2021] | n/d | $1,52 [estimación basada en run-rate] |
+| 2022 | ~$7,2B [estimación propia, peak] | ~$5,50 [estimación propia] | $1,68 [estimación propia] |
+| 2023 | $6.393B [10-K FY2025] | $3,88 [10-K FY2025] | $1,92 [10-K FY2025] |
+| 2024 | $5.796B [10-K FY2025] | $2,44 [10-K FY2025] | $2,12 [10-K FY2025] |
+| 2025 | $5.379B [10-K FY2025] | $1,33 [10-K FY2025] | $2,36 [10-K FY2025] |
 
----
+**Observación crítica**: el DPS sigue subiendo aún cuando el EPS cae verticalmente — lo que ha llevado el **payout ratio de earnings de ~38% en 2023 a 177% en TTM** [Score A&R FY2026, payoutRatio: 1.79]. Esto es el patrón típico de un **dividend aristocrat in a cyclical trough**: la empresa mantiene la disciplina del dividendo apoyándose en cash y FCF, esperando que el earnings recovery normalice la métrica.
 
-### Para inversor desde Spain con China residence
+### Moat — qué hace a RHI único
 
-- Listing primario UK (RHIM.L).
-- WHT UK: **0%**.
-- Liquid trading.
-- IFRS reporting.
+1. **Especialización funcional vs generalistas**. Robert Half no compite con headhunters genéricos: cada uno de sus reclutadores trabaja **una sola vertical** (finance, tech, legal, marketing, etc.) durante años. Esto crea relaciones profundas con CFOs/CTOs que rotan staff y genera tasa de re-hire elevada [10-K FY2025, Item 1].
 
----
+2. **Base de datos propia con performance ratings**. El CEO Waddell, ante pregunta sobre AI, declaró en Q4 2025: "the gold standard for vetting is having performance ratings for how candidates actually performed on prior assignments" [Transcript Q4 2025]. Las plataformas tipo LinkedIn no tienen esto; Robert Half lleva 77 años acumulándolo.
 
-### Thesis update
+3. **AI matching engine propio**. El 10-K menciona explícitamente que RHI "utilizes a proprietary artificial intelligence engine to match candidates to job listings" + Protiviti tiene una **patente pendiente** (Protiviti Atlas) [10-K FY2025, Item 1 — Artificial Intelligence].
 
-**Hold**, **NO ACCUMULATE** at this point. Cyclical with structural pressures from steel decarbonization. Position: 1-2% portfolio max.
+4. **Modelo blended consulting + staffing**. Protiviti puede acceder a profesionales contract de Robert Half para escalar engagements rápido — algo que Big Four no pueden replicar internamente sin friction. El management lo llama "configure-to-fit resourcing model" [10-K FY2025, Competition].
 
-**Accumulate** if precio drops €20 or below (P/E 11x, deep value).
-**Trim/sell** if revenue declining 4+ consecutive trimestres.
+5. **Marca y red global a escala**. Reconocida por **Fortune como World's Most Admired Company por 29 años consecutivos** [Transcript Q4 2025]. Es el único player en industria con esa distinción tres décadas seguidas.
 
+6. **Ventaja remota emergente**. El 10-K nota: "the expanded acceptance of remote work has created a significant opportunity for the Company...because its traditionally toughest competitors, local and regional staffing firms, generally do not have these capabilities" [10-K FY2025, Competition]. La escala global se monetiza más en un mundo remote-first.
 
----
+7. **No client concentration**. Ningún cliente representa más del 1% del revenue total [10-K FY2025, Item 1]. Esto **es** una protección real frente a deserciones tipo "el cliente X se va y nos hunde el quarter".
 
-### Anexo 1: La industria refractarios — análisis profundo
+8. **No deuda financiera**. RHI mantiene **un revolver de $100M sin utilizar** y no tiene bonds outstanding — solo $10,1M en standby letters of credit para workers' comp [10-K FY2025, Liquidity]. Esto le da resiliencia operativa máxima en cíclicos.
 
-Refractarios es **niche industry crítico**. Educación útil:
-
-**Total refractory market**: ~USD 30B globally.
-**Top 5 players**: ~50% share.
-
-**Key applications**:
-1. **Steel** (50%): largest consumer.
-2. **Cement** (20%): rotary kilns.
-3. **Glass** (8%): float glass tanks.
-4. **Non-ferrous** (12%): aluminum, copper smelting.
-5. **Other** (10%): petrochemicals, ceramics, etc.
-
-**Geographic mix**:
-- Asia/Pacific: 60% (China alone 35%).
-- Europe: 25%.
-- Americas: 12%.
-- Other: 3%.
-
-**Trends**:
-- China expansion historic + recent slowdown.
-- Decarbonization driving steel demand changes.
-- Recycled refractories growth.
-- Higher-value-add products (specialty refractories) growing.
-- Generic commodities under pressure.
+**Lo que NO es moat**:
+- Pricing power frente a clientes durante recesiones (los bill rates aguantan pero las horas se desploman).
+- Diferenciación sostenible vs Big Four en consulting puro (Protiviti es challenger, no líder).
+- Barrera de entrada absoluta: hay miles de small staffing firms regionales.
 
 ---
 
-### Anexo 2: Steel decarbonization risk
+## Deuda y balance
 
-Major risk for refractarios industry. Trends:
-- **Hydrogen DRI** (Direct Reduced Iron with H2) eliminates blast furnace = changes refractory needs.
-- **EAF (Electric Arc Furnace)** vs BOF (Basic Oxygen Furnace): different refractory consumption.
-- **Recycled steel** growing share.
-- **Carbon capture** at steel mills changes operations.
+### Métricas clave FY2025 (a 31-Dic-2025) + Q1 2026
 
-**Implication for RHI**:
-- BOF demand declining.
-- EAF demand growing (different product mix).
-- Innovation needed in low-carbon refractories.
+| Item | 31-Dic-2025 | 31-Mar-2026 | Comentario |
+|---|---:|---:|---|
+| Cash & equivalents | $464M | $278M | Caída por dividendo + buybacks Q1 |
+| Accounts receivable, neto | $748M | $776M | DSO 51,8 días Q4 2025 |
+| Total current assets | $2.119M | $1.969M | n/d |
+| Long-term debt | **$0** | **$0** | Solo standby letters of credit $10,1M |
+| Stockholders' equity | $1.276M | $1.231M | Decreciendo por dividend > earnings |
+| Revolver disponible | $100M | $100M | 2025 Credit Agreement, vence May 2030, sin utilizar |
 
-**RHI's response**:
-- Investments in EAF-specific products.
-- Recycled refractory programs.
-- Carbon-neutral product lines.
+Fuentes: [10-K FY2025, Statements of Financial Position + Liquidity], [10-Q Q1 2026, Statements of Financial Position].
 
-**Position**: RHI ahead of competitors in low-carbon initiatives. **Net positive** but uncertain timeline.
+**RHI no tiene deuda corporativa material**. Es uno de los pocos staffing players en USA en esta posición. El revolver firmado en mayo 2025 ($100M, vence mayo 2030, basado en SOFR) está sin utilizar [10-K FY2025, Liquidity]. El único compromiso material son las **leases operativas: $70M corriente + $176M no-corriente** [10-K FY2025, Material Cash Requirements] — son arrendamientos de oficinas, no deuda financiera.
 
----
+**Debt/EBITDA**: la métrica que muestra el A&R Quality Score (1,77x) [Score A&R FY2026 inputs] proviene del cálculo TTM con leases operativas + deferred comp obligation. Si excluimos lease liability (correcto en una análisis de credit risk puro), Debt/EBITDA es **efectivamente 0,0x**.
 
-### Anexo 3: Comparison with Vesuvius
+**Interest coverage**: no aplica meaningfully porque RHI **genera interest income neto, no expense**. En 2025 reconoció $11,8M de interest income neto [10-K FY2025, Statements of Operations], reflejando los ~$464M cash más activos del deferred comp trust.
 
-Vesuvius (UK-listed, VSVS.L) is RHI's closest competitor:
+**Liquidez**: $464M cash + $776M AR + $100M revolver disponible = **>$1.300M de liquidez vs 0 deuda corporativa**. Es una fortaleza balance sheet de las más sólidas del sector. Current ratio 1,52 [Score A&R FY2026 inputs].
 
-**Vesuvius**:
-- Revenue: USD 2B+ (smaller).
-- Margins similar (~14% EBITDA).
-- Different mix (more advanced ceramics).
-- Better margins on specialty.
-- Lower yield (~3,5%).
-
-**Net**: Vesuvius is **higher quality but smaller**. RHI is **larger but more commoditized**.
-
-For dividend investor: yield similar, risk profiles different.
+**Conclusión balance**: la empresa puede aguantar **otro downturn de 12-24 meses sin estrés financiero**. El riesgo no es solvencia, es la compresión del payout ratio si el FCF sigue cayendo. La política no escrita históricamente ha sido: "el dividendo se mantiene/sube, los buybacks se ajustan" — y eso es lo que vimos en 2025 (buybacks bajaron de $276M en 2024 a $92M en 2025) [10-K FY2025, Financing activities].
 
 ---
 
-### Anexo 4: Stress test escenarios
+## Dividendo
 
-**Bull (probability 25%)**: Steel recovery + RHI gains share.
-- Revenue +5-8%.
-- Margins expand.
-- EPS €2,50-3,00.
-- Stock target £30-32.
+### Track record
 
-**Base (probability 50%)**: Mid-cycle.
-- Revenue stable.
-- Margins ~14%.
-- EPS €2,00-2,50.
-- Stock £25-28.
+- **Pago de dividendo trimestral desde abril 2004** [10-K FY2025, Market for Common Equity].
+- **23 años consecutivos de incrementos** del dividendo [Score A&R FY2026, streakYears: 23] — esto sitúa a RHI a 2 años de **Dividend Aristocrat** (25 años) si mantiene la subida en 2026 y 2027.
+- DPS declarado anual:
+  - 2023: $1,92
+  - 2024: $2,12 (+10,4%)
+  - 2025: $2,36 (+11,3%)
+  - **2026 run-rate: $2,36** (Q1 anunció $0,59/share = $2,36 anualizado, **flat vs 2025**) [10-Q Q1 2026, Subsequent Events]
 
-**Bear (probability 25%)**: Recession + decarbonization accelerates.
-- Revenue -10%.
-- Margins compress.
-- EPS €1,30-1,70.
-- Stock £18-22.
+**Nota crítica para inversor**: la **Q1 2026 declaration en $0,59 mantiene el nivel** anunciado en Q4 2025. Si la empresa **no sube el dividendo en alguna de las próximas tres declaraciones del año, el streak se rompería en 2026**. La declaración de mayo 2026 ya confirmó $0,59 [10-Q Q1 2026, Note O Subsequent Events]. Históricamente RHI sube en Q1 cada año, así que este patrón sugiere **management quiere preservar capital hasta confirmar recovery**.
 
-Expected: ~+5-15% over 3 years. **Below average given risk**.
+### Sostenibilidad
 
----
+| Métrica TTM (a 2026-04-07) | Valor | Comentario |
+|---|---:|---|
+| Dividend pagado TTM | $238M | [10-K FY2025 Cash Flow] |
+| FCF TTM | $267M | [Score A&R FY2026 inputs, fcfTTM] |
+| Net income TTM | $133M | [Score A&R FY2026 inputs, niTTM] |
+| **FCF coverage** | **1,12x** | Holgura mínima |
+| **FCF payout ratio** | **89,3%** | Muy ajustado |
+| Earnings payout ratio | 179% | Anómalo en un punto del ciclo |
+| Payout post-maintenance capex | 1,23x cobertura | [Score A&R, fcfAfterMaintCov] |
 
-### Anexo 5: Final assessment
+Fuentes: [10-K FY2025 statements + Score A&R inputs 2026-04-07].
 
-RHI Magnesita es:
-- Cyclical with structural pressure.
-- Decent yield.
-- Manageable balance sheet.
-- Limited moat.
-- Energy/environmental risks.
+**Lectura**: el dividendo está cubierto **por FCF, NO por earnings**, en TTM. Esto es típico de cíclicos en trough — el non-cash D&A + deferred comp trust accounting genera un gap entre EPS y FCF. La pregunta clave es: ¿el FCF sigue siendo >$240M en 2026?
 
-**Recommendation**:
-- **Hold if owned** at current levels.
-- **Don't accumulate** unless deep cyclic pullback.
-- **Position size: 1-2% portfolio**.
-- **Monitor steel industry trends + decarbonization** closely.
+El management dijo en Q4 2025: "for all of 2025...our free cash flow covered the dividend, and we reached into the balance sheet for about $100 million to buy stock...if you extrapolate them, that we would have enough free cash flow in 2026 to cover the dividend" [Transcript Q4 2025, Waddell]. Esto es **confirmación explícita** de que el dividendo no peligra a 2026 según el propio CEO.
 
-For dividend portfolio: **niche cyclical holding**, not core income.
+### Yield analysis
 
----
+A los precios actuales del ticker (validar en quote real), el yield indicativo:
+- DPS run-rate 2026: $2,36
+- Si precio = $40: yield 5,9%
+- Si precio = $50: yield 4,7%
+- Si precio = $60: yield 3,9%
 
-### Anexo 6: Strategic considerations
+El **historical median yield** de RHI (estimación propia basada en patrón cíclico) ha rondado 1,5%-3,5% en booms y 4,5%-6,5% en troughs. Un yield >5% es señal típica de **late cyclical bottom**, **trampa de valor** si el ciclo no gira, o **oportunidad de compra** si el ciclo sí gira.
 
-The **steel industry transformation** through 2030-2035 will likely:
-- Reduce overall refractory demand 5-15% in Europa.
-- Increase demand for specialty/sustainable refractories.
-- Shift advantage to companies investing in R&D.
-- Pressure margins for commoditized segments.
-
-RHI is **caught between**:
-- Legacy cyclical exposure.
-- Future opportunity in specialty.
-
-**Outcome uncertain** but RHI is positioning for transition.
-
-For investor: **patient hold with monitoring**. Not buy-and-forget. Active management required.
-
-This concludes RHI Magnesita analysis.
+**Yield-on-cost forward**: si compras a $40 hoy y el management retoma incrementos al 8-10% anual cuando el ciclo gire (su patrón histórico 2018-2024), tras 5 años el YoC alcanza ~9% (estimación propia bajo asunción de retorno a CAGR DPS 9%).
 
 ---
 
-### Anexo 7: Currency and tax considerations
+## Valoración
 
-**Currency**:
-- Reports in EUR.
-- Listed in GBP (London).
-- Multi-currency revenue.
-- USD exposure ~30%.
-- Currency translation moderate impact.
+### Métodos múltiples
 
-**Tax**:
-- UK listing: **0% WHT**.
-- Excellent for income investors.
-- No paperwork required for treaty.
+#### 1. DCF simplificado (basado en Score A&R inputs + asunciones explícitas)
 
-**Liquidity**:
-- LSE main listing liquid.
-- Vienna (RHIM.VI) less liquid.
-- Trade primarily on LSE.
+- FCF normalizado mid-cycle: ~$400M (estimación propia, basada en promedio FY2023 + FY2024 + FY2025 ~$370M ajustado al alza por capex normalizado).
+- Growth perpetuo: 3% (estimación propia, alineada con GDP nominal LP).
+- WACC: 9% (estimación propia, asunción razonable para staffing/consulting con beta histórica >1).
+- Fair value DCF = $400M × (1+0,03) / (0,09-0,03) / 100M shares = **~$69/share**.
+- **Sensibilidad**: si el FCF normalizado baja a $300M (escenario bear), fair value ~$52. Si sube a $500M (escenario bull con AI tailwind), ~$86.
 
----
+[Asunciones marcadas como estimación propia. Datos de FCF de 10-K FY2025 y Score A&R FY2026].
 
-### Anexo 8: Final reflection
+#### 2. P/E histórico
 
-RHI Magnesita represents **cyclical industrial dividend stock** with:
-- Real moat (scale, vertical integration).
-- Real risks (cyclicality, decarbonization).
-- Decent yield.
-- Active management required.
+- 5y median P/E (2020-2024): aproximadamente 14-18x [estimación propia, no encontré dataset histórico exacto en 10-K]. **[UNSOURCED]** para el median exacto sin dataset multi-año.
+- EPS normalizado mid-cycle: $3,00 (estimación propia, promedio 2023+2024+2025 = ($3,88+$2,44+$1,33)/3 = $2,55, ajustado al alza por mid-cycle).
+- Fair value P/E 16x × $3,00 = **$48/share**.
 
-Compared to other cyclical/industrial holdings:
-- vs Henkel: Henkel less cyclic, longer dividend track.
-- vs Randstad: Both cyclical, RHI more industrial focus.
-- vs Diageo: Diageo more defensive, RHI more cyclic.
+#### 3. P/E forward 2026
 
-For dividend portfolio: RHI is **cyclical complement**, not core position. Position 1-2% if interested in industrial sector exposure.
+Guidance Q1 2026 EPS: $0,08-$0,18 [Transcript Q4 2025]. Si las restantes tres trimestres normalizan al ratio Q1-vs-FY histórico (~10-12% del año), full-year 2026 EPS estimado ~$1,30-$1,80 (estimación propia conservadora). Si la inflexión Q3 confirmada por el CEO se materializa, EPS podría escalar a $2,00-$2,50.
+- Fair value 18x × $2,00 = **$36** (escenario inflexión confirmada, P/E expansion modest).
 
-**Final recommendation**: Hold if owned, evaluate based on steel cycle position, don't add aggressively without clear cycle bottom.
+#### 4. Dividend Discount Model
 
-This concludes the RHI Magnesita analysis. **Cyclical industrial dividend stock with structural transformation pressures**.
+- DPS forward 2026: $2,36 (asumiendo flat).
+- Growth LP: 5% (estimación propia, midpoint entre el reciente 8-11% y un eventual cyclical reset).
+- Required return: 9%.
+- Fair value DDM = $2,36 × 1,05 / (0,09-0,05) = **$62**.
 
+Si growth real = 7% LP, DDM da **$118** (probablemente sobrevalorado). Si growth = 3%, DDM da **$40**. **Rango DDM: $40-$118**, demasiado amplio para ser concluyente — refleja la **incertidumbre estructural sobre el growth rate del dividendo**.
 
----
+#### 5. EV/EBITDA peers
 
-### Anexo 9: La fusión RHI + Magnesita 2017 — case study
+EBITDA TTM aproximado: operating income $76M + D&A ~$50M (estimación propia basada en Q1 2026 D&A run-rate de $12M trimestral × 4 = $48M) = $126M. Con market cap ~$4-5B (depende del precio actual) y net cash $278M = EV ~$3,7-$4,7B. EV/EBITDA = ~30x [estimación propia con datos TTM].
 
-La fusión que creó RHI Magnesita es interesante:
+**Esto está distorsionado por el trough de earnings**. Mid-cycle EBITDA ~$500M (estimación propia, basada en 2023 operating $465M + D&A) → EV/EBITDA mid-cycle = 8-10x, en línea con peers Kforce y Manpower [estimación propia, peer multiples no traídos directamente del 10-K].
 
-**Pre-merger (2016)**:
-- RHI AG (Austria): €1,7B revenue, refractarios global.
-- Magnesita Refratários (Brasil): €1B revenue, latam focus.
+### Blended fair value (estimación propia)
 
-**Merger (2017)**:
-- Combined entity: €2,7B revenue, global #1.
-- Listed in London.
-- HQ in Netherlands.
-- Operations in 32 countries.
+| Método | Fair value | Peso |
+|---|---:|---:|
+| DCF mid-cycle | $69 | 30% |
+| P/E histórico × normalized EPS | $48 | 25% |
+| P/E forward 2026 (ciclo inflexionando) | $36 | 20% |
+| DDM (growth 5%) | $62 | 15% |
+| EV/EBITDA mid-cycle | $50 | 10% |
+| **Blended fair value** | **~$53** | 100% |
 
-**Strategic logic**:
-- Geographic complementarity (Europe + Latam).
-- Scale economies in production.
-- Combined R&D.
-- Customer base diversified.
+Este blended assume mid-cycle recovery confirmándose en 2026-2027.
 
-**Execution post-merger**:
-- Synergies achieved.
-- Some restructuring.
-- Cultural integration.
-- Operational improvements.
+### Buy zones explícitas
 
-**Outcome**: Merger considered successful. RHI Magnesita stronger than either standalone.
-
-**Implication**: management can execute M&A. Future bolt-ons likely OK.
+- **BUY ≤ $35**: deep cyclical bottom; yield ≥6,7%; descuento >30% a fair value; margin of safety amplio incluso si recovery se retrasa otro año.
+- **ACCUMULATE $35-$42**: zona de acumulación normal en trough; yield 5,6-6,7%; descuento 20-35%; risk/reward atractivo.
+- **HOLD $42-$55**: precio normal en transición trough→mid-cycle; yield 4,3-5,6%.
+- **TRIM >$55**: el ciclo ha girado y el precio refleja recovery completa antes de tiempo.
+- **SELL >$65**: pricing un boom completo + multiple expansion; risk/reward desfavorable; rotar a alternativas con yield >4% y menos beta cíclica.
 
 ---
 
-### Anexo 10: Demographics + China
+## Riesgos
 
-**China impact**:
-- 50% global steel produced in China.
-- Chinese refractarios producers (Pucheng, Jinlong) growing.
-- Pricing pressure from Chinese exports.
-- Margin compression in commoditized segments.
+### Riesgos macro
 
-**RHI's China strategy**:
-- Local production for Chinese market.
-- Premium specialty products vs Chinese commoditized.
-- Joint ventures with Chinese steel mills.
+1. **Recesión EEUU 2026-2027**. Es el riesgo número 1 de RHI: si la inflexión Q1 2026 que el management celebra resulta ser un "false dawn" y entramos en recession en H2 2026, el revenue podría caer a $4.8-5.0B (otro -10%) y el EPS comprimirse a sub-$1,00 [estimación propia bajo escenario recesivo].
 
-**Net**: RHI **competes with** Chinese players in low-end, **wins on** specialty products. Margin pressure persistent.
+2. **Inflación persistente comprimiendo márgenes**. El CEO Waddell explícitamente dijo en Q4 2025 que el cumulative inflation desde pre-pandemia es "the biggest difference" para volver a margins de 10% [Transcript Q4 2025]. Si la inflación rebrota, los margins serán difíciles de recuperar.
 
----
+3. **Tasas altas prolongadas**. El interest income neto FY2025 fue de $11,8M [10-K FY2025] — si las tasas bajan agresivamente, este income desaparece y aumenta presión sobre EPS reportado.
 
-### Anexo 11: Investor type appropriate
+### Riesgos competitivos
 
-**RHI suitable for**:
-- Industrial sector exposure seeker.
-- Cyclical income tolerant.
-- 5-10 year horizon.
-- Active position monitor.
+4. **AI disruption en accounting/finance staffing**. Es el debate del momento. El CEO argumentó que "GenAI, LLMs are nowhere near as accurate as they need to be to be trusted in accounting" [Transcript Q4 2025] y citó estudio Oxford Economics: "firms don't appear to be replacing workers with AI on a significant scale" [Transcript Q4 2025]. Pero el riesgo asimétrico es real: si en 5-10 años el AI sí sustituye finance/accounting workers en SMB, **el core 50% del negocio core de RHI se reduce permanentemente**.
 
-**Not suitable**:
-- Aristocrat-only.
-- Risk-averse.
-- Set-and-forget.
+5. **Disintermediación por LinkedIn / Upwork / plataformas P2P**. El management argumenta que RHI tiene moat por vetting y data propietaria [Transcript Q4 2025], pero las plataformas tech siguen invirtiendo en automated matching.
 
-For specific portfolio:
-- 1-2% if industrial exposure desired.
-- 0-1% if portfolio over-cyclical.
+6. **Big Four en consulting**. Protiviti compite directamente con Deloitte/PwC/EY/KPMG [10-K FY2025, Competition]. Las Big Four tienen marca más fuerte y mayor escala — el management mismo dice el pricing environment con Big Four es "very competitive...not really worse, not really better" [Transcript Q4 2025].
 
----
+### Riesgos regulatorios
 
-### Anexo 12: La industria refractarios long-term outlook
+7. **Cambios en clasificación contractor vs employee**. Si EEUU adopta legislación tipo California AB5 a nivel federal (o cualquier ley restrictiva sobre contract work), el modelo cambia significativamente [10-K FY2025, Risk Factors — ability to comply with governmental regulations].
 
-**Long-term scenario for refractarios industry**:
+8. **Healthcare reform en USA**. El 10-K explícitamente menciona "the costs of the Company's health care expenditures may rise, adversely impacting the Company's profitability" [10-K FY2025, Risk Factors].
 
-**By 2035**:
-- Global refractory market USD 35-40B (modest growth).
-- Steel demand peaks then declines (decarbonization).
-- Specialty refractories grow share.
-- Sustainability/recycled products dominate.
-- Consolidation continues (top players gain share).
+9. **Sarbanes-Oxley demand secular decline**. Una parte material del revenue de Protiviti viene de SOX compliance. Si esta demanda decae estructuralmente, Protiviti tendrá que pivotar a otras solutions [10-K FY2025, Risk Factors].
 
-**RHI position by 2035**:
-- Likely #1 still.
-- Mix shifted to specialty.
-- China revenue stable but margin pressured.
-- Europe/USA stable.
-- Latin America growing.
+### Riesgos específicos al ticker
 
-**Net assessment**: RHI **survives but doesn't dominate** this decade. Cyclical opportunities for active investors.
+10. **Concentración SMB cliente (~70%)**. El CEO confirmó "We're mostly SMB enterprise...That mid-cap is doing better than SMB as we speak. So it's not a surprise that we're lagging a little" [Transcript Q4 2025]. RHI **lagging the cycle**: lidera el rebote pero también es last out del downturn.
+
+11. **Ciclos de 4 años. Ya estamos en año 3**. El downturn comenzó en 2022 — historicamente los ciclos staffing duran 3-4 años. Si este es atípicamente largo (ej. recovery en 2027 en vez de 2026), el dividendo aristocrático se rompe.
+
+12. **Cumulative inflation comprimiendo margins normalizados**. Con el current cost structure post-inflation, el margin estructural mid-cycle puede ser **8-9% en vez del 10% pre-COVID** que el sell-side asume [estimación propia].
+
+### Riesgos al dividendo
+
+13. **Streak break en 2026**. Si los próximos tres declarations 2026 son flat (current run-rate $0,59), el streak de 23 años se rompe. Esto sería **señal para muchos dividend-funds de salir**, generando pressure técnica adicional.
+
+14. **FCF coverage <1.0x si Q3-Q4 2026 no rebotan**. El payout ratio FCF actual de 89% no aguanta otro -15% de revenue. Un escenario donde el FCF cae a $200M obligaría a:
+    - (a) Recortar el dividendo: improbable dado historic management;
+    - (b) Endeudar para mantener: posible vía revolver, pero rompería balance sheet purity;
+    - (c) Suspender buybacks: muy probable, ya parcialmente hecho en 2025.
 
 ---
 
-### Anexo 13: Final portfolio guidance
+## Catalizadores positivos
 
-For inversor desde Spain con China residence considering RHI:
+1. **Confirmación growth YoY positivo en Q3 2026** (alta probabilidad ~60%). El CEO explícitamente: "if you take our current trend line from a sequential revenue point of view, we would return to positive year-over-year growth in the third quarter" [Transcript Q4 2025]. Sería el **primer trimestre de growth en 4+ años** — catalizador típico de re-rating cíclico.
 
-**If pursuing industrial dividend exposure**: 1-2% RHI as part of broader industrial allocation.
-**If portfolio already industrial-heavy**: Skip RHI, prefer specialty defensives.
-**If income-focused**: RHI yield decent (~5%) but cyclical risk.
+2. **Operating margin expansion 2026**. El management guía Protiviti +100-200bps gross/operating margin para 2026 [Transcript Q4 2025]. Con leverage operativo positivo en talent solutions también, el EBIT margin podría volver a 4-5% en 2027 (vs 1,4% en 2025). Esto duplicaría el EPS sin necesidad de revenue boom.
 
-**Tax**: UK WHT 0% favorable.
-**Currency**: EUR + GBP exposure aligned with European portfolio focus.
-**Liquidity**: Adequate for 1-2% position.
+3. **AI demand-side tailwind**. El management mencionó múltiples veces que clients usan **proprietary data y vetting de RHI** para distinguir candidatos cuando los CVs ya están homogeneizados por AI [Transcript Q4 2025]. Si esta narrativa se materializa, RHI captura premium pricing en placement fees.
 
-**Final recommendation**: **Hold if owned**, monitor for cycle direction. **Don't accumulate** unless deep cyclical bottom (price <£20). **Trim** if recession deepens or decarbonization accelerates faster than expected.
+4. **Protiviti tech consulting traction**. El CEO: "Tech consulting is Protiviti's largest solution area...particularly in the United States. Platform modernization is a big demand driver" [Transcript Q4 2025]. Si la inversión empresarial USA en data/AI infrastructure se acelera 2026-2027, Protiviti puede ser segmento líder de growth.
 
-This concludes the RHI Magnesita comprehensive analysis. **Cyclical industrial dividend with structural transition risks — moderate hold, not buy-and-forget**.
+5. **Recompras agresivas a precios deprimidos**. Authorized hasta 5,6M más shares [10-K FY2025, share repurchases]. A precios $40-50 esto es ~$220-280M, ~5,5% de la base de shares. Si la empresa recompra más mientras el ciclo está abajo, el EPS recovery en 2027 estará amplificado por menos shares outstanding.
 
+6. **Demographic + lean SMB tailwind**. El CEO citó datos ADP: "between January of '22 and December of 2025, companies with fewer than 500 employees have grown their employee counts by only 1.1% annually...As project activity begins to pick up, this places additional strain on already limited internal capacity" [Transcript Q4 2025]. Es decir: las SMB están **estructuralmente sub-staffed**, y el rebote del hiring debería ser desproporcionadamente fuerte para RHI.
 
 ---
 
-### Anexo 14: Detailed financial metrics analysis
+## Veredicto final
 
-Let's dig deeper into the financial trajectory of RHI Magnesita:
+Robert Half es una **dividend aristocrat-in-waiting de calidad respetable atravesando el peor ciclo de staffing en décadas**. La inversión es esencialmente una **apuesta contrarian**: el balance sin deuda + cash de $278M [10-Q Q1 2026] da margin de seguridad operativo amplio para sobrevivir 12-24 meses más sin recovery, y los datos secuenciales de Q4 2025 + Q1 2026 sugieren que el suelo del ciclo ya quedó atrás. La declaración del CEO de **growth YoY positivo esperado en Q3 2026** [Transcript Q4 2025] es el catalizador más concreto y datable.
 
-**Revenue evolution**:
-- 2019: €2,92B
-- 2020: €2,26B (-23%, COVID + steel crisis)
-- 2021: €2,55B (+13%, recovery)
-- 2022: €3,32B (+30%, post-COVID boom)
-- 2023: €3,57B (+8%, peak)
-- 2024: €3,49B (-2%, slowdown)
-- 2025: €3,30B (-5%, continued slowdown)
+Sin embargo, los riesgos son materiales y no deben minimizarse: (1) el **payout ratio FCF de 89%** [Score A&R FY2026] no tiene espacio para más mal trimestres; (2) el **streak de 23 años de subidas pende del Q1 2026 declaration que se quedó flat** en $0,59 [10-Q Q1 2026, Note O], lo que ya comunica preservación de capital; (3) la **hypothesis AI estructural** sigue abierta — el CEO la ha minimizado pero en un horizonte de 5-10 años puede ser disruptivo.
 
-The 2025 decline reflects **steel sector weakness** in Europe + China overcapacity. Not RHI-specific issue.
+**Para el portfolio dividendero long-term del usuario** (residente fiscal China, 13 años en cartera), RHI es una **posición cíclica táctica de 1-2%**, NO core income compounder tipo MO/JNJ. Encaja como complemento al core para añadir beta operativa positiva cuando el ciclo gira, pero **no como holding tipo "buy and forget"**.
 
-**EBITDA evolution**:
-- 2019: €449M (15,4% margin)
-- 2020: €342M (15,2%)
-- 2021: €463M (18,2% — peak margin)
-- 2022: €478M (14,4%)
-- 2023: €507M (14,2%)
-- 2024: €472M (13,5%)
-- 2025: €495M (15,0%)
+**Recomendación operativa**:
+- **Si la posición actual es 1-2% portfolio @ avg cost cerca del precio actual**: mantener, **NO vender en el trough**, monitor trimestralmente los datos de revenue secuencial y FCF coverage.
+- **Si oportunidad de añadir <$40**: aumentar gradualmente hasta ~2% target weight.
+- **Si confirmation Q3 2026 falla** (growth YoY sigue negativo en agosto/octubre 2026): **trim a 0,5-1%**, rotar capital a holdings con menos cyclicality.
 
-Margin **compressing 2022-2024** then partial recovery 2025. **Mid-cycle margin** of 14-15% seems sustainable.
+**Confianza media** porque: (a) modelo cíclico con dependencia macro elevada; (b) management con track record largo (Waddell CEO desde 2014, 29 años Most Admired); (c) balance sheet impecable; (d) pero la AI thesis es genuinamente incierta y podría comprimir el LT growth structurally.
 
-**Net income**:
-- 2019: €139M
-- 2020: €25M (severe)
-- 2021: €243M (peak)
-- 2022: €156M
-- 2023: €165M
-- 2024: €142M
-- 2025: €84M (-41% YoY)
-
-**EPS volatility** mirrors net income.
-
-**FCF**:
-- 2019: average €100-150M.
-- 2024: €288M (peak FCF year).
-- 2025: €186M (lower).
-
-**Dividend coverage**:
-- DPS €1,87.
-- Shares outstanding ~47M.
-- Dividend total: €88M.
-- vs FCF €186M: **47% payout** sustainable.
-
-Net assessment: dividend secure for next 1-2 years even with current weak earnings.
+**Dividend Safety: 5/10** — neutral. Streak 23 años + balance sin deuda son fortalezas claras, pero el payout 89% FCF y el flat declaration Q1 2026 son señales de alerta. Una recovery cíclica clara a finales de 2026 sube esto a 7/10; un downturn extendido lo baja a 3/10 con riesgo real de break del streak.
 
 ---
 
-### Anexo 15: Strategic options analysis
+### Anexo 1 — Cobertura analyst sell-side (referencia rápida)
 
-What can RHI Magnesita do to navigate decarbonization?
+Las earnings calls Q4 2025 y Q1 2026 confirmaron preguntas activas de [Transcript Q4 2025]:
+- JPMorgan (Andrew Steinerman)
+- Baird (Mark Marcon)
+- William Blair (Trevor Romeo)
+- Barclays (Manav Patnaik / Ronan Kennedy)
+- Jefferies (Stephanie Moore / Harold Antor)
+- BMO Capital Markets (Jeff Silber)
+- UBS (Kevin McVeigh)
+- Northcoast Research (Kartik Mehta)
+- Truist Securities (Tobey Sommer)
 
-**Option A: Diversify away from steel**
-- Increase cement, glass, non-ferrous mix.
-- Reduce steel exposure to <40% revenue.
-- Risk: losing scale advantage in steel.
+Cobertura institucional amplia, indicando que RHI sigue siendo un nombre **mid-cap trafficked** por sell-side. No se inferirá target prices del consensus aquí (no en 10-K/10-Q). [UNSOURCED] para consensus targets specíficos.
 
-**Option B: Lead low-carbon refractories**
-- Heavy R&D investment.
-- Premium pricing for sustainable products.
-- Risk: customer adoption pace uncertain.
+### Anexo 2 — Tax considerations (residencia fiscal China)
 
-**Option C: M&A consolidation**
-- Acquire smaller competitors.
-- Build dominant position before transition.
-- Risk: high prices for declining industry assets.
+- **Listing primario NYSE**, ticker RHI.
+- **Withholding tax US dividends**: dado que el usuario es residente fiscal China con tratado US-China, la **WHT estándar US es 30%, reducible a 10%** vía treaty si la documentación W-8BEN está en regla [contexto fiscal usuario, MEMORY.md].
+- **Net dividend yield** después de WHT 10%: si gross yield = 5,9% @ $40, neto = ~5,3%.
+- Reportar via **8-K and 10-K accessible en SEC EDGAR** (CIK 0000315213) — sin issues de transparencia.
+- **No ADRs intermediarios**: holding directo NYSE.
 
-**Option D: Vertical integration**
-- More magnesia mining.
-- More processing.
-- Risk: capital intensive.
+### Anexo 3 — Data points clave para monitorear cada trimestre
 
-**Most likely**: combination of B + D + selective M&A. RHI's current strategy aligned with this.
+Para trackear si la tesis sigue intacta:
 
----
-
-### Anexo 16: Final reflection on RHI
-
-RHI Magnesita is **mid-tier dividend stock** with:
-- Real but limited moat.
-- Cyclical exposure.
-- Structural transformation pressure.
-- Decent management.
-- Reasonable balance sheet.
-- Acceptable income.
-
-For dividend portfolio:
-- Niche position, 1-2% portfolio.
-- Hold default, accumulate on weakness.
-- Monitor steel industry, decarbonization, China.
-- Reassess every 12-18 months.
-
-This stock illustrates **cyclical industrial dividend complexity**. Better than basic cyclical (some moat), worse than top defensives (real volatility). Right position for portfolio diversification across industry sectors.
-
-This concludes the comprehensive RHI Magnesita analysis. The inversor should now have clear understanding of the cyclical industrial dividend thesis and its specific application to RHI.
-
+1. **Revenue secuencial constant currency same-day** (no YoY). El CEO la usa como métrica preferida [Transcript Q4 2025].
+2. **Permanent placement growth rate** — leading indicator del cycle (perm cae primero, rebota último).
+3. **Protiviti operating margin** — guía de 100-200bps expansion 2026 según management.
+4. **FCF coverage ratio del dividendo** (TTM). Si <1,0x dos trimestres consecutivos, cuestionar la tesis.
+5. **DPS declaration trimestral**. Si Q3 o Q4 2026 sigue en $0,59, el streak se rompe — re-evaluar inmediatamente.
+6. **Headcount internal staff Robert Half + Protiviti**. Si management reactivamente sube headcount, indica confianza en demanda.
+7. **Bill rate growth contract talent solutions**. Q4 2025 fue +3,2%, vs +3,7% en Q3 2025 [Transcript Q4 2025] — leve desaceleración a vigilar.
 
 ---
 
-### Anexo 17: Detailed industry comparison — refractarios global
-
-Para deeper context, comparison detalle con peers:
-
-**Top global refractory players**:
-
-1. **RHI Magnesita** (RHIM.L)
-   - Revenue: USD 3,5B
-   - EBITDA margin: 15%
-   - Geography: Global (Europe HQ, Brazil + Asia operations)
-   - Listing: London + Vienna
-   - Yield: 4-5%
-
-2. **Vesuvius** (VSVS.L)
-   - Revenue: USD 2,2B
-   - EBITDA margin: 14%
-   - Geography: Global (UK HQ)
-   - Listing: London
-   - Yield: 3,5%
-
-3. **Imerys** (NK.PA)
-   - Revenue: USD 4,5B (broader specialty minerals incl. refractarios)
-   - Margin: ~17%
-   - Geography: Global (France HQ)
-   - Listing: Paris
-   - Yield: 4%
-
-4. **Krosaki Harima** (5398.T)
-   - Revenue: USD 1,5B
-   - Margin: ~12%
-   - Geography: Japan + Asia
-   - Listing: Tokyo
-   - Yield: 3%
-
-5. **Saint-Gobain** (refractory subsidiary)
-   - Part of larger industrial group.
-   - Difficult to isolate.
-
-**RHI Magnesita ranking**:
-- Largest pure-play refractory (RHI).
-- Yield decent vs peers.
-- Margin similar.
-- Cyclic exposure typical.
-
-For refractory exposure, RHI is **defensible choice** but Vesuvius could be alternative for those preferring smaller cap quality.
-
----
-
-### Anexo 18: Conclusion
-
-RHI Magnesita is a **specific industrial cyclical dividend stock** appropriate for diversification rather than core income. The structural challenges from steel decarbonization are real but multi-decade. The cyclical exposure is meaningful and should be sized accordingly.
-
-**Final position recommendation for inversor desde Spain con China residence**:
-- 1-2% portfolio.
-- Hold default.
-- Acumular only on deep cyclical pullback.
-- Monitor steel industry quarterly.
-- Reassess decarbonization path every 12-18 months.
-- UK WHT 0% favorable for income.
-- IFRS reporting standard.
-
-This analysis provides the framework for ongoing position management. **Cyclical industrial dividend, not core income compounder**.
-
-
----
-
-### Anexo 19: Investor type and framework
-
-**For investor considering RHI as new position**:
-- Verify industrial cyclical exposure desired in portfolio.
-- Verify position sizing appropriate (1-2%).
-- Verify cyclical bottom timing reasonable.
-- Verify steel/cement industry research adequate.
-
-**Decision matrix**:
-- **Buy if**: cyclical bottom, price <£24, solid balance sheet still, dividend maintained.
-- **Hold if**: mid-cycle, current price £25-30, yield 4%+, no major regulatory changes.
-- **Trim if**: late-cycle, price >£32, multiples extending.
-- **Sell if**: balance sheet stress, dividend cut announced, decarbonization rapid.
-
----
-
-### Anexo 20: Final summary
-
-RHI Magnesita encapsulates the challenge of **cyclical industrial dividend investing**:
-
-**Strengths**:
-- Global #1 in refractory.
-- Vertical integration mining-to-product.
-- Decent margins through cycle.
-- Recurring revenue (consumable).
-- Reasonable dividend policy.
-
-**Weaknesses/risks**:
-- Cyclic exposure to steel.
-- Structural decarbonization pressure.
-- China overcapacity.
-- Energy cost exposure.
-- Limited margin for premium pricing.
-
-**For the dividend-focused European investor**, RHI is **niche option** for industrial sector exposure. Better than commodity industrial, worse than top defensive yield like Viscofan. Position 1-2% portfolio reasonable.
-
-This concludes the comprehensive RHI Magnesita analysis covering business model, competitive position, cyclical dynamics, structural transformation, and portfolio implications.
-
-
----
-
-### Anexo 21: Quick reference summary
-
-**For inversor desde Spain con residencia fiscal China**:
-
-| Aspect | RHI Magnesita |
-|---|---|
-| Listing | London (RHIM.L) primary |
-| Currency reporting | EUR |
-| Currency trading | GBP |
-| WHT | 0% (UK) |
-| Sector | Industrials |
-| Beta | 1,5 (cyclical) |
-| Yield | 4-5% |
-| Quality | Mid-tier |
-| Position size recommended | 1-2% |
-| Hold horizon | 5-10 years |
-| Track record | Decent through cycle |
-
-**Compared to other 12 international tickers in this analysis**: RHI ranks middle-pack — better than HKG small caps, worse than LSEG/Viscofan/Wolters Kluwer.
-
-This concludes the RHI analysis, completing the third-tier industrial dividend stock evaluation.
-
-
----
-
-### Anexo 22: Final education on industrial cyclical dividend stocks
-
-The RHI Magnesita case illustrates principles applicable to other industrial cyclical dividend stocks:
-
-**Universal characteristics**:
-- Revenue tied to industrial cycle.
-- Margins compress in downturns.
-- Dividends maintained but growth limited.
-- Capital allocation focus on resilience.
-
-**Investor approach**:
-- Patience required.
-- Active monitoring.
-- Position sizing modest.
-- Diversification across sectors.
-
-**Comparison with other industrials**:
-- vs Henkel (HEN3): Henkel less cyclic, more brand-driven.
-- vs Randstad: Both cyclical, different exposures.
-- vs Wolters Kluwer: WKL much more defensive subscription model.
-- vs Diageo: Diageo more cycle-resistant due to spirits demand inelasticity.
-
-For a balanced dividend portfolio, RHI complements but doesn't replace core defensive holdings. **Right position, sized appropriately, can deliver cyclical income with downside risk**.
-
-This concludes the comprehensive analytical coverage of RHI Magnesita for the inversor desde Spain con China residence.
-
-
----
-
-### Anexo 23: Closing reflection
-
-The RHI Magnesita position requires the investor to:
-1. Accept cyclical volatility.
-2. Maintain modest position size.
-3. Monitor steel + decarbonization trends.
-4. Be patient through downturns.
-5. Reassess long-term thesis annually.
-
-If these conditions met, RHI fits portfolio. If not, alternatives exist within the European industrial dividend universe.
-
-Final position recommendation: **1,5% portfolio**, hold default, accumulate only on deep cyclical pullback (price <£20), trim if structural problems intensify.
-
-The analysis is now complete. The investor has the framework to make ongoing decisions about this position with awareness of all relevant factors: business model, cyclicality, structural transformation, financial metrics, peer comparison, and portfolio context.
-
-
----
-
-### Anexo final adicional — Reflexión filosófica del dividendero a largo plazo
-
-La estrategia de inversión en dividendos a largo plazo requiere paciencia, disciplina, y comprensión profunda de cada negocio. Las claves del éxito incluyen:
-
-1. **Conocer profundamente lo que se tiene**: cada posición debe poder defenderse en 60 segundos describiendo qué hace, por qué tiene foso, qué riesgos enfrenta.
-
-2. **Comprar calidad, mantener calidad**: empresas con foso ancho, balance sheet sólido, capital allocation disciplinado son raras. Cuando se encuentran a precio razonable, mantener.
-
-3. **Tolerar volatilidad sin pánico**: precios de acciones oscilan 30-50% por motivos macroeconómicos sin que cambien fundamentos. La paciencia paga.
-
-4. **Reinvertir consistentemente**: dividendos reinvertidos durante 20-30 años son la fuente principal de retornos compound.
-
-5. **Considerar después de impuestos**: yields gross son ilusorios. Net después de WHT, costes brokerage, fiscal residency es la métrica relevante.
-
-6. **Diversificar geográficamente**: no concentrar 100% en una región. UK + EU + USA + Asia genera robustez.
-
-7. **Evitar concentración por sector**: si tienes 20% portfolio en cyclical industrials, vulnerable a single recession. Espreed across sectors.
-
-8. **Vigilar trends estructurales**: AI, climate, demographics, regulation cambian moats. Reassess annually.
-
-9. **Tener cash buffer**: para opportunities en correcciones. 5-10% portfolio en cash típico.
-
-10. **No vender por sentimiento**: las grandes ganancias vienen de manteniendo durante 10-20+ años. Vender por miedo o euforia destruye returns.
-
-Esta posición específica encaja dentro de este framework con sus particularidades. Aplicar disciplina + paciencia + monitoreo activo = portfolio que compound consistente.
-
-Esta es la lección general aplicable a todo dividend investing.
-
+**Fuentes principales**:
+- 10-K FY2025 — filed 2026-02-13, accession 0000315213-26-000006 [SEC EDGAR](https://www.sec.gov/Archives/edgar/data/315213/000031521326000006/rhi-20251231.htm)
+- 10-Q Q1 2026 — filed 2026-05-01, accession 0000315213-26-000026 [SEC EDGAR](https://www.sec.gov/Archives/edgar/data/315213/000031521326000026/rhi-20260331.htm)
+- Earnings call transcript Q4 2025 — 2026-01-29 [archive.r2 RHI/2025/Q4]
+- Earnings call transcript Q1 2025 — 2025-04-23 [archive.r2 RHI/2025/Q1]
+- A&R Quality+Safety scores 2026-04-07 (computed_at; quality 37, safety 43, streakYears 23, fcfCoverage 1,12, fcfPayout 89,3%)
+- A&R Thesis v1 dated 2026-04-07 (cyclical, conviction 2, target_weight 0,6-1,8%)
+
+[UNSOURCED] explicit donde no encontré dato verificable directo:
+- Peer EV/EBITDA exacto de Kforce/Manpower (estimación propia razonada, no traída de FMP en este pull).
+- 5y median P/E de RHI (no encontré time series histórica en este pull; **[UNSOURCED]** para median exact value).
+- Consensus sell-side target prices (no accesible via SEC; **[UNSOURCED]**).
+- Revenue exacto FY2021 y FY2022 (estimaciones propias para context, no en 10-K FY2025 statements traídos aquí).
+
+Esto es un **veredicto experto en estado vivo** — re-evaluar después de Q2 2026 earnings (julio 2026) y Q3 2026 earnings (octubre 2026), que serán los datos críticos para validar/invalidar la tesis de inflexión cíclica.
