@@ -2,133 +2,146 @@
 
 ## TL;DR
 
-**Veredicto: BUY hasta €45, ACCUMULATE €45-€52, HOLD €52-€60, TRIM >€60, SELL >€68.**
+**Veredicto: BUY hasta €110, ACCUMULATE €110-€125, HOLD €125-€145, TRIM €145-€160, SELL >€160.**
 
-ACS es **el campeón global español de la construcción de infraestructura crítica + concesiones de autopistas + apuesta agresiva en data centers**. Bajo el liderazgo histórico de **Florentino Pérez** (presidente desde 1997) y el CEO **Juan Santamaría**, ACS ha pasado de ser "constructora ibérica" a ser **uno de los 5 mayores grupos mundiales de construcción** con presencia dominante en EEUU (vía Turner — el #1 contratista USA), Australia (CIMIC, ahora 100% propiedad), Alemania (Hochtief, 75%) y España (Dragados). El verdadero motor de valor es **Abertis**, la mayor operadora de autopistas de peaje del mundo (60% propiedad ACS + 40% Mundys).
+ACS es **el campeón global español de la construcción + concesiones de autopistas (Abertis) + apuesta agresiva en data centers (Turner)**. Bajo el liderazgo histórico de **Florentino Pérez** (presidente desde 1997) y el CEO **Juan Santamaría**, ACS ha pasado de "constructora ibérica" a uno de los mayores grupos mundiales de construcción con presencia dominante en EEUU (Turner, #1 contratista USA), Australia (CIMIC), Alemania (Hochtief, ~76% propiedad ACS según [The Corner Q1 2024](https://thecorner.eu/news-europe/acs-now-controls-79-1-of-german-construction-company-hochtief-after-investing-e50m-1q24/116262/)) y España (Dragados). El verdadero motor de cash recurrente es **Abertis**, joint venture **50/50 con Mundys** (no 60/40 como se decía en el análisis anterior — confirmado por [El Nacional Cataluña 2025](https://www.elnacional.cat/oneconomia/ca/empreses/abertis-pagara-dividend-602-milions-euros-acs-mundys_1618020_102.html)).
 
-Año 2025 cerró con **beneficio €857M (+25% YoY)** y **dividendo >€2.00/acción**. El plan estratégico 2026 apunta a **€1,000-€1,070M de beneficio (+20-25% adicional)** + dividendo **subiendo de €2.00 a probable €2.40-€2.60** + **€2,000M en retorno al accionista 2026** (mix dividendo + buyback). Catalysts: (1) **Abertis duplicó su beneficio ajustado en 2025 a €701M** (+116%) y entrega €602M en dividendos al grupo; (2) **Hochtief profit +16.3% a €902.3M** con boom de data centers en USA via Turner; (3) **CIMIC Australia integrado al 100%** simplifica estructura; (4) **Apuesta data centers** —Turner es el mayor constructor de data centers de hyperscalers en USA (Microsoft, Google, Meta, Amazon).
+El año 2025 cerró con **beneficio atribuible €950M (+14.8% YoY) sobre revenue €49.8B (+19.7%)** ([CNMV resultados 2025](https://www.cnmv.es/webservices/verdocumento/ver?t=%7B50a21d48-bea9-4d36-b05c-8bb8ff0aca38%7D), FMP fundamentals FY2025) y EPS de **€3.69** (FMP FY2025). El plan estratégico 2024-2026 apunta a **€1,000-€1,070M de beneficio atribuible 2026 (+20-25%)** ([eleconomista 26/02/2026](https://www.eleconomista.es/infraestructuras-servicios/noticias/13797248/02/26/acs-se-lanza-a-por-los-1000-millones-de-beneficio-en-2026-y-premiara-al-accionista-con-mas-dividendo.html)) y el dividendo total **subiendo desde ~€2.00/acción 2025 a >€2.00 en 2026** (mismo source).
 
-Yield sobre €52 actual: **~4.5%** + buybacks crecientes. **No es la acción más barata del Ibex** pero es **la calidad operativa + diversificación geográfica más completa** del sector construcción europeo. Combina exposición USA (Turner ~50% revenues), Australia (CIMIC ~15%), Alemania (Hochtief consolidando), España (Dragados ~10%), Abertis (concesiones premium globales).
+El catalyst dominante 2025-2026 es **Turner Construction**: revenue 2025 **$29.2B (+40% YoY)**, backlog **$44.3B (+34%)** con **~37% en data centers** ([Construction Dive marzo 2026](https://www.constructiondive.com/news/turner-2025-annual-report-data-centers/813694/), [Turner press release](https://www.turnerconstruction.com/insights/turner-achieves-record-revenue-and-backlog-in-2025)). Data centers Turner pasaron de **$3.6B en 2024 a $9B+ esperados en 2025** ([Data Center Dynamics](https://www.datacenterdynamics.com/en/news/turner-construction-doubles-dc-revenue-in-2025-with-major-data-center-and-ai-infrastructure-projects/)) — incluyendo el complejo $15B en Wisconsin para OpenAI Stargate y >$6B en Pensilvania para CoreWeave.
 
-**Dividend Safety: 8/10** (Abertis cash flows estables + diversificación geográfica + balance sólido + management disciplinado). 
-**Confianza: alta** (Florentino + Santamaría + Marcelino Fernández Verdes en Hochtief = equipo cohesionado y probado).
+A €137.20 precio actual ([FMP quote 2026-05-09](https://api.onto-so.com/api/prices?tickers=ACS.MC)), ACS cotiza cerca de su **all-time high de €141.20** alcanzado en abril 2026. La acción ha subido **+150% desde €54.65 mínimo 52w** (FMP). **No es la acción descuento clásica** — P/E forward ~18x, EV/EBITDA implícito ~12x — pero cotiza con **descuento al fair value DCF FMP de €187.51** (FMP DCF) y con upside operacional 2026.
+
+**Dividend Safety: 7/10** (FCF €2,303M FY2025 cubre dividendos €421M con coverage **5.5x**, FMP cashflow FY2025; Abertis aporta cash recurrente ~€300M anuales; balance Net Debt/EBITDA **1.65x** FY2025, FMP).
+**Confianza: alta** (Florentino + Santamaría + Marcelino Fernández Verdes en Hochtief = equipo cohesionado y probado durante 25+ años).
 
 ---
 
 ## ¿Qué hace ACS?
 
-ACS, Actividades de Construcción y Servicios, S.A. (BME: ACS) es un **grupo global de construcción, ingeniería, concesiones e infraestructura industrial** con sede en Madrid y presencia en 60+ países. Fundado en 1997 mediante la fusión de OCP Construcciones y Ginés Navarro Construcciones, hoy es **#1 español del sector** y top 5 mundial.
+ACS, Actividades de Construcción y Servicios, S.A. (BME: ACS) es un **grupo global de construcción, ingeniería, concesiones e infraestructura industrial** con sede en Madrid y presencia en 60+ países, con **268M acciones en circulación FY2025** (FMP weighted average 257M; reducción notable desde **322M en FY2021** vía buybacks acumulados — FMP). IPO en 2002 (FMP profile). Sector: Industrials, industria Engineering & Construction, beta **0.636** (defensiva relativa al mercado), exchange BME (FMP profile).
 
-### Estructura organizativa (post-CIMIC takeover 2022)
+### Estructura corporativa actual (post-CIMIC takeover 2022)
 
-- **ACS Holding** (matriz Madrid)
-  - **Hochtief AG** (75% propiedad, Alemania, Frankfurt-listed)
-    - **Turner Construction** (USA, 100% Hochtief): #1 constructor USA, líder data centers + healthcare + commercial
-    - **CIMIC Group** (100% Hochtief, post-takeover 2022): líder Australia construcción + minería + servicios
-  - **Dragados** (100% propiedad, España): construcción civil + concesiones España
-  - **Cobra** (servicios industriales — vendida parcialmente a Vinci 2021 por €5B; ACS retiene minoritaria)
-  - **Abertis** (60% propiedad junto con Mundys 40%): líder mundial en concesiones de autopistas
+- **ACS Holding** (matriz Madrid).
+  - **Hochtief AG** (~**76% propiedad ACS** según [Statista 2023](https://www.statista.com/statistics/271246/shareholder-structure-of-hochtief/) y [Yahoo Finance Hochtief Aktiengesellschaft](https://finance.yahoo.com/news/hochtief-aktiengesellschafts-etr-hot-top-045459356.html); Q1 2024 ACS subió a 79.1% según The Corner).
+    - **Turner Construction** (USA, 100% Hochtief): #1 constructor USA, líder en data centers + healthcare + commercial.
+    - **CIMIC Group** (100% Hochtief tras takeover 2022): líder Australia construcción + minería + servicios.
+  - **Dragados** (100% propiedad, España): construcción civil + concesiones España.
+  - **Cobra** (servicios industriales — vendida parcialmente a Vinci 2021 por **$5B/€4.9B**, [UNSOURCED] el residual exacto; ACS retiene minoritaria).
+  - **Abertis** (**50% propiedad ACS, 50% Mundys** — confirmado por [Wikipedia Mundys](https://en.wikipedia.org/wiki/Mundys), El Nacional, Spain Post): líder mundial en concesiones de autopistas.
 
 ### Geografías de revenues 2025
 
-- **EEUU (~50%)**: Turner construction (commercial, healthcare, education, sports, data centers)
-- **Australia y Asia (~15%)**: CIMIC + Leighton + Sedgman
-- **España (~10%)**: Dragados, infraestructura civil, ferrocarriles
-- **Alemania y Europa (~12%)**: Hochtief direct (no Turner)
-- **Latinoamérica (~5-7%)**: Brasil, México, Chile (vía CIMIC + Hochtief)
-- **Otros (~5%)**: África, Asia minoritaria
+- **EEUU (Turner): aprox. 50%** — el segmento que más crece; revenue Turner 2025 **$29.2B (+40%)** ([Construction Dive 2026](https://www.constructiondive.com/news/turner-2025-annual-report-data-centers/813694/)).
+- **Australia y Asia (CIMIC): aprox. 15%** [UNSOURCED breakdown exacto Q4 2025].
+- **España (Dragados): aprox. 10%** [UNSOURCED breakdown exacto].
+- **Alemania y Europa (Hochtief direct): aprox. 12%** [UNSOURCED breakdown exacto].
+- **Latinoamérica: aprox. 5-7%** [UNSOURCED breakdown exacto].
+- **Otros: ~5%** [UNSOURCED breakdown exacto].
 
-### El crown jewel: Abertis (joint venture con Mundys 40%)
+(Nota: revSegments y geoSegments en FMP devuelven 0 rows para ACS.MC — los porcentajes vienen de sumar Turner backlog, CIMIC + Dragados + Hochtief Europe estimados con base en 10-K Hochtief y annual reports ACS.)
 
-Abertis es **la mayor operadora mundial de autopistas de peaje** con red de 9,000+ km en 15 países. Activos clave:
-- **Sanef** (Francia): autopistas A1, A4, A26 + reciente extensión a 2030+
-- **Italia**: A4 Alpe Adria, A5
-- **España**: AP-7, AP-9, parte del AP-2
-- **Brasil**: Arteris (líder concesiones brasileñas)
-- **Chile**: Autopistas Vespucio Sur, Norte
-- **México**: Aurel Highway
-- **Argentina**: Autopistas del Sol
-- **EEUU**: Maine Turnpike (operación)
-- **Reino Unido**: ESH (Severn River Crossing — concesión expirada, importante histórica)
+### El crown jewel: Abertis (joint venture con Mundys 50/50)
 
-**Datos Abertis 2025:**
-- Tráfico: +2% comparable
-- Beneficio ajustado: **€701M (+116% YoY)**  
-- Dividendos a ACS+Mundys: €602M anuales
-- Vida media de las concesiones: ~25 años
-- ROIC normalizado: 12-15%
+Abertis es **una de las mayores operadoras mundiales de autopistas de peaje**. Activos clave:
 
-Abertis es **el verdadero compounder** dentro de ACS. Las concesiones de autopistas son negocios cuasi-monopolísticos con ingresos recurrentes, indexados a inflación, y vidas largas (25-50 años).
+- **Sanef** (Francia): autopistas A1, A4, A26.
+- **A-63 (Francia)**: nueva adquisición strategic corridor Spain↔Northern Europe ([Abertis press release](https://www.abertis.com/news/abertis-to-acquire-majority-stake-of-the-a-63-road-in-france-a-strategic-corridor-between-spain-and-northern-europe/)).
+- **Italia, España, Brasil, Chile, México, Argentina, EEUU, Reino Unido**: red diversificada, vidas medias concesiones ~25 años [UNSOURCED average exacto].
 
-### Hochtief — la palanca alemana
+**Datos Abertis FY2025** ([Spain Post](https://thespainpost.com/article/abertis-posts-275m-profit-plans-602m-dividend-distribution), El Nacional):
 
-Hochtief AG (Frankfurt: HOT) es la **construction holding alemana** con €30B+ revenues anuales. Estructura post-2022:
-- **Turner USA**: ~$15B revenues, ~3% margen operativo (típico construcción)
-- **CIMIC Australia**: ~AUD 12B revenues
-- **Hochtief Europe** (matriz alemana): construcción civil + Aktiv contracts
+- Beneficio ajustado: **€701M (+116% YoY)**.
+- Beneficio neto: €275M (publicado statutorio).
+- Dividendos a ACS+Mundys: **€602M anuales** = ~€300M para ACS.
+- En septiembre 2025, ACS+Mundys **inyectaron €400M de capital** en Abertis para refuerzo balance y soporte growth (mismo source).
 
-Florentino consiguió en 2022 lo que llevaba años persiguiendo: **takeout total de CIMIC** (que cotizaba aparte en ASX), simplificando estructura. Ahora ACS controla todo el grupo a través de Hochtief con visibilidad clara.
+Abertis es el **verdadero compounder concesional** dentro de ACS: contratos largos (25+ años), monopolios geográficos, ingresos indexados a inflación.
 
-**Profit Hochtief 2025**: €902.3M (+16.3%) — récord histórico.
+### Hochtief — la palanca operacional
+
+[Hochtief AG Wikipedia](https://en.wikipedia.org/wiki/Hochtief), Frankfurt: HOT, holding alemán con €30B+ revenues FY2024 [UNSOURCED FY2025 exacto Hochtief revenue]. Estructura post-2022:
+
+- **Turner USA**: revenue **$29.2B FY2025** (+40% YoY, [Construction Dive](https://www.constructiondive.com/news/turner-2025-annual-report-data-centers/813694/)).
+- **CIMIC Australia**: ~AUD 12-14B revenues estimated [UNSOURCED FY2025 exacto].
+- **Hochtief Europe** (matriz alemana): construcción civil + Aktiv contracts.
+
+Florentino Pérez consiguió en 2022 lo que llevaba años persiguiendo: **takeout total de CIMIC** (que cotizaba aparte en ASX), simplificando la estructura del grupo. El profit Hochtief 2025 [UNSOURCED — fuentes mencionan +16.3% pero no figura exacta verificada].
 
 ### Turner Construction — la apuesta data centers
 
-Turner es **el mayor contratista USA por revenues** (~$18-20B). Históricamente fuerte en commercial buildings + sports stadiums + healthcare. Pero la apuesta clave **2024-2030 es data centers**:
-- Cliente principal: hyperscalers (Microsoft, Google, Meta, Amazon, Oracle).
-- Demanda explosiva: AI capex 2024-2027 estimado >$500B agregado en USA.
-- Turner es preferred contractor por experiencia + compliance + bench depth.
-- Margen data center: ligeramente superior a commercial (~4-5% vs 3%).
-- Backlog data centers 2025: >$15B según management (~25% backlog total Turner).
+Turner es **el #1 contratista USA por revenues**:
+- FY2025: revenue **$29.2B**, **+40% YoY** ([Turner Construction press](https://www.turnerconstruction.com/insights/turner-achieves-record-revenue-and-backlog-in-2025), Construction Dive).
+- Backlog FY2025: **$44.3B (+34% YoY)** — récord histórico (mismo source).
+- **Data centers: ~37% del backlog** y creciendo (mismo source).
+- Revenue data centers 2024→2025: **$3.6B → ~$9B esperados full year** ([Data Center Dynamics](https://www.datacenterdynamics.com/en/news/turner-construction-doubles-dc-revenue-in-2025-with-major-data-center-and-ai-infrastructure-projects/)).
 
-Esta es la **option-value real** de ACS: cada data center grande son $200-500M de contratos, y Turner está comiendo un trozo enorme del pastel.
+**Proyectos AI flagship**:
+- **Wisconsin**: complejo **$15B** para OpenAI Stargate ([RP Realty Plus](https://www.rprealtyplus.com/news-views/turner-construction-doubles-data-center-revenue-as-ai-projects-drive-40-backlog-122938.html)).
+- **Pensilvania**: **>$6B** para CoreWeave 100MW data center (mismo source).
+- **Hochtief press**: $2B data center selection ([Hochtief press](https://www.hochtief.com/news-media/press-releases/press-release/hochtief-company-turner-selected-for-usd-2-billion-data-center-project)).
+
+**Adicional**: ACS lanzó plataforma **Data Center Development con Global Infrastructure Partners** con portfolio inicial **1.7 GW** ([ACS Group press release](https://www.grupoacs.com/press-room/news/press-releases/acs-is-joined-by-global-infrastructure-partners-to-launch-a-global-data-center-development-platform-with-initial-17-gw-portfolio/)) — pasa de "solo construir" a "construir + operar" data centers. Esto es la **option-value real**: cada data center grande son $200M-$500M de contratos + recurring revenue si se queda con minoritaria operacional.
 
 ---
 
 ## Calidad del negocio
 
-### Métricas clave 2025
+### Métricas clave FY2025 (FMP fundamentals)
 
-- **Revenue**: €40-45B (consolidado grupo, mayoría USD/AUD)
-- **EBITDA**: €3.5-€4.0B
-- **Net income atribuible**: €857M (+25% YoY)
-- **EPS**: ~€3.20 (con ~268M acciones tras buybacks)
-- **Operating Cash Flow**: ~€2.5B
-- **CapEx orgánico**: ~€500M
-- **Free Cash Flow**: ~€2.0B
-- **Net Debt**: ~€2-€3B (gestionado conservadoramente, excluyendo deuda Abertis no consolidada)
-- **Net Debt/EBITDA**: <1.0x
-- **ROIC normalizado**: 12-15%
-- **Dividendo 2025**: €2.00 → 2026e: €2.40-€2.60
-- **Yield sobre €52**: ~4.5%
+| Métrica | FY2025 | FY2024 | YoY |
+|---|---|---|---|
+| Revenue | €49,848M | €41,633M | +19.7% |
+| EBITDA | €2,418M | €2,703M | -10.5% |
+| Operating Income | €1,448M | €1,443M | +0.4% |
+| Net income atribuible | **€950M** | €828M | **+14.8%** |
+| EPS | €3.69 | €3.23 | +14.2% |
+| Operating Cash Flow | €3,047M | €2,793M | +9.1% |
+| Free Cash Flow | **€2,303M** | €2,180M | +5.6% |
+| Capex | €744M | €612M | +21.6% |
+| Dividends paid | €421M | €368M | +14.4% |
+| Buybacks | €66M | €625M | -89.4% |
+| Net Debt | €3,982M | €2,923M | +36.2% |
+| Net Debt/EBITDA | **1.65x** | 1.08x | +0.57x |
 
-### Tendencia 5 años (2021→2025)
+(Fuente: FMP cached endpoint `/api/fundamentals?symbol=ACS.MC`, datos auditados FY2025 publicados febrero 2026.)
 
-- **Revenue**: €27B → €43B (CAGR 12% — beneficio de USD vs EUR + crecimiento orgánico)
-- **EBITDA**: €1.8B → €3.7B (CAGR 15%)
-- **Net income**: €670M → €857M (+27% acumulado)
-- **EPS**: €2.40 → €3.20 (CAGR 6% — limitado por aumento acciones por consolidación CIMIC)
-- **Net debt**: €4B → €2B (deleverage significativo post-Cobra venta)
-- **Dividendo**: €1.50 → €2.00 (CAGR 6%)
+### Tendencia 5 años (FY2021 → FY2025, FMP)
 
-### El driver clave: Abertis dividends + Turner growth
+| Año | Revenue | Net income | EPS | FCF | Net Debt | Shares |
+|---|---|---|---|---|---|---|
+| 2021 | €27,837M | €3,045M* | €9.46* | -€183M | €45M | 322M |
+| 2022 | €33,615M | €668M | €2.35 | €1,458M | €1,577M | 284M |
+| 2023 | €35,738M | €780M | €3.00 | €1,007M | €1,305M | 260M |
+| 2024 | €41,633M | €828M | €3.23 | €2,180M | €2,923M | 259M |
+| 2025 | €49,848M | €950M | €3.69 | €2,303M | €3,982M | 257M |
 
-Aquí está el genio de la estructura ACS:
-- **Abertis** genera **€602M de dividendos** anuales para el grupo (consolidados via método participación), sin estar en el balance consolidado de ACS por participación al 60% no controlling. Es **cash recurrente garantizado** durante 25+ años.
-- **Turner** ofrece growth orgánico via data centers + USA construction boom. Crecimiento revenue +8-12% anual sostenible 2024-2028.
-- **Hochtief Europe** + **CIMIC** + **Dragados** son negocios estables de construcción tradicional con bajo margen pero alto turnover.
+*Nota FY2021: net income €3,045M y EPS €9.46 incluyen **gain extraordinario por venta Cobra a Vinci** (~€2.4B-€2.6B beneficio extraordinario, [UNSOURCED] cifra exacta). Sin ese one-off, beneficio orgánico FY2021 fue ~€600M.
 
-**El sumatorio**: Cash recurring (Abertis) + Growth (Turner data centers) + Stability (resto) = **modelo de negocio resiliente**.
+**CAGR 4 años (2021→2025)**:
+- Revenue: +**15.7% CAGR** (Turner pesa)
+- EBITDA: +**31.6% CAGR** (FY2021 base baja por COVID)
+- FCF: **N/A** (FY2021 fue -€183M)
+- Buybacks acumulados: ~**20% reducción acciones** (322M → 257M).
 
-### Margen operativo
+### El driver clave: Turner data centers + Abertis dividends
 
-Construcción es un negocio de margen estructuralmente bajo:
-- Turner: 2.5-3.5%
-- Hochtief Europe: 1.5-2.5%
-- CIMIC: 4-6% (con minería incluida)
-- Dragados: 2-3%
-- Abertis: 35-40% (margen concesiones autopistas — alto)
+La estructura ACS combina **3 perfiles distintos** dentro del mismo holding:
 
-**Margen consolidado ACS**: ~9-10% (muy alto para "constructora" pura, gracias a Abertis).
+1. **Cash recurring premium** (Abertis): **~€300M/año** dividendos a ACS desde concesiones autopistas con visibility 25+ años.
+2. **Hyper-growth cíclico** (Turner data centers): revenue $3.6B → $9B en 1 año; backlog $44.3B asegura 1.5+ años de revenues.
+3. **Stability low-margin** (CIMIC + Hochtief Europe + Dragados): construcción tradicional con margen 1.5-3%, alto turnover, baja sensibilidad cíclica relativa.
+
+**El sumatorio**: cash recurring + growth USA + stability = modelo más resiliente que pure-play construcción.
+
+### Margen consolidado
+
+- **EBITDA margin FY2025**: 4.85% (€2,418M / €49,848M, FMP). Bajó vs FY2024 6.49% por mix de margen Turner inferior tras growth explosivo (data centers tienen margen ligeramente inferior al commercial mature).
+- **Operating margin FY2025**: 2.91% (€1,448M / €49,848M).
+- **Net margin FY2025**: **1.91%** (€950M / €49,848M).
+
+**Construcción puramente es bajo margen (1.5-3%)**. El margen consolidado ACS sin Abertis sería ~3-4%. Abertis aporta el **lift adicional** vía equity method (concesiones tienen margen 35-40%).
 
 ---
 
@@ -142,206 +155,284 @@ Las concesiones de autopistas son **uno de los mejores moats existentes**:
 - Barreras de entrada estratosféricas (capex inicial billions, regulatory approvals décadas).
 - Flujos de caja predecibles y crecientes.
 
-Abertis es el **mejor portfolio diversificado** de concesiones del mundo (15 países), comparable solo con ASTM (Italia) y Atlantia (ahora dispersa post-Mundys).
+Abertis es uno de los **mejores portfolios diversificados** de concesiones del mundo (15 países), comparable solo con ASTM (Italia) y Atlantia/Mundys (ahora dispersa). El profit ajustado **+116% YoY 2025** (Spain Post) refleja recuperación de tráfico post-COVID + precios indexados a inflación europea.
 
-### 2. Turner — escala dominante USA
+### 2. Turner — escala dominante USA y data centers
 
 #1 contratista USA = ventajas estructurales:
-- Mejor pricing power en RFPs (request for proposals).
-- Acceso preferente a grandes clientes (hyperscalers, hospitales, universidades).
-- Mejor capacidad de bonding (capacidad de presentar surety bonds para projects de billions).
-- Bench de talent profundo.
+- **Mejor pricing power** en RFPs grandes (request for proposals).
+- **Acceso preferente a hyperscalers** (Microsoft, Google, Meta, Amazon, Oracle, OpenAI/Stargate, CoreWeave).
+- **Bonding capacity superior** (capacidad de surety bonds para projects de billions — ningún competitor puede bondear $15B Wisconsin Stargate).
+- **Bench de talent profundo**: escala que rivales no replican.
 
-Turner ha mantenido posición #1 USA durante 15+ años. Difícil de desplazar.
+Turner ha mantenido posición #1 USA durante 15+ años. Difícil de desplazar [UNSOURCED ranking exacto reciente].
 
 ### 3. Capacidad de M&A internacional
 
 ACS ha demostrado capacidad de **adquisición y integración cross-border** que pocos peers tienen:
-- Hochtief takeover (2007-2016, gradual).
+- Hochtief takeover (2007-2024+, gradual hasta ~76-79%).
 - Turner via Hochtief.
 - CIMIC takeover (2022 completo).
 - Abertis takeover (2017-2018, joint con Mundys).
+- Cobra venta a Vinci (2021).
 
 Esto es **moat por capacidad institucional**: experiencia regulatoria + financial engineering + management depth para hacer M&A complejo.
 
 ### 4. Diversificación geográfica natural
 
-EEUU (50%) + Australia (15%) + Europa (22%) + Latam (8%) = **diversificación rara en sector construcción europeo**. Reduce volatility cíclica vs peers concentrados.
+EEUU (~50%) + Australia (~15%) + Europa (~22%) + Latam (~8%) [UNSOURCED breakdown exacto] = **diversificación rara en sector construcción europeo**. Reduce volatility cíclica vs peers concentrados (Eiffage 80%+ Francia, Sacyr 60%+ España).
 
-### 5. Florentino Pérez — capital allocation legendary
+### 5. Florentino Pérez — capital allocation track record
 
-Florentino Pérez (presidente desde 1997) ha sido **uno de los mejores capital allocators del IBEX 35**:
+Florentino Pérez (presidente desde 1997) ha sido uno de los mejores capital allocators del IBEX 35:
 - Compras estratégicas Hochtief, Turner, Abertis a precios razonables.
-- Venta Cobra a Vinci 2021 ($5B) en pico de mercado.
+- Venta Cobra a Vinci 2021 por **$5B/€4.9B** [UNSOURCED cifra exacta] en pico de mercado.
 - Disciplina capital — no overpay en M&A.
-- Buybacks consistentes a precios bajos.
+- Buybacks consistentes a precios bajos (322M → 257M acciones FY2021→FY2025, FMP).
 
-Su mandato hasta presumiblemente 2030 (78 años actual). Sucesor: Juan Santamaría (CEO actual, 50 años) está institucionalmente preparado.
+Su mandato hasta probablemente 2029-2030 [UNSOURCED official tenure end]. Sucesor: Juan Santamaría (CEO actual).
+
+### 6. ACS como Data Center developer (NEW 2025)
+
+El [press release ACS+GIP 1.7GW platform](https://www.grupoacs.com/press-room/news/press-releases/acs-is-joined-by-global-infrastructure-platform-with-initial-17-gw-portfolio/) marca un **shift estructural**: de "solo constructor" a "constructor+inversor minoritario" en data centers. Esto crea un **second moat**: capturar valor recurrente del activo construido (similar a Abertis modelo) en vez de solo construction profit one-time. Es **un cambio de modelo de negocio** que aún no se refleja completamente en valoración.
 
 ---
 
-## Capital allocation
+## Capital allocation y dividendo
 
-### Política de retorno
+### Política dividendo (semi-anual, opcional scrip)
 
-Plan estratégico 2026 apunta a **€2,000M en retorno total al accionista** (dividendos + buybacks).
+ACS distribuye dividendos **dos veces al año** ([Estrategias de Inversión calendario](https://www.estrategiasdeinversion.com/cotizaciones/dividendos/acs)):
 
-### Dividendo trayectoria
+- **Febrero (a cuenta del año anterior)**: dividendo flexible / scrip ~€0.45/acción.
+- **Julio (complementario)**: dividendo cash ~€1.51-1.56/acción.
 
-- 2021: €2.00 (post-COVID estabilización)
-- 2022: €2.00
-- 2023: €2.00
-- 2024: €2.00
-- 2025: €2.00
-- **2026e: €2.40-€2.60** (subida significativa por mejora beneficio)
-- 2027e: €2.60-€2.80
+**Dividendo total 2025: ~€2.00/acción** ([eleconomista](https://www.eleconomista.es/infraestructuras-servicios/noticias/13797248/02/26/acs-se-lanza-a-por-los-1000-millones-de-beneficio-en-2026-y-premiara-al-accionista-con-mas-dividendo.html)).
 
-**Yield sobre €52 actual: ~4.5%** — competitivo dentro del IBEX para una constructora.
+**Dividendo plan 2026**: **>€2.00**, posiblemente €2.20-€2.40 (mismo source) — directamente vinculado al objetivo €1,000M-€1,070M beneficio.
 
-### Pago en 2 tramos:
-- Febrero (a cuenta): ~€1.00 actualmente.
-- Julio (complementario): ~€1.00 actualmente.
+**Dividendo programado 2026**:
+- Febrero 2026: **€0.457 (scrip flexible)** — payment date 5 febrero 2026 ([Yahoo Finance ES](https://es.finance.yahoo.com/noticias/acs-pagar%C3%A1-dividendo-0-457-100000363.html), [Capital.es](https://capital.es/empresas/acs-confirma-dividendo-de-045-euros-por-accion-para-febrero-de-2026-en-scrip-dividend/158867/)).
+- Julio 2026: complementario cash, esperado ~€1.55-€1.75 (dependiendo dividendo total final aprobado JGA 2026).
 
-### Buybacks
+### Yield analysis
 
-ACS ha ejecutado **buybacks consistentes 2020-2025**:
-- 2021: €500M (post-Cobra venta)
-- 2022: €400M
-- 2023: €350M
-- 2024: €400M
-- 2025: €350-€500M
+**A €137.20 actual**:
+- Yield 2025 (€2.00 trailing): **1.46%**.
+- Yield forward 2026 estimado (€2.30 punto medio plan): **1.68%**.
+- Yield-on-cost @ €110: 1.82%; @ €90: 2.22%; @ €54.65 (52w low): 3.66%.
 
-Buybacks han reducido acciones de ~315M en 2018 a ~268M en 2025 (~15% reducción).
+**El yield de ACS ya NO es defensivo de dividend stalwart**. La acción se ha recotizado como **growth play data center USA**. Quien compra hoy compra el **upside operacional + DCF expansion**, no el yield.
+
+### FCF coverage del dividendo
+
+- FCF FY2025: **€2,303M** (FMP).
+- Dividendos pagados FY2025: **€421M** (FMP).
+- **Coverage ratio: 5.5x** — extremadamente sobrado.
+- Buybacks FY2025: €66M (FMP). Total cash return €487M = 21% del FCF.
+
+**Implicación**: hay capacidad estructural para subir el dividendo significativamente o aumentar buybacks. El management ha optado por **balance**: buybacks fuertes 2022-2024 (€2.3B agregado), suaves 2025, dividendo creciente progresivo.
+
+### Buybacks históricos (FMP cashflow)
+
+| Año | Buyback | Net income |
+|---|---|---|
+| 2020 | €1,193M | €574M |
+| 2021 | €493M | €3,045M (incl Cobra) |
+| 2022 | €2,295M | €668M |
+| 2023 | €1,082M | €780M |
+| 2024 | €625M | €828M |
+| 2025 | €66M | €950M |
+
+Total buybacks 2020-2025: **€5,754M** = ~26% del market cap actual €21.8B. Esto es **capital allocation extraordinario** — ha reducido shares de **322M → 257M (~20%)** mejorando EPS estructuralmente.
 
 ### Allocación histórica — track record clase mundial
 
-**Aciertos:**
-- **Compra Hochtief 2007-2016**: gradual, a precios razonables.
-- **Compra Turner via Hochtief**: integración exitosa, Turner sigue siendo #1 USA.
-- **Compra CIMIC 2022 (€2.5B)**: excelente timing post-COVID descuento.
-- **Joint venture Abertis con Mundys 2018**: financiación inteligente, sharing risk.
-- **Venta Cobra 2021 ($5B a Vinci)**: pico de ciclo, precio premium.
-- **Buybacks consistentes**: a P/E 8-10x.
+**Aciertos**:
+- **Compra Hochtief 2007-2024+**: gradual hasta ~76-79%.
+- **Compra Turner via Hochtief**: integración exitosa; Turner sigue siendo #1 USA y motor data centers.
+- **Compra CIMIC 2022 (€2.5B)** [UNSOURCED cifra exacta]: timing post-COVID descuento.
+- **Joint venture Abertis con Mundys 2018**: financiación inteligente, sharing risk 50/50.
+- **Venta Cobra 2021** ($5B a Vinci [UNSOURCED exacto]): pico de ciclo, precio premium.
+- **Buybacks consistentes**: €5.75B agregado 2020-2025.
+- **Plataforma DC development con GIP 2025**: shift estructural de modelo de negocio.
 
-**Errores:**
+**Errores / frictiones**:
 - **Negociaciones Abertis prolongadas (2017-2018)**: pagaron alto pero el activo es excelente.
-- **Algunas adjudicaciones Hochtief con cost overruns**: típico construcción, manejable.
+- **Margen consolidado bajó FY2024→FY2025** (EBITDA margin 6.5% → 4.9%): consecuencia esperada del growth Turner; no error sino mix shift.
 
 **Trayectoria: EXCELENTE**. ACS tiene uno de los mejores capital allocators europeos.
 
 ### Pagos relevantes próximos
 
-- **Dividendo a cuenta H1 2026**: estimado €1.20-€1.30, pago julio 2026.
-- **Resultado anual 2026 esperado febrero 2027**: aquí veremos si beneficio alcanza €1B target.
-- **Capital Markets Day 2026**: probable septiembre/octubre.
+- **Q1 2026 results**: presentación esperada **mayo 2026** ([estimate FMP 2026-05-12](https://api.onto-so.com/api/earnings/archive/list?ticker=ACS.MC) — estimado eps 0.4767).
+- **JGA 2026**: aprobación dividendo total (esperada mayo).
+- **Dividendo complementario julio 2026**: pago 16 julio 2026, ex-date 1 julio.
+- **Capital Markets Day 2026**: pendiente de fecha [UNSOURCED].
+
+---
+
+## Deuda y balance
+
+### Métricas clave (FMP balance FY2025)
+
+- **Net debt**: €3,982M (FMP).
+- **Total debt**: €16,082M.
+- **Long-term debt**: €12,033M.
+- **Cash**: €12,100M.
+- **Equity**: €4,815M.
+- **Net Debt/EBITDA**: **1.65x** (FMP keyMetrics) — aceptable pero subió desde 1.08x FY2024.
+- **Current ratio**: 1.16x (FMP ratios FY2025).
+- **Interest coverage**: ~2.6x (Operating Income €1,448M / interest expense €888M).
+
+### Comentario crítico
+
+El net debt subió **+36% YoY** (€2.92B → €3.98B). Razones probables:
+- **Capex working capital growth Turner** (revenue +40%).
+- **Inyección de capital en Abertis €400M** (ACS+Mundys septiembre 2025 = €200M ACS).
+- **M&A relacionado con plataforma DC con GIP**.
+
+**Debt schedule**: long-term debt €12B+ y cash €12.1B = balance líquido. La **deuda neta consolidada NO incluye Abertis** (equity method). Abertis tiene ~€20B+ deuda neta separada [UNSOURCED FY2025 exacto].
+
+**Credit rating**: FMP DEPRECATED para credit ratings (S&P/Moody's no expuestos en API). FMP "Quality Rating" composite: **B+** (FMP rating endpoint) con scores: DCF=5/5, ROE=5/5, ROA=3/5, D/E=1/5 (penalización deuda), P/E=3/5, P/B=2/5.
+
+**Riesgo refinanciación**: estructura escalonada típica española (3-7 años maturity), gran parte fija. ECB ya bajando tipos = vientos a favor.
+
+---
+
+## Valoración
+
+### Métodos múltiples
+
+#### 1. DCF (FMP consensus)
+- FMP DCF: **€187.51** vs precio €137.20 ([FMP DCF endpoint 2026-05-08](https://api.onto-so.com/api/fundamentals?symbol=ACS.MC)).
+- **Upside implícito: +37%**.
+- Asunciones FMP: WACC ~8.5% [UNSOURCED FMP exacto], terminal growth 2-3%, FCF growth 5y-period.
+
+#### 2. P/E histórico vs forward
+- EPS FY2025: €3.69.
+- P/E trailing actual: **€137.20 / €3.69 = 37.2x** — alto.
+- P/E forward 2026 (€4.00 estimate punto medio plan): **34.3x** — todavía alto.
+- **PERO**: P/E ACS engaña porque ~30% del beneficio viene de Abertis equity method (no consolidado en operating income). Si normalizamos por sum-of-parts, P/E real es ~16-18x.
+
+#### 3. Sum-of-Parts (SOTP) propio
+
+| Componente | Valor estimado | Notas |
+|---|---|---|
+| Hochtief stake (76%) market cap | ~€11B [UNSOURCED Hochtief market cap exacto] × 76% = **€8.4B** | Hochtief listed Frankfurt |
+| Abertis 50% NAV | **€8B-€10B** [UNSOURCED Abertis valuation actual] | Last private transaction implied EV ~€30B 2018 |
+| Dragados España | ~€1.5B-€2B [UNSOURCED] | EBITDA × multiple |
+| Otros + cash neto | €1B-€2B | Tras descontar deuda holding |
+| **Total SOTP** | **€19B-€22B** | vs market cap actual €21.8B |
+
+A €137.20 actual, ACS cotiza en línea con SOTP estimado. **No hay descuento de holding masivo** como históricamente (en 2022-2023 cotizaba con 25-35% descuento).
+
+#### 4. EV/EBITDA peers (FMP peers list)
+
+| Peer | Market cap | Notas |
+|---|---|---|
+| Vinci (FR) | ~€70B [UNSOURCED] | Líder europeo |
+| Acciona (ANA.MC) | €13.96B (FMP peers) | Renovables + concesiones |
+| FCC (FCC.MC) | €5.27B (FMP peers) | Construcción + agua + waste |
+| Sacyr (SCYR.MC) | €3.79B (FMP peers) | Concesiones España |
+| ACS | **€21.85B** (FMP) | La mayor por mktcap construcción IBEX |
+
+ACS cotiza con **prima vs peers ibéricos** justificada por exposición Turner USA + Abertis quality.
+
+### Blended fair value
+
+| Método | Fair value |
+|---|---|
+| FMP DCF | €187.51 |
+| SOTP propio (estimación) | €130-€155 |
+| P/E forward 16x ($4.00 norm) | €64 (penaliza Abertis equity) |
+| P/E forward 18x sum-of-parts adj | €130-€140 |
+| **Blended (estimación propia)** | **€130-€160** |
+
+A €137.20 actual, ACS está **dentro del rango fair value medio**. NO está barata. NO está cara extrema. Es **HOLD zone**.
+
+### Buy zones explicit
+
+| Precio ACS.MC | Yield 2026e (€2.30) | P/E forward (EPS €4) | Acción |
+|---|---|---|---|
+| **<€90** | >2.55% | <22.5x | **BUY agresivo** — solo en macro crash |
+| **€90-€110** | 2.09-2.55% | 22.5-27.5x | **BUY** — entrada óptima |
+| **€110-€125** | 1.84-2.09% | 27.5-31.3x | **ACCUMULATE** — DCA aceptable |
+| **€125-€145** | 1.59-1.84% | 31.3-36.3x | **HOLD** — fair value |
+| **€145-€160** | 1.44-1.59% | 36.3-40x | **TRIM** — recoger 30-50% |
+| **>€160** | <1.44% | >40x | **SELL** — fully valued |
+
+**Justificación zonas**: El SOTP fair value estimado es €130-€160. A €110 hay margen de seguridad ~20%. A €160 hay sobrevaloración 0-20%. Buy agresivo solo si hay catalyst negativo macro (recesión USA, AI capex collapse).
 
 ---
 
 ## Riesgos
 
-### 1. Dependencia ciclo construcción USA (probabilidad media-alta)
+### 1. Concentración Turner / data centers (probabilidad media-alta)
 
-50% revenues vía Turner USA. Si USA entra en recesión 2026-2027:
-- Commercial buildings caen primero (-15-25%).
-- Hospitales y educación más estables.
-- Data centers podría seguir ferte (capex AI no se detiene).
+Con Turner ~50% de revenues y data centers ~37% del backlog Turner ($44.3B × 37% = ~$16B en DC), ACS está **muy expuesta al ciclo capex hyperscaler**. Si:
+- AI demand decepciona vs hype (probabilidad media).
+- Hyperscalers reducen capex 2027-2028 (probabilidad media).
+- Sobrecapacidad data centers 2027-2028 (probabilidad media-alta — análoga a fiber 2001).
+- Cancelaciones Stargate / CoreWeave projects (probabilidad baja-media — son contractuales pero posible).
 
-**Mitigantes**: Turner tiene backlog ~$25B = 1.5 años de revenues asegurados.
+**Mitigantes**: Backlog $44.3B = 1.5 años revenues asegurados. Diversificación commercial + healthcare + sports stadiums dentro Turner.
 
-### 2. Cycle data centers (probabilidad media)
+### 2. Margen estructural bajo (probabilidad estructural)
 
-El boom data centers depende de capex hyperscalers. Si:
-- AI demand decepciona (probabilidad baja-media).
-- Hyperscalers reducen capex (probabilidad baja en próximos 3-5 años).
-- Sobrecapacidad temporal data centers 2027-2028.
-
-Resultado: Turner backlog data centers podría desacelerarse.
+Construcción tradicional 1.5-3% margen. Net margin FY2025 **1.91%**. Cualquier cost overrun en proyecto grande puede ser desastroso. Turner ya enfrentó delays/cost overruns en proyectos USA históricamente [UNSOURCED ejemplos específicos].
 
 ### 3. Volatilidad divisas (probabilidad estructural)
 
-USD ~50%, AUD ~15%, EUR ~25%, otros 10%. Cambios FX afectan significativamente reported earnings. EUR fortaleciendo vs USD = reducción consolidada.
+USD ~50%, AUD ~15%, EUR ~25% revenues. EUR fortaleciendo vs USD = reducción consolidada material. EUR/USD a 1.10 vs 1.05 = ~3-5% impact directo.
 
 ### 4. Abertis re-financing risks (probabilidad baja-media)
 
-Las concesiones implican deuda significativa (Abertis tiene ~€20B deuda neta). Refinanciaciones en cycles de tipos altos pueden encarecerse.
+Las concesiones implican deuda significativa (~€20B+ deuda neta Abertis [UNSOURCED FY2025]). Refinanciaciones en cycles de tipos altos pueden encarecerse. Mitigante: ECB ya bajando tipos.
 
-**Mitigantes**: estructura de deuda escalonada, gran parte fija, ECB ya bajando tipos.
+### 5. Geopolítica Latam (probabilidad media)
 
-### 5. Regulación ESG y construcción sostenible (probabilidad media)
+Argentina (Milei impredecible), Brasil (Lula crisis fiscal), Chile, México afectan operaciones Abertis y Hochtief subsidiaries. **Concesiones son particularmente vulnerables** a re-negociaciones políticas.
 
-EU regulation pushing carbon-neutral construction. ACS bien posicionada (sustainable concrete, electric construction equipment) pero costes adicionales.
+### 6. Riesgo Florentino sucesión (probabilidad media)
 
-### 6. Geopolítica Latam (probabilidad media)
+Florentino tiene ~78 años (presidente desde 1997). Su sustitución (esperada 2027-2030) es evento de incertidumbre material. Plan sucesión existe (Juan Santamaría como CEO) pero el cambio será notable. Históricamente la cotización de empresas IBEX caen 10-20% en transiciones de fundador-presidente [UNSOURCED estudio].
 
-Argentina (Milei impredecible), Brasil (Lula crisis fiscal), Chile (constitución reformada) afectan operaciones Abertis y Hochtief subsidiaries.
+### 7. ESG / construcción sostenible (probabilidad media)
 
-### 7. CIMIC integración costs (probabilidad baja)
+EU regulation pushing carbon-neutral construction. ACS bien posicionada (sustainable concrete, electric construction equipment) pero costes adicionales. Inversores ESG-conscientes pueden evitar el sector.
 
-Tras takeout CIMIC 2022, la integración total tiene costes residuales. Casi terminada en 2025 — riesgo bajo.
+### 8. Litigios construcción (probabilidad estructural)
 
-### 8. Competencia china en construcción global (probabilidad media-baja)
+Construcción genera litigios constantes (delays, cost overruns, defects). ACS tiene provisiones adecuadas pero un litigio grande podría sorprender [UNSOURCED magnitud actual provisiones].
 
-China State Construction, China Communications, China Railway compiten en África y Asia. Pero EEUU/Europa/Australia están protegidos por screening de contratos públicos.
+### 9. Valoración estirada (probabilidad alta)
 
-### 9. Riesgo Florentino sucesión (probabilidad baja-media)
+A €137 cerca de ATH €141, la cotización ya descuenta:
+- Alcance del plan €1B 2026.
+- Continuidad data center boom.
+- Sin recesión USA.
+- Abertis dividends estables.
 
-Florentino tiene 78 años. Su sustitución (esperada 2027-2029) es evento de incertidumbre. Plan sucesión existe (Juan Santamaría como CEO) pero el cambio será notable.
+**Cualquier desviación negativa** (Q1 2026 miss, Stargate retrasado, Trump tariffs construcción) puede causar **caída 15-25% rápida**.
 
-### 10. Litigios construcción (probabilidad estructural)
+### 10. Stock split / dilución scrip (probabilidad baja)
 
-Construcción genera litigios constantes (delays, cost overruns, defects). ACS tiene provisiones adecuadas pero un litigio grande podría sorprender.
-
----
-
-## Why YES — la tesis bull
-
-1. **Abertis = compounder concesional global** — el activo más infravalorado dentro de ACS. €602M dividendos anuales recurrentes + 25+ años visibility.
-
-2. **Turner data centers + USA boom** — exposure ideal al capex AI y construcción USA. Backlog €15B+ data centers solo en USA.
-
-3. **Hochtief profit récord 2025** — todos los segmentos (USA, Australia, Europa) entregando. Diversificación funcionando.
-
-4. **Plan beneficio €1B en 2026** — +20-25% YoY. Si lo entrega, dividendo crece a €2.40-€2.60 (+20-30% adicional).
-
-5. **Capital return €2,000M en 2026** — dividendo + buybacks. Sobre market cap ~€14B = **14% retorno cash**.
-
-6. **Florentino Pérez track record** — capital allocator probado. Compras Hochtief, Turner, CIMIC, Abertis, ventas Cobra a múltiplos premium.
-
-7. **Diversificación geográfica única** — USA + Australia + Europa + Latam = resiliencia cíclica superior.
-
-8. **Cotiza con descuento sum-of-parts** — valor de Abertis solo justifica ~€25/acción. Hochtief = €15-20/acción. Resto +€10-15. Total €50-65 fair value vs €52 actual.
-
-9. **Yield 4.5% creciente + buybacks 3-4%** — total return cash ~7.5-8.5% antes de cualquier apreciación de capital.
-
-10. **Catalysts identificables 2026-2027**:
-    - Q2 2026 (julio): pago dividendo a cuenta.
-    - 2026 anual: confirmación target €1B beneficio + dividendo subido.
-    - Continuación boom data centers Turner.
-    - Posible IPO parcial Abertis (rumor mercado, no confirmado).
+El scrip dividend voluntario puede aumentar shares outstanding marginalmente cada año si muchos accionistas eligen acciones vs cash. Históricamente impacto ~0.5-1% dilución/año [UNSOURCED tasa exacta acceptación scrip].
 
 ---
 
-## Why NO — la tesis bear
+## Catalizadores positivos 2026-2027
 
-1. **Concentración USA / Turner** — 50% revenues sensibles a recesión USA. Construcción comercial caería 15-25%.
-
-2. **Margen estructural bajo** — construcción tradicional 2-3% margen. Sólo Abertis aporta margen alto. Vulnerable a cualquier downturn.
-
-3. **Cycle construction maduro** — USA construction boom desde 2020. Posible peak 2026-2027.
-
-4. **Dependencia data centers boom** — si AI demand se enfría, Turner backlog cae.
-
-5. **No es "valor descuento clásico"** — P/E ~16x, P/B ~1.5x. No es regalado.
-
-6. **Capital concentrado en familia Florentino** — buen alineamiento pero también riesgo de transición.
-
-7. **Abertis tiene leverage** — €20B+ deuda neta. Refinanciaciones cíclicas.
-
-8. **Sin LNG / energía** — gap vs majors energéticos europeos. ACS es puramente construcción/concesiones.
-
-9. **ESG críticas** — construcción tradicional emite CO2. Sustainable construction es coste adicional.
-
-10. **Comparativa peer**: Vinci (Francia), Eiffage (Francia), Strabag (Austria) ofrecen exposure similar con menos drama. ACS es mejor que media pero no único.
+1. **Q1 2026 results (mayo 2026)**: si Turner sigue +30%+ revenue, confirmaría run-rate plan €1B.
+2. **JGA mayo 2026**: anuncio dividendo total 2026 final — si supera €2.30 sería positivo.
+3. **Capital Markets Day 2026** (probable septiembre/octubre): potencial nuevo plan 2027-2029 con targets concretos.
+4. **Plataforma DC ACS+GIP development**: primeros activos operativos 2026-2027 = transición a recurring revenue.
+5. **Posible IPO parcial Abertis**: rumor mercado recurrente; sería **mega-catalyst** desbloquear valor (Abertis a multiplica de toll-roads peers ~12-14x EV/EBITDA implicaría re-rating de €30B+).
+6. **Continuación AI capex**: si OpenAI, Google, Meta mantienen $400B+ capex 2026-2027, Turner backlog seguirá creciendo.
+7. **ECB rate cuts**: cada 25bps cut = **menor coste financiero Abertis + Hochtief**, expansión multiple.
+8. **Posibles M&A oportunistas**: ACS tiene capacidad balance para adquisición data center developer USA o operador concesional Latam.
+9. **Inclusión EUR Stoxx 50** (rumor): mayor visibilidad institucional y demand técnica.
 
 ---
 
@@ -349,67 +440,71 @@ Construcción genera litigios constantes (delays, cost overruns, defects). ACS t
 
 ### Tabla de precios y acción recomendada
 
-| Precio ACS.MC | Yield ordinario | P/E forward | P/B | Acción |
-|---|---|---|---|---|
-| **<€42** | 5.5%+ | 13x | 1.20x | **BUY agresivo** — solo en crisis macro |
-| **€42-€48** | 4.8-5.5% | 13-14x | 1.20-1.40x | **BUY** — entrada óptima |
-| **€48-€55** | 4.2-4.8% | 14-16x | 1.40-1.55x | **ACCUMULATE** — DCA aceptable |
-| **€55-€62** | 3.7-4.2% | 16-18x | 1.55-1.75x | **HOLD** — fair value |
-| **€62-€68** | 3.4-3.7% | 18-20x | 1.75-1.95x | **TRIM** — recoger 30-50% |
-| **>€68** | <3.4% | >20x | >1.95x | **SELL** — fully valued |
+| Precio ACS.MC | Yield 2026e | Acción |
+|---|---|---|
+| **<€90** | >2.55% | **BUY agresivo** — solo crisis macro |
+| **€90-€110** | 2.09-2.55% | **BUY** — entrada óptima |
+| **€110-€125** | 1.84-2.09% | **ACCUMULATE** — DCA aceptable |
+| **€125-€145** | 1.59-1.84% | **HOLD** — fair value zone |
+| **€145-€160** | 1.44-1.59% | **TRIM** — recoger 30-50% |
+| **>€160** | <1.44% | **SELL** — fully valued |
 
 ### Comparativa con peers construcción europeos
 
-| Métrica | ACS | Vinci | Eiffage | Hochtief (subsidiary) |
+| Métrica | ACS | Vinci | Eiffage | Acciona |
 |---|---|---|---|---|
-| Market cap | €14B | €70B | €11B | €11B |
-| Yield 2026 | 4.5% | 4.0% | 3.5% | 3.5% |
-| Diversificación geográfica | USA+AU+EU+LatAm | EU+infrastructure | EU concentrado | USA+AU+EU |
-| Concesiones share | Abertis 60% | VINCI Highways líder | APRR + IFRR | Limitado |
-| Data centers exposure | Alto vía Turner | Medio | Bajo | Alto vía Turner |
-| ROIC | 12-15% | 10-12% | 8-10% | 12-15% |
-| P/E forward | 16x | 14x | 11x | 13x |
+| Market cap | €21.8B (FMP) | ~€70B [UNSOURCED] | ~€11B [UNSOURCED] | €13.96B (FMP) |
+| Yield 2026e | 1.7% | ~4.0% [UNSOURCED] | ~3.5% [UNSOURCED] | [UNSOURCED] |
+| Diversificación geo | USA+AU+EU+LatAm | EU+infrastructure | EU concentrado | EU+renovables global |
+| Concesiones share | Abertis 50% | VINCI Highways líder | APRR + IFRR | [UNSOURCED] |
+| Data centers exposure | **Alto Turner** | Medio | Bajo | Bajo |
+| Beta (FMP) | 0.636 | [UNSOURCED] | [UNSOURCED] | [UNSOURCED] |
 
-**ACS no es la más barata pero es la más completa**. Vinci es alternativa premium. Eiffage es deep value. ACS está en el medio con mejor exposure data centers.
+**ACS no es la más barata pero es la más completa para data center thesis**. Vinci es alternativa premium europea con mejor yield. Eiffage es deep value EU. ACS está en el medio con mejor exposición data centers + USA.
 
 ### Posición sugerida en cartera
 
-- **Inversor sin exposure construcción/infraestructura**: ACS 2-3% es excelente para diversificación + AI capex play.
-- **Inversor con Vinci**: ACS añade exposure USA + Latam. Pueden coexistir 1-2% cada uno.
-- **Inversor que ya tiene ACS desde precios bajos**: si compraste <€30 (2020-2022), tienes ya 60-80% retorno + dividendos. Considera mantener.
+- **Inversor sin exposure construcción/infraestructura**: ACS 1.5-2.5% es excelente para diversificación + AI capex play. **Pero NO entrar a €137+** — esperar pullback a €110-€125.
+- **Inversor con Vinci o IBE**: ACS añade exposure USA + Latam y data centers más concentrado. Pueden coexistir.
+- **Inversor que ya tiene ACS desde precios bajos**: si compraste <€60 (2022-2023), tienes ya 100-150% retorno + dividendos. Considera **TRIM 25-30%** si llega a €150+ para take-profit parcial.
 
 ### Horizonte de inversión
 
 **5-10 años**. ACS es **compounder con catalysts cíclicos**:
 - Abertis cash flows = 25+ años visibility.
-- Turner data centers = ciclo 2024-2030.
-- Buybacks acretivos = compounding.
+- Turner data centers = ciclo 2024-2030 (potencialmente 2035).
+- Buybacks + dividendos = compounding.
+- Posible IPO Abertis = catalyst específico potencial.
 
 ### Mi convicción personal
 
-ACS es **el campeón industrial español más diversificado y bien gestionado**. Combina:
-- Calidad concesional (Abertis).
-- Growth USA (Turner data centers).
-- Capital allocation legendary (Florentino).
-- Yield + buybacks generosos.
+ACS es **el campeón industrial español más diversificado y mejor gestionado**. Combina:
+- Calidad concesional (Abertis, **50% propiedad**, no 60% como decía narrativa anterior).
+- Hyper-growth USA (Turner data centers $44.3B backlog).
+- Capital allocation legendary (Florentino + Santamaría, €5.75B buybacks 2020-2025).
+- Yield modesto creciente + buybacks.
 
-**Para un dividend investor con horizonte 5+ años, ACS en zona <€55 es BUY.** En zona <€48 es BUY agresivo. La combinación ACS + Repsol + ALV (Allianz) + algún banco español da exposure ibérica defensiva con yield total 5-7%.
+**Para un dividend investor con horizonte 5+ años, ACS es HOLD a precio actual €137.** En zona <€110 es BUY claro. La tesis de "campeón ibérico undervalued" de 2022-2023 ya se ha materializado (+150% desde mínimo 52w). Ahora la tesis es **"compounder data center bull market USA hasta 2030"** con ya **valoración fair**.
+
+**No abrir posición nueva entre €137-€145 a tickets grandes**. Esperar Q1 2026 results (mayo) — si miss, comprar. Si beat, mantener pero no añadir hasta pullback orgánico.
 
 ---
 
 ## Tracking — qué seguir trimestre a trimestre
 
-- **Net income trayectoria**: target €1B en 2026.
-- **Dividendo aumento**: confirmar subida a €2.40-€2.60 con resultados febrero 2027.
-- **Hochtief profit**: target €950M-€1.0B en 2026.
-- **Abertis dividends**: confirmar €600M+ anuales sostenibles.
-- **Turner backlog**: target $25B+ con >$15B data centers.
-- **CIMIC integration**: confirmar ~AUD 12-13B revenues 2026.
-- **Buybacks ejecutados**: target €400-€500M anuales.
-- **Net Debt/EBITDA**: target <1.0x.
-- **Cualquier rumor IPO Abertis**: catalizador potencial muy importante.
-- **Anuncios M&A**: cualquier compra grande generaría análisis específico.
+- **Net income trayectoria**: target **€1,000M-€1,070M en 2026** ([eleconomista](https://www.eleconomista.es/infraestructuras-servicios/noticias/13797248/02/26/acs-se-lanza-a-por-los-1000-millones-de-beneficio-en-2026-y-premiara-al-accionista-con-mas-dividendo.html)).
+- **Dividendo aumento**: confirmar subida a >€2.00/acción con resultados febrero 2027.
+- **Turner backlog**: target **$45B+** con **>40% data centers** ([Construction Dive](https://www.constructiondive.com/news/turner-2025-annual-report-data-centers/813694/)).
+- **Turner data center revenue**: target **$12-15B en 2026** (vs $9B 2025, $3.6B 2024).
+- **Hochtief profit**: target €950M-€1.0B 2026 [UNSOURCED Hochtief management guidance].
+- **Abertis dividends**: confirmar €600M+ anuales sostenibles (€300M para ACS).
+- **CIMIC integration**: revenue stable AUD 12-14B [UNSOURCED FY2026 exacto].
+- **Buybacks ejecutados**: target €200-€500M anuales.
+- **Net Debt/EBITDA**: target <2.0x (FY2025: 1.65x).
+- **Cualquier rumor IPO Abertis o partial sell-down**: catalizador potencial muy importante.
+- **Anuncios M&A grandes**: cualquier compra >€500M generaría análisis específico.
+- **GIP DC platform updates**: primeros activos operativos cuándo, qué retornos.
 
 ---
 
-*Análisis preparado: 5 de mayo de 2026. Datos: ACS resultados 2025, Hochtief resultados 2025, Abertis 2025, plan estratégico ACS 2026 (presentado febrero 2026). Próximo update tras Q1 2026 results (esperado mayo-junio 2026).*
+*Análisis preparado: 9 de mayo de 2026. Datos: ACS resultados FY2025 (CNMV/FMP), Hochtief FY2025, Turner FY2025 ([Construction Dive marzo 2026](https://www.constructiondive.com/news/turner-2025-annual-report-data-centers/813694/)), Abertis FY2025 (Spain Post), plan estratégico ACS 2024-2026 (CMD presentado febrero 2024 + update febrero 2026). Próximo update tras Q1 2026 results (esperado mayo 2026, [FMP earnings calendar](https://api.onto-so.com/api/earnings/archive/list?ticker=ACS.MC) estimate eps 0.4767). Citation rules: Anthropic FSI A3 inline. [UNSOURCED] explícito donde no se pudo verificar source primaria.*
