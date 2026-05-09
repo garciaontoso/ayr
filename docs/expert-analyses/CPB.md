@@ -1,8 +1,10 @@
-# CPB — Campbell Soup Company
+# CPB — The Campbell's Company (ex-Campbell Soup Company)
+
+> ⚠️ **NOTA IMPORTANTE (corrección 2026-05-10)**: La compañía se llama oficialmente **"The Campbell's Company"** desde el **19 de noviembre de 2024**, fecha en la que los accionistas votaron y aprobaron el rebrand para reflejar la transformación de la empresa más allá de las sopas (snacks ya pesa más que soup, ver segmentos abajo). El **ticker sigue siendo CPB** (sin cambio). Adicionalmente, el ticker **se trasladó del NYSE al NASDAQ Global Select Market el 16 de agosto de 2024** (operación voluntaria de listing transfer). En este documento "Campbell" o "Campbell's" se refiere a **The Campbell's Company** post-rebrand. La denominación legacy "Campbell Soup Company" solo aparece en filings históricos pre-Nov-2024.
 
 ## TL;DR
 
-Campbell Soup Company (ticker CPB) es la mítica empresa americana detrás de las latas de sopa rojas y blancas que aparecen en los cuadros de Andy Warhol. Pero la Campbell de hoy es **mucho más que sopas**: tras adquisiciones de Snyder's-Lance (2018, $6.1B), Sovos Brands (2023, $2.7B, marca Rao's de salsas premium) y Snyder's-Lance Pretzel & Snack, hoy genera **más ingresos en snacks que en sopas**. Es una empresa centenaria (fundada en 1869), con dividendo ininterrumpido desde 1902, pero NO es dividend aristocrat — recortó dividendo en 1999 tras el spin-off de Vlasic. Cotiza a $20.73 (caída del 60% desde el peak de $50 en 2022) reflejando temores GLP-1 + deuda alta + pérdida de cuota en sopas. Genera $700M de FCF (FY2025), paga $459M en dividendos (cobertura ~150% del FCF post-capex — holgada), dividend yield ~7.5% — uno de los más altos del SP500. Pero el ROE altísimo (15.4%) y el ROIC del 8% son señales de que el negocio **sigue teniendo calidad real**, solo enmascarada por la integración Sovos y los costes de transición. Para un dividendero pragmático que acepta que el mercado de sopas en lata declina pero que confía en que Campbell pivote vía snacks + salsas premium, es una **ACCUMULATE conservadora**.
+The Campbell's Company (ticker CPB, ex-Campbell Soup Company hasta noviembre 2024) es la mítica empresa americana detrás de las latas de sopa rojas y blancas que aparecen en los cuadros de Andy Warhol. Pero la Campbell de hoy es **mucho más que sopas**: tras adquisiciones de Snyder's-Lance (2018, $6.1B), Sovos Brands (2023, $2.7B, marca Rao's de salsas premium) y Snyder's-Lance Pretzel & Snack, hoy genera **más ingresos en snacks que en sopas**. Es una empresa centenaria (fundada en 1869), con dividendo ininterrumpido desde 1902, pero NO es dividend aristocrat — recortó dividendo en 1999 tras el spin-off de Vlasic. Cotiza a $20.73 (caída del 60% desde el peak de $50 en 2022) reflejando temores GLP-1 + deuda alta + pérdida de cuota en sopas. Genera $700M de FCF (FY2025), paga $459M en dividendos (cobertura ~150% del FCF post-capex — holgada), dividend yield ~7.5% — uno de los más altos del SP500. Pero el ROE altísimo (15.4%) y el ROIC del 8% son señales de que el negocio **sigue teniendo calidad real**, solo enmascarada por la integración Sovos y los costes de transición. Para un dividendero pragmático que acepta que el mercado de sopas en lata declina pero que confía en que Campbell pivote vía snacks + salsas premium, es una **ACCUMULATE conservadora**.
 
 **Veredicto:** ACCUMULATE.
 **Dividend safety:** 6/10.
@@ -12,7 +14,7 @@ Campbell Soup Company (ticker CPB) es la mítica empresa americana detrás de la
 
 ## ¿Qué hace?
 
-Campbell es un fabricante y distribuidor de comida envasada (CPG = Consumer Packaged Goods), centrada en dos grandes apuestas estratégicas:
+The Campbell's Company (rebrand oficial 19-nov-2024, ex-Campbell Soup Company; cotiza en NASDAQ desde 16-ago-2024 tras transfer desde NYSE) es un fabricante y distribuidor de comida envasada (CPG = Consumer Packaged Goods), centrada en dos grandes apuestas estratégicas:
 
 1. **Meals & Beverages ($6.4B aprox de los $10.3B ventas — 62%):**
    - Sopas: Campbell's Condensed (las latas rojas-blancas de toda la vida), Chunky, Well Yes!, Slow Kettle.
@@ -33,7 +35,7 @@ Campbell es un fabricante y distribuidor de comida envasada (CPG = Consumer Pack
 - **Beverages (V8 + Pacific):** $3,046M (29%).
 - **Baked Snacks (Pepperidge Farm + Snyder's-Lance):** $4,431M (43%).
 
-Esta nueva visualización es importante porque deja claro que **Snacks ya pesa más que Soups**. La narrativa "Campbell's es una empresa de sopas" está obsoleta — hoy es una empresa de snacks que sigue teniendo sopas.
+Esta nueva visualización es importante porque deja claro que **Snacks ya pesa más que Soups**. La narrativa "Campbell's es una empresa de sopas" está obsoleta — hoy es una empresa de snacks que sigue teniendo sopas. Esta es precisamente la motivación del rebrand de Nov-2024 a "The Campbell's Company": eliminar "Soup" del nombre legal porque ya no describe el negocio.
 
 **Modelo de negocio:** Construir y gestionar marcas con liderazgo de categoría. La fortaleza de Campbell está en marcas con cuota dominante: Swanson en caldos (~50%), Pace + Prego en sauces, Goldfish entre kids snacks (¿quién no ha comido Goldfish con 6 años?), Snyder's en pretzels. La debilidad: las sopas son un mercado en declive estructural (-1 a -3% volumen anual por una década) — los millennials no comen sopa de lata como sus abuelos.
 

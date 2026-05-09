@@ -1,13 +1,16 @@
-# National Retail Properties (NNN) — Análisis Experto
+# NNN REIT, Inc. (NNN) — Análisis Experto
+
+> ⚠️ **NOTA IMPORTANTE (corrección 2026-05-10)**: La compañía cambió oficialmente su nombre legal de **"National Retail Properties, Inc." a "NNN REIT, Inc." con efecto 1 de mayo de 2023**, comenzando a operar bajo el nuevo nombre el **8 de mayo de 2023** (lunes después del weekend de implementación). El **ticker sigue siendo NNN** (sin cambio) y cotiza en NYSE. La motivación del rebrand fue (1) alinear el nombre comercial con el ticker que el mercado ya usaba desde décadas, y (2) reflejar mejor la naturaleza REIT especializada en triple-net (el doble "N" en "NNN" históricamente significaba "Net-Net-Net lease"). En este documento "NNN" o "NNN REIT" hace referencia a la entidad post-rebrand. Filings históricos pre-mayo-2023 figuran como "National Retail Properties, Inc."
 
 ## TL;DR
 - **Veredicto**: ACUMULAR
 - **Score**: 82/100
-- **Por qué**: NNN es uno de los REITs más prudentes y conservadores del mundo. Especialista en triple-net lease (el inquilino paga TODO: impuestos, seguros, mantenimiento), 35 años subiendo dividendo (Aristócrata futuro King), portfolio de 3,500+ propiedades retail con ocupación del 99%. Yield 5.43%, payout sobre AFFO del 70%, balance sólido. Quizás el REIT mejor gestionado para un inversor que prioriza la seguridad del dividendo sobre el crecimiento. Cotiza en mínimos de 5 años por la presión de tipos altos.
+- **Razón social actual**: NNN REIT, Inc. (rebrand efectivo 1-may-2023, antes "National Retail Properties, Inc.")
+- **Por qué**: NNN REIT es uno de los REITs más prudentes y conservadores del mundo. Especialista en triple-net lease (el inquilino paga TODO: impuestos, seguros, mantenimiento), 35 años subiendo dividendo (Aristócrata futuro King), portfolio de 3,500+ propiedades retail con ocupación del 99%. Yield 5.43%, payout sobre AFFO del 70%, balance sólido. Quizás el REIT mejor gestionado para un inversor que prioriza la seguridad del dividendo sobre el crecimiento. Cotiza en mínimos de 5 años por la presión de tipos altos.
 
 ## ¿Qué hace esta empresa?
 
-NNN es el ejemplo perfecto del modelo de negocio "triple-net lease" llevado al extremo. Si quieres entender por qué Warren Buffett habla bien de los REITs net-lease, NNN es el ejemplo.
+NNN REIT, Inc. (ex-National Retail Properties hasta mayo 2023) es el ejemplo perfecto del modelo de negocio "triple-net lease" llevado al extremo. Si quieres entender por qué Warren Buffett habla bien de los REITs net-lease, NNN es el ejemplo.
 
 ### El modelo "triple-net lease" explicado
 Cuando alquilas un piso normal, tú pagas el alquiler y el dueño paga IBI, seguro y mantenimiento del edificio. En un "triple-net lease":
@@ -223,7 +226,7 @@ Tres defensas:
 
 ## Mi veredicto final
 
-National Retail Properties es uno de los REITs MEJOR GESTIONADOS del mundo. 35 años subiendo dividendo (Aristócrata, futura corona en 15 años), ocupación del 99%, balance prudente con BBB+ rating, modelo triple-net que protege contra inflación de costes, diversificación extrema en tenants y geografía. Yield del 5.44% — el más alto desde la crisis de 2008-09. Para un dividend investor que prioriza seguridad sobre crecimiento, NNN es CASI PERFECTO.
+NNN REIT, Inc. (ex-National Retail Properties hasta mayo 2023) es uno de los REITs MEJOR GESTIONADOS del mundo. 35 años subiendo dividendo (Aristócrata, futura corona en 15 años), ocupación del 99%, balance prudente con BBB+ rating, modelo triple-net que protege contra inflación de costes, diversificación extrema en tenants y geografía. Yield del 5.44% — el más alto desde la crisis de 2008-09. Para un dividend investor que prioriza seguridad sobre crecimiento, NNN es CASI PERFECTO.
 
 **Mi recomendación**: peso target 3-4% de cartera. A precio actual $43 está claramente barato. Si baja a $40 (yield 5.95%), acumular agresivamente al 4%. Si sube a $55+, trim al 2.5%. La tesis se valida si:
 - Mantiene ocupación > 98%.

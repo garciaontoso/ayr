@@ -169,6 +169,87 @@
 - **Archivos**: `frontend/src/components/views/HomeView.jsx` linea ~1294
 - **Commit**: 2026-05-03
 
+### Bug #014 — `market_value` en moneda nativa interpretado como USD (cálculo de pesos × 7.78 inflado)
+- **Síntoma**: Audit de concentración cartera reportó China/HKEX 20.4% NAV cuando real era 3.1%. Recomendaciones de TRIM disparadas erróneamente. Thesis HKG:2219 v2 creado con "concentration trigger DISPARADO 4.0%" cuando posición real era 0.5% NAV.
+- **Causa raíz**: El campo `positions.market_value` reporta valor en **moneda nativa del listing** (HKD para HKG:*, EUR para .MC/.PA, GBP para .L). Si se suma directo y se compara contra NAV USD, multi-currency holdings quedan inflados (HKD ≈ 7.78× su USD).
+- **Fix**: Usar SIEMPRE `positions.usd_value` para cálculos de pesos / concentración / NAV. El campo `market_value` es solo para display nativo.
+- **Prevención**:
+  - Cualquier código que itere posiciones para calcular `weight_pct` debe usar `usd_value`.
+  - Tests Vitest (regression #014): valida que `weight_pct` para HKG:* coincide con `usd_value/NAV`, no `market_value/NAV`.
+  - El endpoint `/api/theses/missing` ya usa `market_value` directamente (línea ~17759 worker.js) — auditar si las cuentas son todas USD; si no, hay que corregir también ese cálculo.
+- **Archivos**: cualquier código que itera `/api/positions` y suma `market_value` para weights. Ejemplo del bug: análisis manual en sesión 2026-05-09.
+- **Detección**: agente cross-check `usd_value × fx → market_value` debería matchear. Si ratio no es 1.0 para USD currencies o ~7.78 para HKD, algo está mal.
+- **Commit**: 2026-05-10
+
+### Bug #015 — IB Flex token caducado → 9 días silent failure cron
+- **Síntoma**: Dividendos y trades de últimos 9 días (2026-05-01 a 2026-05-09) no aparecían en cartera. Usuario notó manualmente.
+- **Causa raíz**: `IB_FLEX_TOKEN` (Cloudflare Worker secret) caducó. El cron `30 7 * * 1-5` (CF Worker) y `30 8 * * 1-5` (Mac sync-flex.sh) seguían ejecutándose pero todas las requests a IB Flex Web Service devolvían 403 "Access Denied". Los errores iban al log `/tmp/ib-flex-sync.log` que macOS purga al reboot. Sin Telegram alert, fallo invisible 9 días.
+- **Fix immediate**: regenerar token en IB Account Management → Settings → Reports → Flex Web Service. Subir nuevo token con `wrangler secret put IB_FLEX_TOKEN`. Actualizar `sync-flex.sh` con nuevo valor.
+- **Prevención (CRÍTICA)**:
+  - **Freshness check**: `/api/audit/full` debe verificar `MAX(fecha) FROM dividendos` y `MAX(date) FROM cost_basis`. Si gap > 5 días desde hoy (excluyendo weekends) → Telegram CRITICAL.
+  - **Log persistente**: cron Mac → log a `~/Library/Logs/ayr-sync-flex.log` (no `/tmp`).
+  - **Self-test cron**: el script Mac debe verificar `<Status>Success</Status>` en respuesta XML; si encuentra `<ErrorCode>` → echo a stderr + exit 1 (cron mailx alert).
+  - **launchd con WakeUp**: cambiar de `crontab` a launchd plist con `<key>WakeUpForSchedule</key><true/>` para que despierte el Mac si está dormido.
+- **Archivos**: `api/sync-flex.sh`, `api/src/worker.js` `/api/audit/full`, `~/.crontab`
+- **Lección meta**: SIEMPRE freshness alert para data-pulling crons. Anti-pattern: cron que falla silentemente. Ya documentado en memoria `feedback_silent_failures.md` pero ahora con caso concreto.
+- **Commit**: 2026-05-10
+
+### Bug #016 — IB Bridge container exits sin auto-restart
+- **Síntoma**: Container `ib-gateway` en NAS Synology pasaba de `running healthy` a `exited` periódicamente. NAV/positions/quotes endpoints intermittent 503.
+- **Causa raíz**: ib-gateway requiere 2FA challenge cada ~24h. Si no se acepta el push notification en app móvil IBKR, container se queda en limbo y eventualmente exited. CLAUDE.md explícitamente menciona "Sin AUTO_RESTART_TIME (evita 2FA forzoso durante vuelos del usuario)" — trade-off conocido.
+- **Fix immediate**: `/api/ib-bridge/control/start` arranca container, user acepta 2FA en app IBKR.
+- **Prevención**:
+  - Telegram alert si `/api/ib-bridge/control/status` reporta `state: exited` durante >2h.
+  - Frontend `IBControlButton` ya muestra 🔴/🟡/🟢 — extender con badge "?" si state estable >24h sin reinicio.
+  - **NO añadir AUTO_RESTART_TIME** (rompe vuelos sin 2FA disponible).
+- **Archivos**: NAS Synology, frontend `IBControlButton`, posible nuevo `/api/health/ib-bridge` con SLA monitoring.
+- **Commit**: 2026-05-10
+
+### Bug #017 — Identidades de ticker incorrectas en análisis viejos (5 casos)
+- **Síntoma**: Análisis Veredicto Experto describían empresas distintas a las que el ticker realmente apunta:
+  - HKG:1052 narrative = Yue Yuen Industrial (footwear) → real = Yuexiu Transport (toll roads)
+  - RHI narrative = RHI Magnesita NV (UK refractarios) → real = Robert Half Inc (US staffing)
+  - HKG:9616 narrative = "Specialty Business Services / Industrials" → real = Neutech Group (educación China, ex-Neusoft Education rebrand 2025-01-09)
+  - LANDP narrative = Series B perpetual non-cumulative → real = Series **C**, perpetual, **cumulative**
+  - RAND narrative = Randstad NV (workforce) → real = Rand Capital BDC (fix anterior commit a01ba2b)
+- **Causa raíz**: Tickers cortos coinciden con múltiples empresas en distintas bolsas. Sin verificación cruzada explícita, el análisis describía la empresa "más famosa" en lugar de la del ticker real en positions.
+- **Fix**: Reescritos los 5 análisis verificando identidad contra HKEX/SEC/Bloomberg.
+- **Prevención**:
+  - **Identity check obligatorio**: cualquier rewrite de Veredicto Experto debe empezar con curl al `/api/positions/{TICKER}` para ver `name` real, comparar contra el primer paragraph del narrative.
+  - **Endpoint nuevo**: `/api/audit/identity` que compara `positions.name` vs primer line del `expert_analyses.narrative`. Flag si tokens significativos no matchean.
+  - **WebSearch validation** para HKEX/foreign tickers donde colisiones son más probables.
+- **Archivos**: 5 análisis reescritos (commits c6811db, ebb6ccc, c58f8d2, 760766e), endpoint `/api/audit/unsourced` ya existe.
+- **Commit**: 2026-05-09 → 2026-05-10
+
+### Bug #018 — Theses con triggers ya disparados sin actualización
+- **Síntoma**: Theses v1 de 2026-04-07 con triggers tipo "trigger SELL: dividend cut" mientras realidad ya había ejecutado el cut hace 5+ meses (caso ARE −45% dic-2025). Posición sigue holdeada, thesis no refleja realidad.
+- **Causa raíz**: No hay refresh automático que cross-check thesis triggers contra datos actuales. Theses son "set and forget" desde abril.
+- **Fix**: Theses v2 actualizadas para 6 holdings (ARE, CLPR, IIPR, MSDL, TEF.MC, HKG:9618).
+- **Prevención**:
+  - **Cron mensual** que compara cada thesis trigger contra Q+S inputs + recent earnings → flag si trigger probable disparado.
+  - **UI badge** en VeredictoExpertoTab: "⚠️ thesis v1 stale 30+ días, post Q1 2026 results" si hay nuevo earnings update sin refresh thesis.
+  - **Telegram alert** mensual con tickers que necesitan thesis refresh.
+- **Archivos**: 6 theses v2 (commit a9f5954), endpoint `/api/theses` puede extenderse con field `last_validated_at`.
+- **Commit**: 2026-05-09
+
+### Bug #019 — `market_value` en `/api/theses/missing` puede inflar weights multi-currency
+- **Síntoma**: Misma raíz que Bug #014 pero específicamente afecta `/api/theses/missing` endpoint que usa `market_value` directo para calcular `weight_pct` y filtrar holdings >0.5% NAV sin thesis.
+- **Causa raíz**: Línea 17759 worker.js suma `market_value` para `total` y filtra. Si todas las posiciones son USD, OK. Pero si hay posiciones en HKD/EUR/GBP/CAD/AUD, los pesos son moneda mezclada (incorrecto).
+- **Fix**: Reemplazar `market_value` por `usd_value` en endpoint missing + cualquier otro endpoint similar.
+- **Prevención**: misma que Bug #014.
+- **Archivos**: `api/src/worker.js` línea ~17759 endpoint `/api/theses/missing`.
+- **Commit**: pendiente fix
+
+### Bug #020 — IB Flex query CLAUDE FULL incompatible con Web Service API (error 1020)
+- **Síntoma**: Token nuevo + query existente da error 1020 "Invalid request or unable to validate request" en `SendRequest` API. Mismo error desde browser, Mac, sandbox, Cloudflare Worker — independiente de IP.
+- **Causa raíz**: Query template "CLAUDE FULL" tiene demasiadas Sections marcadas (Account Information con 37 fields, Borrow Fees Details, etc.) — output XML excede límite Web Service. Period 365 días + 4 cuentas + sub-accounts F (`U7257686F`, `U7953378F` que ya no existen) agrava el problema.
+- **Fix**: download manual XML desde web → POST a `/api/ib-flex-import`. O crear query nueva minimal (Trades + CashTransactions + Transfers, Period 30 days, 4 accounts) específicamente para Web Service.
+- **Prevención**:
+  - Documentar workflow: Web Service queries deben tener < N sections, periods cortos, accounts validadas.
+  - Implementar **fallback automático**: si `/api/ib-flex-sync` da 1020 dos veces seguidas, Telegram CRITICAL pidiendo XML manual download.
+- **Archivos**: `api/sync-flex.sh`, `api/src/worker.js` `/api/ib-flex-sync`.
+- **Commit**: 2026-05-10
+
 ---
 
 ## 📊 Estadísticas hoy 2026-05-03

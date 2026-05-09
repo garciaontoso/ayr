@@ -7502,6 +7502,224 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return json({ ok: true, summary, audit, generated_at: new Date().toISOString() }, corsHeaders);
       }
 
+      // GET /api/health/check — comprehensive health check de toda la app.
+      // Detecta silent failures: data freshness, secrets caducados, bridge OFF,
+      // cron jobs sin run reciente. Devuelve summary + items con severity.
+      // Diseñado para evitar regresiones del incidente 2026-05-09 (Flex token
+      // caducado 9 días sin alert) y similares (Bug #015 en docs/bug-patterns.md).
+      if (path === "/api/health/check" && request.method === "GET") {
+        await ensureMigrations(env);
+        const checks = [];
+        const now = Date.now();
+        const isWeekday = (d) => { const day = new Date(d).getDay(); return day >= 1 && day <= 5; };
+        const businessDaysSince = (dateStr) => {
+          if (!dateStr) return 999;
+          const start = new Date(dateStr).getTime();
+          const today = now;
+          let days = 0;
+          for (let t = start; t < today; t += 86400000) {
+            if (isWeekday(t)) days++;
+          }
+          return days;
+        };
+
+        // 1) Cost basis freshness — last trade date
+        try {
+          const r = await env.DB.prepare(
+            `SELECT MAX(fecha) as last_date FROM cost_basis WHERE tipo IN ('EQUITY','OPTION') AND fecha IS NOT NULL AND fecha NOT LIKE '%null%'`
+          ).first();
+          const lastDate = r?.last_date || null;
+          const bdays = businessDaysSince(lastDate);
+          checks.push({
+            id: "cost_basis_freshness",
+            label: "Trades sync (cost_basis)",
+            value: lastDate || "no data",
+            business_days_ago: bdays,
+            severity: bdays > 5 ? "critical" : bdays > 3 ? "warn" : "ok",
+            note: bdays > 5 ? "Probable IB Flex sync broken (Bug #015). Check IB_FLEX_TOKEN." : null,
+          });
+        } catch (e) {
+          checks.push({ id: "cost_basis_freshness", severity: "error", error: e.message });
+        }
+
+        // 2) Dividendos freshness — last payment
+        try {
+          const r = await env.DB.prepare(
+            `SELECT MAX(fecha) as last_date FROM dividendos WHERE fecha IS NOT NULL`
+          ).first();
+          const lastDate = r?.last_date || null;
+          const bdays = businessDaysSince(lastDate);
+          checks.push({
+            id: "dividendos_freshness",
+            label: "Dividendos sync",
+            value: lastDate || "no data",
+            business_days_ago: bdays,
+            severity: bdays > 7 ? "critical" : bdays > 5 ? "warn" : "ok",
+            note: bdays > 7 ? "Cron Flex no sincroniza dividendos. Check log ~/Library/Logs/ayr-sync-flex.log" : null,
+          });
+        } catch (e) {
+          checks.push({ id: "dividendos_freshness", severity: "error", error: e.message });
+        }
+
+        // 3) Positions freshness — last update
+        try {
+          const r = await env.DB.prepare(
+            `SELECT MAX(updated_at) as last_update FROM positions WHERE shares > 0`
+          ).first();
+          const lastUpd = r?.last_update;
+          const bdays = lastUpd ? businessDaysSince(lastUpd.slice(0,10)) : 999;
+          checks.push({
+            id: "positions_freshness",
+            label: "Positions live (IB Bridge)",
+            value: lastUpd || "no data",
+            business_days_ago: bdays,
+            severity: bdays > 3 ? "critical" : bdays > 1 ? "warn" : "ok",
+            note: bdays > 3 ? "IB Bridge probable OFF (Bug #016). Check /api/ib-bridge/control/status" : null,
+          });
+        } catch (e) {
+          checks.push({ id: "positions_freshness", severity: "error", error: e.message });
+        }
+
+        // 4) NLV history freshness (col is `fecha` not `date`)
+        try {
+          const r = await env.DB.prepare(
+            `SELECT MAX(fecha) as last_date FROM nlv_history`
+          ).first();
+          const lastDate = r?.last_date || null;
+          const bdays = businessDaysSince(lastDate);
+          checks.push({
+            id: "nlv_freshness",
+            label: "NLV history",
+            value: lastDate || "no data",
+            business_days_ago: bdays,
+            severity: bdays > 5 ? "warn" : "ok",
+          });
+        } catch (e) {
+          checks.push({ id: "nlv_freshness", severity: "error", error: e.message?.slice(0, 200) });
+        }
+
+        // 5) IB Bridge state (best-effort, do not block)
+        try {
+          const bridgeRes = await ibBridgeFetch(env, "/control/status").catch(() => null);
+          const running = bridgeRes?.running === true;
+          const health = bridgeRes?.health || "unknown";
+          checks.push({
+            id: "ib_bridge_state",
+            label: "IB Bridge container",
+            value: running ? `running ${health}` : (bridgeRes?.state || "unreachable"),
+            severity: running && health === "healthy" ? "ok" : (running ? "warn" : "critical"),
+            note: !running ? "Container exited (Bug #016). User must accept 2FA in IBKR mobile app." : null,
+          });
+        } catch (e) {
+          checks.push({ id: "ib_bridge_state", severity: "warn", error: e.message?.slice(0, 200) });
+        }
+
+        // 6) Anthropic API key — light test (no actual call to avoid cost)
+        const hasAnthropicKey = !!env.ANTHROPIC_API_KEY;
+        checks.push({
+          id: "anthropic_key",
+          label: "ANTHROPIC_API_KEY secret configured",
+          value: hasAnthropicKey ? "present" : "MISSING",
+          severity: hasAnthropicKey ? "ok" : "critical",
+          note: hasAnthropicKey ? null : "Cron AI agents will fail. Run: wrangler secret put ANTHROPIC_API_KEY",
+        });
+
+        // 7) IB Flex token presence (no actual call — only secret check)
+        const hasFlexToken = !!env.IB_FLEX_TOKEN;
+        checks.push({
+          id: "ib_flex_token",
+          label: "IB_FLEX_TOKEN secret",
+          value: hasFlexToken ? "present" : "MISSING",
+          severity: hasFlexToken ? "ok" : "critical",
+        });
+
+        // 8) Earnings updates pending (auto-update endpoint)
+        try {
+          const cutoff = new Date(now - 7 * 86400000).toISOString().slice(0, 10);
+          const r = await env.DB.prepare(
+            `SELECT COUNT(*) as cnt FROM earnings_calendar
+             WHERE earnings_date >= date('now','-30 days') AND earnings_date <= date('now')
+             AND ticker NOT IN (SELECT ticker FROM earnings_updates WHERE date >= date('now','-30 days'))`
+          ).first().catch(() => ({ cnt: 0 }));
+          const pending = r?.cnt || 0;
+          checks.push({
+            id: "earnings_updates_pending",
+            label: "Earnings reportados sin update",
+            value: `${pending} pendientes`,
+            severity: pending > 3 ? "warn" : "ok",
+          });
+        } catch {}
+
+        // 9) Theses stale (>60 days)
+        try {
+          const r = await env.DB.prepare(
+            `SELECT COUNT(*) as cnt FROM theses WHERE is_current = 1 AND date(updated_at) < date('now','-60 days')`
+          ).first();
+          const stale = r?.cnt || 0;
+          checks.push({
+            id: "theses_stale",
+            label: "Theses sin refresh >60d",
+            value: `${stale} stale`,
+            severity: stale > 30 ? "warn" : "ok",
+            note: stale > 30 ? "Probable triggers ya disparados (Bug #018)" : null,
+          });
+        } catch {}
+
+        // 10) Tier_low UNSOURCED analyses
+        try {
+          const r = await env.DB.prepare(
+            `SELECT COUNT(*) as cnt FROM expert_analyses WHERE narrative IS NOT NULL`
+          ).first();
+          const total = r?.cnt || 0;
+          checks.push({
+            id: "expert_analyses_count",
+            label: "Expert analyses count",
+            value: `${total} análisis`,
+            severity: "ok",
+          });
+        } catch {}
+
+        const summary = {
+          total: checks.length,
+          ok: checks.filter(c => c.severity === "ok").length,
+          warn: checks.filter(c => c.severity === "warn").length,
+          critical: checks.filter(c => c.severity === "critical").length,
+          error: checks.filter(c => c.severity === "error").length,
+        };
+        const overall_status = summary.critical > 0 ? "critical" : summary.warn > 0 ? "warn" : summary.error > 0 ? "warn" : "ok";
+
+        // Telegram alert if critical (rate-limited via key in app_config)
+        if (summary.critical > 0) {
+          try {
+            const lastAlert = await env.DB.prepare(
+              `SELECT value FROM app_config WHERE key = 'last_health_critical_alert'`
+            ).first().catch(() => null);
+            const lastTs = lastAlert?.value ? new Date(lastAlert.value).getTime() : 0;
+            const HOURS_4 = 4 * 60 * 60 * 1000;
+            if (now - lastTs > HOURS_4) {
+              const criticalItems = checks.filter(c => c.severity === "critical");
+              const lines = [`🚨 *A&R Health Check CRITICAL*`, ``];
+              for (const c of criticalItems) {
+                lines.push(`*${c.label}*: ${c.value}`);
+                if (c.note) lines.push(`  ${c.note}`);
+              }
+              await sendTelegram(env, { text: lines.join("\n"), severity: "critical", source: "health_check" });
+              await env.DB.prepare(
+                `INSERT OR REPLACE INTO app_config (key, value) VALUES ('last_health_critical_alert', ?)`
+              ).bind(new Date().toISOString()).run().catch(() => {});
+            }
+          } catch (e) { /* swallow alert failures */ }
+        }
+
+        return json({
+          ok: true,
+          status: overall_status,
+          summary,
+          checks,
+          generated_at: new Date().toISOString(),
+        }, corsHeaders);
+      }
+
       // GET /api/audit/full — audit holístico que mira positions, cost_basis,
       // dividendos, fundamentals (financial years). Devuelve issues por
       // categoría para que el frontend pueda mostrarlos en cada tab.
@@ -12065,7 +12283,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         try {
           const flexToken = env.IB_FLEX_TOKEN;
           if (!flexToken) return json({ error: "IB_FLEX_TOKEN not configured" }, corsHeaders, 500);
-          const queryId = url.searchParams.get("queryId") || "1452278";
+          const queryId = url.searchParams.get("queryId") || env.IB_FLEX_QUERY_ID || "1503189";
 
           // Step 1: SendRequest
           const sendUrl = `https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService/SendRequest?t=${flexToken}&q=${queryId}&v=3`;
@@ -12160,7 +12378,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       if (path === "/api/ib-flex-sync" && request.method === "POST") {
         try {
           const FLEX_TOKEN = env.IB_FLEX_TOKEN;
-          const QUERY_ID = "1452278";
+          const QUERY_ID = env.IB_FLEX_QUERY_ID || "1503189";
 
           // Step 1: Request Flex statement
           const sendResp = await fetch(`https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService/SendRequest?t=${FLEX_TOKEN}&q=${QUERY_ID}&v=3`);
@@ -17752,15 +17970,17 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         // Threshold configurable via query param ?min_weight=0 (default 0.5%
         // to include smaller positions but still exclude noise / cash ETFs).
         const minWeight = Number(url.searchParams.get("min_weight") ?? "0.5");
-        // Compute weights in-app (positions table has market_value)
+        // 2026-05-10 Bug #019 fix: usar usd_value (no market_value) para
+        // calcular pesos. market_value reporta moneda nativa (HKD/EUR/GBP)
+        // y al sumar inflaba weights HKEX 7.78x. usd_value siempre USD.
         const { results: positions } = await env.DB.prepare(
-          "SELECT ticker, name, market_value FROM positions WHERE shares > 0"
+          "SELECT ticker, name, COALESCE(usd_value, market_value, 0) AS pos_value FROM positions WHERE shares > 0"
         ).all();
-        const total = positions.reduce((s, p) => s + (p.market_value || 0), 0);
+        const total = positions.reduce((s, p) => s + (p.pos_value || 0), 0);
         const weighted = positions.map(p => ({
           ticker: p.ticker,
           name: p.name,
-          weight_pct: total > 0 ? (p.market_value / total) * 100 : 0,
+          weight_pct: total > 0 ? (p.pos_value / total) * 100 : 0,
         })).filter(p => p.weight_pct >= minWeight);
         const { results: thesesRows } = await env.DB.prepare(
           "SELECT ticker FROM theses WHERE is_current = 1"

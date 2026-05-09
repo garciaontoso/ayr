@@ -1,6 +1,8 @@
 # OZON — Ozon Holdings PLC
 
-> **Análisis experto didáctico** | Fecha: 2026-05-03 | Sector: Consumer cyclical / Specialty retail / E-commerce | Domicilio: Cyprus | Mercado: Russia | Moneda: USD (cotización) / RUB (operaciones)
+> **Análisis experto didáctico** | Fecha: 2026-05-03 (refresh 2026-05-10 cronología delisting) | Sector: Consumer cyclical / Specialty retail / E-commerce | Domicilio: Rusia (Kaliningrad SAR, redomiciliada desde Cyprus) | Mercados activos: AIX (Astana International Exchange) + MOEX | Moneda: USD (AIX) / RUB (operaciones y MOEX)
+
+> ⚠️ **NOTA IMPORTANTE (corrección 2026-05-10)**: Las ADRs de Ozon **fueron formalmente DELISTADAS de NASDAQ en noviembre de 2023** (no solo suspendidas). El trading público de Ozon hoy ocurre en **AIX (Astana International Exchange, Kazajistán)** desde junio 2024 y en **MOEX** (Moscú). Los foreign holders con cuenta en brokers occidentales (incluido IB USA) **siguen sin poder operar** la posición porque el delisting cerró la vía NASDAQ y AIX/MOEX no son rutables desde IB residente USA. La narrativa "trading suspendido en NASDAQ" usada en versiones anteriores estaba desactualizada — el escenario correcto es "delisted de USA + relisted en jurisdicciones euroasiáticas".
 
 ---
 
@@ -8,7 +10,7 @@
 
 Ozon es el **"Amazon de Rusia"** — el mayor e-commerce ruso por volumen, con marketplace + logistics + fintech (Ozon Card, Ozon Bank). Operativamente la empresa ha sido una **historia de éxito**: revenue creció de RUB 60B (2019) a RUB 424B (2023), pasaron de quemar caja a generar OCF positivo, ya tienen >40M clientes activos, y son la **principal alternativa logística** a Wildberries en Rusia.
 
-**PERO**: Ozon está en una situación **legalmente y geopolíticamente atrapada**. Cotiza en NASDAQ desde 2020 pero **el trading está suspendido desde marzo 2022** por las sanciones occidentales contra Rusia post-invasión Ucrania. Para los accionistas occidentales (incluido tú con cuenta IB) las acciones son **literalmente illiquidas** — no se pueden comprar ni vender en mercado público USA. El precio "$11.60" que ves es nominal, no tradeable. Existe un mercado secundario en Moscú (MOEX) donde sí se transa, pero los foreign holders no pueden mover allí.
+**PERO**: Ozon está en una situación **legalmente y geopolíticamente atrapada**. Cotizó en NASDAQ desde 2020 pero el trading se **suspendió en marzo 2022** por las sanciones occidentales contra Rusia post-invasión Ucrania, y NASDAQ **delistó formalmente las ADRs en noviembre de 2023**. Hoy Ozon trade activamente solo en **MOEX** (Moscú) y **AIX** (Astana International Exchange, Kazajistán, listada desde junio de 2024). Para los accionistas occidentales (incluido tú con cuenta IB) las acciones siguen siendo **literalmente ilíquidas** — el delisting cerró la vía NASDAQ y MOEX/AIX no son rutables desde IB residente USA. El precio "$11.60" que aparece en sistemas legacy es el último cierre NASDAQ pre-suspensión 2022, no es tradeable.
 
 **Veredicto preliminar**: **SELL si puedes (poco probable), HOLD si estás atrapado**. La situación es de "dead money" indefinido. **NO añadir en ningún caso**. La compañía operativa puede ser excelente, pero la disponibilidad de los retornos para ti es nula. No es un dividend play (nunca ha pagado dividendo y no lo hará — están todavía en growth mode).
 
@@ -60,15 +62,16 @@ Competencia es **brutal**. Wildberries es agresiva en precios. Ozon ha tenido qu
 
 ## La situación geopolítica (lo que importa para el inversor occidental)
 
-### Cronología
+### Cronología (actualizada 2026-05-10)
 
 - **2020 (Octubre)**: Ozon IPO en NASDAQ (ADR), también lista en MOEX. Stock $30-50, market cap pico ~$10-12B.
 - **Febrero 2022**: invasión de Rusia a Ucrania.
-- **Marzo 2022**: NASDAQ suspende trading de Ozon (junto a Yandex, Mail.ru/VK, Polymetal, otros). Las ADRs ya no se pueden vender en USA.
-- **2022-2024**: Ozon sigue operando normalmente en Rusia, expandiéndose. Pero los accionistas occidentales (incluyendo BlackRock, fondos europeos, retail) están **bloqueados**.
-- **2024**: emerge mercado secundario gris donde algunos holders venden a russios a 50-70% descuento.
-- **Marzo 2025**: Ozon anuncia "**Russian re-domiciliation**" — moverá su sede legal de Cyprus a Rusia (Kaliningrad SAR — Special Administrative Region). Esto les permitiría delistar de NASDAQ formalmente y simplificar estructura.
-- **Hoy (Mayo 2026)**: re-domiciliation parcialmente completada. Las ADRs **siguen suspendidas en USA**. Los holders occidentales **no han podido tradear desde Marzo 2022**.
+- **Marzo 2022**: NASDAQ **suspende** trading de Ozon (junto a Yandex, Mail.ru/VK, Polymetal, otros). Las ADRs ya no se pueden vender en USA.
+- **2022-2023**: Ozon sigue operando normalmente en Rusia, expandiéndose. Los accionistas occidentales (incluyendo BlackRock, fondos europeos, retail) quedan **bloqueados**.
+- **Noviembre 2023**: NASDAQ **delista formalmente las ADRs** (Form 25-NSE). Termina la fase "suspendida" y entra fase "delisted". El ticker desaparece del mercado regulado USA.
+- **Junio 2024**: Ozon **lista sus shares en AIX (Astana International Exchange, Kazajistán)**, abriendo una vía de trading USD denominada para inversores que puedan acceder a custodia en Asia Central.
+- **Marzo 2025**: Ozon completa "**Russian re-domiciliation**" — mueve sede legal de Cyprus a Rusia (Kaliningrad SAR — Special Administrative Region). La nueva entidad rusa es "MKPAO Ozon".
+- **Hoy (Mayo 2026)**: re-domiciliation completada. Trading activo en **MOEX + AIX**. Las ADRs ex-NASDAQ están **delistadas (no suspendidas)** desde noviembre 2023. Los holders occidentales con cuentas en IB/Schwab/Fidelity USA **no han podido tradear desde marzo 2022**, y la vía NASDAQ ya no existe — solo quedaría rerouting via MOEX/AIX, no accesible desde IB USA.
 
 ### Las opciones para el holder occidental
 
@@ -90,11 +93,11 @@ Competencia es **brutal**. Wildberries es agresiva en precios. Ozon ha tenido qu
 
 ### Lo que aplica a ti (residente fiscal China con cuenta IB)
 
-- **Tu posición Ozon**: actualmente **frozen** en IB. No puedes vender.
-- **Reportar en cuenta**: aparece con valor "$11.60" pero esto es el último precio NASDAQ pre-suspension (Marzo 2022) — **no es realizable**.
-- **El "valor real" en MOEX**: ~RUB 4,500-5,000 al cambio actual = ~$45-50 USD por share. PERO no puedes acceder a MOEX desde IB.
-- **Pérdida de valor visible (USA)**: -100% efectivo (ilíquido).
-- **Pérdida real de mercado (MOEX)**: ~-25% a -50% desde IPO (depending on valuation date).
+- **Tu posición Ozon**: **frozen** en IB. No puedes vender — el ADR fue delistado de NASDAQ en noviembre 2023.
+- **Reportar en cuenta**: aparece con valor "$11.60" pero esto es el último precio NASDAQ pre-suspensión (Marzo 2022) — **no es realizable**. Tras el delisting Nov-2023 la línea queda como "delisted security" sin precio mark.
+- **El "valor real" en MOEX/AIX**: en MOEX el ticker OZON cotiza en torno a RUB 3,500-5,000 (rango 2025-2026); en AIX las shares cotizan en USD pero los volúmenes son bajos. PERO no puedes acceder a ninguno de los dos mercados desde IB residente USA.
+- **Pérdida de valor visible (USA)**: -100% efectivo (delisted, ilíquido).
+- **Pérdida real de mercado (MOEX)**: variable, depende del precio MOEX en cada momento — orientativamente -30% a -60% desde el peak NASDAQ 2021 [UNSOURCED — varía con tipo de cambio RUB/USD y momento de valoración].
 
 ---
 
@@ -218,9 +221,9 @@ En marzo 2025, Ozon anunció movimiento de la sede legal **a Kaliningrad SAR** (
 - Estabilidad regulatoria (en Cyprus quedaban dudas sobre exposure to EU sanctions).
 
 **Implicaciones**:
-- ADRs de NASDAQ teóricamente convertibles a shares MOEX.
-- Foreign holders están "stuck" — los mecanismos de conversión NO son fáciles ni atractivos.
-- Holders desde 2022 tienen positions "frozen" indefinidamente.
+- ADRs de NASDAQ ya delistadas (noviembre 2023) — la línea de conversión "ADR → share local" ahora pasa por DTC/depositary procesos legacy, no por trading regulado.
+- Foreign holders están "stuck" — los mecanismos de conversión a MOEX/AIX NO son fáciles ni atractivos para residentes en jurisdicción USA/EU.
+- Holders desde 2022 tienen positions "frozen" indefinidamente, aún más cerradas tras el delisting formal de Nov-2023.
 
 ### Type-A vs Type-C accounts
 
@@ -264,7 +267,7 @@ Si Ozon sigue similar path, holders pueden esperar:
 
 ### Operative governance
 
-A pesar del SEC delisting indirect, Ozon sigue published trimestre results to Russian regulators. Los datos circulan en mercados grises.
+A pesar del NASDAQ delisting formal de noviembre 2023, Ozon sigue publicando resultados trimestrales a reguladores rusos (MOEX disclosure) y, desde Q3 2024, a AIX. Los datos circulan en mercados grises y públicamente vía MOEX/AIX filings.
 
 ### Key challenges 2024-2026
 
