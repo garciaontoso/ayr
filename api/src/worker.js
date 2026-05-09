@@ -7201,6 +7201,24 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return json({ ok: true, ticker: sym, version: newVersion, updated_at: new Date().toISOString() }, corsHeaders);
       }
 
+      // DELETE /api/expert-analysis?ticker=X → borra current + history.
+      // Usado para cleanup de duplicados ticker format (e.g. BME.AMS vs BME:AMS).
+      if (path === "/api/expert-analysis" && request.method === "DELETE") {
+        await ensureMigrations(env);
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        const sym = (url.searchParams.get('ticker') || '').toUpperCase();
+        if (!sym) return json({ error: 'Missing ?ticker=' }, corsHeaders, 400);
+        const cur = await env.DB.prepare("DELETE FROM expert_analyses WHERE ticker = ?").bind(sym).run();
+        const hist = await env.DB.prepare("DELETE FROM expert_analyses_history WHERE ticker = ?").bind(sym).run();
+        return json({
+          ok: true,
+          ticker: sym,
+          deleted_current: cur.meta?.changes ?? 0,
+          deleted_history: hist.meta?.changes ?? 0,
+        }, corsHeaders);
+      }
+
       // GET /api/expert-analysis/history?ticker=X → todas las versiones
       // ordenadas por fecha desc, para mostrar evolución del veredicto.
       if (path === "/api/expert-analysis/history" && request.method === "GET") {
