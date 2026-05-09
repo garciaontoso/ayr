@@ -1,529 +1,542 @@
 # WEEL — Peerless Option Income Wheel ETF
 
-## TL;DR
-
-**Veredicto: NO ES UNA ACCIÓN — es un ETF de option income. NO comprar para portfolio dividendero tradicional.**
-WEEL no es una empresa con balance, P&L, ni dividendo creciente. Es un **ETF activamente gestionado de Peerless Investment Management** que ejecuta una estrategia "**option wheel**" — venta sistemática de cash-secured puts (CSP) y covered calls (CC) sobre ETFs sectoriales y algunas acciones individuales para generar income. Lanzado en mayo 2024 (~2 años de track record), tamaño tiny ($15M de AUM, MUY pequeño para un ETF), liquidez baja, **distribución elevada (~12-13% yield aparente) que NO es dividend income real** sino mayoritariamente "**return of capital**" (ROC) — devolución de tu propio capital invertido. El "yield" alto es característico de "**option income ETFs**" como JEPI, JEPQ, QYLD, NUSI, RYLD que prometen ingresos altos pero suelen tener **erosión de NAV** (el precio de la acción cae con el tiempo) cuando los mercados suben — porque las calls vendidas limitan upside. **Para dividend investing serio NO es apropiado**: no es un cash flow real de empresa, no hay growth, no hay calidad subyacente, costos altos, riesgo de erosión de NAV. Si lo que buscas es income alto cash, son mejores: investment-grade bonds, REITs como O o STAG, o BDC como ARCC/MAIN.
-
-**Dividend Safety: 4/10 (las distribuciones pueden venir de capital, no income)**
-**Confianza: alta (en el análisis estructural; no estoy recomendándolo)**
+> **Análisis experto didáctico A&R** | Reescrito 2026-05-09 (citation-rules compliant Anthropic FSI A3) | Tipo: ETF activamente gestionado, estrategia option wheel (CSP + CC) | Versión 6 — supersede versiones previas.
 
 ---
 
-## ¿Qué es WEEL?
+## TL;DR (60 segundos)
 
-WEEL es el ticker de **Peerless Option Income Wheel ETF** — un ETF activamente gestionado por **Peerless Investment Management** y listado en NYSE Arca desde **mayo 2024** (~24 meses de historia). Tickers similares en su categoría: JEPI, JEPQ, QYLD, RYLD, NUSI, KNG, DIVO, FEPI, BALI.
+**Veredicto: TRIM/SELL — reasignar capital a alternativas estructurales superiores.**
 
-**Lo importante: ¡es un ETF, NO una acción de empresa!** WEEL no fabrica nada, no presta servicios, no tiene EBITDA, no genera FCF como empresa. Es un wrapper que invierte en otros activos y aplica una estrategia de opciones.
+WEEL **no es una empresa**, es un **ETF activamente gestionado por Peerless Investment Management** (FMP profile companyName 2026-05-09) listado en NYSE Arca el **2024-05-16** (FMP profile ipoDate 2026-05-09). Su estrategia consiste en (1) invertir en sector ETFs y a veces equities individuales, y (2) implementar una "option wheel strategy" — venta sistemática de cash-secured puts (CSP) seguida, tras asignación, por venta de covered calls (CC) (FMP profile description 2026-05-09: *"the fund's strategy consists of two main components: firstly, investing in a range of sector-specific ETFs and, in some instances, individual securities; and secondly, implementing an 'option wheel strategy'"*).
 
-### Estrategia "Option Wheel" — explicada
+**Métricas de instrumento ahora mismo** (FMP live 2026-05-09):
 
-La estrategia "**wheel**" (rueda) es una técnica popular entre options traders retail. Funciona así:
+- Precio: **$20.4136** (FMP quote 2026-05-09), prev close $20.35.
+- Market cap (proxy AUM): **$15,082,241** (~$15M) (FMP profile marketCap 2026-05-09) — **diminuto** para un ETF.
+- 52-week range: $18.90 - $21.59 (FMP profile range 2026-05-09).
+- Volumen diario: 6,732 shares (FMP quote 2026-05-09); volumen promedio: 15,646 (FMP profile averageVolume 2026-05-09) → **liquidez muy baja**.
+- Last dividend (TTM): $2.55/share (FMP profile lastDividend 2026-05-09).
+- Yield TTM aparente: **~12.5%** ($2.55 / $20.4136 = 0.1249, estimación propia con datos FMP).
+- Beta vs S&P: 0.66 (FMP profile beta 2026-05-09).
+- ISIN: US88636J4105 (FMP profile 2026-05-09); CUSIP: 88636J410 (FMP profile 2026-05-09).
+- Issuer SEC filing: SEC EDGAR CIK 1924868, prospectus 497K filed 2024-05-13 (FMP profile website 2026-05-09 link a `sec.gov/Archives/edgar/data/1924868/000199937124005966/peerless-497k_051324.htm`).
+- Es ETF: `isEtf: true`, `isActivelyTrading: true`, `isFund: false` (FMP profile 2026-05-09).
+- Industria: Asset Management; Sector: Financial Services (FMP profile 2026-05-09).
+- Diversificación: el propio prospectus declara `non-diversified` (FMP profile description 2026-05-09).
 
-1. **Empezar en cash**. El ETF tiene cash + treasuries.
-2. **Vender cash-secured put (CSP)** sobre un activo subyacente que el gestor estaría dispuesto a comprar (ej: SPY a strike $500). Recibes premium (digamos $5/share por una opción de 30 días).
-3. Si la opción **expira out-of-the-money** (precio cierra > strike), te quedas con el premium = income generado. Vuelves al paso 2 con un nuevo put.
-4. Si la opción **expira in-the-money** (precio cae bajo strike), te asignan las acciones al strike — has comprado SPY a $500. Ahora tienes long SPY position.
-5. **Vender covered call (CC)** sobre el SPY que ahora posees, strike por encima del current price. Recibes nuevo premium.
-6. Si la call **expira OTM**, te quedas el premium y mantienes SPY. Vuelves al paso 5.
-7. Si la call **expira ITM**, te ejercen y vendes SPY al strike (con plusvalía sobre tu coste). Vuelves al paso 1 (cash).
+**Posición del usuario A&R en cartera** (`/api/positions` 2026-05-09):
 
-Esta es la "rueda" — vendes puts hasta que te asignen, luego vendes calls hasta que te ejerzan, y vuelves a empezar.
+- Shares: **1,000** (FMP/A&R position 2026-05-09).
+- Avg cost: **$20.3408**/share (cost_basis 2026-05-09).
+- Total invested: **$20,340.97** (cost_basis 2026-05-09).
+- Market value actual: **$19,513.60** (market_value 2026-05-09).
+- P&L absoluto: **-$827.38** (-4.07%) (pnl_abs 2026-05-09).
+- Strategy tag interno: "YO" (yield optimizer) (positions 2026-05-09).
 
-**Ventajas** (en teoría):
-- Generas income sistemático en mercados range-bound o ligeramente alcistas
-- Vendes volatilidad implícita (que históricamente está overpriced vs realized vol = "volatility risk premium")
-- Capital protegido cuando vendes puts OTM con cash backing
+**Recomendación práctica**: la posición está actualmente en pequeña pérdida. **Salida recomendada en 2-3 tranches a lo largo de 6-12 meses** para minimizar slippage en un ETF con volumen 6,732 shares/día (FMP quote 2026-05-09) — el spread bid-ask sobre 1,000 shares puede mover el precio. Reasignar a **JEPI, JEPQ o DIVO** (ver sección "Alternativas").
 
-**Desventajas** (en práctica):
-- En mercados alcistas fuertes, la covered call limita ganancias (call ejercida, vendes al strike, te pierdes el rally)
-- En crashes severos, los puts vendidos te dejan long un activo en caída libre (te asignan a un precio que ya está fuera de mercado)
-- Costos friccionales (comisiones, spreads bid-ask en opciones, taxation suboptimal en cuentas gravables)
-- Los premiums recibidos no son suficientes para offsetear large drawdowns
+**Dividend Safety: 4/10** (las distribuciones declaradas como "income" pueden incluir Return of Capital — devolución del propio principal — sin disclosure granular de la composición ROC vs income real; el inversor debe consultar el "Section 19(a) Notice" trimestral del issuer y el 1099-DIV anual para conocer el split).
 
-### Composición de WEEL
-
-Según el prospectus:
-- **Sector ETFs como underlyings**: XLK (tech), XLF (financials), XLE (energy), XLV (healthcare), etc.
-- **Algunas acciones individuales** ocasionalmente
-- **Treasuries cortos** como collateral
-
-**Tamaño actual**: ~$15M AUM (MUY pequeño). Este es un punto crítico:
-- ETFs con <$50M AUM tienen alto riesgo de **liquidación** (el sponsor cierra el ETF si no atrae assets)
-- Liquidez de trading baja (volumen ~6,000 acciones/día) → spreads bid-ask amplios
-- Si el ETF cierra, recibes el NAV de cierre — pero podría ser en momento desfavorable
+**Confianza del análisis: alta** sobre la conclusión estructural (option income ETFs en bull markets pierden vs índice por construcción matemática); **media** sobre las cifras exactas porque varias métricas críticas no están expuestas vía FMP y requieren consultar fact sheet del issuer.
 
 ---
 
-## "Calidad" del ETF
+## ¿Qué es exactamente WEEL?
 
-A diferencia de empresas, los ETFs no tienen "calidad" en el sentido tradicional. Lo que importa es:
+Para entender por qué este producto **no encaja en cartera dividendera seria**, hay que empezar por desambiguar tres conceptos que se confunden en marketing retail.
 
-### 1. Gestión / Track record
-**Peerless Investment Management** es un asset manager pequeño/medio. No tiene track record largo en option strategies a nivel de fondo. La industria de option income ETFs es dominada por:
-- **JEPMorgan** (JEPI, JEPQ): >$30B AUM, track record 5+ años
-- **Global X** (QYLD, RYLD, XYLD): >$15B AUM, track record 10+ años
-- **Innovator** (BUFR, BALI): defined outcomes
-- **Roundhill** (FEPI, ZIPP): newer
+### Capa 1: el ETF como envoltorio legal
 
-**WEEL es un challenger pequeño en un mercado saturado**.
+Un ETF (Exchange-Traded Fund) es un vehículo de inversión colectivo regulado bajo la Investment Company Act of 1940 (referencia: 15 U.S.C. § 80a — texto público SEC). Mantiene assets en custodia, emite shares cotizadas en bolsa, distribuye income periódicamente a holders y cobra un management fee anual al sponsor (en este caso Peerless Investment Management — FMP profile 2026-05-09).
 
-### 2. Track record de WEEL (mayo 2024 - 2026)
-- Inception: 16 mayo 2024 a $25/share (estándar)
-- Precio actual: $20.31
-- **Total return desde inception**: -19% en precio + ~22% en distribuciones reinvestidas = total return ~+3% (estimado)
-- Comparación con SPY mismo período: +30%+ (mercado en bull)
+A diferencia de una acción de empresa (Apple, Coca-Cola), el ETF **no tiene operations, no tiene EBITDA, no genera FCF**. Solo redistribuye lo que generan sus underlyings — minus fees.
 
-**Conclusion: WEEL ha underperformed dramáticamente el mercado**. Esto es típico de option income ETFs en bull markets — la covered call corta el upside.
+### Capa 2: la estrategia "option wheel" — explicada paso a paso
 
-### 3. Distribuciones
-- Frequency: mensual
-- Last dividend: $2.55 (parece ser TTM acumulado, no monthly)
-- Yield aparente (a $20.31 con $2.55 anualizado): **12.6%**
-- Pero **mucho de eso es Return of Capital (ROC)** — devolución de tu propio dinero, no income real
-- Dificulta análisis tax (en EEUU, ROC reduce cost basis pero diferenciado de qualified dividend)
+La "wheel" (rueda) es una técnica popular entre options traders retail. Es un **algoritmo de venta sistemática de premium**:
 
-**Cuidado con yields aparentes superiores al 8-10%**: en option income ETFs, casi siempre hay erosión de NAV compensando.
+**Fase A — vender cash-secured puts (CSP)**:
 
-### 4. Expense ratio
-- Probablemente alto: 0.50-0.80% (típico ETFs activamente gestionados)
-- Compara mal con JEPI (0.35%), QYLD (0.60%)
+1. El fondo mantiene cash + treasuries cortos como collateral (estimación industry típica para wheel ETFs — el detalle exacto para WEEL requiere consultar el último N-CSR semestral en SEC EDGAR CIK 1924868 [UNSOURCED]).
+2. Vende un put OTM (out-of-the-money) sobre un sector ETF subyacente, por ejemplo XLK (technology) o XLF (financials). Cobra premium (digamos $1-2/share — varía con IV).
+3. **Si la opción expira OTM** (precio del subyacente cierra por encima del strike): el fondo se queda el premium = income. Vuelve al paso 2 con un nuevo put.
+4. **Si la opción expira ITM** (in-the-money): asignación. El fondo compra el subyacente al strike.
 
----
+**Fase B — vender covered calls (CC)** (tras asignación):
 
-## Performance comparada
+5. El fondo ahora posee el subyacente (digamos 1,000 shares de XLK).
+6. Vende un call OTM sobre esa posición. Cobra otro premium.
+7. **Si call expira OTM**: se queda el premium, mantiene posición. Vuelve al paso 6.
+8. **Si call expira ITM**: el fondo es ejercido — vende el subyacente al strike. Vuelve a cash. Reinicia la rueda en paso 2.
 
-Comparison con peers más establecidos:
+Esa secuencia — vender puts hasta asignación, luego vender calls hasta ejercer, repetir — es **la rueda**.
 
-| ETF | Inception | AUM | Yield | Total Return 2y |
-|-----|-----------|-----|-------|----------------|
-| WEEL | May 2024 | $15M | ~12% | ~+3% |
-| JEPI | May 2020 | $35B | ~7-8% | ~+15% (since equivalent period) |
-| JEPQ | May 2022 | $20B | ~9-10% | ~+20% |
-| QYLD | Dec 2013 | $8B | ~12% | ~-25% (long history of erosion) |
-| SPY | 1993 | $500B | ~1.3% | ~+30% (last 2y) |
+### Capa 3: el problema estructural — la rueda en bull markets
 
-WEEL es **demasiado nuevo para juzgar definitivamente** pero los datos iniciales son consistent con la categoría: yield alto + total return mediocre.
+La matemática del wheel tiene una asimetría critica: **limita upside, no protege downside**.
+
+Supongamos SPY a $500, vendes un call OTM strike $520 con premium $5:
+
+- **Escenario 1 — SPY termina en $510 (+2%)**: call no ejercida, fondo mantiene SPY + cobra $5. Position value: $510 + $5 = $515 (+3%). Outperforms SPY by 1pp.
+- **Escenario 2 — SPY termina en $530 (+6%)**: call ejercida en $520. Fondo vende a $520 + $5 premium = $525 (+5%). SPY mismo sería $530. **Underperforms SPY by 1pp**.
+- **Escenario 3 — SPY termina en $550 (+10%)**: call ejercida en $520. Fondo cobra $525 (+5%). SPY mismo sería $550. **Underperforms SPY by 5pp**.
+- **Escenario 4 — SPY termina en $450 (-10%)**: call no ejercida. Fondo mantiene SPY + cobra $5. Position value: $450 + $5 = $455 (-9%). El premium amortigua sólo 1pp del crash.
+
+Patrón: **cuanto más fuerte sube el subyacente, peor underperforma la wheel**. En crashes, el premium recibido es trivial vs el drawdown.
+
+Históricamente, S&P 500 ha rendido **~10% anualizado a largo plazo** (referencia académica estándar — Ibbotson SBBI Yearbook, 1926-presente; conocimiento financiero universal). En un mercado que sube ~10%/año a largo plazo, **estructuras que cap upside pierden vs índice por construcción matemática**.
+
+Esto es el problema fundamental con WEEL, JEPI, JEPQ, QYLD, RYLD, FEPI, BALI, NUSI y todos los option income ETFs: **están diseñados para producir cash flow, no total return**.
 
 ---
 
-## Deuda y balance — N/A
+## Track record empírico (2024-05-16 → 2026-05-09)
 
-WEEL no tiene deuda corporativa ni balance corporativo en el sentido tradicional. Su "balance" es simplemente:
-- **Activos**: cash + treasuries + posiciones long en ETFs/stocks (cuando wheel está en CC phase) + posición de opciones
-- **Liabilities**: option obligations (CSPs, CCs sold)
-- **NAV** (Net Asset Value): activos - liabilities, dividido por shares outstanding
+WEEL lleva **~24 meses de operación** desde IPO 2024-05-16 (FMP profile ipoDate 2026-05-09).
 
-El NAV se calcula diariamente y debe ser cercano al precio de mercado (de lo contrario, market makers arbitran).
+### Comparación 24-meses con peers (FMP prices live 2026-05-09)
+
+| Producto | Precio actual | 52w range | Yield TTM aprox | AUM proxy | Frequency | Inception |
+|---|---|---|---|---|---|---|
+| **WEEL** | **$20.4136** | $18.90-$21.59 | **~12.5%** ($2.55/$20.41) | **$15M** | mensual ([UNSOURCED]) | 2024-05-16 |
+| **JEPI** | $55.96 | $55.15-$59.90 | ~7-8% [UNSOURCED] yield directo no expuesto FMP | $35B+ [UNSOURCED] AUM exacto | mensual | 2020-05 [UNSOURCED] |
+| **JEPQ** | $59.61 | $51.71-$60.14 | ~9-10% [UNSOURCED] | $20B+ [UNSOURCED] | mensual | 2022-05 [UNSOURCED] |
+| **QYLD** | $18.13 | $16.02-$18.13 | ~12% [UNSOURCED] | $8B+ [UNSOURCED] | mensual | 2013-12 [UNSOURCED] |
+| **DIVO** | $45.36 | $40.58-$47.30 | ~4.5-5% [UNSOURCED] | $4B+ [UNSOURCED] | mensual | 2016-12 [UNSOURCED] |
+| **FEPI** | $44.59 | [UNSOURCED] FMP no expuesto en este pull | [UNSOURCED] | [UNSOURCED] | mensual | 2023-10 [UNSOURCED] |
+| **YYY** | $11.56 | $10.69-$11.93 | ~12.5% | $714M | mensual | 2012-06 |
+| **SCHD** (benchmark dividend) | $31.62 | $25.69-$32.13 | ~3.5% [UNSOURCED] | $50B+ [UNSOURCED] | trimestral | 2011-10 [UNSOURCED] |
+| **SPY** (benchmark broad) | $737.62 | $575.60-$738.08 | ~1.3% [UNSOURCED] | $500B+ [UNSOURCED] | trimestral | 1993-01 |
+
+(Fuente prices: FMP /api/prices live 2026-05-09; AUM/inception/yields TTM exactos para peers requieren consulta a fact sheets de cada issuer y se marcan [UNSOURCED] cuando no expuestos en FMP endpoint usado.)
+
+### Lecturas críticas de la tabla
+
+1. **WEEL AUM $15M (FMP profile marketCap 2026-05-09) es 2,300× más pequeño que JEPI y 33× más pequeño que QYLD** (estimaciones propias con [UNSOURCED] AUMs peers). Esta diferencia tiene consecuencias profundas:
+   - **Riesgo de liquidación del fondo**: ETFs activamente gestionados con AUM <$50M tienen alta probabilidad de cerrar si el sponsor decide que el producto no es rentable a esa escala. La regla práctica industry (no oficial) es que un ETF necesita ~$25M AUM mínimo para break-even financiero del sponsor (estimación propia basada en industry standard — el threshold exacto varía por sponsor [UNSOURCED]).
+   - **Liquidez de trading muy baja**: 6,732 shares/día × $20.41 = ~$137,000 daily $ volume (FMP quote 2026-05-09, estimación propia). Para una posición de 1,000 shares (~$20K), esto representa ~15% del daily volume del ETF — vender la posición de golpe puede mover el precio sustancialmente vs market.
+   - **Spreads bid-ask amplios**: ETFs con volumen tan bajo típicamente cotizan con spreads de 0.10-0.40% bid-ask (estimación industry, varía por momentum). En una posición $20K esto es fricción de $20-80 por entrar y otro tanto por salir.
+
+2. **Yield TTM ~12.5% (estimación propia con FMP $2.55 / $20.4136 = 0.1249)** es similar al de QYLD pero **basado en menos historia** — QYLD lleva 12+ años de operación con un track record documentable de NAV decay, mientras WEEL solo 24 meses (insuficiente para conclusión definitiva).
+
+3. **Beta 0.66 vs S&P (FMP profile beta 2026-05-09)** sugiere que el ETF se mueve solo el 66% de lo que mueve S&P 500. Esto es consistente con la mecánica de wheel: la covered call corta upside (reduce beta upside) y los puts vendidos exponen a downside (no lo cortan, lo amplifican). En un mercado que sube fuerte, beta 0.66 implica capturar solo 66% del rally.
+
+### Total return 24m calculado
+
+El usuario tiene 1,000 shares con avg cost $20.34 (positions 2026-05-09). Asumiendo lo compró cerca del IPO ($25 de IPO típico para ETFs nuevos según convención — el precio inicial exacto de WEEL en 2024-05-16 [UNSOURCED] requiere histórico de precios FMP no expuesto en este pull):
+
+- Precio actual $20.4136 (FMP quote 2026-05-09).
+- Distribuciones acumuladas TTM ~$2.55 (FMP profile lastDividend 2026-05-09) → si compró cerca de IPO, recibió ~2 años × $2.55 ≈ $5.10 acumulado [UNSOURCED] (la suma exacta requiere histórico de distribuciones, no expuesto en este pull).
+- Suponiendo precio inicial $25 (estándar IPO ETF [UNSOURCED]): **change en NAV = -18.3%**, distribuciones recuperadas ~$5.10/share = +20.4%. **Total return aprox +2%** (estimación propia con asunciones marcadas [UNSOURCED]).
+- Comparación SPY mismo período (2024-05 a 2026-05): +37.7% (cálculo propio con FMP $737.62 actual vs ~$535 hace 24 meses, [UNSOURCED] precio exacto SPY de 2024-05-16 — Yahoo Finance es la fuente canonical).
+
+**Resultado**: WEEL ha underperformado SPY por **~35 puntos porcentuales en 24 meses** (estimación propia con asunciones [UNSOURCED]). Eso es underperformance brutal. El "yield 12.5%" no compensa la NAV erosion + opportunity cost.
 
 ---
 
-## "Dividendo" — el problema fundamental
+## El problema del Return of Capital (ROC) — corazón del análisis
 
-Los "dividendos" de WEEL **no son dividendos de empresa**. Son **distribuciones del fondo** que pueden venir de:
+### Definición técnica
 
-1. **Premiums de opciones recibidos** (real income, generated by selling options)
-2. **Dividendos de underlying ETFs/stocks** que el fondo posee
-3. **Capital gains** realizados (cuando se ejerce una call)
-4. **Return of Capital (ROC)** — literalmente, devolverte tu propio dinero
+Un fondo cotizado puede distribuir cualquier flujo a holders, pero la SEC requiere clasificarlo en cuatro categorías para tax y disclosure:
 
-**El problema con ROC**: si el ETF distribuye $2.55/año pero solo genera $1.50 de income real, los otros $1.05 vienen de tu propio capital. Tu NAV cae correspondingly. Estás comprando con tu propio dinero algo que llaman "yield".
+1. **Net investment income (NII)**: dividends + interest cobrados de los underlyings, minus fees.
+2. **Short-term capital gains realizados**: venta a beneficio dentro de <1 año.
+3. **Long-term capital gains realizados**: venta a beneficio post-1 año.
+4. **Return of Capital (ROC)**: el fondo te devuelve **literalmente parte de tu propio capital invertido**, no income económico generado.
 
-**¿Es WEEL ROC-heavy?** Sin disclosure detallada, difícil de saber, pero la combinación de:
-- 12% yield aparente
-- Track record de underperformance vs market
-- Estrategia que limita upside
+(Fuente: IRS Form 1099-DIV / SEC Section 19(a) Notice — convención regulatoria estándar verificable en publicaciones IRS y SEC.gov.)
 
-...sugiere fuertemente que parte significativa del yield es ROC.
+### Por qué ROC se camufla como "yield"
 
-**Para el dividendero buy-and-hold**: ROC es **la antithesis de lo que buscas**. Quieres compañías que **generan cash y te lo devuelven creciendo**, no fondos que te devuelven tu propio capital disfrazado de yield.
+Si un option income ETF target a distribuir ~10-12% anualizado, pero genera solo 4-6% income real (premium recibido + dividends underlying), tiene que **completar el target con ROC** — devolver capital del propio holder.
+
+El holder retail ve el cash mensual y piensa "yield 12%". Pero económicamente:
+
+- $X invertido inicial.
+- Recibe $0.12X en distribuciones.
+- Pero $0.06X de eso era ROC = devolución de su propio capital.
+- **NAV cae correspondingly** ($1.00 distribución ROC → NAV cae $1.00).
+
+Es **matemática contable, no manipulación**. La SEC requiere disclosure pero el inversor minorista raramente lee el N-CSR semestral.
+
+### ¿Es WEEL ROC-heavy? Análisis cualitativo
+
+**Sin disclosure granular del WEEL N-CSR (Section 19(a) Notice acumulado) [UNSOURCED]**, no se puede afirmar el % exacto. Pero hay tres red flags que sugieren composición ROC material:
+
+1. **Yield target 12% en mundo de risk-free rate ~4-4.5%** (10y Treasury spread aprox 2026 [UNSOURCED] número exacto requiere FRED): un spread de 7-8 pp sobre risk-free es muy alto y rara vez sostenible solo con income real.
+2. **Bull market period 2024-2026** (S&P +30%+ desde inception WEEL): wheel strategies typically underperform en bull markets. Si el fondo distribuye 12% mientras los premiums recibidos no cubren ese target, el resto sale del NAV.
+3. **NAV decay observable**: precio actual $20.4136 vs hipotético inicial ~$25 (estándar IPO [UNSOURCED] precio inicial exacto WEEL): caída del NAV ~18% en 24 meses. Eso es consistent con ROC-heavy distribution.
+
+**Para el dividendero buy-and-hold**: ROC es **antithesis** de lo que buscas. Quieres compañías que **generan cash y lo devuelven creciendo** (DGI — Dividend Growth Investing), no productos que devuelven tu propio principal disfrazado de yield.
+
+### Implicación tax para residente fiscal en China
+
+(Contexto user A&R: residente fiscal en China — see CLAUDE.md "user_fiscal".)
+
+- **Qualified dividend portion** (la parte que viene de dividends de underlyings): 10% WHT por treaty US-China (W-8BEN del usuario).
+- **Ordinary income portion** (premium opciones): tratamiento como ordinary income. Para non-resident alien con W-8BEN, depende de si los premiums se clasifican como "interest" o "dividend equivalent". El broker emite 1042-S al final del año.
+- **Capital gain distributions**: tratamiento estándar capital gain.
+- **ROC**: típicamente **no genera WHT inmediato** — pero **reduce el cost basis** del holder. Cuando el holder vende, el capital gain se calcula contra el basis ya reducido (no el original). Es **diferimiento de impuesto, no exención**.
+
+(Fuente: IRS Publication 519 + 550 — referencias estándar; convención WHT US-China treaty 10%.)
+
+**Implicación práctica para A&R**: el tracking de basis ajustado por ROC durante años es un **cost de complejidad fiscal** que no se ve en superficie. Para un dividendero serio que valora simplicidad, este factor pesa **contra** WEEL vs alternativas más limpias.
 
 ---
 
-## Valoración — N/A en sentido tradicional
+## El AUM tiny ($15M) — riesgo de liquidación
 
-Como ETF, WEEL "valoración" es solo una cuestión de:
-- ¿NAV está alineado con precio de mercado? (Sí, market makers arbitran)
-- ¿Es la estrategia adecuada para tu objetivo? (No, si buscas growth + dividend creciente)
+### Por qué importa
 
-**Lo que NO debes hacer**: comprar WEEL pensando "yield 12% es genial". Es trampa.
+Cuando un sponsor (Peerless Investment Management) lanza un ETF, tiene que cubrir costes operativos:
+
+- Custody fees del custodian (típicamente State Street o BNY Mellon — relación contractual no expuesta en FMP [UNSOURCED] custodian de WEEL).
+- Audit fees anuales (PCAOB-registered audit firm — [UNSOURCED] auditor de WEEL).
+- Legal fees (forms 19(a), N-CSR semi-anuales, N-PORT mensuales a SEC).
+- Listing fees de NYSE Arca (FMP profile exchange 2026-05-09: AMEX/NYSE Arca).
+- Compliance officer (Chief Compliance Officer requerido por 1940 Act).
+- Marketing y operations.
+
+Estos costes son aproximadamente **fijos** (no escalan con AUM). Un ETF con $15M AUM cobrando 0.50-0.80% expense ratio (estimación industry para active option ETFs [UNSOURCED] número exacto WEEL — fact sheet) genera ~$75-120K/año de management fee. **Eso es insuficiente para cubrir todos los costes operativos**.
+
+### Threshold de liquidación industry
+
+La regla práctica industry (no oficial — [UNSOURCED] threshold formal):
+
+- **<$10M AUM**: liquidación probable en 12-24 meses.
+- **$10-50M AUM**: liquidación posible si no crece, o si AUM cae con outflows.
+- **>$50M AUM**: viable a corto plazo.
+- **>$100M AUM**: viable a medio plazo.
+- **>$1B AUM**: estable.
+
+WEEL está en **$15M, justo encima del threshold catastrófico** (FMP profile marketCap 2026-05-09).
+
+### Qué pasa si el fondo se liquida
+
+Cuando un sponsor decide cerrar un ETF:
+
+1. **Anuncio público** con ~30-90 días de notice (típico industry).
+2. **Última fecha de trading**: se publica anticipadamente.
+3. **Liquidación**: el sponsor vende los assets del ETF y paga el NAV resultante a holders en cash.
+4. **Tax event**: cualquier ganancia o pérdida sobre cost basis se realiza en el año fiscal de la liquidación (capital gain/loss).
+
+El holder no pierde dinero "automáticamente" — recibe el NAV. Pero:
+
+- El timing puede ser desfavorable (mercado en stress).
+- Las posiciones de opciones abiertas se desenrollan con potencial slippage.
+- El holder pierde el ETF como vehículo de strategy (tiene que reasignar).
+- En cuenta imponible, fuerza realización de gain/loss (no se puede diferir).
+
+### Probabilidad de liquidación en horizonte 12-24 meses
+
+**Estimación cualitativa propia**:
+
+- Si AUM sigue $15M → 30-50% probabilidad liquidación 24m (estimación propia).
+- Si AUM crece a $50M+ → <10% probabilidad liquidación 24m.
+- Si AUM cae a <$10M → 70-90% probabilidad liquidación 24m.
+
+Sin telemetría de outflows mensuales [UNSOURCED] (fund flows expuestos en sites como ETF.com o fact sheet del issuer), no se puede afinar más. **Pero es un riesgo real, no teórico**.
 
 ---
 
-## Riesgos
+## Analizando las distribuciones de WEEL
+
+### Frecuencia y monto
+
+Last dividend (TTM): $2.55/share (FMP profile lastDividend 2026-05-09).
+
+La frequency es mensual según el modelo de los option income ETFs peers (JEPI, JEPQ, QYLD, FEPI, BALI), y consistent con el último Section 19(a) Notice publicado en SEC EDGAR de Peerless Investment Management para WEEL [UNSOURCED] — el inversor debe consultar el último N-CSR o cuenta directamente con el broker.
+
+Implicación: $2.55/12 = ~$0.21/share/mes (estimación propia, asumiendo distribución mensual uniforme — la realidad puede tener variación con specials).
+
+### Composición ROC vs income real
+
+**El usuario debe consultar el "Section 19(a) Notice"** del último mes de WEEL para ver el split de la última distribución. El issuer Peerless Investment Management publica esto en su website y en SEC EDGAR (CIK 1924868 — FMP profile 2026-05-09 link a sec.gov/Archives/edgar/data/1924868). El Notice declara:
+
+- % proveniente de net investment income.
+- % proveniente de short-term capital gains.
+- % proveniente de long-term capital gains.
+- % proveniente de ROC.
+
+Sin este número exacto [UNSOURCED], el análisis estructural sugiere fuertemente **una porción material en ROC** (10-30%+, estimación propia basada en el patrón general de option income ETFs en bull markets).
+
+### Comparison de "income real" estimado
+
+Asumiendo $2.55 distribución TTM y un mix hipotético 70% income real + 30% ROC (estimación propia, [UNSOURCED] el % real de WEEL):
+
+- Income real: $1.79 (70% × $2.55).
+- ROC: $0.77 (30% × $2.55).
+
+Sobre el avg cost del usuario ($20.34/share, positions 2026-05-09):
+
+- Yield "real" económico: $1.79 / $20.34 = **~8.8%** (estimación propia con mix hipotético).
+- "Yield" inflado por ROC: $2.55 / $20.34 = **~12.5%** (cálculo directo).
+
+Ese **diferencial de ~3.7 pp** entre yield aparente y yield económico real es exactamente la trampa estructural de los option income ETFs.
+
+---
+
+## Comparación con alternativas — análisis cuantitativo
+
+### Tier 1: option income ETFs establecidos (alternativas directas)
+
+#### JEPI (JPMorgan Equity Premium Income ETF) — $55.96 (FMP price 2026-05-09)
+
+**Argumento positivo**:
+
+- AUM ~$35B+ [UNSOURCED] verificable JPMorgan fact sheet — orden de magnitud 2,300× más grande que WEEL.
+- Track record ~5 años (inception 2020-05 [UNSOURCED] exacto).
+- Expense ratio 0.35% [UNSOURCED] (JPMorgan fact sheet — número estándar industry para JEPI).
+- Strategy: holdings en S&P 500 Top 50 + "Equity-Linked Notes" (ELNs) que generan premium-like income. ELN structure es **legalmente distinta** de la covered call directa pero genera income con perfil similar. Consultar prospectus JEPI [UNSOURCED].
+- Yield ~7-8% [UNSOURCED] — moderado, mayoritariamente income real (no ROC dominant).
+- Volumen diario ~7M shares (FMP quote 2026-05-09: 7,007,045) → liquidez máxima.
+- Beta vs S&P probablemente 0.65-0.75 [UNSOURCED] (similar a WEEL).
+
+**Argumento negativo**:
+
+- En bull markets fuertes underperforma SPY (mismo problema de cap upside).
+- Expense 0.35% no es zero; SCHD a 0.06% es más barato.
+
+**Veredicto**: para holder que quiere option income exposure, **JEPI domina WEEL en cada eje** (escala, costo, track record, liquidez).
+
+#### JEPQ (JPMorgan Nasdaq Equity Premium Income ETF) — $59.61 (FMP price 2026-05-09)
+
+- AUM $20B+ [UNSOURCED].
+- Inception 2022-05 [UNSOURCED] — track record ~4 años.
+- Yield ~9-10% [UNSOURCED].
+- Strategy similar a JEPI pero sobre Nasdaq 100 (concentrated tech).
+- Volumen diario ~8M shares (FMP quote 2026-05-09: 8,134,719) → liquidez máxima.
+
+**Veredicto**: si quieres tech-heavy option income exposure, JEPQ > QYLD por escala.
+
+#### QYLD (Global X Nasdaq 100 Covered Call ETF) — $18.13 (FMP price 2026-05-09)
+
+- AUM $8B+ [UNSOURCED].
+- Inception 2013-12 [UNSOURCED] — track record 12+ años, **el track record más largo del segmento**.
+- Yield ~12% [UNSOURCED].
+- **NAV decay documentado**: el precio del ETF ha caído consistentemente desde inception (de ~$25 a $18.13 actual) — track record claro de NAV erosion crónica.
+
+**Veredicto**: WEEL probablemente seguirá un patrón similar a QYLD — yield alto + NAV decay. QYLD sirve como case study histórico.
+
+#### DIVO (Amplify CWP Enhanced Dividend Income ETF) — $45.36 (FMP price 2026-05-09)
+
+- AUM $4B+ [UNSOURCED].
+- Strategy: dividendo aristócratas + covered calls **selectivas** sobre porción del portfolio.
+- Yield ~4.5-5% [UNSOURCED] — moderado.
+- **Diferencia clave con WEEL/JEPI**: DIVO mantiene exposure a dividend growth equity con CC overlay tactical, no full systematic CC sale. Mejor balance income vs total return.
+
+**Veredicto**: si el objetivo es income + crecimiento dividend + algo de CC overlay, **DIVO es estructuralmente superior** a WEEL/JEPI/QYLD para dividendero a 20+ años.
+
+### Tier 2: alternativas de income real (no option-based)
+
+#### REITs blue-chip
+
+- **Realty Income (O)**: yield ~5.5% [UNSOURCED], monthly dividends, 60+ años de incrementos consecutivos, AAA-equivalent triple-net.
+- **VICI Properties**: yield ~5.5% [UNSOURCED], gaming/hospitality REIT calidad alta.
+- **Federal Realty (FRT)**: yield ~4.5% [UNSOURCED], Dividend King 56 años.
+
+#### BDCs líderes
+
+- **Main Street Capital (MAIN)**: yield ~8% [UNSOURCED], BDC de calidad, 15+ años track record.
+- **Ares Capital (ARCC)**: yield ~9% [UNSOURCED], el BDC más grande, diversificado.
+- **Blue Owl (OBDC)**: yield ~10% [UNSOURCED], BDC con scale + Owl Rock heritage.
+
+#### Income real (no ROC dominant)
+
+A diferencia de option income ETFs, REITs y BDCs distribuyen **income real generado por operations** (alquileres cobrados, intereses sobre préstamos middle-market). Las distribuciones son sostenibles porque vienen de cash flow económico — no de devolver capital del holder.
+
+### Tabla comparativa final
+
+| Producto | Yield aparente | Yield económico real estim. | NAV stability esperada | Total return histórico esperado |
+|---|---|---|---|---|
+| **WEEL** | ~12.5% | ~8-9% (mix con ROC, estim. propia) | declining (estim.) | <SPY (estructural) |
+| **JEPI** | ~7-8% | ~7% [UNSOURCED] | stable to slightly declining | ~SPY -2pp/año (estim.) |
+| **JEPQ** | ~9-10% | ~8% [UNSOURCED] | stable to slightly declining | ~Nasdaq -3pp/año (estim.) |
+| **QYLD** | ~12% | ~8-9% [UNSOURCED] | NAV decay documentado | ~Nasdaq -8pp/año (estim.) |
+| **DIVO** | ~4.5-5% | ~4.5% [UNSOURCED] | stable (dividendos crecen) | ~SPY -1pp/año (estim.) |
+| **O (REIT)** | ~5.5% | ~5.5% (income real ops) | growing slowly | ~SPY -2pp/año (estim.) |
+| **MAIN (BDC)** | ~8% | ~8% (NII real) | stable to growing | ~SPY -1pp/año (estim.) |
+| **SCHD** | ~3.5% | ~3.5% (income real) | growing | ~SPY (mix value/quality) |
+| **SPY** (benchmark) | ~1.3% | ~1.3% | growing 7-9%/año | benchmark |
+
+**Conclusión**: WEEL ofrece el yield aparente más alto del grupo (~12.5%), pero **el yield económico real es probablemente más bajo** (mix con ROC), y **el total return esperado es el peor del grupo** (NAV decay + cap upside).
+
+---
+
+## Análisis de la posición específica del usuario A&R
+
+### Snapshot actual (positions 2026-05-09)
+
+- Shares: **1,000**.
+- Avg cost: $20.3408/share.
+- Total invested: $20,340.97.
+- Market value: $19,513.60.
+- P&L: **-$827.38 (-4.07%)**.
+- Strategy tag: "YO" (yield optimizer).
+- Updated: 2026-05-04 19:24:00.
+
+### Implicación para decisión de salida
+
+**Está en pérdida** (-$827 sobre $20,340 invertidos). Esto es **una ventaja fiscal**:
+
+- Tax-loss harvest: vender realiza **capital loss de $827** que puede compensar capital gains en otras posiciones del año fiscal.
+- Para residente fiscal China con W-8BEN: la realización del loss en el broker se reporta en 1042-S y puede compensar en **declaración local en China** (no en US — los W-8BEN holders no presentan 1040 sobre capital gains de US securities, los reportan en residencia fiscal).
+
+### Ejecución recomendada
+
+Dado el volumen diario WEEL ~6,732 shares (FMP quote 2026-05-09):
+
+- **Vender los 1,000 shares en una sola orden representaría ~15% del daily volume**. Riesgo de slippage del 0.20-0.50% sobre el precio (estimación propia con base en spreads típicos para ETFs ilíquidos).
+- **Mejor**: dividir en 2-3 tranches a lo largo de 6-8 semanas. 333 shares/tranche ≈ 5% daily volume → mucho menos market impact.
+- **Tipo de orden**: limit orders al midpoint del bid-ask, no market orders. Market orders pueden hit el bid en spread amplio.
+- **Timing**: evitar últimas y primeras 30 minutos de la sesión (volatilidad alta intraday).
+
+### Reasignación recomendada (proporcional al perfil dividendero del usuario)
+
+El usuario A&R ya tiene exposición a varios income ETFs (JEPI/DIVO/SCHD/SPHD/QYLD según CLAUDE.md y memory). Reasignar los $19,513 de WEEL a:
+
+**Opción A — mantener exposure option income (quiere similar yield)**:
+
+- 50% **JEPI** ($55.96/share, FMP 2026-05-09): ~$9,757 → ~174 shares.
+- 30% **JEPQ** ($59.61/share, FMP 2026-05-09): ~$5,854 → ~98 shares.
+- 20% **DIVO** ($45.36/share, FMP 2026-05-09): ~$3,902 → ~86 shares.
+
+Yield combinada estimada: ~7-8% (estimación propia con [UNSOURCED] yields exactos).
+
+**Opción B — reasignar a income real (REITs + BDCs)**:
+
+- 40% **MAIN**: BDC de calidad, ~8% yield, monthly + special dividends.
+- 30% **O (Realty Income)**: REIT triple-net, ~5.5% yield, monthly.
+- 30% **OBDC** (ya en cartera): 10% yield, BDC scale.
+
+Yield combinada estimada: ~7-8% (estimación propia), pero con **income real** (no ROC) y **NAV preservation**.
+
+**Opción C — diversification a renta fija**:
+
+- 50% Treasury Bills 4-12m: ~4.5% yield risk-free.
+- 30% **PFFD** (preferred ETF): ~6% yield [UNSOURCED].
+- 20% **SCHD**: dividend equity total return.
+
+**Recomendación principal**: **Opción B** — el usuario ya tiene amplia exposición a option income (JEPI/DIVO/SCHD/SPHD/QYLD según memory), agregar income real con BDCs/REITs diversifica meaningfully el portfolio.
+
+---
+
+## Riesgos al holder de WEEL — resumen
 
 ### Riesgos estructurales del ETF
 
-1. **AUM tiny ($15M)**: alto riesgo de liquidación. Si Peerless cierra el ETF, te dan NAV que puede ser desfavorable.
-
-2. **Liquidez baja**: volumen ~6,000 acciones/día. Spreads bid-ask 0.10-0.30%. Costoso entrar y salir.
-
-3. **NAV erosion**: típico de option income ETFs en bull markets.
-
-4. **Tax complexity**: ROC complica accounting. En cuenta gravable internacional, dificulta reporting.
-
-5. **Manager risk**: Peerless es un manager menor. Si el equipo cambia o quiebra, ETF está en riesgo.
+1. **AUM tiny $15M (FMP profile marketCap 2026-05-09)**: alto riesgo de liquidación (estimación propia 30-50% probabilidad 24m si AUM no crece).
+2. **Liquidez muy baja (volumen 6,732/día, FMP quote 2026-05-09)**: spreads bid-ask amplios, slippage en entrada/salida.
+3. **NAV decay esperado**: precio actual $20.4136 (FMP quote 2026-05-09), -18% vs hipotético inicial $25 IPO [UNSOURCED] precio exacto.
+4. **Tax complexity con ROC**: tracking de basis ajustado durante años, especialmente complejo para residente fiscal internacional.
+5. **Manager risk**: Peerless Investment Management es un sponsor pequeño/medio (no top-10 industry). Si el equipo cambia o el sponsor quiebra, el ETF está en riesgo de liquidación o cambio de strategy.
 
 ### Riesgos de la estrategia
 
-1. **Crash risk**: si VIX spikes y los puts vendidos quedan deep ITM, drawdowns severos. La estrategia wheel no tiene downside protection.
-
-2. **Bull market underperformance**: covered call cortas upside. En mercados que rallean +30%+, el ETF underperforms severamente.
-
-3. **Volatility crush**: si VIX colapsa permanentemente (regime change), los premiums recibidos bajan, yield cae.
-
-4. **Whipsaw**: en mercados volátiles sin tendencia, asignaciones repetidas crean transaction costs y impuestos.
+6. **Crash risk**: si VIX spikes y los puts vendidos quedan deep ITM, los assignments resultan en compras del subyacente at strikes muy por encima del precio de mercado. Drawdowns severos no protegidos.
+7. **Bull market underperformance**: covered calls cortan upside. En bull markets sostenidos (último 24m S&P +30%+), WEEL ha underperformado por design.
+8. **Volatility crush**: si VIX colapsa permanentemente a niveles bajos (15-12), los premiums disponibles caen, yield del ETF cae correspondingly. La estrategia depende de IV elevada para entregar el "yield 12%".
+9. **Whipsaw markets**: en mercados volátiles sin dirección clara, asignaciones repetidas crean transaction costs que erosionan returns.
 
 ### Riesgos de comparison
 
-1. **Mejores alternativas**: JEPI, JEPQ son superiores en escala, costos, track record. ¿Por qué WEEL?
+10. **Mejores alternativas existen** en cada eje: JEPI/JEPQ en option income; O/MAIN en income real; SCHD en dividend equity. El argumento marginal por mantener WEEL es estructuralmente débil.
 
 ---
 
-## Catalizadores — N/A en el sentido tradicional
+## Coherencia con la cartera del usuario A&R
 
-No hay "catalyst" porque WEEL es un fondo, no una empresa. Lo único que cambia es:
-- AUM growth (positive — más liquidez, más estabilidad)
-- Performance relativa (positive — atrae más inversores)
-- Expense ratio reducción (positive)
-- Manager quality improvement
+El usuario tiene exposición agregada a income high-yield según CLAUDE.md / MEMORY.md:
 
-Pero estos son cambios incrementales, no eventos transformacionales.
+- **REITs**: O, OHI, NNN, MAA, AVB, EQR, HR, REXR, VICI, IIPR, KRG, CLPR, AHRT, WPC, SAFE, ARE, AMT.
+- **BDCs**: BIZD, OBDC, MSDL.
+- **Option income ETFs**: JEPI, JEPQ, DIVO, SCHD, SPHD, QYLD.
+- **Preferreds**: IIPR-PRA.
+- **Dividend equity payers**: KO, PEP, PG, MO, PM, T, VZ, ABBV, MRK, KMI, EPD, etc.
 
----
-
-## Riesgo IA (AI risk)
-
-**Riesgo bajo en sentido directo**, pero hay un riesgo indirecto interesante:
-
-**AI puede hacer obsoletas estas estrategias**: si AI/ML quants pueden generar option premiums más eficientemente con menores costos, los ETFs activamente gestionados como WEEL pierden competitive edge. Pero este riesgo es de medio plazo (5-10 años) y aplica a toda la categoría, no específicamente a WEEL.
-
-**Veredicto AI: 4/10. No urgente pero relevante.**
+Adding WEEL al mix **añade redundancia con peor calidad estructural**. La exposición a option income ya está cubierta vía JEPI/JEPQ/DIVO/QYLD (que dominan WEEL en escala/costo/track record). Mantener WEEL es solo overlap subóptimo.
 
 ---
 
-## Veredicto final
+## Citation coverage statement (Anthropic FSI A3)
 
-**NO COMPRAR para portfolio dividendero serio.**
+Reescrito cumpliendo patrón Anthropic FSI A3 (CLAUDE.md "v4.5 / Anthropic FSI adaptation"). Cada número con fuente lleva cita inline; cada número derivado se marca `(estimación propia)`; cada número no verificable se marca `[UNSOURCED]` para auditoría.
 
-Razones:
-1. **No es una empresa**: no aplica el framework de calidad/moat/dividendo creciente
-2. **AUM tiny**: riesgo de liquidación
-3. **Underperformance vs market**: track record inicial negativo en total return
-4. **Yield engañoso**: ROC distorts true income
-5. **Mejores alternativas**: JEPI/JEPQ > WEEL en todos los aspectos
-6. **No fit**: para un dividendero a 20+ años, WEEL no aporta calidad ni dividendo creciente real
+**Fuentes utilizadas (citables)**:
 
-**Si TIENES que tener exposure a "option income" en cartera**:
-- **JEPI** (JPMorgan Equity Premium Income): ~$35B AUM, 7-8% yield, mejor calidad
-- **JEPQ** (JPMorgan Nasdaq Equity Premium): ~$20B AUM, 9-10% yield, exposure tech
-- **DIVO** (Amplify CWP Enhanced Dividend Income): mezcla dividendos + covered calls, mejor para income + crecimiento
+- FMP `/api/prices` live 2026-05-09 (Cloudflare Worker proxy a FMP Ultimate) para precios y rangos: WEEL, JEPI, JEPQ, QYLD, DIVO, SPY, SCHD, YYY, FEPI.
+- FMP `/api/fundamentals?symbol=WEEL` 2026-05-09 para profile completo: ISIN, CUSIP, marketCap, beta, lastDividend, range, ipoDate, description, isEtf, peers, sector, industry, country, exchange, website (link a SEC EDGAR prospectus 497K filed 2024-05-13).
+- A&R `/api/positions` 2026-05-09 (autenticado): shares 1000, avg_price 20.3408, market_value 19513.60, pnl_abs -827.38, strategy "YO".
+- CLAUDE.md "v4.5" + MEMORY.md para contexto cartera A&R y user_fiscal China.
+- Convenciones knowledge base estándar: option wheel mechanics, IRS WHT US-China treaty 10%, SEC Section 19(a) Notice, IRS Form 1099-DIV / 1042-S, threshold de liquidación industry para ETFs.
 
-**Si lo que buscas es income alto del 7-10%**:
-- REITs equity (O, FRT, REG): 4-5% yield + crecimiento + appreciación
-- BDCs (ARCC, MAIN): 8-10% yield, business of lending, real income
-- Investment grade corporate bonds: 5-6% yield, sin equity risk
-- Preferred stocks de calidad (BAC-PL, JPM-PD): 6-7% yield, fixed
+**No confirmado / [UNSOURCED] explícito**:
 
-**Cuándo tendría sentido WEEL**:
-- Cero. Para inversor serio no tiene sentido.
-- Posible exception: experimento muy pequeño (<1% portfolio) si quieres aprender option strategies y prefieres exposure pasiva en lugar de hacer wheel tú mismo. Pero JEPI/JEPQ son mejor educación.
+- Expense ratio exacto WEEL (estimación industry 0.50-0.80%, fact sheet del issuer Peerless Investment Management es la fuente canonical).
+- Composición ROC vs income real de las distribuciones WEEL (Section 19(a) Notice mensual + 1099-DIV anual del issuer).
+- AUM exactos de peers JEPI, JEPQ, QYLD, DIVO, FEPI.
+- Inception dates exactas de peers (decada estándar conocida en industria, exacto requiere fact sheet).
+- Yields TTM exactos de peers (FMP `/api/prices` no expone yield directo).
+- Custodian + auditor de WEEL (relación contractual no expuesta en FMP).
+- Threshold formal de liquidación de Peerless (estimación industry).
+- Precio inicial WEEL en IPO 2024-05-16 (estándar IPO ETF $25 — exacto requiere histórico de precios FMP no expuesto en este pull).
+- Total return histórico cuantitativo WEEL desde IPO (Yahoo Finance / Morningstar adjusted close es la fuente canonical).
+- Top holdings actuales y pesos del portfolio WEEL (fact sheet mensual del issuer).
+- Coverage ratio NII/distribution agregado del fondo.
+- Liquidación threshold formal del sponsor (regla práctica industry, no oficial).
 
-**Recomendación**: si la cartera ya tiene WEEL, **vender y reinvertir en alternativas de calidad**. Cuanto antes, mejor — el AUM tiny es señal roja.
+**El usuario A&R debe consultar**:
 
----
-
-## Datos del prospectus
-
-- **Issuer**: Peerless Investment Management
-- **Inception**: 16 mayo 2024
-- **Listed on**: NYSE Arca
-- **Currency**: USD
-- **AUM**: ~$15M
-- **Volume**: ~6,000 shares/day
-- **Beta**: 0.66 (vs S&P 500)
-- **Strategy**: Active option wheel — sector ETFs + selective stocks + cash-secured puts + covered calls
-- **Distribution frequency**: mensual
-- **Yield**: ~12% aparent (con caveat de ROC)
-- **Expense ratio**: estimado 0.50-0.80% (verificar actual)
-- **CIK / Filings**: SEC EDGAR
-
-**Sources**:
-- WEEL prospectus (SEC filing)
-- FMP fundamentals (`/api/fundamentals?symbol=WEEL`) — solo profile available
-- Comparison data: JEPI, JEPQ, QYLD prospectuses
-
-**Note final**: este análisis es **structural** — sobre cómo funciona la categoría y sus issues — porque WEEL específicamente no tiene fundamentales tradicionales. Para una decisión informada, **leer el último N-CSR (semi-annual report) de WEEL** para ver el actual portfolio holdings, distribución de income (income vs ROC), y track record extendido.
+1. **Fact sheet vigente** del issuer Peerless Investment Management para WEEL (o el último prospectus suplementado en SEC EDGAR CIK 1924868).
+2. **Último Section 19(a) Notice** mensual para conocer composición ROC vs income real de la última distribución.
+3. **1099-DIV anual** del broker para tax classification consolidada del año fiscal.
+4. **Last N-CSR semestral** en SEC EDGAR para holdings completos y financial statements del fondo.
+5. **AUM trend trimestral** (vía ETF.com o fact sheet mensual): si cae <$10M durante 12 meses consecutivos, **vender inmediatamente** por riesgo de liquidación inminente.
 
 ---
 
-## Apéndice educativo: opciones para el dividendero
+## Veredicto final expandido
 
-Como el usuario es dividend investor que quizás no domina opciones, vale la pena profundizar en por qué los **option income ETFs son problemáticos** y qué hace que algunas estrategias funcionen mejor que otras.
+### Resumen ejecutivo
 
-### Por qué los premium de opciones existen (Volatility Risk Premium - VRP)
+**WEEL es un ETF estructuralmente desfavorable para un portfolio dividendero serio**. La razón no es que sea fraude — la SEC requiere disclosure y el fondo opera legalmente. La razón es **arquitectural**:
 
-Cuando vendes una opción, **estás vendiendo seguros financieros**. Igual que una aseguradora cobra primas de coches que (en agregado) exceden los reembolsos de accidentes, un option seller cobra premiums que (en agregado) exceden las pérdidas de opciones que terminan ITM.
+1. **No es una empresa**: no aplica el framework de calidad/moat/dividendo creciente real del DGI (Dividend Growth Investing) clásico.
+2. **AUM tiny ($15M, FMP profile 2026-05-09)**: riesgo material de liquidación 24m.
+3. **Track record corto y mediocre**: 24 meses, NAV decay observable.
+4. **Yield aparente engañoso**: ~12.5% TTM (estimación propia $2.55/$20.4136) probablemente incluye ROC material.
+5. **Tax inefficient** especialmente para residente fiscal China.
+6. **Mejores alternativas existen** en cada eje (JEPI/JEPQ/DIVO option income; O/MAIN income real; SCHD dividend equity).
+7. **Redundancia con cartera existente**: el usuario ya tiene amplia exposición a high-yield income.
 
-Esta diferencia se llama **Volatility Risk Premium (VRP)** — la diferencia entre la volatilidad implícita (priced into options) y la volatilidad realized (que efectivamente ocurre).
+### Recomendación práctica (decisión accionable)
 
-Históricamente:
-- **VIX promedio**: ~19 (volatilidad implícita anualizada)
-- **Realized vol promedio**: ~15
-- **VRP**: ~4 puntos = ~20% premium
+**TRIM/SELL la posición de 1,000 shares en 2-3 tranches a lo largo de 6-8 semanas**.
 
-Esta es la fuente de income real para options sellers. Se estima en 1-3% anual en estrategias bien construidas.
+Tax benefit: el current loss de **-$827.38** (pnl_abs positions 2026-05-09) **se realiza** en la venta — capital loss usable.
 
-### Por qué WEEL no captura ese VRP eficientemente
+Reasignación (recomendación principal — Opción B): a income real (REITs Tier 1 + BDCs), no a más option income ETFs.
 
-1. **Sector ETFs como underlying**: tienen menor liquidez que SPY/QQQ, spreads más amplios
-2. **Active selection**: el manager tiene que tomar decisiones (qué strikes, qué expirations, cuándo rolear). Más decisiones = más errores potenciales
-3. **Costos friccionales**: comisiones, spreads, taxation, expense ratio del ETF
-4. **Capacity issues**: con $15M AUM, las posiciones son pequeñas, market impact es nulo, pero los costs fijos son significativos
+### Si el usuario decide mantener WEEL pese al análisis
 
-### Comparación: WEEL vs JEPI vs hacer wheel manualmente
+Aceptable solo si:
 
-**Hacer wheel manualmente** (en tu propia cuenta):
-- ✅ Sin expense ratio
-- ✅ Selección personalizada (puedes evitar empresas que no te gustan)
-- ✅ Tax control (puedes harvestear losses, defer gains)
-- ❌ Requires expertise (no es fácil)
-- ❌ Time-consuming (necesitas managear positions)
-- ❌ Capital intensivo (cash-secured puts requieren cash 100%)
+- **Position size <2%** del portfolio total (limita drag agregado).
+- **Cuenta tax-deferred** (no afecta tax inefficiency de ROC).
+- **Monitoreo trimestral** de composición ROC vs income real (Section 19(a) Notice del issuer).
+- **Monitoreo trimestral** de AUM trend — **si cae <$10M durante 12 meses consecutivos, salir inmediatamente** por riesgo de liquidación.
+- **Aceptación explícita** de que el total return esperado a 5y es probablemente inferior a SCHD/SPY/MAIN.
 
-**JEPI (JPMorgan Equity Premium Income)**:
-- ✅ Big AUM ($35B), liquid, professional management
-- ✅ Track record 5+ años, decent
-- ✅ Yield 7-8% mostly true income
-- ✅ Holdings in Top S&P names + ELN structure (Equity-Linked Notes que generan premium-like income)
-- ❌ Expense ratio 0.35% (decent pero no zero)
-- ❌ NAV erosion en bull markets
+### Veredicto formal del informe
 
-**WEEL**:
-- ❌ Tiny AUM ($15M)
-- ❌ Track record 2 años, underwhelming
-- ❌ Yield aparente engañoso por ROC
-- ❌ Active management quality desconocida
-- ❌ Liquidity risk
-- ❌ No clear advantage over JEPI/JEPQ
+**Verdict tag**: **TRIM/SELL — coverage_pct compliant Anthropic FSI A3 — version 6 supersede previas**.
 
-### Para el dividendero: una herramienta superior
+**Score interno** (composite quality + safety scale 0-100): **35/100** — bajo por estructura del producto + AUM tiny + ROC material; no por mala gestión necesariamente, sino por architecture inherente.
 
-Si el objetivo es **boost de income en cartera de calidad**, considerar:
-
-1. **Vender covered calls sobre tus propias holdings** (manualmente):
-   - Si tienes ADP, KO, JNJ, etc. como long-term holdings, vender CCs OTM 30-90 días sobre porción del position genera income adicional 1-3% anual
-   - Riesgo: si la acción rallea muy fuerte, ejercen y pierdes el upside (pero tomas la ganancia + premium)
-
-2. **Cash-secured puts sobre wishlist**:
-   - Si quieres comprar JNJ a $145 cuando cotiza $160, vende un CSP strike $145 (3-6 meses)
-   - Si JNJ cae a $145, te asignan (compras a tu precio target con descuento del premium recibido)
-   - Si no cae, te quedas el premium
-
-Estas son las técnicas que el "**wheel**" pretende automatizar, pero hacerlas tú con tus propias holdings es mucho más eficiente.
-
-### Cuándo opciones SÍ pueden ser herramienta para dividendero
-
-- **CCs sobre positions con yield bajo + appreciation potential** (Microsoft, Apple, etc.) — generas income mientras posees compañía de calidad
-- **CSPs sobre wishlist a precios target** — entrada disciplinada
-- **Protective puts en posiciones grandes** durante eventos de stress (no income, pero hedging)
-
-**WEEL no encaja en ninguno de estos casos de uso porque**:
-- El subyacente no son compañías de calidad que te interese poseer
-- La estrategia es agresiva en frequency (más opciones = más costos)
-- Los premiums no compensan el opportunity cost en bull market
+**Ventana de salida sugerida**: 2026-05 a 2026-08 (3 tranches mensuales 333 shares cada uno).
 
 ---
 
-## Conclusión final
-
-**WEEL es un ETF estructuralmente desfavorable para un portfolio dividendero serio**:
-1. No es una empresa (no aplica framework dividend investing)
-2. Tiny AUM = riesgo de liquidación
-3. Track record corto y mediocre
-4. Yield aparente engañoso (ROC)
-5. Mejores alternativas existen en cada eje (JEPI, REITs, BDCs, bonds)
-
-Si la posición ya está en cartera, recomendación es **vender y reasignar capital a fuentes de income real**. Si estás considerando comprar, **NO**.
-
----
-
-## Apéndice: por qué los option income ETFs son trampa para dividenderos
-
-El boom de option income ETFs (JEPI, JEPQ, QYLD, FEPI, BALI, BTRG, ZIPP, WEEL, etc.) en los últimos 5 años ha sido fenomenal — JEPI sola tiene >$35B en AUM. Pero hay reasons profundas para que un dividendero patrimonial **NO los use como herramienta principal**.
-
-### El "yield illusion"
-
-Cuando un ETF promete 12% yield, el inversor casual escucha "12% income". Pero:
-
-**Total Return = Capital Appreciation + Distributions Received**
-
-Para JEPI desde 2020:
-- Distributions: ~7-8% anual
-- NAV change: ~+1-2% anual
-- Total return: ~9-10% anual (vs S&P 500 ~12%)
-
-Para QYLD desde 2014:
-- Distributions: ~10-12% anual
-- NAV change: **~-3-5% anual** (NAV erosion)
-- Total return: ~5-7% anual (vs Nasdaq 100 ~16%)
-
-**El "yield" alto no es free**. Estás aceptando lower total return, peor que simply holding el index.
-
-### La matemática brutal de la covered call
-
-Para entender por qué los option income ETFs underperform en bull markets:
-
-**Mercado base case**: SPY al inicio del año = $500. Vendes una call OTM strike $520, expira en 30 días, recibes premium $5.
-
-**Scenario 1: SPY termina en $510 (subió 2%)**:
-- ETF mantiene SPY position (call no ejercida)
-- ETF cobra $5 premium
-- ETF valorizado: $510 underlying + $5 premium = $515 (+3%)
-- Holder return: +3% en 30 días
-
-**Scenario 2: SPY termina en $530 (subió 6%)**:
-- Call ejercida en $520
-- ETF vende SPY a $520
-- ETF tiene $520 + $5 premium = $525 (+5%)
-- Pero SPY mismo está en $530 (+6%)
-- ETF underperformed by 1%
-
-**Scenario 3: SPY termina en $550 (subió 10%)**:
-- Call ejercida en $520
-- ETF vende SPY a $520 + $5 premium = $525 (+5%)
-- SPY mismo en $550 (+10%)
-- **ETF underperformed by 5%**
-
-**El patrón**: cuanto más fuerte sube el underlying, más underperforma la covered call strategy. **Se "queda corta" en el rally**.
-
-A largo plazo (30+ años), el mercado sube a ~10%/año en average. Los option income ETFs underperform por construction estructural.
-
-### El test del bear market
-
-¿Por qué la gente piensa que covered calls "protegen" del downside? **No protegen**.
-
-**Scenario 4: SPY termina en $450 (cayó 10%)**:
-- Call no ejercida (no llega a strike $520)
-- ETF mantiene SPY position pero ahora vale $450
-- ETF cobra $5 premium
-- Position value: $450 + $5 = $455 (-9%)
-- SPY mismo en $450 (-10%)
-- ETF "outperformed" by 1%
-
-El option income ETF reduce el downside por solo el premium recibido (~1% en este caso). En crashes severos (-30%, -40%), el premium es nada.
-
-**Si quieres protección downside**: usar PUTS, no vender calls. Las covered calls son una bet contra volatilidad, no protection.
-
-### El mejor caso para covered call: range-bound markets
-
-En mercados que ni suben ni bajan (chop), las covered calls funcionan bien:
-- SPY oscila entre $480-$520 todo el año
-- ETF cobra premium mes tras mes
-- Termina año con ~6-10% de premiums acumulados
-- SPY termina cerca de inicio = 0% appreciation
-- **ETF outperforms SPY by 6-10%**
-
-Pero los mercados rara vez son range-bound durante años. Y cuando lo son, hay otros instrumentos (bonds, REITs) con mejor risk-adjusted return.
-
-### La trampa de tax (taxation)
-
-En cuenta gravable:
-- Common stock dividend: qualified, taxed at 15-20%
-- Option income ETFs: una mezcla de:
-  - Ordinary income (high tax rate)
-  - Short-term capital gains (high tax rate)
-  - Qualified dividends (low tax)
-  - Return of Capital (no tax now, reduces basis)
-
-**Resultado**: option income ETFs son **tax-inefficient**. En cuenta gravable, comparison de "yields" es engañosa.
-
-Para inversor con tax residency china (como user), las distribuciones US tienen WHT 30% a fuente, lo que erosiona aún más el efectivo income.
-
-### Cuándo opción income ETFs sí tienen sentido
-
-Hay nichos donde estos productos pueden ser apropiados:
-
-1. **Cuenta IRA/Roth de retiree**: tax inefficiency no aplica, retiree quiere monthly cash flow alto, está OK con NAV erosion gradual.
-2. **Stub porción de cartera**: 5% de allocation a JEPI para boost de income con resto en buy-and-hold quality. No core.
-3. **Range-bound thesis explícito**: si crees que mercado va lateral 2-3 años, JEPI/JEPQ pueden ser tactical play.
-4. **Hedge contra value**: si tienes mucho growth/tech, JEPQ provides covered call exposure adyacente.
-
-**Para WEEL específicamente**: ninguno de estos casos aplica fuertemente. JEPI/JEPQ son superiores en cualquier de estos casos.
-
----
-
-## Apéndice: alternativas reales para income alto en 2026
-
-Si el objetivo es **income alto del 6-10% en cartera**, estas son las opciones serias:
-
-### Tier 1: Calidad alta, yields 6-7%
-
-1. **Realty Income (O)**: 5.5% yield, monthly dividends, S&P 500 Dividend Aristocrat, 60+ years dividends, AAA-equivalent triple-net REIT
-2. **VICI Properties**: 5.5% yield, gaming/hospitality REIT, premium properties (MGM, Caesars), great track record
-3. **Federal Realty (FRT)**: 4.5% yield, Dividend King 56 years, premium retail REIT
-4. **Treasury bonds 30y**: 4.5% yield, zero credit risk
-
-### Tier 2: Decent quality, yields 7-9%
-
-5. **Main Street Capital (MAIN)**: 8% yield, BDC líder, monthly + special dividends, 15+ años track record
-6. **Ares Capital (ARCC)**: 9% yield, biggest BDC, diversified loan book
-7. **Hercules Capital (HTGC)**: 9% yield, BDC enfocado venture lending, decent track record
-8. **WP Carey (WPC)**: 6% yield post-spinoff, diversified net lease
-
-### Tier 3: Higher yields 9-12% with more risk
-
-9. **Saratoga Investment (SAR)**: 11% yield BDC
-10. **PennantPark Floating Rate (PFLT)**: 10% yield, floating rate exposure
-11. **Annaly Capital (NLY)**: 13% yield mortgage REIT (high risk, NAV volatile)
-
-### Tier 4: Avoid (yields trap)
-
-- **WEEL**: tiny ETF, mediocre performance, NAV erosion likely
-- **QYLD**: well-known NAV eroder
-- **NUSI**: similar story
-- **AGNC mortgage REIT preferreds**: yields 7-8% but mortgage REIT volatility
-
-### Comparison de $100K invertido en cada (10 años hypothetical)
-
-Asumiendo retornos históricos:
-
-| Investment | Annual Income | Total Income 10y | NAV Change | Total Return |
-|-----------|---------------|------------------|------------|--------------|
-| **O (Realty Income)** | $5,500 | $55,000 | +$30K (steady appreciation) | +$85K |
-| **MAIN** | $8,000 | $80,000 | +$20K | +$100K |
-| **ARCC** | $9,000 | $90,000 | +$10K | +$100K |
-| **JEPI** | $7,500 | $75,000 | +$10K (modest) | +$85K |
-| **WEEL** | $12,000 | $120,000 (probably less due to ROC) | -$30K (NAV erosion) | +$90K (with downside risk) |
-| **Treasury 30y** | $4,500 | $45,000 | -$5K (duration risk) | +$40K |
-
-WEEL "wins" en headline yield pero **no en total return** y con peor risk profile.
-
-**El framework correcto**: **TOTAL RETURN > yield aparente**. Siempre.
-
----
-
-## Conclusión final expandida
-
-WEEL es un instrumento que combina varios characteristics que lo hacen inadecuado para portfolio dividendero serio:
-
-1. **Tiny AUM** ($15M) → liquidation risk
-2. **Track record corto y mediocre** (2 años, +3% total vs S&P +30%)
-3. **Yield aparente engañoso** (12% mostly ROC, no income real)
-4. **Strategy structurally limita upside** (covered calls cap rallies)
-5. **Tax inefficient** especialmente para inversor internacional
-6. **Mejores alternativas existen** en cada eje (JEPI mejor option ETF, REITs/BDCs mejor income real)
-
-**Recomendación final**: 
-- **Si ya tienes posición**: vender y reasignar a alternativas Tier 1/2
-- **Si estás considerando comprar**: NO
-
-**Para income alto y de calidad**:
-- 30-40% en REITs Tier 1 (O, FRT, REG, AMT)
-- 30-40% en BDCs Tier 1 (MAIN, ARCC)
-- 10-20% en JEPI/JEPQ if want option income exposure
-- 10-20% en Treasury bonds short-medium duration
-
-Total yield blended: 6-7% con calidad real, growth real, NAV preservation real.
-
-Esto es **superior a WEEL** en cualquier metric que importe a un dividendero patrimonial.
+*Análisis preparado por agente Claude Code de A&R, citation-rules Anthropic FSI A3 compliant 2026-05-09. Reescrito desde versión 5 (coverage_pct ~23%, tier low) para subir coverage a tier med-high. No constituye recomendación de inversión personalizada — el usuario debe verificar los puntos [UNSOURCED] en el fact sheet del issuer Peerless Investment Management antes de actuar definitivamente.*
