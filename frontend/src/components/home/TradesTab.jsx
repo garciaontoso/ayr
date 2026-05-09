@@ -39,17 +39,15 @@ export default function TradesTab() {
       const d1 = await r1.json();
       const oauthTrades = d1.trades_imported || 0;
 
-      // 3. Sync dividendos → cost_basis para que aparezcan aqui
-      const r2 = await fetch(`${API_URL}/api/costbasis/sync-dividends`, { method: "POST" });
-      const d2 = await r2.json();
-      const newDivs = d2.inserted || 0;
+      // 2026-05-10: removed call a /api/costbasis/sync-dividends (DEPRECATED).
+      // El endpoint /api/costbasis hace MERGE-en-READ entre cost_basis +
+      // dividendos, no requiere sync. Los divs aparecen automáticamente.
 
       let parts = [];
       if (liveTrades > 0) parts.push(`${liveTrades} trades de hoy (live)`);
       if (oauthTrades > 0) parts.push(`${oauthTrades} trades nuevos`);
-      if (newDivs > 0) parts.push(`${newDivs} dividendos sincronizados`);
       if (d1.nlv_updated) parts.push("NLV actualizado");
-      if (liveTrades === 0 && oauthTrades === 0 && newDivs === 0) parts.push("Todo al dia");
+      if (liveTrades === 0 && oauthTrades === 0) parts.push("Todo al dia");
       if (d1.errors?.length) parts.push(`${d1.errors.length} avisos`);
       setSyncMsg("✅ " + parts.join(" · "));
 

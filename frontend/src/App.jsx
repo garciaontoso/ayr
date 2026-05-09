@@ -1037,17 +1037,10 @@ function buildPositionsFromCB() {
     if ((homeTab === "dividendos" || homeTab === "fire") && divLog.length === 0) loadDivLog();
   }, [homeTab, divLog.length, loadDivLog]);
   
-  // Auto-sync dividendos → cost_basis (background, once per session)
-  useEffect(() => {
-    if (!dataLoaded || divLog.length === 0) return;
-    const syncKey = 'div-sync-' + new Date().toISOString().slice(0, 10);
-    if (sessionStorage.getItem(syncKey)) return; // Already synced today
-    sessionStorage.setItem(syncKey, '1');
-    fetch(`${API_URL}/api/costbasis/sync-dividends`, { method: 'POST' })
-      .then(r => r.json())
-      .then(d => { if (d.inserted > 0) console.log(`[Sync] ${d.inserted} dividendos → cost_basis`); })
-      .catch(e => console.error('[Sync dividends]', e));
-  }, [dataLoaded, divLog.length]);
+  // 2026-05-10: Removed auto-sync dividendos → cost_basis. Endpoint
+  // /api/costbasis/sync-dividends está DEPRECATED (CLAUDE.md, 2026-05-02):
+  // ya no recrea duplicados. /api/costbasis hace MERGE en READ entre
+  // cost_basis + dividendos, no necesita sync en disco.
 
   // ── Gastos Log (replaces GASTOS Google Sheets) ──
   const [gastosLog, setGastosLog] = useState([]);

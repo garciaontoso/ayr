@@ -5985,6 +5985,8 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // DELETE /api/deep-dividend/delete?id=42
       if (path === "/api/deep-dividend/delete" && request.method === "DELETE") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
         const id = validateId(url.searchParams.get('id'));
         if (!id) return validationError("id required", corsHeaders);
         await env.DB.prepare("DELETE FROM deep_dividend_analysis WHERE id = ?").bind(id).run();
@@ -8620,6 +8622,8 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // POST /api/dividendos — añadir dividendo (con dedup)
       if (path === "/api/dividendos" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
         const body = await parseBody(request);
         const fechaErr = validateFecha(body.fecha);
         if (fechaErr) return validationError(fechaErr, corsHeaders);
@@ -8677,6 +8681,8 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // Trade-off: alguien que conozca la URL puede insertar gastos spam, pero son
       // recuperables con DELETE individual y CORS sigue protegiendo de ataques browser-based.
       if (path === "/api/gastos" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
         const body = await parseBody(request);
         const fechaErr = validateFecha(body.fecha);
         if (fechaErr) return validationError(fechaErr, corsHeaders);
@@ -8695,6 +8701,8 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // POST /api/gastos/import-csv — import from Wallet app CSV
       if (path === "/api/gastos/import-csv" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
         const body = await parseBody(request);
         const csvText = body.csv;
         if (!csvText) return json({ error: "Missing csv field" }, corsHeaders, 400);
@@ -8834,6 +8842,8 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // POST /api/trades — añadir trade (uso diario)
       if (path === "/api/trades" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
         const body = await parseBody(request);
         const fechaErr = validateFecha(body.fecha);
         if (fechaErr) return validationError(fechaErr, corsHeaders);
@@ -9203,6 +9213,8 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // POST /api/cash — insert cash balance entry
       if (path === "/api/cash" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
         const b = await parseBody(request);
         const fechaErr = validateFecha(b.fecha);
         if (fechaErr) return validationError(fechaErr, corsHeaders);
@@ -10621,6 +10633,8 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // POST /api/transferencias — entrada manual (source='manual')
       if (path === "/api/transferencias" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
         const b = await parseBody(request);
         const fechaErr = validateFecha(b.fecha);
         if (fechaErr) return validationError(fechaErr, corsHeaders);
@@ -18108,14 +18122,16 @@ Output: ONLY the markdown above, nothing else. Tono cálido y didáctico.`;
         try { body = await request.json(); } catch {}
         const minWeight = Number(body.min_weight ?? 0.5);
         const limit = Math.min(Number(body.limit ?? 10), 30);
+        // 2026-05-10 Bug #019 fix: usar usd_value (no market_value nativo)
+        // para weight_pct multi-currency. Mismo fix que /api/theses/missing.
         const { results: positions } = await env.DB.prepare(
-          "SELECT ticker, name, market_value FROM positions WHERE shares > 0"
+          "SELECT ticker, name, COALESCE(usd_value, market_value, 0) AS pos_value FROM positions WHERE shares > 0"
         ).all();
-        const total = positions.reduce((s, p) => s + (p.market_value || 0), 0);
+        const total = positions.reduce((s, p) => s + (p.pos_value || 0), 0);
         const weighted = positions.map(p => ({
           ticker: p.ticker,
           name: p.name,
-          weight_pct: total > 0 ? (p.market_value / total) * 100 : 0,
+          weight_pct: total > 0 ? (p.pos_value / total) * 100 : 0,
         })).filter(p => p.weight_pct >= minWeight);
         const { results: thesesRows } = await env.DB.prepare(
           "SELECT ticker FROM theses WHERE is_current = 1"
