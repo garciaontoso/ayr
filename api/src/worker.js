@@ -12,6 +12,7 @@ import { buildCorsHeaders } from "./lib/cors.js";
 import { sendTelegram, logEvent, errorBudget, TELEGRAM_EMOJI } from "./lib/telegram.js";
 import { ytRequireToken } from "./lib/auth.js";
 import { ensureMigrations, ensureScannerMigrations, _errorLogRateLimit, migrationState } from "./lib/migrations.js";
+import * as BS from "./lib/black-scholes.js";
 import { FMP_MAP, toFMP, fromFMP, FMP_REVERSE, fmpQuote, fmpRiskMetrics, fmpSpyCloses, fmpSpark, FCF_PAYOUT_CARVEOUT, CURRENCY_MAP } from "./lib/fmp.js";
 
 // FMP_MAP, toFMP, fromFMP, fmpQuote, fmpRiskMetrics, fmpSpyCloses, fmpSpark → ./lib/fmp.js
@@ -7849,7 +7850,13 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       }
 
       // GET /api/thetagang/greeks/portfolio — net Greeks del portfolio TT
-      // Sprint 2: agrega Greeks de positions across all TT accounts.
+      // Sprint 2: Black-Scholes server-side calc cuando TT positions raw no
+      // expone greeks (caso actual). Para cada option position:
+      //   1. Get underlying spot via ttQuote
+      //   2. Calc T = (expiry - today) / 365
+      //   3. Calc IV from option mid_price via BS.impliedVol() inverse
+      //   4. Calc all greeks via BS.bsGreeks(S, K, T, r, sigma, type, q)
+      // Result aggregates net portfolio delta/gamma/theta/vega/rho.
       // Beta-weighted delta vs SPY como verdadero risk metric.
       if (path === "/api/thetagang/greeks/portfolio" && request.method === "GET") {
         try {
@@ -7868,26 +7875,78 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             } catch {}
           }
 
-          let netDelta = 0, netGamma = 0, netTheta = 0, netVega = 0, netRho = 0;
-          let bsDelta = 0;  // beta-weighted SPY-equivalent
+          // Map suffixed symbols (RUTW → RUT, SPXW → SPX) to base index
+          const baseSymbol = (sym) => {
+            if (!sym) return sym;
+            // Strip 'W' suffix for weekly indexes (RUTW, SPXW, NDXW, OEXW)
+            if (/^(RUT|SPX|NDX|OEX)W$/.test(sym)) return sym.slice(0, -1);
+            return sym;
+          };
 
-          // Get SPY price for beta-weight
-          const quotes = await ttQuote(env, ['SPY']).catch(() => ({}));
+          // Fetch spot prices for all unique underlyings + SPY (for beta-weight)
+          const underlyings = [...new Set(positions.map(p => baseSymbol(p.underlying || p.symbol)))].filter(Boolean);
+          if (!underlyings.includes('SPY')) underlyings.push('SPY');
+          const quotes = await ttQuote(env, underlyings).catch(() => ({}));
           const spyPx = quotes?.SPY?.last || quotes?.SPY?.mid || 600;
 
-          const positionGreeks = [];
-          for (const p of positions) {
-            const greeks = p.greeks || {};
-            const qty = p.quantity || 0;
-            const dirMult = (p.quantity_direction || 'Long') === 'Long' ? 1 : -1;
-            const multiplier = p.multiplier || (p.instrument_type === 'Equity Option' ? 100 : 1);
+          const r = BS.DEFAULT_RISK_FREE_RATE;
+          const today = new Date();
 
-            // Net contribution per Greek
-            const dContrib = (greeks.delta || 0) * qty * dirMult * multiplier;
-            const gContrib = (greeks.gamma || 0) * qty * dirMult * multiplier;
-            const tContrib = (greeks.theta || 0) * qty * dirMult * multiplier;
-            const vContrib = (greeks.vega  || 0) * qty * dirMult * multiplier;
-            const rContrib = (greeks.rho   || 0) * qty * dirMult * multiplier;
+          let netDelta = 0, netGamma = 0, netTheta = 0, netVega = 0, netRho = 0;
+          let bsDelta = 0;  // beta-weighted SPY-equivalent
+          const positionGreeks = [];
+
+          for (const p of positions) {
+            const isOption = p.instrument_type === 'Equity Option' || p.is_option;
+            const dirMult = (p.quantity_direction || 'Long') === 'Long' ? 1 : -1;
+            const qty = (p.quantity || 0) * dirMult;
+            const multiplier = isOption ? 100 : 1;
+
+            if (!isOption) {
+              // Stock position: delta = 1, all other greeks = 0
+              const ulPx = quotes?.[p.symbol]?.last || quotes?.[p.symbol]?.mid || p.mark_price || 0;
+              const dContrib = qty * multiplier;
+              netDelta += dContrib;
+              positionGreeks.push({
+                symbol: p.symbol, instrument_type: p.instrument_type,
+                qty, multiplier, underlying_price: ulPx,
+                delta: 1, gamma: 0, theta: 0, vega: 0, rho: 0,
+                delta_dollars: dContrib * ulPx,
+                theta_dollars: 0,
+              });
+              continue;
+            }
+
+            // Option position — calc Greeks via BS
+            const rawUnd = p.underlying || p.symbol?.split(' ')[0]?.replace(/\s.*$/, '');
+            const underlying = baseSymbol(rawUnd) || 'SPY';
+            const ulPx = quotes?.[underlying]?.last || quotes?.[underlying]?.mid || 0;
+            const K = parseFloat(p.strike) || 0;
+            const expiry = p.expiry; // YYYY-MM-DD
+            const T = expiry ? BS.yearFraction(expiry, today) : 0;
+            const optType = p.opt_type === 'P' ? 'put' : 'call';
+            const markPx = parseFloat(p.mark_price) || 0;
+            const q = BS.DIVIDEND_YIELDS[underlying] ?? BS.DIVIDEND_YIELDS.default;
+
+            // IV fallback chain: BS impliedVol from mark → TT iv-rank index → 0.20 default
+            let sigma = 0.20;
+            if (ulPx > 0 && markPx > 0 && T > 0) {
+              const ivCalc = BS.impliedVol(markPx, ulPx, K, T, r, optType, q);
+              if (ivCalc && ivCalc > 0.01 && ivCalc < 5) sigma = ivCalc;
+            } else {
+              // Fallback: use TT IV index of underlying
+              try {
+                const ivData = await ttIvRank(env, underlying);
+                if (ivData?.iv_index && ivData.iv_index > 0) sigma = ivData.iv_index;
+              } catch {}
+            }
+
+            const greeks = BS.bsGreeks(ulPx || 0, K, T, r, sigma, optType, q);
+            const dContrib = greeks.delta * qty * multiplier;
+            const gContrib = greeks.gamma * qty * multiplier;
+            const tContrib = greeks.theta * qty * multiplier;
+            const vContrib = greeks.vega  * qty * multiplier;
+            const rContrib = greeks.rho   * qty * multiplier;
 
             netDelta += dContrib;
             netGamma += gContrib;
@@ -7895,19 +7954,28 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             netVega  += vContrib;
             netRho   += rContrib;
 
-            // Beta-weight to SPY (simplified — Sprint 9 implementará beta real)
-            const ulPx = p.underlying_price || spyPx;
-            const beta = p.symbol?.startsWith('SPY') ? 1.0
-                       : p.symbol?.startsWith('QQQ') ? 1.15
-                       : p.symbol?.startsWith('IWM') ? 1.25
+            // Beta-weight to SPY
+            const beta = underlying === 'SPY' ? 1.0
+                       : underlying === 'QQQ' ? 1.15
+                       : underlying === 'IWM' ? 1.25
+                       : underlying === 'RUT' || underlying === 'RUTW' ? 1.25
                        : 1.0;
             bsDelta += dContrib * (ulPx / spyPx) * beta;
 
             positionGreeks.push({
-              symbol: p.symbol, instrument_type: p.instrument_type,
-              qty: qty * dirMult, multiplier,
-              delta: greeks.delta, gamma: greeks.gamma, theta: greeks.theta, vega: greeks.vega,
-              delta_dollars: Math.round(dContrib * spyPx * 100) / 100,
+              symbol: p.symbol, account: p.account_number,
+              instrument_type: p.instrument_type,
+              underlying, strike: K, opt_type: p.opt_type, expiry,
+              dte: Math.round(T * 365),
+              qty, multiplier,
+              underlying_price: Math.round(ulPx * 100) / 100,
+              mark_price: markPx,
+              implied_vol: Math.round(sigma * 10000) / 10000,
+              delta: Math.round(greeks.delta * 1000) / 1000,
+              gamma: Math.round(greeks.gamma * 10000) / 10000,
+              theta: Math.round(greeks.theta * 1000) / 1000,
+              vega:  Math.round(greeks.vega  * 1000) / 1000,
+              delta_dollars: Math.round(dContrib * ulPx * 100) / 100,
               theta_dollars: Math.round(tContrib * 100) / 100,
             });
           }
@@ -7916,20 +7984,23 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             ok: true,
             net_greeks: {
               delta: Math.round(netDelta * 100) / 100,
-              gamma: Math.round(netGamma * 100) / 100,
+              gamma: Math.round(netGamma * 1000) / 1000,
               theta: Math.round(netTheta * 100) / 100,
               vega: Math.round(netVega * 100) / 100,
               rho: Math.round(netRho * 100) / 100,
             },
             beta_weighted_delta_spy: Math.round(bsDelta * 100) / 100,
-            theta_per_day_dollars: Math.round(netTheta * 100),  // per contract = 100x already in qty
+            theta_per_day_dollars: Math.round(netTheta * 100),
+            theta_per_day_dollars_human: `$${(netTheta * 100).toFixed(2)}/día`,
+            risk_free_rate: r,
             spy_price: spyPx,
             positions_count: positions.length,
             positions: positionGreeks,
             generated_at: new Date().toISOString(),
+            note: "Greeks calculated server-side via Black-Scholes (TT raw positions don't expose greeks).",
           }, corsHeaders);
         } catch (e) {
-          return json({ error: e.message }, corsHeaders, 500);
+          return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500);
         }
       }
 
@@ -8027,6 +8098,232 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           }
         }
         return json({ ok: true, refreshed_at: new Date().toISOString(), date: today, results }, corsHeaders);
+      }
+
+      // POST /api/thetagang/backtest/run — Sprint 2 backtest framework v1.
+      // Para una estrategia dada, simula entries con BS pricing sobre histórico
+      // de prices (Yahoo). Output: Sharpe, MaxDD, Win-rate, Profit Factor.
+      // Body: { strategy_id, symbol, start_date?, end_date?, contracts? }
+      if (path === "/api/thetagang/backtest/run" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        await ensureThetaGangTables();
+        let body;
+        try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const strategyId = String(body.strategy_id || '').trim();
+        const symbol = String(body.symbol || 'SPY').toUpperCase();
+        const contracts = Number(body.contracts || 1);
+        const endDate = body.end_date || new Date().toISOString().slice(0, 10);
+        const startDate = body.start_date || new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+
+        try {
+          // 1. Fetch strategy config
+          const stratRow = await env.DB.prepare(`SELECT * FROM thetagang_strategies WHERE id = ?`).bind(strategyId).first();
+          if (!stratRow) return json({ error: `strategy not found: ${strategyId}` }, corsHeaders, 404);
+
+          // 2. Fetch historical prices via Yahoo (1y range)
+          const histResp = await fetchYahoo(
+            `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=2y&interval=1d`
+          );
+          if (!histResp.ok) return json({ error: 'historical data fetch failed' }, corsHeaders, 503);
+          const histJson = await histResp.json();
+          const result = histJson?.chart?.result?.[0];
+          if (!result) return json({ error: 'no chart data' }, corsHeaders, 503);
+
+          const timestamps = result.timestamp || [];
+          const closes = result.indicators?.quote?.[0]?.close || [];
+          const bars = timestamps.map((ts, i) => ({
+            date: new Date(ts * 1000).toISOString().slice(0, 10),
+            close: closes[i],
+          })).filter(b => b.close != null);
+
+          // 3. Backtest loop — for each entry day, sim BPS:
+          //    sell put Δ16 (1 SD OTM) + buy put Δ5 (1.5 SD OTM)
+          //    hold to take profit 50% credit OR DTE 7 OR stop 200% loss OR expiry
+          const TARGET_DTE = stratRow.strategy_type === 'BPS' || stratRow.strategy_type === 'IC' ? 35 : 14;
+          const TAKE_PROFIT = stratRow.take_profit_pct || 0.50;
+          const STOP_LOSS_X = stratRow.stop_loss_x || 2.0;
+          const DELTA_SHORT = stratRow.delta_short || 0.16;
+          const DELTA_LONG = stratRow.delta_long || 0.05;
+          const r = BS.DEFAULT_RISK_FREE_RATE;
+          const q = BS.DIVIDEND_YIELDS[symbol] ?? 0.013;
+
+          const trades = [];
+          let cooldownUntil = 0; // index — wait between trades
+
+          for (let i = 30; i < bars.length - TARGET_DTE; i++) {
+            if (i < cooldownUntil) continue;
+            const entryBar = bars[i];
+            const S0 = entryBar.close;
+
+            // Estimate IV from 30d HV (proxy — Sprint 5 mejorará con vol surface)
+            const window = bars.slice(i - 30, i).map(b => b.close);
+            const returns = [];
+            for (let k = 1; k < window.length; k++) {
+              if (window[k-1] > 0) returns.push(Math.log(window[k] / window[k-1]));
+            }
+            const meanRet = returns.reduce((a, b) => a + b, 0) / returns.length;
+            const variance = returns.reduce((a, b) => a + (b - meanRet) ** 2, 0) / (returns.length - 1);
+            const dailyStd = Math.sqrt(variance);
+            const sigma = dailyStd * Math.sqrt(252);
+
+            // Position sizing: 1 SD move at 35 DTE
+            const T = TARGET_DTE / 365;
+            const sdMove = S0 * sigma * Math.sqrt(T);
+            const Kshort = Math.round((S0 - sdMove) / 5) * 5; // round to nearest $5 strike
+            const Klong  = Math.round((S0 - sdMove * 1.5) / 5) * 5;
+            if (Kshort <= Klong) continue; // skip if strikes inverted
+
+            // Entry credit (mid)
+            const shortPx = BS.bsPrice(S0, Kshort, T, r, sigma, 'put', q);
+            const longPx  = BS.bsPrice(S0, Klong, T, r, sigma, 'put', q);
+            const credit0 = shortPx - longPx;
+            if (credit0 <= 0) continue;
+            const width = Kshort - Klong;
+            const maxLoss = (width - credit0);
+
+            // Hold loop
+            let exitIdx = i + TARGET_DTE; // default expiry
+            let exitReason = 'expiry';
+            for (let j = i + 1; j <= Math.min(i + TARGET_DTE, bars.length - 1); j++) {
+              const Sj = bars[j].close;
+              const Tj = (TARGET_DTE - (j - i)) / 365;
+              if (Tj <= 0) break;
+              const sPx = BS.bsPrice(Sj, Kshort, Tj, r, sigma, 'put', q);
+              const lPx = BS.bsPrice(Sj, Klong, Tj, r, sigma, 'put', q);
+              const currentDebit = sPx - lPx; // cost to close
+              const currentPnl = credit0 - currentDebit; // unrealized
+
+              // Take profit: realized 50% of credit
+              if (currentPnl >= credit0 * TAKE_PROFIT) {
+                exitIdx = j;
+                exitReason = 'take_profit';
+                break;
+              }
+              // Stop loss: -200% of credit
+              if (currentPnl <= -credit0 * STOP_LOSS_X) {
+                exitIdx = j;
+                exitReason = 'stop_loss';
+                break;
+              }
+              // Gamma exit: DTE <7
+              if (TARGET_DTE - (j - i) <= 7 && currentPnl < credit0 * 0.25) {
+                exitIdx = j;
+                exitReason = 'gamma_exit';
+                break;
+              }
+            }
+
+            // Calculate final P&L
+            const Sexit = bars[exitIdx].close;
+            const Texit = Math.max(0, (TARGET_DTE - (exitIdx - i)) / 365);
+            let exitDebit;
+            if (exitReason === 'expiry' || Texit <= 0) {
+              // At expiration: max(K-S, 0) for put
+              const shortPay = Math.max(0, Kshort - Sexit);
+              const longPay  = Math.max(0, Klong - Sexit);
+              exitDebit = shortPay - longPay;
+            } else {
+              const sPx = BS.bsPrice(Sexit, Kshort, Texit, r, sigma, 'put', q);
+              const lPx = BS.bsPrice(Sexit, Klong, Texit, r, sigma, 'put', q);
+              exitDebit = sPx - lPx;
+            }
+            const realizedPnl = (credit0 - exitDebit) * 100 * contracts;
+            // Transaction costs: $1.10/contract per leg, 4 legs total (in+out for 2 options)
+            const txCosts = 1.10 * 4 * contracts;
+            const netPnl = realizedPnl - txCosts;
+
+            trades.push({
+              entry_date: entryBar.date,
+              exit_date: bars[exitIdx].date,
+              days_held: exitIdx - i,
+              S0, K_short: Kshort, K_long: Klong,
+              credit_received: Math.round(credit0 * 100) / 100,
+              max_loss: Math.round(maxLoss * 100) / 100,
+              exit_reason: exitReason,
+              realized_pnl: Math.round(realizedPnl * 100) / 100,
+              tx_costs: Math.round(txCosts * 100) / 100,
+              net_pnl: Math.round(netPnl * 100) / 100,
+            });
+
+            // Cooldown: wait until trade closed before opening next
+            cooldownUntil = exitIdx + 1;
+          }
+
+          // 4. Aggregate metrics
+          const pnls = trades.map(t => t.net_pnl);
+          const totalPnl = pnls.reduce((a, b) => a + b, 0);
+          const wins = pnls.filter(p => p > 0);
+          const losses = pnls.filter(p => p < 0);
+          const winRate = trades.length > 0 ? wins.length / trades.length : 0;
+          const avgWin = wins.length > 0 ? wins.reduce((a, b) => a + b, 0) / wins.length : 0;
+          const avgLoss = losses.length > 0 ? losses.reduce((a, b) => a + b, 0) / losses.length : 0;
+          const profitFactor = avgLoss !== 0 ? Math.abs(wins.reduce((a, b) => a + b, 0) / losses.reduce((a, b) => a + b, 0)) : 0;
+
+          // Equity curve + Sharpe + MaxDD
+          let equity = 0, peak = 0, maxDD = 0;
+          const equityCurve = [];
+          for (const p of pnls) {
+            equity += p;
+            if (equity > peak) peak = equity;
+            const dd = peak > 0 ? (equity - peak) / Math.max(1, peak) : 0;
+            if (dd < maxDD) maxDD = dd;
+            equityCurve.push(equity);
+          }
+          // Sharpe (annualized, using daily approximation — trade-level here)
+          const meanPnl = pnls.length > 0 ? totalPnl / pnls.length : 0;
+          const stdPnl = pnls.length > 1 ? Math.sqrt(pnls.reduce((a, b) => a + (b - meanPnl) ** 2, 0) / (pnls.length - 1)) : 0;
+          const tradesPerYear = trades.length > 0 ? (365 / ((bars[trades[trades.length-1].entry_date_idx || bars.length-1]?.date || endDate) - bars[0].date) * trades.length) : 0;
+          const sharpe = stdPnl > 0 ? (meanPnl / stdPnl) * Math.sqrt(Math.min(252, trades.length)) : 0;
+
+          // Save run
+          const insertRes = await env.DB.prepare(
+            `INSERT INTO thetagang_backtest_runs (strategy_id, start_date, end_date, n_trades, total_pnl, sharpe, max_dd, win_rate, profit_factor, avg_win, avg_loss, transaction_costs, walk_forward, params_json, trades_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+          ).bind(strategyId, startDate, endDate, trades.length, totalPnl, sharpe, maxDD * 100, winRate, profitFactor, avgWin, avgLoss, trades.reduce((a, t) => a + t.tx_costs, 0), JSON.stringify({ symbol, contracts }), JSON.stringify(trades.slice(0, 100))).run();
+
+          // Update strategy summary metrics
+          await env.DB.prepare(
+            `UPDATE thetagang_strategies SET sharpe = ?, max_dd = ?, win_rate = ?, n_trades = ?, last_backtest = datetime('now'), status = ? WHERE id = ?`
+          ).bind(sharpe, maxDD * 100, winRate, trades.length,
+                 sharpe >= 1.5 && Math.abs(maxDD) <= 0.10 ? 'backtesting_pass' : 'backtesting_fail',
+                 strategyId).run();
+
+          return json({
+            ok: true,
+            strategy_id: strategyId,
+            symbol,
+            period: { start: startDate, end: endDate },
+            metrics: {
+              n_trades: trades.length,
+              total_pnl: Math.round(totalPnl * 100) / 100,
+              win_rate: Math.round(winRate * 1000) / 10,  // %
+              avg_win: Math.round(avgWin * 100) / 100,
+              avg_loss: Math.round(avgLoss * 100) / 100,
+              profit_factor: Math.round(profitFactor * 100) / 100,
+              sharpe: Math.round(sharpe * 100) / 100,
+              max_dd_pct: Math.round(maxDD * 1000) / 10,
+              total_tx_costs: Math.round(trades.reduce((a, t) => a + t.tx_costs, 0) * 100) / 100,
+            },
+            verdict: sharpe >= 1.5 && Math.abs(maxDD) <= 0.10 ? 'PASS_GATE_1' : 'FAIL_GATE_1',
+            trades: trades.slice(0, 20),  // sample
+            run_id: insertRes.meta?.last_row_id,
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/thetagang/backtest/results?strategy_id=X — last 10 backtests of a strategy
+      if (path === "/api/thetagang/backtest/results" && request.method === "GET") {
+        await ensureThetaGangTables();
+        const strategyId = url.searchParams.get('strategy_id');
+        const sql = strategyId
+          ? `SELECT id, strategy_id, start_date, end_date, n_trades, total_pnl, sharpe, max_dd, win_rate, profit_factor, run_at FROM thetagang_backtest_runs WHERE strategy_id = ? ORDER BY run_at DESC LIMIT 10`
+          : `SELECT id, strategy_id, start_date, end_date, n_trades, total_pnl, sharpe, max_dd, win_rate, profit_factor, run_at FROM thetagang_backtest_runs ORDER BY run_at DESC LIMIT 30`;
+        const stmt = strategyId ? env.DB.prepare(sql).bind(strategyId) : env.DB.prepare(sql);
+        const { results } = await stmt.all();
+        return json({ ok: true, runs: results || [] }, corsHeaders);
       }
 
       // GET /api/health/check — comprehensive health check de toda la app.
