@@ -250,6 +250,18 @@
 - **Archivos**: `api/sync-flex.sh`, `api/src/worker.js` `/api/ib-flex-sync`.
 - **Commit**: 2026-05-10
 
+### Bug #021 — Build desde git worktree sin .env.local → frontend deployado sin auth token (todos los endpoints 401)
+- **Síntoma**: Tras `npm run build && wrangler pages deploy` desde un worktree, todos los endpoints protegidos devuelven 401 en producción. UI muestra banner: `/api/patrimonio: 401, /api/positions: 401, /api/dividendos: 401, ...`
+- **Causa raíz**: Git worktrees NO heredan ficheros gitignored del repo principal. `frontend/.env.local` (que contiene `VITE_AYR_TOKEN=...`) existe en `IA/AyR/frontend/.env.local` pero NO en `IA/AyR/.claude/worktrees/<name>/frontend/`. Vite hornea `import.meta.env.VITE_AYR_TOKEN = ''` (string vacío) al build → monkey-patch en `main.jsx:65` NO añade el header `X-AYR-Auth` → worker rechaza con 401. Bug silencioso: build OK, deploy OK, solo falla en runtime al usuario.
+- **Fix**:
+  1. Antes de `npm run build` en cualquier worktree, verificar `ls frontend/.env.local`. Si no existe, copiar el del repo principal: `cp ../../../frontend/.env.local frontend/.env.local`.
+  2. Tras deploy, smoke-test: `BUNDLE=$(curl -sS https://ayr.onto-so.com/ | grep -oE 'index-[a-zA-Z0-9_-]+\.js' | head -1); curl -sS https://ayr.onto-so.com/assets/$BUNDLE | grep -c "8cdc87555e"` debe devolver `1`.
+- **Prevención**:
+  - Pre-build hook en `frontend/package.json`: validar que `VITE_AYR_TOKEN` se resuelve a no-empty antes de bundlear.
+  - Documentado en CLAUDE.md raíz: "antes de build/deploy desde worktree, copy `.env.local`".
+- **Archivos**: `frontend/.env.local`, `frontend/src/main.jsx`, builds Vite.
+- **Commit**: 2026-05-10 sesión Sprint 6.
+
 ---
 
 ## 📊 Estadísticas hoy 2026-05-03

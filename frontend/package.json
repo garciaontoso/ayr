@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node scripts/check-env.js",
     "build": "vite build",
     "upload:sourcemaps": "node scripts/upload-sourcemaps.js",
     "lint": "eslint .",
