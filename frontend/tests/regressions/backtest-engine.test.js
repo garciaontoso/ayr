@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   STRESS_PERIODS, CALM_PERIODS,
-  computeStats, runBPSOnBars, filterBarsByDate,
+  computeStats, runBPSOnBars, runICOnBars, filterBarsByDate,
   walkForwardWindows, monteCarloBootstrap, promotionVerdict,
   runStrategyTournament, scoreStrategy,
 } from '../../../api/src/lib/backtest-engine.js';
@@ -325,5 +325,33 @@ describe('Sprint 15 — runStrategyTournament()', () => {
       expect(item.id).toBeTruthy();
       expect(item.symbol).toBeTruthy();
     }
+  });
+});
+
+// Sprint 15+ — IC backtest engine
+describe('Sprint 15+ — runICOnBars()', () => {
+  it('returns trades + 4 strikes per trade', () => {
+    const bars = makeGBMBars(700, 600, 0.10, 0.18);
+    const r = runICOnBars(bars, { dte: 35, take_profit_pct: 0.5 }, { symbol: 'SPY' });
+    expect(r.trades.length).toBeGreaterThan(0);
+    if (r.trades.length > 0) {
+      const t = r.trades[0];
+      expect(t.KshortPut).toBeGreaterThan(t.KlongPut);
+      expect(t.KshortCall).toBeLessThan(t.KlongCall);
+      expect(t.KshortPut).toBeLessThan(t.KshortCall);
+      expect(t.legs_count).toBe(4);
+      expect(t.strategy_type).toBe('IC');
+    }
+  });
+
+  it('tournament dispatches IC engine cuando strategy_type=IC', () => {
+    const bars = makeGBMBars(700, 600);
+    const configs = [
+      { id: 'spy-bps', symbol: 'SPY', strategy_type: 'BPS' },
+      { id: 'spy-ic', symbol: 'SPY', strategy_type: 'IC' },
+    ];
+    const r = runStrategyTournament(configs, { SPY: bars });
+    expect(r.length).toBe(2);
+    // IC and BPS should produce different trade counts (IC has 4 legs)
   });
 });

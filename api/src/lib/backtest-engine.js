@@ -305,6 +305,133 @@ export function runBPSOnBars(bars, strategyConfig = {}, opts = {}) {
   return { trades, skip_counts: skip };
 }
 
+// ─── Run IC strategy on bars (Iron Condor — 4 legs, both sides) ───────────
+// Sprint 15+ — extends backtest to support neutral strategies, not just BPS
+//
+// strategyConfig: same as BPS plus delta_short_call_pct, delta_long_call_pct
+// Iron Condor: short put Δshort + long put Δlong + short call Δshort + long call Δlong
+// Profits when underlying stays between short strikes; max loss = wing width − credit
+export function runICOnBars(bars, strategyConfig = {}, opts = {}) {
+  const TARGET_DTE = strategyConfig.dte || 35;
+  const TAKE_PROFIT = strategyConfig.take_profit_pct || 0.5;
+  const STOP_LOSS_X = strategyConfig.stop_loss_x || 2.0;
+  const SHORT_PCT = strategyConfig.delta_short_pct || 1.0;
+  const LONG_PCT = strategyConfig.delta_long_pct || 1.5;
+  const symbol = opts.symbol || 'SPY';
+  const r = opts.r ?? BS.DEFAULT_RISK_FREE_RATE;
+  const q = opts.q ?? (BS.DIVIDEND_YIELDS[symbol] ?? BS.DIVIDEND_YIELDS.default);
+  const ivrThreshold = opts.ivr_threshold ?? 0;
+  const regimeFilter = opts.regime_filter ?? false;
+
+  const trades = [];
+  let cooldownUntil = 0;
+  const skip = { ivr: 0, regime: 0, other: 0 };
+
+  for (let i = 252; i < bars.length - TARGET_DTE; i++) {
+    if (i < cooldownUntil) continue;
+    const entryBar = bars[i];
+    const S0 = entryBar.close;
+
+    // 30d HV
+    const window = bars.slice(i - 30, i).map(b => b.close);
+    const returns = [];
+    for (let k = 1; k < window.length; k++) {
+      if (window[k - 1] > 0) returns.push(Math.log(window[k] / window[k - 1]));
+    }
+    const meanRet = returns.reduce((a, b) => a + b, 0) / returns.length;
+    const variance = returns.reduce((a, b) => a + (b - meanRet) ** 2, 0) / Math.max(1, returns.length - 1);
+    const sigma = Math.sqrt(variance) * Math.sqrt(252);
+
+    // IV rank filter (same as BPS)
+    if (ivrThreshold > 0) {
+      const hvHistory = [];
+      for (let end = i - 252 + 30; end < i; end++) {
+        const w = bars.slice(end - 30, end).map(b => b.close);
+        if (w.length < 30) continue;
+        const wRets = [];
+        for (let k = 1; k < w.length; k++) if (w[k - 1] > 0) wRets.push(Math.log(w[k] / w[k - 1]));
+        const wMean = wRets.reduce((a, b) => a + b, 0) / wRets.length;
+        const wVar = wRets.reduce((a, b) => a + (b - wMean) ** 2, 0) / Math.max(1, wRets.length - 1);
+        hvHistory.push(Math.sqrt(wVar) * Math.sqrt(252) * 100);
+      }
+      if (hvHistory.length) {
+        const hv30 = sigma * 100;
+        const hvHigh = Math.max(...hvHistory, hv30);
+        const hvLow = Math.min(...hvHistory, hv30);
+        const ivRank = hvHigh > hvLow ? ((hv30 - hvLow) / (hvHigh - hvLow)) * 100 : 50;
+        if (ivRank < ivrThreshold) { skip.ivr++; continue; }
+      }
+    }
+
+    if (regimeFilter && sigma * 100 > 25) { skip.regime++; continue; }
+
+    // Build IC strikes (4 legs)
+    const T = TARGET_DTE / 365;
+    const sdMove = S0 * sigma * Math.sqrt(T);
+    const tick = S0 > 500 ? 5 : 1;
+    const KshortPut = Math.round((S0 - sdMove * SHORT_PCT) / tick) * tick;
+    const KlongPut = Math.round((S0 - sdMove * LONG_PCT) / tick) * tick;
+    const KshortCall = Math.round((S0 + sdMove * SHORT_PCT) / tick) * tick;
+    const KlongCall = Math.round((S0 + sdMove * LONG_PCT) / tick) * tick;
+    if (KshortPut <= KlongPut || KshortCall >= KlongCall) { skip.other++; continue; }
+
+    const shortPutPx = BS.bsPrice(S0, KshortPut, T, r, sigma, 'put', q);
+    const longPutPx = BS.bsPrice(S0, KlongPut, T, r, sigma, 'put', q);
+    const shortCallPx = BS.bsPrice(S0, KshortCall, T, r, sigma, 'call', q);
+    const longCallPx = BS.bsPrice(S0, KlongCall, T, r, sigma, 'call', q);
+    const credit0 = (shortPutPx - longPutPx) + (shortCallPx - longCallPx);
+    if (credit0 <= 0) { skip.other++; continue; }
+    const widthPut = KshortPut - KlongPut;
+    const widthCall = KlongCall - KshortCall;
+    const maxLoss = Math.max(widthPut, widthCall) - credit0;
+
+    // Hold loop
+    let exitIdx = i + TARGET_DTE;
+    let exitReason = 'expiry';
+    for (let j = i + 1; j <= Math.min(i + TARGET_DTE, bars.length - 1); j++) {
+      const Sj = bars[j].close;
+      const Tj = (TARGET_DTE - (j - i)) / 365;
+      if (Tj <= 0) break;
+      const sP = BS.bsPrice(Sj, KshortPut, Tj, r, sigma, 'put', q);
+      const lP = BS.bsPrice(Sj, KlongPut, Tj, r, sigma, 'put', q);
+      const sC = BS.bsPrice(Sj, KshortCall, Tj, r, sigma, 'call', q);
+      const lC = BS.bsPrice(Sj, KlongCall, Tj, r, sigma, 'call', q);
+      const debit = (sP - lP) + (sC - lC);
+      const pnl = credit0 - debit;
+      if (pnl >= credit0 * TAKE_PROFIT) { exitIdx = j; exitReason = 'take_profit'; break; }
+      if (pnl <= -credit0 * STOP_LOSS_X) { exitIdx = j; exitReason = 'stop_loss'; break; }
+      if (TARGET_DTE - (j - i) <= 7 && pnl < credit0 * 0.25) { exitIdx = j; exitReason = 'gamma_exit'; break; }
+    }
+
+    const Sexit = bars[exitIdx].close;
+    const Texit = (TARGET_DTE - (exitIdx - i)) / 365;
+    const finalDebit = Texit > 0
+      ? (BS.bsPrice(Sexit, KshortPut, Texit, r, sigma, 'put', q) - BS.bsPrice(Sexit, KlongPut, Texit, r, sigma, 'put', q))
+        + (BS.bsPrice(Sexit, KshortCall, Texit, r, sigma, 'call', q) - BS.bsPrice(Sexit, KlongCall, Texit, r, sigma, 'call', q))
+      : Math.max(0, KshortPut - Sexit) - Math.max(0, KlongPut - Sexit)
+        + Math.max(0, Sexit - KshortCall) - Math.max(0, Sexit - KlongCall);
+    const pnlFinal = (credit0 - finalDebit) * 100;
+    cooldownUntil = exitIdx + 5;
+
+    trades.push({
+      entry_date: entryBar.date,
+      exit_date: bars[exitIdx].date,
+      hold_days: exitIdx - i,
+      S_entry: Math.round(S0 * 100) / 100,
+      S_exit: Math.round(Sexit * 100) / 100,
+      KshortPut, KlongPut, KshortCall, KlongCall,
+      credit: Math.round(credit0 * 100) / 100,
+      pnl: Math.round(pnlFinal * 100) / 100,
+      max_loss_dollar: Math.round(maxLoss * 100),
+      exit_reason: exitReason,
+      strategy_type: 'IC',
+      legs_count: 4,
+    });
+  }
+
+  return { trades, skip_counts: skip };
+}
+
 // ─── Filter bars by date range (inclusive) ──────────────────────────────────
 export function filterBarsByDate(bars, startDate, endDate) {
   return bars.filter(b => b.date >= startDate && b.date <= endDate);
@@ -412,7 +539,9 @@ export function runStrategyTournament(configs, barsBySymbol, opts = {}) {
       continue;
     }
     try {
-      const { trades } = runBPSOnBars(bars, cfg, {
+      // Sprint 15+ — dispatch by strategy_type. BPS = default. IC = iron condor.
+      const engineFn = (cfg.strategy_type === 'IC') ? runICOnBars : runBPSOnBars;
+      const { trades } = engineFn(bars, cfg, {
         symbol,
         ivr_threshold: cfg.ivr_threshold ?? 0,
         regime_filter: cfg.regime_filter ?? false,

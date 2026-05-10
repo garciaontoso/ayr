@@ -10595,16 +10595,23 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
               for (const dte of baseDtes) {
                 for (const ds of baseDeltas) {
                   for (const tp of baseTPs) {
+                    // BPS variant
                     configs.push({
                       id: `${sym.toLowerCase()}-bps-d${(ds * 100) | 0}-dte${dte}-tp${(tp * 100) | 0}`,
-                      symbol: sym,
-                      dte,
-                      take_profit_pct: tp,
-                      stop_loss_x: 2.0,
+                      symbol: sym, strategy_type: 'BPS',
+                      dte, take_profit_pct: tp, stop_loss_x: 2.0,
                       delta_short_pct: ds === 0.16 ? 1.0 : ds === 0.20 ? 0.85 : 0.6,
                       delta_long_pct: 1.5,
-                      ivr_threshold: 0,
-                      regime_filter: false,
+                      ivr_threshold: 0, regime_filter: false,
+                    });
+                    // Sprint 15+ — IC variant (iron condor neutral, both sides)
+                    configs.push({
+                      id: `${sym.toLowerCase()}-ic-d${(ds * 100) | 0}-dte${dte}-tp${(tp * 100) | 0}`,
+                      symbol: sym, strategy_type: 'IC',
+                      dte, take_profit_pct: tp, stop_loss_x: 2.0,
+                      delta_short_pct: ds === 0.16 ? 1.0 : ds === 0.20 ? 0.85 : 0.6,
+                      delta_long_pct: 1.5,
+                      ivr_threshold: 0, regime_filter: false,
                     });
                   }
                 }
