@@ -188,7 +188,7 @@ export function runBPSOnBars(bars, strategyConfig = {}, opts = {}) {
   const LONG_PCT = strategyConfig.delta_long_pct || 1.5;
   const symbol = opts.symbol || 'SPY';
   const r = opts.r ?? BS.DEFAULT_RISK_FREE_RATE;
-  const q = opts.q ?? (BS.DIVIDEND_YIELDS[symbol] || 0.013);
+  const q = opts.q ?? (BS.DIVIDEND_YIELDS[symbol] ?? BS.DIVIDEND_YIELDS.default);
   const ivrThreshold = opts.ivr_threshold ?? 0;
   const regimeFilter = opts.regime_filter ?? false;
 

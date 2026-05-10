@@ -203,3 +203,28 @@ describe('Wheel — simulateWheelOnBars (backtest)', () => {
     expect(assignments.length).toBeGreaterThan(0);
   });
 });
+
+// Sprint cleanup — coverage gap fill: WHEEL_EVENTS.RESET path
+describe("Sprint cleanup — WHEEL_EVENTS.RESET", () => {
+  it("RESET from any state returns to AWAITING_CSP with cleared fields", () => {
+    const cur = {
+      state: WHEEL_STATES.CC_OPEN,
+      symbol: "SPY", strike_csp: 600, premium_csp: 2.5,
+      strike_cc: 620, premium_cc: 1.8, shares_owned: 100,
+    };
+    const r = wheelStateMachine(cur, WHEEL_EVENTS.RESET);
+    expect(r.ok).toBe(true);
+    expect(r.nextState.state).toBe(WHEEL_STATES.AWAITING_CSP);
+    expect(r.nextState.strike_csp).toBe(null);
+    expect(r.nextState.strike_cc).toBe(null);
+    expect(r.nextState.shares_owned).toBe(0);
+  });
+
+  it("RESET from CYCLE_COMPLETE re-inits next cycle", () => {
+    const cur = { state: WHEEL_STATES.CYCLE_COMPLETE, symbol: "SPY" };
+    const r = wheelStateMachine(cur, WHEEL_EVENTS.RESET);
+    expect(r.ok).toBe(true);
+    expect(r.nextState.state).toBe(WHEEL_STATES.AWAITING_CSP);
+  });
+});
+

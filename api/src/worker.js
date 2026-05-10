@@ -8895,6 +8895,14 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const r_rate = BS.DEFAULT_RISK_FREE_RATE;
           const today = new Date();
 
+          // Pre-fetch IV rank for all unique underlyings in parallel to avoid
+          // 2×N serial TT bridge calls (one per put side + one per call side per group)
+          // that would exceed the 30s Worker timeout with 20+ position groups.
+          // On error per-underlying, null is stored; consumers fall back to 0.20.
+          const uniqUnderlyings = [...new Set(Object.values(groups).map(g => g.underlying))];
+          const ivResults = await Promise.all(uniqUnderlyings.map(u => ttIvRank(env, u).catch(() => null)));
+          const ivByUnderlying = new Map(uniqUnderlyings.map((u, i) => [u, ivResults[i]]));
+
           const evaluations = [];
           for (const [key, group] of Object.entries(groups)) {
             const ulPx = quotes?.[group.underlying]?.last || quotes?.[group.underlying]?.mid || 0;
@@ -8924,17 +8932,20 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             const shortCallStrike = shortCalls[0] ? parseFloat(shortCalls[0].strike) : null;
             const longCallStrike = longCalls[0] ? parseFloat(longCalls[0].strike) : null;
 
+            // Use pre-fetched IV rank (single map lookup, no I/O) for both sides.
+            const iv = ivByUnderlying.get(group.underlying);
+
             // Greeks at current spot for short put leg (the most relevant)
             let shortPutDelta = null, otmPctPut = null;
             if (shortPutStrike && ulPx && T > 0) {
-              const sigma = (await ttIvRank(env, group.underlying).catch(() => ({})))?.iv_index || 0.20;
+              const sigma = iv?.iv_index || 0.20;
               const greeks = BS.bsGreeks(ulPx, shortPutStrike, T, r_rate, sigma, 'put', q);
               shortPutDelta = Math.abs(greeks.delta);
               otmPctPut = ((ulPx - shortPutStrike) / ulPx) * 100;
             }
             let shortCallDelta = null, otmPctCall = null;
             if (shortCallStrike && ulPx && T > 0) {
-              const sigma = (await ttIvRank(env, group.underlying).catch(() => ({})))?.iv_index || 0.20;
+              const sigma = iv?.iv_index || 0.20;
               const greeks = BS.bsGreeks(ulPx, shortCallStrike, T, r_rate, sigma, 'call', q);
               shortCallDelta = greeks.delta;
               otmPctCall = ((shortCallStrike - ulPx) / ulPx) * 100;
@@ -10428,6 +10439,96 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             generated_at: current.timestamp,
           }, corsHeaders);
         } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
+      // ─── Sprint cleanup — wire previously-dead lib functions to endpoints ──
+
+      // POST /api/thetagang/wheel/backtest body:{symbol='SPY', years_back=3, params?}
+      if (path === "/api/thetagang/wheel/backtest" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        await ensureThetaGangTables();
+        try {
+          const b = await request.json().catch(() => ({}));
+          const symbol = String(b.symbol || 'SPY').toUpperCase();
+          const yearsBack = Math.max(1, Math.min(10, Number(b.years_back || 3)));
+          const fetchStart = new Date();
+          fetchStart.setFullYear(fetchStart.getFullYear() - yearsBack);
+          const histResp = await fetchYahoo(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${Math.floor(fetchStart.getTime() / 1000)}&period2=${Math.floor(Date.now() / 1000)}&interval=1d`);
+          if (!histResp.ok) return json({ error: 'historical fetch failed', code: histResp.status }, corsHeaders, 503);
+          const histJson = await histResp.json();
+          const result = histJson?.chart?.result?.[0];
+          const timestamps = result?.timestamp || [];
+          const closes = result?.indicators?.quote?.[0]?.close || [];
+          const bars = timestamps.map((ts, i) => ({
+            date: new Date(ts * 1000).toISOString().slice(0, 10),
+            close: closes[i],
+          })).filter(x => x.close != null);
+          const sim = Wheel.simulateWheelOnBars(bars, b.params || { symbol, initial_capital: 10000 });
+          return json({ ok: true, symbol, years_back: yearsBack, n_bars: bars.length, ...sim, generated_at: new Date().toISOString() }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
+      // POST /api/thetagang/tail-hedge/backtest body:{symbol='SPY', years_back=5, params?}
+      if (path === "/api/thetagang/tail-hedge/backtest" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        await ensureThetaGangTables();
+        try {
+          const b = await request.json().catch(() => ({}));
+          const symbol = String(b.symbol || 'SPY').toUpperCase();
+          const yearsBack = Math.max(1, Math.min(10, Number(b.years_back || 5)));
+          const fetchStart = new Date();
+          fetchStart.setFullYear(fetchStart.getFullYear() - yearsBack);
+          const period1 = Math.floor(fetchStart.getTime() / 1000);
+          const period2 = Math.floor(Date.now() / 1000);
+          const [barsResp, vixResp] = await Promise.all([
+            fetchYahoo(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${period1}&period2=${period2}&interval=1d`),
+            fetchYahoo(`https://query1.finance.yahoo.com/v8/finance/chart/^VIX?period1=${period1}&period2=${period2}&interval=1d`),
+          ]);
+          if (!barsResp.ok) return json({ error: 'bars fetch failed' }, corsHeaders, 503);
+          const barsJson = await barsResp.json();
+          const result = barsJson?.chart?.result?.[0];
+          const ts = result?.timestamp || [];
+          const cl = result?.indicators?.quote?.[0]?.close || [];
+          const bars = ts.map((t, i) => ({ date: new Date(t * 1000).toISOString().slice(0, 10), close: cl[i] })).filter(x => x.close != null);
+          let vix_bars = [];
+          if (vixResp.ok) {
+            const vixJson = await vixResp.json();
+            const vr = vixJson?.chart?.result?.[0];
+            const vts = vr?.timestamp || [];
+            const vcl = vr?.indicators?.quote?.[0]?.close || [];
+            vix_bars = vts.map((t, i) => ({ date: new Date(t * 1000).toISOString().slice(0, 10), vix: vcl[i] })).filter(x => x.vix != null);
+          }
+          const result_bt = TH.historicalHedgeBacktest(bars, vix_bars, b.params || {});
+          return json({ ok: true, symbol, years_back: yearsBack, n_bars: bars.length, n_vix_bars: vix_bars.length, ...result_bt, generated_at: new Date().toISOString() }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
+      // GET /api/thetagang/tail-hedge/effectiveness?days=180
+      if (path === "/api/thetagang/tail-hedge/effectiveness" && request.method === "GET") {
+        await ensureThetaGangTables();
+        try {
+          const days = Math.max(30, Math.min(365, Number(url.searchParams.get('days') || 180)));
+          const { results: nav } = await env.DB.prepare(
+            `SELECT date, nlv FROM nlv_history ORDER BY date DESC LIMIT ?`
+          ).bind(days).all().catch(() => ({ results: [] }));
+          const series = (nav || []).reverse();
+          const portfolioPnL = series.slice(1).map((r, i) => (r.nlv || 0) - (series[i].nlv || 0));
+          const { results: hedges } = await env.DB.prepare(
+            `SELECT opened_at, closed_at, cost_dollars, close_pnl FROM thetagang_tail_hedges
+             WHERE opened_at >= date('now', '-' || ? || ' days')`
+          ).bind(days).all().catch(() => ({ results: [] }));
+          const hedgePnL = portfolioPnL.map(() => 0);
+          for (const h of (hedges || [])) {
+            const oIdx = series.findIndex(r => r.date === (h.opened_at || '').slice(0, 10));
+            if (oIdx > 0 && oIdx - 1 < hedgePnL.length) hedgePnL[oIdx - 1] -= (h.cost_dollars || 0);
+            if (h.closed_at && h.close_pnl != null) {
+              const cIdx = series.findIndex(r => r.date === h.closed_at.slice(0, 10));
+              if (cIdx > 0 && cIdx - 1 < hedgePnL.length) hedgePnL[cIdx - 1] += ((h.close_pnl || 0) + (h.cost_dollars || 0));
+            }
+          }
+          const effectiveness = TH.evaluateHedgeEffectiveness(portfolioPnL, hedgePnL);
+          return json({ ok: true, days, n_hedges: (hedges || []).length, n_nav_points: series.length, effectiveness, generated_at: new Date().toISOString() }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
       }
 
       // GET /api/thetagang/monitoring/last — last snapshot + alerts (read-only)

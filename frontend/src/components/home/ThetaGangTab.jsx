@@ -753,28 +753,300 @@ function Stat({ label, value, color, small }) {
   );
 }
 
-// ─── 📊 Greeks portfolio — Sprint 2 ──────────────────────────────────────────
+// ─── 📊 Greeks portfolio — implementación real (Sprint cleanup) ─────────────
 function GreeksSubtab() {
-  return <PlaceholderTab icon="📊" title="Greeks Portfolio" sprint="Sprint 2"
-    description="Net delta/gamma/theta/vega del portfolio agregado. Beta-weighted vs SPY. Targets diarios theta income." />;
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+
+  const refresh = useCallback(() => {
+    setLoading(true); setErr(null);
+    fetch(`${API_URL}/api/thetagang/greeks/portfolio`)
+      .then(r => r.json())
+      .then(d => { if (d.error) setErr(d.error); else setData(d); setLoading(false); })
+      .catch(e => { setErr(e.message); setLoading(false); });
+  }, []);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const card = { padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 };
+
+  if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Cargando Greeks portfolio…</div>;
+  if (err) return <div style={{ padding: 12, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, color: '#ef4444', fontSize: 12, margin: 14 }}>⚠ {err}</div>;
+  if (!data?.ok) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Sin datos.</div>;
+
+  const ng = data.net_greeks || {};
+  return (
+    <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{data.positions_count || 0} posiciones · SPY ${fmtN(data.spy_price, 2)}</div>
+        <button onClick={refresh} style={{ padding: '4px 10px', fontSize: 11, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', borderRadius: 4, cursor: 'pointer' }}>↻ Refresh</button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
+        <div style={card}><div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>NET DELTA</div><div style={{ fontSize: 18, fontWeight: 700 }}>{fmtN(ng.delta, 0)}</div></div>
+        <div style={card}><div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>NET GAMMA</div><div style={{ fontSize: 18, fontWeight: 700 }}>{fmtN(ng.gamma, 3)}</div></div>
+        <div style={card}><div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>NET THETA</div><div style={{ fontSize: 18, fontWeight: 700, color: ng.theta > 0 ? '#30d158' : '#ef4444' }}>{fmtN(ng.theta, 2)}</div></div>
+        <div style={card}><div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>NET VEGA</div><div style={{ fontSize: 18, fontWeight: 700 }}>{fmtN(ng.vega, 2)}</div></div>
+        <div style={card}><div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>θ/día $</div><div style={{ fontSize: 18, fontWeight: 700, color: 'var(--gold, #fbbf24)' }}>{data.theta_per_day_dollars_human || '—'}</div></div>
+        <div style={card}><div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>β-Δ vs SPY</div><div style={{ fontSize: 18, fontWeight: 700 }}>{fmtN(data.beta_weighted_delta_spy, 0)}</div></div>
+      </div>
+      {(data.positions || []).length > 0 && (
+        <div style={{ ...card, padding: 0, overflowX: 'auto', maxHeight: 400, overflowY: 'auto' }}>
+          <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+            <thead><tr style={{ background: 'var(--bg-primary)', textAlign: 'left' }}>
+              <th style={{ padding: 6 }}>Symbol</th><th>Type</th><th>Strike</th><th>Exp</th><th>DTE</th><th>Qty</th><th>Δ</th><th>Γ</th><th>Θ</th><th>ν</th><th>Δ$</th>
+            </tr></thead>
+            <tbody>
+              {(data.positions || []).map((p, i) => (
+                <tr key={i} style={{ borderTop: '1px solid var(--border)' }}>
+                  <td style={{ padding: 4, fontWeight: 600 }}>{p.symbol?.slice(0, 12)}</td>
+                  <td>{p.opt_type || (p.instrument_type === 'Equity' ? 'EQ' : '—')}</td>
+                  <td>{p.strike || '—'}</td>
+                  <td>{p.expiry?.slice(5) || '—'}</td>
+                  <td>{p.dte || '—'}</td>
+                  <td>{p.qty}</td>
+                  <td>{fmtN(p.delta, 2)}</td>
+                  <td>{fmtN(p.gamma, 3)}</td>
+                  <td style={{ color: p.theta > 0 ? '#30d158' : '#ef4444' }}>{fmtN(p.theta, 2)}</td>
+                  <td>{fmtN(p.vega, 2)}</td>
+                  <td>{fmtMoney(p.delta_dollars)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
 }
 
-// ─── 🛡️ Defense — Sprint 3 ──────────────────────────────────────────────────
+// ─── 🛡️ Defense — implementación real (Sprint cleanup) ──────────────────────
 function DefenseSubtab() {
-  return <PlaceholderTab icon="🛡️" title="Defense Playbook" sprint="Sprint 3"
-    description="Posiciones challenged + recomendación automática (roll/butterfly/conversion). Auto-Close engine extendido." />;
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+  const [rollSugg, setRollSugg] = useState({});
+
+  const refresh = useCallback(() => {
+    setLoading(true); setErr(null);
+    fetch(`${API_URL}/api/thetagang/defense/eval`)
+      .then(r => r.json())
+      .then(d => { if (d.error) setErr(d.error); else setData(d); setLoading(false); })
+      .catch(e => { setErr(e.message); setLoading(false); });
+  }, []);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const requestRoll = async (group) => {
+    try {
+      const r = await fetch(`${API_URL}/api/thetagang/defense/roll-suggestion`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ underlying: group.underlying, current_strike: group.short_strike, current_expiry: group.expiry, opt_type: group.opt_type }),
+      });
+      const j = await r.json();
+      setRollSugg({ ...rollSugg, [group.underlying + group.short_strike]: j });
+    } catch (e) { setRollSugg({ ...rollSugg, [group.underlying + group.short_strike]: { error: e.message } }); }
+  };
+
+  const card = { padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 };
+  if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Evaluando defense…</div>;
+  if (err) return <div style={{ padding: 12, margin: 14, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, color: '#ef4444', fontSize: 12 }}>⚠ {err}</div>;
+
+  const positions = data?.positions || [];
+  return (
+    <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{positions.length} posiciones challenged</div>
+        <button onClick={refresh} style={{ padding: '4px 10px', fontSize: 11, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', borderRadius: 4, cursor: 'pointer' }}>↻ Refresh</button>
+      </div>
+      {positions.length === 0 ? (
+        <div style={{ ...card, fontSize: 12, color: 'var(--text-tertiary)', textAlign: 'center', padding: 20 }}>No hay posiciones que requieran defensa. Todas dentro de límites.</div>
+      ) : (
+        positions.map((p, i) => {
+          const sevColor = p.severity === 'CRITICAL' ? '#ef4444' : p.severity === 'WATCH' ? '#fbbf24' : '#30d158';
+          const key = p.underlying + p.short_strike;
+          return (
+            <div key={i} style={{ ...card, borderColor: sevColor }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{p.underlying} {p.short_strike}{p.opt_type} · {p.dte}d</div>
+                <span style={{ fontSize: 11, padding: '2px 8px', background: sevColor, color: '#000', borderRadius: 4, fontWeight: 700 }}>{p.severity}</span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                {p.action} · Δ {fmtN(p.delta, 2)} · {fmtPct(p.dist_otm_pct)} OTM · POP {fmtPct(p.pop)}
+              </div>
+              {p.rationale && <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontStyle: 'italic', marginBottom: 6 }}>{p.rationale}</div>}
+              {(p.severity === 'CRITICAL' || p.severity === 'WATCH') && (
+                <button onClick={() => requestRoll(p)} style={{ padding: '4px 10px', fontSize: 11, background: 'var(--gold, #fbbf24)', color: '#000', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>Sugerir Roll</button>
+              )}
+              {rollSugg[key] && (
+                <div style={{ marginTop: 8, padding: 8, background: 'var(--bg-primary)', borderRadius: 4, fontSize: 11 }}>
+                  {rollSugg[key].error ? <span style={{ color: '#ef4444' }}>⚠ {rollSugg[key].error}</span> :
+                    <span>Roll a {rollSugg[key].new_strike} {rollSugg[key].new_expiry} ({rollSugg[key].new_dte}d) · credit ${fmtN(rollSugg[key].expected_credit, 2)}</span>}
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
 }
 
-// ─── 📝 Paper — Sprint 4 ────────────────────────────────────────────────────
+// ─── 📝 Paper — implementación real (Sprint cleanup) ────────────────────────
 function PaperSubtab() {
-  return <PlaceholderTab icon="📝" title="Paper Trading" sprint="Sprint 4"
-    description="Trades virtuales con execution mock. Validación 4-8 semanas antes promote real. Match vs backtest ±30%." />;
+  const [open, setOpen] = useState([]);
+  const [scoreboard, setScoreboard] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true); setErr(null);
+    try {
+      const [oR, sR] = await Promise.all([
+        fetch(`${API_URL}/api/thetagang/paper/positions`).then(r => r.json()),
+        fetch(`${API_URL}/api/thetagang/paper/scoreboard`).then(r => r.json()),
+      ]);
+      if (oR.error) setErr(oR.error);
+      setOpen(oR.positions || []);
+      setScoreboard(sR);
+    } catch (e) { setErr(e.message); }
+    setLoading(false);
+  }, []);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const card = { padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 };
+  if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Cargando paper trades…</div>;
+  if (err) return <div style={{ padding: 12, margin: 14, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, color: '#ef4444', fontSize: 12 }}>⚠ {err}</div>;
+
+  const stats = scoreboard?.aggregated || {};
+  const byStrat = scoreboard?.by_strategy || [];
+  return (
+    <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
+        <div style={card}><div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>OPEN</div><div style={{ fontSize: 18, fontWeight: 700 }}>{open.length}</div></div>
+        <div style={card}><div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>CLOSED</div><div style={{ fontSize: 18, fontWeight: 700 }}>{stats.n_closed || 0}</div></div>
+        <div style={card}><div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>TOTAL P&L</div><div style={{ fontSize: 18, fontWeight: 700, color: (stats.total_pnl || 0) >= 0 ? '#30d158' : '#ef4444' }}>{fmtMoney(stats.total_pnl)}</div></div>
+        <div style={card}><div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>WIN RATE</div><div style={{ fontSize: 18, fontWeight: 700 }}>{fmtPct(stats.win_rate)}</div></div>
+      </div>
+
+      {open.length > 0 && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Open paper positions ({open.length})</div>
+          <div style={{ ...card, padding: 0, overflowX: 'auto' }}>
+            <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+              <thead><tr style={{ background: 'var(--bg-primary)', textAlign: 'left' }}>
+                <th style={{ padding: 6 }}>Strategy</th><th>Sym</th><th>Open</th><th>DTE</th><th>Credit</th><th>Live P&L</th><th>%</th>
+              </tr></thead>
+              <tbody>
+                {open.map((t, i) => (
+                  <tr key={i} style={{ borderTop: '1px solid var(--border)' }}>
+                    <td style={{ padding: 4 }}>{t.strategy_id?.slice(0, 16)}</td>
+                    <td>{t.symbol}</td>
+                    <td>{t.open_date?.slice(5) || '—'}</td>
+                    <td>{t.dte_open || '—'}</td>
+                    <td>{fmtMoney(t.credit_received)}</td>
+                    <td style={{ color: (t.live_pnl || 0) >= 0 ? '#30d158' : '#ef4444' }}>{fmtMoney(t.live_pnl)}</td>
+                    <td style={{ color: (t.live_pnl_pct || 0) >= 0 ? '#30d158' : '#ef4444' }}>{fmtPct(t.live_pnl_pct)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {byStrat.length > 0 && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>P&L por strategy</div>
+          <div style={{ ...card, padding: 0, overflowX: 'auto' }}>
+            <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+              <thead><tr style={{ background: 'var(--bg-primary)', textAlign: 'left' }}>
+                <th style={{ padding: 6 }}>Strategy</th><th>N closed</th><th>Total P&L</th><th>Win %</th><th>Avg P&L</th>{byStrat[0]?.drift_pct != null && <th>Drift vs BT</th>}
+              </tr></thead>
+              <tbody>
+                {byStrat.map((s, i) => (
+                  <tr key={i} style={{ borderTop: '1px solid var(--border)' }}>
+                    <td style={{ padding: 4, fontWeight: 600 }}>{s.strategy_id}</td>
+                    <td>{s.n_closed}</td>
+                    <td style={{ color: (s.total_pnl || 0) >= 0 ? '#30d158' : '#ef4444' }}>{fmtMoney(s.total_pnl)}</td>
+                    <td>{fmtPct(s.win_rate)}</td>
+                    <td>{fmtMoney(s.avg_pnl)}</td>
+                    {s.drift_pct != null && <td style={{ color: Math.abs(s.drift_pct) > 30 ? '#ef4444' : 'inherit' }}>{fmtPct(s.drift_pct)}</td>}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
-// ─── ⚡ Live — Sprint 11 ────────────────────────────────────────────────────
+// ─── ⚡ Live — implementación real (Sprint cleanup) ─────────────────────────
 function LiveSubtab() {
-  return <PlaceholderTab icon="⚡" title="Live Trades" sprint="Sprint 11"
-    description="Trades reales en Tastytrade. Auto-open con guard rails completos. Solo después de pasar 5 gates promotion." />;
+  const [caps, setCaps] = useState(null);
+  const [monitoring, setMonitoring] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [c, m] = await Promise.all([
+        fetch(`${API_URL}/api/thetagang/risk/caps-status`).then(r => r.json()).catch(() => null),
+        fetch(`${API_URL}/api/thetagang/monitoring/last`).then(r => r.json()).catch(() => null),
+      ]);
+      setCaps(c); setMonitoring(m);
+    } catch {}
+    setLoading(false);
+  }, []);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const card = { padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 };
+  if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Cargando estado live…</div>;
+
+  return (
+    <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ ...card, background: caps?.allowed ? 'rgba(48,209,88,.05)' : 'rgba(239,68,68,.05)', borderColor: caps?.allowed ? 'rgba(48,209,88,.4)' : 'rgba(239,68,68,.4)' }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--gold, #fbbf24)', marginBottom: 6 }}>SPRINT 11 — AUTO-EXECUTION (no live aún)</div>
+        <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+          Auto-execution real money está <b>pendiente Sprint 11</b>: requiere VPS US East (~$4.50/mes Hetzner), migración TT bridge desde NAS España, pre-trade risk check + atomic submit. <br />
+          <b>Mientras tanto</b>: usa <b>📝 Paper</b> para validar (4-8 sem), <b>🏗️ Risk</b> verifica caps en tiempo real, <b>🦎 Multi-leg</b> + <b>🎡 Wheel</b> + <b>🛡️ Tail Hedge</b> para diseñar trades, ejecuta manualmente en Tastytrade.
+        </div>
+      </div>
+
+      <div style={card}>
+        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>🚦 Pre-trade gate (Sprint 11 lo usará automáticamente)</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 10, background: caps?.allowed ? 'rgba(48,209,88,.08)' : 'rgba(239,68,68,.08)', borderRadius: 4 }}>
+          <div style={{ fontSize: 22 }}>{caps?.allowed ? '🟢' : '🔴'}</div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: caps?.allowed ? '#30d158' : '#ef4444' }}>
+              {caps?.allowed ? 'TRADES PERMITIDOS' : 'TRADES BLOQUEADOS'}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+              VIX {fmtN(caps?.state_snapshot?.vix, 1)} · Concurrent {caps?.state_snapshot?.n_concurrent_positions} · DD {fmtPct(caps?.state_snapshot?.drawdown_pct)} · Streak {caps?.state_snapshot?.recent_loss_streak || 0}
+            </div>
+          </div>
+        </div>
+        {(caps?.blocked_by || []).length > 0 && (
+          <div style={{ marginTop: 8, padding: 8, background: 'rgba(239,68,68,.06)', borderRadius: 4, fontSize: 11 }}>
+            {caps.blocked_by.map((b, i) => <div key={i} style={{ color: '#ef4444' }}>⛔ {b}</div>)}
+          </div>
+        )}
+      </div>
+
+      <div style={card}>
+        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>🔔 Último monitoring check</div>
+        {!monitoring?.snapshot ? (
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Sin snapshot todavía. El cron diario 08:00 UTC lo persistirá.</div>
+        ) : (
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+            Último: <b>{monitoring.last_check}</b><br />
+            Caps {monitoring.snapshot.caps_status?.allowed ? '🟢' : '🔴'} · {monitoring.snapshot.open_hedges?.length || 0} hedges abiertos
+          </div>
+        )}
+        <button onClick={refresh} style={{ marginTop: 10, padding: '4px 10px', fontSize: 11, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', borderRadius: 4, cursor: 'pointer' }}>↻ Refresh</button>
+      </div>
+    </div>
+  );
 }
 
 // ─── 🏗️ Risk — Sprint 9 ────────────────────────────────────────────────────
@@ -976,10 +1248,112 @@ function RiskSubtab() {
   );
 }
 
-// ─── 📈 P&L — Sprint 13 ────────────────────────────────────────────────────
+// ─── 📈 P&L — implementación real (Sprint cleanup) ──────────────────────────
+// Aggrega P&L de las 3 fuentes de Theta Gang: paper trades + wheel cycles + tail hedges.
 function PnLSubtab() {
-  return <PlaceholderTab icon="📈" title="Performance Attribution" sprint="Sprint 13"
-    description="P&L por estrategia. Real vs paper match. Sharpe / Sortino / Max DD. Live scoreboard." />;
+  const [paper, setPaper] = useState(null);
+  const [wheel, setWheel] = useState(null);
+  const [hedges, setHedges] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [p, w, h] = await Promise.all([
+        fetch(`${API_URL}/api/thetagang/paper/scoreboard`).then(r => r.json()).catch(() => null),
+        fetch(`${API_URL}/api/thetagang/wheel/status`).then(r => r.json()).catch(() => null),
+        fetch(`${API_URL}/api/thetagang/tail-hedge/status`).then(r => r.json()).catch(() => null),
+      ]);
+      setPaper(p); setWheel(w); setHedges(h);
+    } catch {}
+    setLoading(false);
+  }, []);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const card = { padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 };
+  if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Agregando P&L de las 3 fuentes…</div>;
+
+  const paperPnL = paper?.aggregated?.total_pnl || 0;
+  const wheelPnL = wheel?.stats?.total_pnl || 0;
+  const hedgeCost = hedges?.totals?.total_cost || 0;
+  const hedgePnL = hedges?.totals?.realized_pnl || 0;
+  const totalPnL = paperPnL + wheelPnL + hedgePnL - hedgeCost;
+  const sources = [
+    { label: '📝 Paper trading', pnl: paperPnL, n: paper?.aggregated?.n_closed || 0 },
+    { label: '🎡 Wheel cycles', pnl: wheelPnL, n: wheel?.stats?.n_cycles || 0 },
+    { label: '🛡️ Tail hedge realized', pnl: hedgePnL, n: hedges?.history?.length || 0 },
+    { label: '🛡️ Tail hedge cost (open)', pnl: -hedgeCost, n: hedges?.open?.length || 0 },
+  ];
+
+  return (
+    <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Big total */}
+      <div style={{ ...card, textAlign: 'center', padding: 20, borderColor: totalPnL >= 0 ? 'rgba(48,209,88,.4)' : 'rgba(239,68,68,.4)' }}>
+        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6 }}>P&L AGREGADO THETA GANG</div>
+        <div style={{ fontSize: 36, fontWeight: 700, color: totalPnL >= 0 ? '#30d158' : '#ef4444' }}>{fmtMoney(totalPnL)}</div>
+        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>Paper + Wheel + Tail Hedge realized − cost open</div>
+      </div>
+
+      {/* Breakdown por fuente */}
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Desglose por fuente</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+          {sources.map((s, i) => (
+            <div key={i} style={card}>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 2 }}>{s.label}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: s.pnl > 0 ? '#30d158' : s.pnl < 0 ? '#ef4444' : 'var(--text-primary)' }}>{fmtMoney(s.pnl)}</div>
+              <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{s.n} entries</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Paper stats detalladas */}
+      {paper?.aggregated && (
+        <div style={card}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--gold, #fbbf24)', marginBottom: 6 }}>📝 Paper trading detallado</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 8, fontSize: 11 }}>
+            <div><span style={{ color: 'var(--text-tertiary)' }}>Closed:</span> <b>{paper.aggregated.n_closed}</b></div>
+            <div><span style={{ color: 'var(--text-tertiary)' }}>Win rate:</span> <b>{fmtPct(paper.aggregated.win_rate)}</b></div>
+            <div><span style={{ color: 'var(--text-tertiary)' }}>Avg P&L:</span> <b>{fmtMoney(paper.aggregated.avg_pnl)}</b></div>
+            <div><span style={{ color: 'var(--text-tertiary)' }}>Best:</span> <b style={{ color: '#30d158' }}>{fmtMoney(paper.aggregated.best_trade)}</b></div>
+            <div><span style={{ color: 'var(--text-tertiary)' }}>Worst:</span> <b style={{ color: '#ef4444' }}>{fmtMoney(paper.aggregated.worst_trade)}</b></div>
+          </div>
+        </div>
+      )}
+
+      {/* Wheel stats detalladas */}
+      {wheel?.stats?.n_cycles > 0 && (
+        <div style={card}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--gold, #fbbf24)', marginBottom: 6 }}>🎡 Wheel cycles detallado</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 8, fontSize: 11 }}>
+            <div><span style={{ color: 'var(--text-tertiary)' }}>Ciclos:</span> <b>{wheel.stats.n_cycles}</b></div>
+            <div><span style={{ color: 'var(--text-tertiary)' }}>Prima total:</span> <b style={{ color: 'var(--gold, #fbbf24)' }}>{fmtMoney(wheel.stats.total_premium)}</b></div>
+            <div><span style={{ color: 'var(--text-tertiary)' }}>Yield ann:</span> <b>{fmtPct(wheel.stats.annualized_return_pct)}</b></div>
+            <div><span style={{ color: 'var(--text-tertiary)' }}>Win:</span> <b>{fmtPct(wheel.stats.win_rate)}</b></div>
+            <div><span style={{ color: 'var(--text-tertiary)' }}>Avg días:</span> <b>{fmtN(wheel.stats.avg_cycle_days, 0)}</b></div>
+          </div>
+        </div>
+      )}
+
+      {/* Hedge cost / efectividad */}
+      {(hedges?.open?.length > 0 || hedges?.history?.length > 0) && (
+        <div style={card}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--gold, #fbbf24)', marginBottom: 6 }}>🛡️ Tail hedge detallado</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, fontSize: 11 }}>
+            <div><span style={{ color: 'var(--text-tertiary)' }}>Abiertos:</span> <b>{hedges.open?.length || 0}</b></div>
+            <div><span style={{ color: 'var(--text-tertiary)' }}>Histórico:</span> <b>{hedges.history?.length || 0}</b></div>
+            <div><span style={{ color: 'var(--text-tertiary)' }}>Cost-to-date:</span> <b>{fmtMoney(hedges.totals?.total_cost)}</b></div>
+            <div><span style={{ color: 'var(--text-tertiary)' }}>Realized P&L:</span> <b style={{ color: hedgePnL >= 0 ? '#30d158' : '#ef4444' }}>{fmtMoney(hedgePnL)}</b></div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ padding: 10, background: 'rgba(96,165,250,.06)', border: '1px solid rgba(96,165,250,.2)', borderRadius: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
+        💡 Sprint 11 (real money): este P&L incluirá automáticamente trades reales de TT bridge, no solo paper. Sortino/Calmar/Drift vs backtest se añadirán cuando haya ≥30 trades por strategy.
+      </div>
+    </div>
+  );
 }
 
 // ─── 🎡 Wheel — Sprint 7 ────────────────────────────────────────────────────

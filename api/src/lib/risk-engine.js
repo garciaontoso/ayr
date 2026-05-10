@@ -181,15 +181,23 @@ function pearson(xs, ys) {
 // caps:  { vix_max, max_concurrent, drawdown_kill_pct, max_loss_streak,
 //          max_correlated_strategies, max_capital_per_trade_pct }
 // returns { allowed: bool, blocked_by: string[], warnings: string[] }
+// NOTE (audit cleanup): the following caps are defined but NOT yet enforced
+// by evaluateRiskCaps() — they're documented here for Sprint 11 (auto-execution)
+// when state.* fields will be available:
+//   - drawdown_kill_recovery_days: 30   (Sprint 11 will track kill_state + cooldown timer)
+//   - max_correlated_strategies: 2      (Sprint 11 will check via /risk/correlation pre-trade)
+//   - max_capital_per_trade_pct: 5      (Sprint 11 will check sizing per-trade pre-submit)
+//   - cooldown_after_kill_days: 30      (post-DRAWDOWN_KILL recovery window)
+// Active enforcement: vix_max, max_concurrent, drawdown_kill_pct, max_loss_streak.
 export const DEFAULT_RISK_CAPS = {
   vix_max: 30,
   max_concurrent: 8,
   drawdown_kill_pct: 10,         // % of initial_capital
-  drawdown_kill_recovery_days: 30,
+  drawdown_kill_recovery_days: 30,    // Sprint 11
   max_loss_streak: 3,
-  max_correlated_strategies: 2,
-  max_capital_per_trade_pct: 5,
-  cooldown_after_kill_days: 30,
+  max_correlated_strategies: 2,       // Sprint 11
+  max_capital_per_trade_pct: 5,       // Sprint 11
+  cooldown_after_kill_days: 30,       // Sprint 11
 };
 
 export function evaluateRiskCaps(state, caps = DEFAULT_RISK_CAPS) {

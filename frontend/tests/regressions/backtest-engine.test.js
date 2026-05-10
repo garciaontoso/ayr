@@ -9,15 +9,29 @@ import {
   walkForwardWindows, monteCarloBootstrap, promotionVerdict,
 } from '../../../api/src/lib/backtest-engine.js';
 
-// Synthetic bar generator: GBM with constant μ, σ
-function makeGBMBars(N = 500, S0 = 600, mu = 0.08, sigma = 0.18, startDateStr = '2023-01-01') {
+// Seedable PRNG (LCG) — deterministic across CI runs.
+// Sprint cleanup: replace Math.random() to avoid flaky tests where
+// makeGBMBars or monteCarloBootstrap produce different paths each run.
+let _prngState = 1;
+function seedPRNG(s) { _prngState = (s >>> 0) || 1; }
+function prng() {
+  // mulberry32 (32-bit, fast, decent quality)
+  _prngState = (_prngState + 0x6D2B79F5) >>> 0;
+  let t = _prngState;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+
+// Synthetic bar generator: GBM with constant μ, σ (deterministic)
+function makeGBMBars(N = 500, S0 = 600, mu = 0.08, sigma = 0.18, startDateStr = '2023-01-01', seed = 42) {
+  seedPRNG(seed);
   const bars = [];
   let S = S0;
   let date = new Date(startDateStr);
   for (let i = 0; i < N; i++) {
     bars.push({ date: date.toISOString().slice(0, 10), close: Math.round(S * 100) / 100 });
-    // Daily step
-    const z = Math.sqrt(-2 * Math.log(Math.random())) * Math.cos(2 * Math.PI * Math.random()); // Box-Muller
+    const z = Math.sqrt(-2 * Math.log(prng())) * Math.cos(2 * Math.PI * prng()); // Box-Muller
     const drift = (mu - sigma * sigma / 2) / 252;
     const diffusion = sigma / Math.sqrt(252) * z;
     S = S * Math.exp(drift + diffusion);

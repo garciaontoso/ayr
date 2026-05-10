@@ -196,6 +196,21 @@ describe('Sprint 9 — portfolioHeatByUnderlying()', () => {
   it('handles empty positions', () => {
     expect(portfolioHeatByUnderlying([])).toEqual([]);
   });
+
+  // Sprint cleanup — coverage gap: short positions flip sign
+  it('Short positions flip delta_dollars sign', () => {
+    const positionsLong = [
+      { underlying: 'SPY', delta: 0.5, quantity: 1, multiplier: 100, underlying_price: 600, quantity_direction: 'Long' },
+    ];
+    const positionsShort = [
+      { underlying: 'SPY', delta: 0.5, quantity: 1, multiplier: 100, underlying_price: 600, quantity_direction: 'Short' },
+    ];
+    const heatLong = portfolioHeatByUnderlying(positionsLong);
+    const heatShort = portfolioHeatByUnderlying(positionsShort);
+    expect(Math.sign(heatLong[0].delta_dollars)).toBe(1);
+    expect(Math.sign(heatShort[0].delta_dollars)).toBe(-1);
+    expect(Math.abs(heatLong[0].delta_dollars)).toBe(Math.abs(heatShort[0].delta_dollars));
+  });
 });
 
 describe('Sprint 9 — portfolioRiskScore()', () => {
