@@ -913,21 +913,68 @@ function PaperSubtab() {
   const [scoreboard, setScoreboard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
+  // Sprint 14 — Auto Paper state
+  const [autoPaperEnabled, setAutoPaperEnabled] = useState(false);
+  const [autoPaperLog, setAutoPaperLog] = useState([]);
+  const [autoPaperBusy, setAutoPaperBusy] = useState(false);
+  const [autoPaperLastRun, setAutoPaperLastRun] = useState(null);
 
   const refresh = useCallback(async () => {
     setLoading(true); setErr(null);
     try {
-      const [oR, sR] = await Promise.all([
+      const [oR, sR, cfgR, logR] = await Promise.all([
         fetch(`${API_URL}/api/thetagang/paper/positions`).then(r => r.json()),
         fetch(`${API_URL}/api/thetagang/paper/scoreboard`).then(r => r.json()),
+        fetch(`${API_URL}/api/thetagang/auto-paper/config`).then(r => r.json()).catch(() => null),
+        fetch(`${API_URL}/api/thetagang/auto-paper/log?limit=20`).then(r => r.json()).catch(() => null),
       ]);
       if (oR.error) setErr(oR.error);
       setOpen(oR.positions || []);
       setScoreboard(sR);
+      setAutoPaperEnabled(!!cfgR?.enabled);
+      setAutoPaperLog(logR?.log || []);
     } catch (e) { setErr(e.message); }
     setLoading(false);
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
+
+  const toggleAutoPaper = async () => {
+    setAutoPaperBusy(true);
+    try {
+      const r = await fetch(`${API_URL}/api/thetagang/auto-paper/config`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !autoPaperEnabled }),
+      });
+      const j = await r.json();
+      if (j.ok) setAutoPaperEnabled(j.enabled);
+    } catch {}
+    setAutoPaperBusy(false);
+  };
+
+  const runAutoPaperNow = async (dryRun = false) => {
+    setAutoPaperBusy(true);
+    try {
+      // Pre-fetch state client-side (CF self-fetch en fetch handler tiene loop
+      // detection que devuelve vacío; pasar pre-fetched state evita el problema).
+      const [brainScan, capsStatus, paperPositions, strategiesResp] = await Promise.all([
+        fetch(`${API_URL}/api/thetagang/brain/scan`).then(r => r.json()).catch(() => null),
+        fetch(`${API_URL}/api/thetagang/risk/caps-status`).then(r => r.json()).catch(() => null),
+        fetch(`${API_URL}/api/thetagang/paper/positions`).then(r => r.json()).catch(() => null),
+        fetch(`${API_URL}/api/thetagang/strategies`).then(r => r.json()).catch(() => null),
+      ]);
+      const r = await fetch(`${API_URL}/api/thetagang/auto-paper/run`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          force: true, dry_run: dryRun,
+          state: { brain_scan: brainScan, caps_status: capsStatus, paper_positions: paperPositions, strategies: strategiesResp },
+        }),
+      });
+      const j = await r.json();
+      setAutoPaperLastRun({ ...j, dryRun });
+      if (!dryRun) refresh();
+    } catch (e) { setAutoPaperLastRun({ error: e.message }); }
+    setAutoPaperBusy(false);
+  };
 
   const card = { padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 };
   if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Cargando paper trades…</div>;
@@ -937,6 +984,51 @@ function PaperSubtab() {
   const byStrat = scoreboard?.by_strategy || [];
   return (
     <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Sprint 14 — Auto Paper control panel */}
+      <div style={{ ...card, borderColor: autoPaperEnabled ? 'rgba(48,209,88,.4)' : 'var(--border)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700 }}>🤖 Auto Paper Trading</div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: autoPaperEnabled ? '#30d158' : 'var(--text-tertiary)', fontWeight: 600 }}>{autoPaperEnabled ? '🟢 ON' : '⚫ OFF'}</span>
+            <button onClick={toggleAutoPaper} disabled={autoPaperBusy} style={{ padding: '4px 10px', fontSize: 11, background: autoPaperEnabled ? 'transparent' : 'var(--gold, #fbbf24)', color: autoPaperEnabled ? 'var(--text-secondary)' : '#000', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>{autoPaperEnabled ? 'Desactivar' : 'Activar'}</button>
+            <button onClick={() => runAutoPaperNow(true)} disabled={autoPaperBusy} title="Dry run: simula sin ejecutar" style={{ padding: '4px 10px', fontSize: 11, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}>▶ Dry run</button>
+            <button onClick={() => runAutoPaperNow(false)} disabled={autoPaperBusy} style={{ padding: '4px 10px', fontSize: 11, background: 'transparent', color: '#fbbf24', border: '1px solid #fbbf24', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>▶ Run now</button>
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+          Cuando ON: el cron diario 08:00 UTC ejecuta brain/scan + caps + paper/positions → abre paper trades automáticamente si score≥70 y caps allowed; cierra si TP +50% / SL -200% / gamma exit DTE≤7. Sin riesgo (paper).
+        </div>
+        {autoPaperLastRun && (
+          <div style={{ marginTop: 10, padding: 10, background: 'var(--bg-primary)', borderRadius: 4 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4 }}>Última ejecución {autoPaperLastRun.dryRun ? '(DRY RUN)' : ''}:</div>
+            {autoPaperLastRun.error ? (
+              <div style={{ color: '#ef4444', fontSize: 11 }}>⚠ {autoPaperLastRun.error}</div>
+            ) : autoPaperLastRun.skipped ? (
+              <div style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>⏸ {autoPaperLastRun.reason} — {autoPaperLastRun.hint}</div>
+            ) : (
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                Opens: <b>{autoPaperLastRun.summary?.opens_executed || 0}</b>/{autoPaperLastRun.summary?.opens_planned || 0}
+                · Closes: <b>{autoPaperLastRun.summary?.closes_executed || 0}</b>/{autoPaperLastRun.summary?.closes_planned || 0}
+                · Skips: {autoPaperLastRun.summary?.skips || 0} · Holds: {autoPaperLastRun.summary?.holds || 0}
+                {(autoPaperLastRun.summary?.errors || 0) > 0 && <span style={{ color: '#ef4444' }}> · Errors: {autoPaperLastRun.summary.errors}</span>}
+              </div>
+            )}
+          </div>
+        )}
+        {autoPaperLog.length > 0 && (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 4 }}>LOG (últimas 20 acciones)</div>
+            <div style={{ maxHeight: 180, overflowY: 'auto', fontSize: 10, fontFamily: 'monospace' }}>
+              {autoPaperLog.map((l, i) => (
+                <div key={l.id || i} style={{ padding: '2px 0', borderBottom: '1px dashed var(--border)', color: l.action === 'open' ? '#30d158' : l.action === 'close' ? '#fbbf24' : l.action.includes('error') ? '#ef4444' : 'var(--text-tertiary)' }}>
+                  {l.run_at?.slice(11, 19)} · {l.action.toUpperCase()} · {l.symbol || '—'} · {l.strategy_id?.slice(0, 16) || '—'} · {l.reason?.slice(0, 60) || ''}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
         <div style={card}><div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>OPEN</div><div style={{ fontSize: 18, fontWeight: 700 }}>{open.length}</div></div>
         <div style={card}><div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>CLOSED</div><div style={{ fontSize: 18, fontWeight: 700 }}>{stats.n_closed || 0}</div></div>

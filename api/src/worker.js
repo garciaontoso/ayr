@@ -18,6 +18,7 @@ import * as Wheel from "./lib/wheel-engine.js";
 import * as TH from "./lib/tail-hedge-engine.js";
 import * as Risk from "./lib/risk-engine.js";
 import * as Monitor from "./lib/monitoring-engine.js";
+import * as AutoPaper from "./lib/auto-paper-engine.js";
 import { FMP_MAP, toFMP, fromFMP, FMP_REVERSE, fmpQuote, fmpRiskMetrics, fmpSpyCloses, fmpSpark, FCF_PAYOUT_CARVEOUT, CURRENCY_MAP } from "./lib/fmp.js";
 
 // FMP_MAP, toFMP, fromFMP, fmpQuote, fmpRiskMetrics, fmpSpyCloses, fmpSpark → ./lib/fmp.js
@@ -7664,6 +7665,27 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         )`).run();
         await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_tail_hedges_status
           ON thetagang_tail_hedges(status)`).run();
+        // Sprint 14 — Auto Paper Trading log + config
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS thetagang_auto_paper_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          run_at TEXT DEFAULT (datetime('now')),
+          action TEXT NOT NULL,             -- 'open' | 'close' | 'skip' | 'hold'
+          reason TEXT,
+          symbol TEXT, strategy_id TEXT,
+          paper_trade_id INTEGER,           -- FK to thetagang_paper_trades.id
+          contracts INTEGER, dte INTEGER,
+          live_pnl_pct REAL,
+          payload_json TEXT,
+          error TEXT
+        )`).run();
+        await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_auto_paper_run_at
+          ON thetagang_auto_paper_log(run_at DESC)`).run();
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS thetagang_auto_paper_config (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          enabled INTEGER DEFAULT 0,        -- 0 = OFF (default safe), 1 = ON
+          updated_at TEXT DEFAULT (datetime('now'))
+        )`).run();
+        await env.DB.prepare(`INSERT OR IGNORE INTO thetagang_auto_paper_config (id, enabled) VALUES (1, 0)`).run();
       };
 
       // GET /api/thetagang/strategies — catálogo de las 9 estrategias seedeadas
@@ -10529,6 +10551,180 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const effectiveness = TH.evaluateHedgeEffectiveness(portfolioPnL, hedgePnL);
           return json({ ok: true, days, n_hedges: (hedges || []).length, n_nav_points: series.length, effectiveness, generated_at: new Date().toISOString() }, corsHeaders);
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // ─── Sprint 14 — Auto Paper Trading loop ─────────────────────────────
+
+      // GET /api/thetagang/auto-paper/config — read enabled flag
+      if (path === "/api/thetagang/auto-paper/config" && request.method === "GET") {
+        await ensureThetaGangTables();
+        const row = await env.DB.prepare(`SELECT enabled, updated_at FROM thetagang_auto_paper_config WHERE id = 1`).first().catch(() => null);
+        return json({ ok: true, enabled: !!(row?.enabled), updated_at: row?.updated_at || null }, corsHeaders);
+      }
+
+      // POST /api/thetagang/auto-paper/config body:{enabled: true|false}
+      if (path === "/api/thetagang/auto-paper/config" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        await ensureThetaGangTables();
+        try {
+          const b = await request.json();
+          const enabled = b.enabled ? 1 : 0;
+          await env.DB.prepare(`UPDATE thetagang_auto_paper_config SET enabled = ?, updated_at = datetime('now') WHERE id = 1`).bind(enabled).run();
+          return json({ ok: true, enabled: !!enabled }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // GET /api/thetagang/auto-paper/log?limit=50
+      if (path === "/api/thetagang/auto-paper/log" && request.method === "GET") {
+        await ensureThetaGangTables();
+        const limit = Math.max(1, Math.min(500, Number(url.searchParams.get('limit') || 50)));
+        const { results } = await env.DB.prepare(
+          `SELECT id, run_at, action, reason, symbol, strategy_id, paper_trade_id, contracts, dte, live_pnl_pct, error
+           FROM thetagang_auto_paper_log ORDER BY id DESC LIMIT ?`
+        ).bind(limit).all().catch(() => ({ results: [] }));
+        return json({ ok: true, log: results || [] }, corsHeaders);
+      }
+
+      // POST /api/thetagang/auto-paper/run
+      // Orchestrator: brain/scan + caps-status + open positions + strategies →
+      // plan decisions → execute opens (paper/open) + closes (paper/close) →
+      // persist log + return summary. Force-runs even if config.enabled=0.
+      // Body: { dry_run?, force? } (force ignores config.enabled gate)
+      if (path === "/api/thetagang/auto-paper/run" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        await ensureThetaGangTables();
+        try {
+          const body = await request.json().catch(() => ({}));
+          const dryRun = body.dry_run === true;
+          const force = body.force === true;
+          // Sprint 14 fix: usar workers.dev URL para evitar Cloudflare self-fetch loop detection
+          // que devuelve respuestas vacías cuando un Worker llama a su propia custom domain.
+          // workers.dev sigue siendo el mismo Worker pero por una URL distinta → no se detecta loop.
+          const apiBase = "https://aar-api.garciaontoso.workers.dev";
+          const auth = { 'X-AYR-Auth': env.AYR_WORKER_TOKEN, 'Content-Type': 'application/json' };
+
+          // Check config gate
+          if (!force) {
+            const cfg = await env.DB.prepare(`SELECT enabled FROM thetagang_auto_paper_config WHERE id = 1`).first().catch(() => null);
+            if (!cfg?.enabled) {
+              return json({ ok: true, skipped: true, reason: 'AUTO_PAPER_DISABLED', hint: 'POST /api/thetagang/auto-paper/config {enabled: true} or use force=true' }, corsHeaders);
+            }
+          }
+
+          // Sprint 14 fix: el body opcionalmente puede traer state pre-fetched
+          // (frontend lo pasa así porque self-fetch desde fetch handler dispara
+          // CF loop detection y devuelve respuestas vacías). El cron scheduled
+          // SÍ puede usar self-fetch porque corre en contexto distinto.
+          const stateProvided = body.state || null;
+
+          let brainResp, capsResp, openResp, stratsResp;
+          if (stateProvided) {
+            brainResp = stateProvided.brain_scan;
+            capsResp = stateProvided.caps_status;
+            openResp = stateProvided.paper_positions;
+            stratsResp = stateProvided.strategies;
+          } else {
+            // Fetch state in parallel (works in scheduled context)
+            [brainResp, capsResp, openResp, stratsResp] = await Promise.all([
+              fetch(`${apiBase}/api/thetagang/brain/scan`, { headers: auth }).then(r => r.json()).catch(() => null),
+              fetch(`${apiBase}/api/thetagang/risk/caps-status`).then(r => r.json()).catch(() => null),
+              fetch(`${apiBase}/api/thetagang/paper/positions`, { headers: auth }).then(r => r.json()).catch(() => null),
+              fetch(`${apiBase}/api/thetagang/strategies`).then(r => r.json()).catch(() => null),
+            ]);
+          }
+
+          const brainScan = brainResp || { candidates: [] };
+          const capsStatus = capsResp || { allowed: false };
+          const openPositions = (openResp?.positions || []).map(p => {
+            // Compute current_dte if open_date + dte_open available
+            const dte_open = p.dte_open || 35;
+            const open_date = p.open_date;
+            let current_dte = dte_open;
+            if (open_date) {
+              const days_held = Math.floor((Date.now() - new Date(open_date).getTime()) / 86400000);
+              current_dte = Math.max(0, dte_open - days_held);
+            }
+            return { ...p, current_dte };
+          });
+          const strategies = stratsResp?.strategies || [];
+
+          // Plan decisions (pure function)
+          const plan = AutoPaper.planAutoPaperCycle(brainScan, capsStatus, openPositions, strategies);
+
+          // Execute (unless dry run)
+          const executions = { opens: [], closes: [], errors: [] };
+          if (!dryRun) {
+            // Opens
+            for (const d of plan.open_decisions) {
+              if (d.action !== 'open') {
+                await env.DB.prepare(
+                  `INSERT INTO thetagang_auto_paper_log (action, reason, symbol, strategy_id, payload_json) VALUES (?, ?, ?, ?, ?)`
+                ).bind('skip', d.reason, d.candidate?.symbol || null, AutoPaper.mapBrainStrategyToCatalog(d.candidate?.strategy, d.candidate?.symbol), JSON.stringify(d.candidate)).run().catch(() => {});
+                continue;
+              }
+              try {
+                const r = await fetch(`${apiBase}/api/thetagang/paper/open`, {
+                  method: 'POST', headers: auth,
+                  body: JSON.stringify({ ...d.params, force: true }),
+                });
+                const j = await r.json();
+                if (j.ok) {
+                  executions.opens.push({ ...d.params, paper_trade_id: j.paper_trade_id });
+                  await env.DB.prepare(
+                    `INSERT INTO thetagang_auto_paper_log (action, reason, symbol, strategy_id, paper_trade_id, contracts, dte, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+                  ).bind('open', d.reason, d.params.symbol, d.params.strategy_id, j.paper_trade_id || null, d.params.contracts, d.params.dte, JSON.stringify(j)).run().catch(() => {});
+                } else {
+                  executions.errors.push({ stage: 'open', params: d.params, error: j.error });
+                  await env.DB.prepare(
+                    `INSERT INTO thetagang_auto_paper_log (action, reason, symbol, strategy_id, error, payload_json) VALUES (?, ?, ?, ?, ?, ?)`
+                  ).bind('open_error', d.reason, d.params.symbol, d.params.strategy_id, j.error || 'unknown', JSON.stringify(d.params)).run().catch(() => {});
+                }
+              } catch (e) {
+                executions.errors.push({ stage: 'open', error: e.message });
+              }
+            }
+            // Closes
+            for (const d of plan.close_decisions) {
+              if (d.action !== 'close') {
+                continue;  // hold → no log entry (would spam)
+              }
+              try {
+                const r = await fetch(`${apiBase}/api/thetagang/paper/close`, {
+                  method: 'POST', headers: auth,
+                  body: JSON.stringify({ paper_trade_id: d.position.id, close_reason: d.reason }),
+                });
+                const j = await r.json();
+                if (j.ok) {
+                  executions.closes.push({ id: d.position.id, reason: d.reason, pnl: j.pnl_realized });
+                  await env.DB.prepare(
+                    `INSERT INTO thetagang_auto_paper_log (action, reason, symbol, strategy_id, paper_trade_id, live_pnl_pct, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?)`
+                  ).bind('close', d.reason, d.position.symbol, d.position.strategy_id, d.position.id, d.position.live_pnl_pct || null, JSON.stringify(j)).run().catch(() => {});
+                } else {
+                  executions.errors.push({ stage: 'close', id: d.position.id, error: j.error });
+                  await env.DB.prepare(
+                    `INSERT INTO thetagang_auto_paper_log (action, reason, symbol, strategy_id, paper_trade_id, error) VALUES (?, ?, ?, ?, ?, ?)`
+                  ).bind('close_error', d.reason, d.position.symbol, d.position.strategy_id, d.position.id, j.error || 'unknown').run().catch(() => {});
+                }
+              } catch (e) {
+                executions.errors.push({ stage: 'close', error: e.message });
+              }
+            }
+          }
+
+          return json({
+            ok: true,
+            dry_run: dryRun,
+            plan,
+            executions,
+            summary: {
+              ...plan.summary,
+              opens_executed: executions.opens.length,
+              closes_executed: executions.closes.length,
+              errors: executions.errors.length,
+            },
+            generated_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
       }
 
       // GET /api/thetagang/monitoring/last — last snapshot + alerts (read-only)
@@ -26992,6 +27188,42 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
         }
       } catch (e) {
         console.error('[audit-cron] thetagang monitoring failed:', e.message);
+      }
+
+      // 2026-05-11: Sprint 14 — Auto Paper Trading piggyback.
+      // Si config.enabled=1, ejecuta el ciclo: brain/scan + caps + open positions
+      // → planAutoPaperCycle → ejecuta opens (si caps allowed + score ≥70) +
+      // closes (si TP/SL/gamma exit). Si endpoint devuelve {skipped: true}
+      // significa enabled=0 → no spam Telegram.
+      try {
+        const r = await fetch(`${apiBase}/api/thetagang/auto-paper/run`, {
+          method: 'POST',
+          headers: { 'X-AYR-Auth': env.AYR_WORKER_TOKEN, 'Content-Type': 'application/json' },
+          body: '{}',
+          signal: AbortSignal.timeout(60000),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (d.skipped) {
+          console.log('[audit-cron] auto-paper: SKIPPED (config disabled)');
+        } else if (d.ok) {
+          const s = d.summary || {};
+          console.log(`[audit-cron] auto-paper: opens=${s.opens_executed}/${s.opens_planned} closes=${s.closes_executed}/${s.closes_planned} skips=${s.skips} errors=${s.errors}`);
+          // Telegram resumen solo si hubo acción real (opens o closes ejecutados o errores)
+          if ((s.opens_executed || 0) > 0 || (s.closes_executed || 0) > 0 || (s.errors || 0) > 0) {
+            const text = [
+              `🤖 *Auto Paper diario*`,
+              ``,
+              `📈 Opens: ${s.opens_executed}/${s.opens_planned}`,
+              `📉 Closes: ${s.closes_executed}/${s.closes_planned}`,
+              s.errors > 0 ? `⚠ Errors: ${s.errors}` : '',
+              ``,
+              `Caps: ${s.caps_allowed ? '🟢 allowed' : '🔴 blocked'} · Skips: ${s.skips}`,
+            ].filter(Boolean).join('\n');
+            await sendTelegram(env, { text, severity: s.errors > 0 ? 'warn' : 'info', source: 'auto_paper' });
+          }
+        }
+      } catch (e) {
+        console.error('[audit-cron] auto-paper failed:', e.message);
       }
 
       // 2026-05-05: piggyback TT transactions sync — mantiene cost_basis.account='TT_*'
