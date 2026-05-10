@@ -8100,6 +8100,266 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return json({ ok: true, refreshed_at: new Date().toISOString(), date: today, results }, corsHeaders);
       }
 
+      // GET /api/thetagang/defense/eval — Sprint 3 defense playbook engine.
+      // Para cada open position TT, calcula severidad + recomienda acción defensiva.
+      //
+      // Severity tiers:
+      //   🟢 OK              — position ITM probability <30%, dejar correr
+      //   🟡 WATCH           — short strike tested (delta breach 25), monitor
+      //   🟠 CHALLENGED      — short strike breached, action recommended
+      //   🔴 CRITICAL        — long strike crossed o stop-loss hit, action urgent
+      //
+      // Defense actions (dependiendo de strategy + severity):
+      //   ROLL_DOWN_OUT      — extender DTE + bajar strike for credit (BPS challenged)
+      //   ROLL_UP_OUT        — extender DTE + subir strike (CC challenged)
+      //   ROLL_LATERAL       — mover el otro lado del IC para credit (IC one side tested)
+      //   CONVERT_TO_BPS     — IC → BPS (cerrar challenged side, mantener safe)
+      //   CONVERT_TO_BUTTERFLY  — añadir long strike opposite for asymmetric defense
+      //   CONVERT_TO_JADE_LIZARD — close BPS, open naked put + call spread
+      //   CONVERT_TO_DIAGONAL    — close near, open far DTE same strike
+      //   CLOSE_AT_LOSS      — accept loss, no defensive value
+      //   TAKE_PROFIT_NOW    — already 50%+ profit, close mecánico
+      //   GAMMA_EXIT         — DTE <7, close to avoid gamma risk
+      if (path === "/api/thetagang/defense/eval" && request.method === "GET") {
+        try {
+          // Get all positions across TT accounts
+          const accountsResp = await ttBridgeFetch(env, "/marketdata/accounts");
+          const accounts = accountsResp?.accounts || [];
+          const positions = [];
+          for (const acct of accounts) {
+            try {
+              const accNum = acct.account_number;
+              const r = await ttBridgeFetch(env, `/marketdata/positions/${encodeURIComponent(accNum)}`);
+              for (const p of r?.positions || []) positions.push({ ...p, account_number: accNum });
+            } catch {}
+          }
+
+          // Group by underlying + expiration to identify multi-leg structures
+          // Map weekly suffix RUTW→RUT, SPXW→SPX, NDXW→NDX
+          const stripWeekly = (sym) => /^(RUT|SPX|NDX|OEX)W$/.test(sym) ? sym.slice(0, -1) : sym;
+          const groups = {};
+          for (const p of positions) {
+            const isOption = p.instrument_type === 'Equity Option';
+            if (!isOption) continue;
+            const baseSym = stripWeekly(p.underlying || p.symbol);
+            const key = `${p.account_number}|${baseSym}|${p.expiry}`;
+            if (!groups[key]) groups[key] = { account: p.account_number, underlying: baseSym, expiry: p.expiry, legs: [] };
+            groups[key].legs.push(p);
+          }
+
+          // Quote underlyings
+          const underlyings = [...new Set(Object.values(groups).map(g => g.underlying))];
+          const quotes = await ttQuote(env, underlyings).catch(() => ({}));
+          const r_rate = BS.DEFAULT_RISK_FREE_RATE;
+          const today = new Date();
+
+          const evaluations = [];
+          for (const [key, group] of Object.entries(groups)) {
+            const ulPx = quotes?.[group.underlying]?.last || quotes?.[group.underlying]?.mid || 0;
+            const T = BS.yearFraction(group.expiry, today);
+            const dte = Math.round(T * 365);
+            const q = BS.DIVIDEND_YIELDS[group.underlying] ?? BS.DIVIDEND_YIELDS.default;
+
+            // Identify structure (BPS / IC / strangle / etc.) por counts/types
+            // TT uses lowercase 'put'/'call' for opt_type
+            const puts = group.legs.filter(l => l.opt_type === 'put' || l.opt_type === 'P');
+            const calls = group.legs.filter(l => l.opt_type === 'call' || l.opt_type === 'C');
+            const shortPuts = puts.filter(l => (l.quantity_direction === 'Short'));
+            const longPuts = puts.filter(l => l.quantity_direction === 'Long');
+            const shortCalls = calls.filter(l => l.quantity_direction === 'Short');
+            const longCalls = calls.filter(l => l.quantity_direction === 'Long');
+
+            let structure = 'unknown';
+            if (shortPuts.length === 1 && longPuts.length === 1 && calls.length === 0) structure = 'BPS';
+            else if (shortCalls.length === 1 && longCalls.length === 1 && puts.length === 0) structure = 'BCS';
+            else if (shortPuts.length === 1 && longPuts.length === 1 && shortCalls.length === 1 && longCalls.length === 1) structure = 'IC';
+            else if (shortPuts.length === 1 && shortCalls.length === 1 && longPuts.length === 0 && longCalls.length === 0) structure = 'Strangle';
+            else if (shortPuts.length === 1 && longPuts.length === 0 && calls.length === 0) structure = 'Naked Put';
+
+            // Calc max strike short (closest to spot — most challenged side)
+            const shortPutStrike = shortPuts[0] ? parseFloat(shortPuts[0].strike) : null;
+            const longPutStrike = longPuts[0] ? parseFloat(longPuts[0].strike) : null;
+            const shortCallStrike = shortCalls[0] ? parseFloat(shortCalls[0].strike) : null;
+            const longCallStrike = longCalls[0] ? parseFloat(longCalls[0].strike) : null;
+
+            // Greeks at current spot for short put leg (the most relevant)
+            let shortPutDelta = null, otmPctPut = null;
+            if (shortPutStrike && ulPx && T > 0) {
+              const sigma = (await ttIvRank(env, group.underlying).catch(() => ({})))?.iv_index || 0.20;
+              const greeks = BS.bsGreeks(ulPx, shortPutStrike, T, r_rate, sigma, 'put', q);
+              shortPutDelta = Math.abs(greeks.delta);
+              otmPctPut = ((ulPx - shortPutStrike) / ulPx) * 100;
+            }
+            let shortCallDelta = null, otmPctCall = null;
+            if (shortCallStrike && ulPx && T > 0) {
+              const sigma = (await ttIvRank(env, group.underlying).catch(() => ({})))?.iv_index || 0.20;
+              const greeks = BS.bsGreeks(ulPx, shortCallStrike, T, r_rate, sigma, 'call', q);
+              shortCallDelta = greeks.delta;
+              otmPctCall = ((shortCallStrike - ulPx) / ulPx) * 100;
+            }
+
+            // Determine severity + action
+            let severity = 'OK', action = 'HOLD', actionDetail = null;
+
+            // GAMMA_EXIT: DTE < 7
+            if (dte < 7 && dte >= 0) {
+              severity = 'WATCH';
+              action = 'GAMMA_EXIT';
+              actionDetail = `DTE ${dte} <7. Cerrar para evitar gamma risk overnight.`;
+            }
+
+            // Short put challenged?
+            if (shortPutDelta !== null) {
+              if (shortPutDelta >= 0.45) { // ATM o ITM
+                severity = 'CRITICAL';
+                action = 'CONVERT_OR_CLOSE';
+                actionDetail = `Short put delta ${(shortPutDelta * 100).toFixed(0)} (ATM/ITM). Stock ${ulPx} vs strike ${shortPutStrike}. Opciones: (a) Roll down + out (extender DTE +30, strike -5%), (b) Convert to BPS si era IC, (c) Take assignment + sell CC if naked.`;
+              } else if (shortPutDelta >= 0.30) { // tested
+                severity = 'CHALLENGED';
+                action = 'ROLL_DOWN_OUT';
+                actionDetail = `Short put delta ${(shortPutDelta * 100).toFixed(0)} (tested). Roll a DTE+30 strike ${Math.round(shortPutStrike * 0.97)}. Verify net credit positivo.`;
+              } else if (shortPutDelta >= 0.20) { // watch
+                severity = 'WATCH';
+                action = 'MONITOR';
+                actionDetail = `Short put delta ${(shortPutDelta * 100).toFixed(0)} (watch zone). Stock ${otmPctPut.toFixed(1)}% OTM. Monitor close-of-day.`;
+              }
+            }
+
+            // Short call challenged?
+            if (shortCallDelta !== null) {
+              if (shortCallDelta >= 0.45) {
+                severity = severity === 'CRITICAL' ? 'CRITICAL' : 'CRITICAL';
+                action = 'CONVERT_OR_CLOSE';
+                actionDetail = `Short call delta ${(shortCallDelta * 100).toFixed(0)} (ATM/ITM). Roll up + out OR convert to diagonal.`;
+              } else if (shortCallDelta >= 0.30 && severity !== 'CRITICAL') {
+                severity = 'CHALLENGED';
+                action = 'ROLL_UP_OUT';
+                actionDetail = `Short call delta ${(shortCallDelta * 100).toFixed(0)} (tested). Roll a DTE+30 strike ${Math.round(shortCallStrike * 1.03)}.`;
+              }
+            }
+
+            evaluations.push({
+              account: group.account,
+              underlying: group.underlying,
+              expiry: group.expiry,
+              dte,
+              structure,
+              underlying_price: Math.round(ulPx * 100) / 100,
+              legs_count: group.legs.length,
+              short_put_strike: shortPutStrike,
+              long_put_strike: longPutStrike,
+              short_call_strike: shortCallStrike,
+              long_call_strike: longCallStrike,
+              short_put_delta: shortPutDelta ? Math.round(shortPutDelta * 1000) / 1000 : null,
+              short_call_delta: shortCallDelta ? Math.round(shortCallDelta * 1000) / 1000 : null,
+              put_otm_pct: otmPctPut ? Math.round(otmPctPut * 10) / 10 : null,
+              call_otm_pct: otmPctCall ? Math.round(otmPctCall * 10) / 10 : null,
+              severity,
+              action,
+              action_detail: actionDetail,
+            });
+          }
+
+          const summary = {
+            ok: evaluations.filter(e => e.severity === 'OK').length,
+            watch: evaluations.filter(e => e.severity === 'WATCH').length,
+            challenged: evaluations.filter(e => e.severity === 'CHALLENGED').length,
+            critical: evaluations.filter(e => e.severity === 'CRITICAL').length,
+            total: evaluations.length,
+          };
+
+          return json({
+            ok: true,
+            generated_at: new Date().toISOString(),
+            summary,
+            evaluations,
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500);
+        }
+      }
+
+      // POST /api/thetagang/defense/roll-suggestion — calcula nuevo strike + DTE + credit esperado
+      // Body: { account, underlying, expiry, type ('P'/'C'), short_strike, action ('roll_down_out' | 'roll_up_out' | 'roll_lateral') }
+      if (path === "/api/thetagang/defense/roll-suggestion" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        let body;
+        try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const { underlying, expiry, type, short_strike, long_strike, action = 'roll_down_out' } = body;
+        if (!underlying || !expiry || !type || !short_strike) return json({ error: "underlying, expiry, type, short_strike required" }, corsHeaders, 400);
+
+        try {
+          // 1. Get current chain to find target expiration (+30 days from current)
+          const chain = await ttOptionChain(env, underlying);
+          const expirations = chain?.expirations || [];
+          const currentExpDate = new Date(expiry + 'T16:00:00Z');
+          const targetDate = new Date(currentExpDate.getTime() + 30 * 86400000);
+          // Find expiration closest to target
+          const candidate = expirations
+            .filter(e => Math.abs(new Date(e['expiration-date'] + 'T16:00:00Z').getTime() - targetDate.getTime()) < 14 * 86400000)
+            .sort((a, b) => Math.abs(new Date(a['expiration-date']).getTime() - targetDate.getTime()) - Math.abs(new Date(b['expiration-date']).getTime() - targetDate.getTime()))[0];
+          if (!candidate) return json({ error: 'No suitable target expiration found' }, corsHeaders, 404);
+
+          const newExpiration = candidate['expiration-date'];
+          const newDte = candidate['days-to-expiration'];
+
+          // 2. Determine new strikes based on action
+          let newShortStrike, newLongStrike;
+          const widthPct = long_strike ? Math.abs(short_strike - long_strike) / short_strike : 0.01;
+          if (action === 'roll_down_out' && type === 'P') {
+            newShortStrike = Math.round(short_strike * 0.95); // 5% lower
+            newLongStrike = long_strike ? Math.round(newShortStrike * (1 - widthPct)) : null;
+          } else if (action === 'roll_up_out' && type === 'C') {
+            newShortStrike = Math.round(short_strike * 1.05); // 5% higher
+            newLongStrike = long_strike ? Math.round(newShortStrike * (1 + widthPct)) : null;
+          } else if (action === 'roll_lateral') {
+            newShortStrike = short_strike;
+            newLongStrike = long_strike;
+          } else {
+            return json({ error: `unknown action: ${action}` }, corsHeaders, 400);
+          }
+
+          // Find closest available strikes
+          const strikes = (candidate.strikes || []).map(s => parseFloat(s['strike-price']));
+          const findClosest = (target) => strikes.reduce((b, k) => Math.abs(k - target) < Math.abs(b - target) ? k : b, strikes[0]);
+          newShortStrike = findClosest(newShortStrike);
+          if (newLongStrike) newLongStrike = findClosest(newLongStrike);
+
+          // 3. Get current short leg quote (cost to close)
+          const currentLegs = [{ type: type, strike: short_strike, action: 'buy' }];  // buy back to close short
+          if (long_strike) currentLegs.push({ type: type, strike: long_strike, action: 'sell' });  // sell to close long
+          const closeQuote = await ttSpreadQuote(env, { underlying, expiration: expiry, legs: currentLegs }).catch(() => ({}));
+
+          // 4. New legs quote
+          const newLegs = [{ type: type, strike: newShortStrike, action: 'sell' }];
+          if (newLongStrike) newLegs.push({ type: type, strike: newLongStrike, action: 'buy' });
+          const newQuote = await ttSpreadQuote(env, { underlying, expiration: newExpiration, legs: newLegs }).catch(() => ({}));
+
+          const closeCost = Math.abs(closeQuote?.credit?.mid || 0);
+          const newCredit = newQuote?.credit?.mid || 0;
+          const netCredit = newCredit - closeCost;
+
+          return json({
+            ok: true,
+            current_position: { expiration: expiry, type, short_strike, long_strike, close_cost: closeCost },
+            roll_target: {
+              expiration: newExpiration,
+              dte: newDte,
+              short_strike: newShortStrike,
+              long_strike: newLongStrike,
+              new_credit: newCredit,
+            },
+            net_credit_per_contract: Math.round(netCredit * 100) / 100,
+            net_credit_dollars: Math.round(netCredit * 100),
+            verdict: netCredit > 0 ? 'POSITIVE_ROLL' : 'NEGATIVE_ROLL_AVOID',
+            note: netCredit < 0 ? 'Rolling pierde credit — better to take loss vs add risk' : 'Roll for credit OK',
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
       // POST /api/thetagang/backtest/run — Sprint 2 backtest framework v1.
       // Para una estrategia dada, simula entries con BS pricing sobre histórico
       // de prices (Yahoo). Output: Sharpe, MaxDD, Win-rate, Profit Factor.
