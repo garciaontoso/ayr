@@ -187,3 +187,354 @@ export const DIVIDEND_YIELDS = {
   RUT: 0,
   default: 0.015,
 };
+
+// ─── Sprint 6 — multi-leg payoff + breakeven helpers ────────────────────────
+// Used by /api/thetagang/multileg/payoff for diagrams + max/loss + breakevens.
+
+// Payoff at expiration for one leg, per share (no multiplier here).
+//
+// leg: { type: 'call'|'put', strike, action: 'sell'|'buy', qty }
+// premiumPaid: net debit/credit per share for this leg (positive = paid, negative = received)
+//   (when constructing payoff from costless legs, premium is folded into base intercept)
+function legIntrinsicAtExpiry(leg, S) {
+  const intrinsic = leg.type === 'call' || leg.type === 'C'
+    ? Math.max(0, S - leg.strike)
+    : Math.max(0, leg.strike - S);
+  const dir = (leg.action === 'sell' || leg.action === 'short') ? -1 : 1;
+  const qty = Math.abs(leg.qty || 1);
+  return dir * qty * intrinsic;
+}
+
+// ── multiLegPayoff(legs, options) ──
+// Returns array of { S, pnl } points covering the price range.
+// Includes net premium received/paid (premium > 0 = credit, premium < 0 = debit).
+//
+// legs: [{ type, strike, action, qty, T?, sigma? }]
+//   T is per-leg time-to-expiration in years. Defaults to opts.evalAt for
+//   intrinsic-only payoff at expiration of all legs.
+// premium: net credit ($/share); positive when net selling > buying
+// opts: {
+//   S_min, S_max, n_points = 81, multiplier = 100,
+//   evalAt = 0,        — point in time (years from snapshot) at which to evaluate
+//                        Legs with T > evalAt → residual BS price (not yet expired)
+//                        Legs with T <= evalAt → intrinsic value
+//   r = 0.045, q = 0   — required for BS residual pricing of unexpired legs
+// }
+//
+// CALENDAR/DIAGONAL: pass evalAt = T_front so back-month leg keeps time value.
+// Single-expiry strategies (BPS/IC/IF/...): evalAt = 0 = at expiry of all legs.
+export function multiLegPayoff(legs, premium, opts = {}) {
+  const strikes = legs.map(l => l.strike).filter(Number.isFinite);
+  const minK = Math.min(...strikes);
+  const maxK = Math.max(...strikes);
+  const range = maxK - minK || maxK * 0.1 || 10;
+  const S_min = opts.S_min ?? Math.max(0, minK - range * 1.0);
+  const S_max = opts.S_max ?? maxK + range * 1.0;
+  const N = opts.n_points || 81;
+  const multiplier = opts.multiplier || 100;
+  const evalAt = opts.evalAt ?? null;
+  const r = opts.r ?? DEFAULT_RISK_FREE_RATE;
+  const q = opts.q ?? 0;
+
+  // Auto-detect: single-expiry → evaluate at expiry of all legs (intrinsic only).
+  // Calendar/diagonal (varying T) → evaluate at front expiry; back-month leg keeps
+  // residual time value via BS price.
+  let evalAtUse = evalAt;
+  if (evalAtUse == null) {
+    const ts = legs.map(l => l.T).filter(t => t != null);
+    if (ts.length === 0) evalAtUse = 0;
+    else {
+      const tMin = Math.min(...ts);
+      const tMax = Math.max(...ts);
+      // If all legs same T → evaluate at that T (all expire = intrinsic).
+      // If varying T → evaluate at front (tMin); back-month gets residual BS.
+      evalAtUse = (tMax > tMin) ? tMin : tMax;
+    }
+  }
+
+  const points = [];
+  for (let i = 0; i < N; i++) {
+    const S = S_min + (S_max - S_min) * (i / (N - 1));
+    let payoffSum = 0;
+    for (const leg of legs) {
+      if (leg.type === 'stock') {
+        // Stock leg: S - entry (entry baked into premium at construction)
+        const dir = (leg.action === 'sell' || leg.action === 'short') ? -1 : 1;
+        const qty = Math.abs(leg.qty || 1);
+        payoffSum += dir * qty * S / multiplier; // stock qty already in shares; divide by multiplier so total scales correctly
+        continue;
+      }
+      const legT = leg.T ?? 0;
+      const remainingT = legT - evalAtUse;
+      if (remainingT > 0.0001 && leg.sigma != null) {
+        // Leg has remaining time: use BS price (calendar back-month case)
+        const optType = (leg.type === 'C' || leg.type === 'call') ? 'call' : 'put';
+        const px = bsPrice(S, leg.strike, remainingT, r, leg.sigma, optType, q);
+        const dir = (leg.action === 'sell' || leg.action === 'short') ? -1 : 1;
+        const qty = Math.abs(leg.qty || 1);
+        payoffSum += dir * qty * px;
+      } else {
+        // Leg expired: intrinsic
+        payoffSum += legIntrinsicAtExpiry(leg, S);
+      }
+    }
+    const pnl = (premium + payoffSum) * multiplier;
+    points.push({ S: Math.round(S * 100) / 100, pnl: Math.round(pnl * 100) / 100 });
+  }
+  return points;
+}
+
+// ── breakevens(payoffPoints) ──
+// Linear-interpolated zero crossings of the payoff curve.
+// Returns array of underlying prices where P/L = 0.
+// Dedupes nearby crossings (within $0.50) to avoid double-counts at floating-point boundaries.
+export function breakevens(payoffPoints) {
+  const bes = [];
+  for (let i = 1; i < payoffPoints.length; i++) {
+    const a = payoffPoints[i - 1], b = payoffPoints[i];
+    let be = null;
+    if (a.pnl === 0) be = a.S;
+    else if (Math.sign(a.pnl) !== Math.sign(b.pnl) && a.pnl !== b.pnl) {
+      const t = a.pnl / (a.pnl - b.pnl);
+      be = Math.round((a.S + (b.S - a.S) * t) * 100) / 100;
+    }
+    if (be != null && (bes.length === 0 || Math.abs(be - bes[bes.length - 1]) > 0.5)) {
+      bes.push(be);
+    }
+  }
+  return bes;
+}
+
+// ── multiLegMaxProfitLoss(payoffPoints) ──
+// Returns { maxProfit, maxLoss, maxProfitS, maxLossS, profitCapped, lossCapped }.
+// "Capped" = max occurs at boundary S (not interior) → likely unbounded.
+export function multiLegMaxProfitLoss(payoffPoints) {
+  if (!payoffPoints?.length) return { maxProfit: 0, maxLoss: 0 };
+  let maxP = -Infinity, maxL = Infinity, maxPS = 0, maxLS = 0, maxPi = 0, maxLi = 0;
+  for (let i = 0; i < payoffPoints.length; i++) {
+    const p = payoffPoints[i];
+    if (p.pnl > maxP) { maxP = p.pnl; maxPS = p.S; maxPi = i; }
+    if (p.pnl < maxL) { maxL = p.pnl; maxLS = p.S; maxLi = i; }
+  }
+  return {
+    maxProfit: Math.round(maxP * 100) / 100,
+    maxLoss: Math.round(maxL * 100) / 100,
+    maxProfitS: maxPS,
+    maxLossS: maxLS,
+    profitCapped: maxPi === 0 || maxPi === payoffPoints.length - 1,
+    lossCapped: maxLi === 0 || maxLi === payoffPoints.length - 1,
+  };
+}
+
+// ── buildLegs(strategyType, params) ──
+// Strategy → leg construction for Sprint 6 multi-leg builder.
+//
+// strategyType: 'BPS'|'BCS'|'IC'|'IF'|'CALENDAR'|'BWB_PUT'|'BWB_CALL'|'JADE_LIZARD'|'RATIO_BACK_PUT'|'DIAGONAL_PUT'|'STRANGLE'|'COVERED_CALL'
+// params: { S, sigma, T, r, q, contracts = 1, ... strategy-specific }
+//
+// Returns { legs: [{type,strike,action,qty,T?,sigma?}], notes }
+// Each leg may carry its own T (calendar/diagonal use 2 expiries).
+// Strikes are computed via SD-move proxy (Δ16 ≈ 1 SD short, Δ5 ≈ 1.5 SD long).
+export function buildLegs(strategyType, params) {
+  const { S, sigma, T, r, q = 0, contracts = 1 } = params;
+  const sd = S * sigma * Math.sqrt(T);
+
+  // Strike rounding: indices to 5, equities to 1
+  const tick = (params.tick) ?? (S > 500 ? 5 : 1);
+  const round = (x) => Math.round(x / tick) * tick;
+  const ks_short = round(S - sd);
+  const kl_short = round(S - sd * 1.5);
+  const kc_short = round(S + sd);
+  const kc_long  = round(S + sd * 1.5);
+
+  switch (strategyType) {
+    case 'BPS': // Bull Put Spread (sell short put, buy long put further OTM)
+      return {
+        legs: [
+          { type: 'put',  strike: ks_short, action: 'sell', qty: contracts, T, sigma },
+          { type: 'put',  strike: kl_short, action: 'buy',  qty: contracts, T, sigma },
+        ],
+        notes: 'Bull Put Spread — defined-risk credit. Max profit at expiry above short strike.',
+      };
+
+    case 'BCS': // Bear Call Spread
+      return {
+        legs: [
+          { type: 'call', strike: kc_short, action: 'sell', qty: contracts, T, sigma },
+          { type: 'call', strike: kc_long,  action: 'buy',  qty: contracts, T, sigma },
+        ],
+        notes: 'Bear Call Spread — defined-risk credit. Max profit at expiry below short strike.',
+      };
+
+    case 'IC': // Iron Condor (BPS + BCS)
+      return {
+        legs: [
+          { type: 'put',  strike: ks_short, action: 'sell', qty: contracts, T, sigma },
+          { type: 'put',  strike: kl_short, action: 'buy',  qty: contracts, T, sigma },
+          { type: 'call', strike: kc_short, action: 'sell', qty: contracts, T, sigma },
+          { type: 'call', strike: kc_long,  action: 'buy',  qty: contracts, T, sigma },
+        ],
+        notes: 'Iron Condor — neutral defined-risk. Max profit between short strikes.',
+      };
+
+    case 'IF': // Iron Butterfly (sell ATM call + put, buy wings)
+      {
+        const wing = round(sd);
+        const k_atm = round(S);
+        return {
+          legs: [
+            { type: 'put',  strike: k_atm,         action: 'sell', qty: contracts, T, sigma },
+            { type: 'call', strike: k_atm,         action: 'sell', qty: contracts, T, sigma },
+            { type: 'put',  strike: k_atm - wing,  action: 'buy',  qty: contracts, T, sigma },
+            { type: 'call', strike: k_atm + wing,  action: 'buy',  qty: contracts, T, sigma },
+          ],
+          notes: 'Iron Butterfly — sell ATM straddle, buy wings. Max profit pin-at-strike.',
+        };
+      }
+
+    case 'STRANGLE': // Naked short strangle (UNDEFINED RISK)
+      return {
+        legs: [
+          { type: 'put',  strike: ks_short, action: 'sell', qty: contracts, T, sigma },
+          { type: 'call', strike: kc_short, action: 'sell', qty: contracts, T, sigma },
+        ],
+        notes: 'Short Strangle — undefined risk. Max profit between strikes; uncapped loss outside.',
+      };
+
+    case 'BWB_PUT': // Broken-Wing Butterfly put-side
+      // Sell 2× ATM put, buy 1 wing OTM put, buy 1 ITM put NEAR sold strike (asymmetric)
+      // Standard BWB-put: BUY 1 K_high (closer to ATM), SELL 2 K_mid, BUY 1 K_low (further OTM)
+      // K_low chosen so width(K_low→K_mid) > width(K_mid→K_high) → net credit + no upside risk
+      {
+        const k_mid  = round(S - sd * 0.5);  // short body (Δ ~30)
+        const k_high = round(S - sd * 0.2);  // long inner wing (Δ ~40)
+        const k_low  = round(S - sd * 1.4);  // long outer wing far OTM
+        return {
+          legs: [
+            { type: 'put', strike: k_high, action: 'buy',  qty: contracts,     T, sigma },
+            { type: 'put', strike: k_mid,  action: 'sell', qty: contracts * 2, T, sigma },
+            { type: 'put', strike: k_low,  action: 'buy',  qty: contracts,     T, sigma },
+          ],
+          notes: 'Broken-Wing Butterfly (put) — asymmetric. Designed to credit + reduced max loss vs symmetric.',
+        };
+      }
+
+    case 'BWB_CALL':
+      {
+        const k_mid  = round(S + sd * 0.5);
+        const k_low  = round(S + sd * 0.2);
+        const k_high = round(S + sd * 1.4);
+        return {
+          legs: [
+            { type: 'call', strike: k_low,  action: 'buy',  qty: contracts,     T, sigma },
+            { type: 'call', strike: k_mid,  action: 'sell', qty: contracts * 2, T, sigma },
+            { type: 'call', strike: k_high, action: 'buy',  qty: contracts,     T, sigma },
+          ],
+          notes: 'Broken-Wing Butterfly (call) — asymmetric. Lopsided wings.',
+        };
+      }
+
+    case 'JADE_LIZARD': // BPS + naked call short OTM, no upside risk if credit ≥ call width
+      {
+        const k_short_call = round(S + sd);  // Δ ~16 short call
+        return {
+          legs: [
+            { type: 'put',  strike: ks_short,    action: 'sell', qty: contracts, T, sigma },
+            { type: 'put',  strike: kl_short,    action: 'buy',  qty: contracts, T, sigma },
+            { type: 'call', strike: k_short_call, action: 'sell', qty: contracts, T, sigma },
+          ],
+          notes: 'Jade Lizard — BPS + short OTM call. NO UPSIDE RISK if credit ≥ width above short call (designed-condition).',
+        };
+      }
+
+    case 'RATIO_BACK_PUT': // Ratio backspread put: sell 1 close, buy 2 further OTM (debit)
+      // Profits if big move down, capped loss if small move down
+      {
+        const k_short = round(S - sd * 0.5);   // sell 1
+        const k_long  = round(S - sd * 1.2);   // buy 2
+        return {
+          legs: [
+            { type: 'put', strike: k_short, action: 'sell', qty: contracts,     T, sigma },
+            { type: 'put', strike: k_long,  action: 'buy',  qty: contracts * 2, T, sigma },
+          ],
+          notes: 'Ratio Backspread (put) — long convexity hedge. Profits on big down moves, defined max loss between strikes.',
+        };
+      }
+
+    case 'CALENDAR_PUT': // Sell front-month put, buy back-month same strike
+      {
+        const T_front = T;
+        const T_back  = T + (params.dte_back || 30) / 365;
+        const k_atm = round(S);
+        return {
+          legs: [
+            { type: 'put', strike: k_atm, action: 'sell', qty: contracts, T: T_front, sigma },
+            { type: 'put', strike: k_atm, action: 'buy',  qty: contracts, T: T_back,  sigma },
+          ],
+          notes: 'Put Calendar — vol skew + theta diff. Front decays faster. Profits at expiry of front near strike.',
+        };
+      }
+
+    case 'CALENDAR_CALL':
+      {
+        const T_front = T;
+        const T_back  = T + (params.dte_back || 30) / 365;
+        const k_atm = round(S);
+        return {
+          legs: [
+            { type: 'call', strike: k_atm, action: 'sell', qty: contracts, T: T_front, sigma },
+            { type: 'call', strike: k_atm, action: 'buy',  qty: contracts, T: T_back,  sigma },
+          ],
+          notes: 'Call Calendar — vol skew + theta diff. Front decays faster.',
+        };
+      }
+
+    case 'DIAGONAL_PUT': // Sell front-month higher-strike put, buy back-month lower-strike put
+      {
+        const T_front = T;
+        const T_back  = T + (params.dte_back || 30) / 365;
+        const k_short = round(S - sd * 0.3);
+        const k_long  = round(S - sd * 1.0);
+        return {
+          legs: [
+            { type: 'put', strike: k_short, action: 'sell', qty: contracts, T: T_front, sigma },
+            { type: 'put', strike: k_long,  action: 'buy',  qty: contracts, T: T_back,  sigma },
+          ],
+          notes: 'Diagonal Put — calendar-vertical hybrid. Theta + slight bearish bias.',
+        };
+      }
+
+    case 'COVERED_CALL': // Long stock + sell call OTM (poor-man variant)
+      {
+        const k_call = round(S + sd);
+        return {
+          legs: [
+            { type: 'stock', strike: 0,        action: 'buy',  qty: contracts * 100, T: 0, sigma: 0 },
+            { type: 'call',  strike: k_call,   action: 'sell', qty: contracts,       T,    sigma },
+          ],
+          notes: 'Covered Call — long 100 sh + short call. Bull-neutral income.',
+        };
+      }
+
+    default:
+      throw new Error(`Unknown strategy type: ${strategyType}`);
+  }
+}
+
+// ── computeLegPremium(legs, S, r, defaultSigma, defaultT, q) ──
+// Returns net credit (>0) or net debit (<0) per share for the strategy.
+// Each leg can override its own T or sigma (calendars).
+export function computeLegPremium(legs, S, r, defaultSigma, defaultT, q = 0) {
+  let credit = 0;
+  for (const leg of legs) {
+    if (leg.type === 'stock') continue; // pure stock, premium = 0 here
+    const T_use = leg.T ?? defaultT;
+    const sig_use = leg.sigma ?? defaultSigma;
+    const optType = (leg.type === 'C' || leg.type === 'call') ? 'call' : 'put';
+    const px = bsPrice(S, leg.strike, T_use, r, sig_use, optType, q);
+    const dir = (leg.action === 'sell' || leg.action === 'short') ? 1 : -1;
+    const qty = Math.abs(leg.qty || 1);
+    credit += dir * px * qty;
+  }
+  return credit;
+}

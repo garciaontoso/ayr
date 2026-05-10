@@ -26,8 +26,8 @@ traders particulares.
 | 3 | Defense playbook engine + Roll calc | ✅ LIVE | `370e4a3` |
 | 4 | Paper trading engine completo | ✅ LIVE | `47034cc` |
 | 5 | Regime detection + IV rank filters | ✅ LIVE | `3611426` |
-| 6 | Multi-leg avanzados (calendars, BWB, diagonals, jade lizard) | ⏳ next | — |
-| 7 | Tail hedges programáticos | ⏳ | — |
+| 6 | Multi-leg avanzados (calendar, BWB, diagonal, jade lizard, iron fly, ratio back) | ✅ LIVE | (este commit) |
+| 7 | Tail hedges programáticos | ⏳ next | — |
 | 8 | Walk-forward backtest + stress periods | ⏳ | — |
 | 9 | Kelly sizing + correlation matrix | ⏳ | — |
 | 10 | Multi-leg + complex strategies | ⏳ | — |
@@ -39,9 +39,10 @@ traders particulares.
 
 ```
 Frontend tab (Theta Gang grupo Ingresos)
-└── 9 sub-tabs:
+└── 10 sub-tabs:
     ├── 🧠 Brain — entries hoy SPY/IWM/QQQ
-    ├── 🎢 Strategies — catálogo 9 estrategias seedeadas
+    ├── 🎢 Strategies — catálogo 15 estrategias seedeadas (Sprint 6 +6)
+    ├── 🦎 Multi-leg — builder Sprint 6 con SVG payoff diagram
     ├── 🧪 Backtests — placeholders (use endpoints directamente)
     ├── 📊 Greeks — portfolio Greeks BS server-side
     ├── 🛡️ Defense — playbook automation
@@ -66,7 +67,9 @@ Backend (Cloudflare Worker)
 ├── /api/thetagang/paper/scoreboard   — aggregated + drift detection
 ├── /api/thetagang/backtest/run       — backtest v1 sin filters
 ├── /api/thetagang/backtest/run-with-filters — backtest v2 con IVR + regime
-└── /api/thetagang/backtest/results   — historial runs
+├── /api/thetagang/backtest/results   — historial runs
+├── /api/thetagang/multileg/build     — Sprint 6: strikes + credit + greeks + payoff
+└── /api/thetagang/multileg/payoff    — Sprint 6: solo payoff array (chart UI)
 
 Datos fuente:
 └── PRIMARY: Tastytrade Bridge en NAS Synology
@@ -124,23 +127,29 @@ thetagang_paper_trades (id, strategy_id, symbol, direction, open_date,
                          hold_days, defense_actions_json, meta_json)
 ```
 
-## 9 estrategias seedeadas
+## 15 estrategias seedeadas (9 originales + 6 Sprint 6)
 
 ```
 🟢 Tier safe (Tastytrade-classic):
-1. bps-spy-35       — BPS-SPY 35DTE Δ16/5
-2. ic-spy-35        — IC-SPY 35DTE Δ16/5
-3. strangle-spy-30  — Strangle SPY 30DTE Δ20
+1. bps-spy-35           — BPS-SPY 35DTE Δ16/5
+2. ic-spy-35            — IC-SPY 35DTE Δ16/5
+3. jade-lizard-spy-35   — BPS + naked OTM call (no upside risk if credit ≥ width call)
+4. strangle-spy-30      — Strangle SPY 30DTE Δ20
 
-🟡 Tier intermedio (timing-aware):
-4. bps-spy-weekly       — Weekly BPS Δ20 5-7 DTE
-5. ic-spx-postfomc      — Post-FOMC vol crush IC
-6. calendar-preearn     — Pre-earnings calendar spread
-7. pre-fomc-strangle    — Pre-FOMC strangle short
+🟡 Tier intermedio (timing-aware / multi-leg):
+5.  bps-spy-weekly       — Weekly BPS Δ20 5-7 DTE
+6.  ic-spx-postfomc      — Post-FOMC vol crush IC
+7.  iron-fly-spy-30      — Sell ATM straddle + buy wings ±1 SD (max profit pin-at-strike)
+8.  bwb-put-spy-35       — Broken-Wing Butterfly Put asymmetric (net credit + reduced loss)
+9.  calendar-put-spy     — Sell front-month + buy back-month same strike
+10. diagonal-put-spy     — Calendar-vertical hybrid, slight bearish bias
+11. calendar-preearn     — Pre-earnings calendar spread
+12. pre-fomc-strangle    — Pre-FOMC strangle short
 
 🔴 Tier alto riesgo (último en testing):
-8. lottery-earnings     — Long lottery tickets pre-earnings
-9. ic-spx-0dte          — Same-day IC-SPX Δ8/3
+13. lottery-earnings    — Long lottery tickets pre-earnings
+14. ic-spx-0dte         — Same-day IC-SPX Δ8/3
+15. ratio-back-put-spy  — Sell 1 + buy 2 further OTM (long convexity hedge)
 ```
 
 ## Hallazgos validation (real)
@@ -209,13 +218,17 @@ curl -sS -X POST https://api.onto-so.com/api/thetagang/backtest/run-with-filters
 
 ## Próximas sesiones (orden propuesto)
 
-**Sprint 6 — Multi-leg avanzados**:
-- Calendar spreads (sell front-month, buy back-month same strike)
-- Broken-Wing Butterfly (asymmetric, no upper risk)
-- Ratio backspread (hedge convexity)
-- Diagonal call/put spread
-- Jade Lizard (BPS + naked call OTM = no upside risk)
-- Iron Butterfly (sell ATM, buy wings)
+**Sprint 6 — ✅ COMPLETO 2026-05-10 (multi-leg avanzados)**:
+- ✅ Calendar spreads (sell front-month, buy back-month same strike)
+- ✅ Broken-Wing Butterfly put/call (asymmetric, net credit + reduced loss)
+- ✅ Ratio backspread put (long convexity hedge)
+- ✅ Diagonal put spread
+- ✅ Jade Lizard (BPS + naked call OTM = no upside risk if credit ≥ width call)
+- ✅ Iron Butterfly (sell ATM, buy wings)
+- ✅ Strangle (undefined-risk reference)
+- ✅ Sub-tab `🦎 Multi-leg` con SVG payoff diagram + greeks per spread + breakevens
+- ✅ 23 tests Vitest nuevos (47 total para BS lib)
+- ✅ Auto-detect calendar evalAt (back-month leg keeps residual time value)
 
 **Sprint 7 — Tail hedges programáticos**:
 - Long-way-OTM puts rolled monthly como insurance
@@ -241,7 +254,7 @@ curl -sS -X POST https://api.onto-so.com/api/thetagang/backtest/run-with-filters
 - ✅ **NAS España OK por ahora** — VPS US deferred hasta Sprint 11
 - ✅ **5 gates promotion** antes de real money
 - ✅ **NO auto-open hasta Sprint 11**
-- ✅ **41 tests Vitest** + commit en cada sprint
+- ✅ **64 tests Vitest** (41 originales + 23 Sprint 6 multi-leg) + commit en cada sprint
 - ✅ **2026-05-10 todo el día**: 6 sprints, 1500+ líneas worker, 3 días de progress en 1 sesión
 
 ## Files clave

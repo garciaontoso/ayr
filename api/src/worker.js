@@ -7632,6 +7632,13 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
               { id: 'ic-spx-0dte', name: '🔴 0DTE IC-SPX Δ8/3', description: 'Same-day Iron Condor SPX delta 8/3. Highest risk: pin risk + intraday gamma. ÚLTIMO en testear.', strategy_type: 'IC', dte_range: '0', delta_short: 0.08, delta_long: 0.03, ivr_min: 30 },
               { id: 'calendar-preearn', name: '🟡 Calendar pre-earnings SPY', description: 'Long backmonth + short frontmonth same strike. Vol skew time-based play.', strategy_type: 'Calendar', dte_range: '7-30', delta_short: 0.50, delta_long: 0.50, ivr_min: 30 },
               { id: 'pre-fomc-strangle', name: '🟡 Pre-FOMC strangle short', description: 'Short strangle SPY day before FOMC, close right after announcement. Vol expansion + crush trade.', strategy_type: 'Strangle', dte_range: '1-3', delta_short: 0.20, delta_long: null, ivr_min: 30 },
+              // Sprint 6 — multi-leg avanzados
+              { id: 'jade-lizard-spy-35', name: '🟢 Jade Lizard SPY 35DTE', description: 'BPS Δ16/5 + naked call short OTM Δ16. SIN UPSIDE RISK si credit ≥ width call. Ideal IVR>40 + rango neutral-bull.', strategy_type: 'JADE_LIZARD', dte_range: '30-45', delta_short: 0.16, delta_long: 0.05, ivr_min: 40 },
+              { id: 'iron-fly-spy-30', name: '🟡 Iron Fly SPY 30DTE', description: 'Sell ATM straddle + buy wings ±1 SD. Max profit pin-at-strike. Higher credit que IC pero más vol exposure.', strategy_type: 'IF', dte_range: '21-35', delta_short: 0.50, delta_long: 0.16, ivr_min: 50 },
+              { id: 'bwb-put-spy-35', name: '🟡 Broken-Wing BFly Put SPY 35DTE', description: 'Buy 1 K_high + sell 2 K_mid + buy 1 K_low (asymmetric). Net credit + reduced max loss vs symmetric butterfly.', strategy_type: 'BWB_PUT', dte_range: '30-45', delta_short: 0.30, delta_long: 0.10, ivr_min: 35 },
+              { id: 'calendar-put-spy', name: '🟡 Put Calendar SPY 14×30', description: 'Sell front-month ATM put, buy back-month same strike. Vol skew + theta diff. Profits at expiry of front near strike.', strategy_type: 'CALENDAR_PUT', dte_range: '14-21', delta_short: 0.50, delta_long: 0.50, ivr_min: 25 },
+              { id: 'diagonal-put-spy', name: '🟡 Diagonal Put SPY', description: 'Sell front higher-strike put, buy back lower-strike put. Calendar-vertical hybrid. Theta + slight bearish bias.', strategy_type: 'DIAGONAL_PUT', dte_range: '14-21', delta_short: 0.30, delta_long: 0.30, ivr_min: 30 },
+              { id: 'ratio-back-put-spy', name: '🔴 Ratio Backspread Put SPY', description: 'Sell 1 close put, buy 2 further OTM (debit). Long convexity hedge. Profits big down moves, max loss between strikes.', strategy_type: 'RATIO_BACK_PUT', dte_range: '30-45', delta_short: 0.30, delta_long: 0.15, ivr_min: 0 },
             ];
             const stmt = env.DB.prepare(`INSERT INTO thetagang_strategies (id, name, description, strategy_type, dte_range, delta_short, delta_long, ivr_min, status) VALUES (?,?,?,?,?,?,?,?, 'pending')`);
             for (const s of seedStrategies) {
@@ -9245,6 +9252,239 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         const stmt = strategyId ? env.DB.prepare(sql).bind(strategyId) : env.DB.prepare(sql);
         const { results } = await stmt.all();
         return json({ ok: true, runs: results || [] }, corsHeaders);
+      }
+
+      // ─── Sprint 6 — Multi-leg builder + payoff diagrams ──────────────────
+      // GET /api/thetagang/multileg/build?strategy=JADE_LIZARD&symbol=SPY&dte=35&contracts=1[&dte_back=30][&iv_override=0.18]
+      // Returns: strategy + legs[{type,strike,action,qty,T?,sigma?}]
+      //          + premium_per_share + credit_dollars (>0 = received)
+      //          + max_profit/loss + breakevens (estimated at expiry)
+      //          + greeks (multi-leg aggregate)
+      //          + analysis: notes + ideal_conditions
+      if (path === "/api/thetagang/multileg/build" && request.method === "GET") {
+        const strategy = (url.searchParams.get('strategy') || '').toUpperCase();
+        const symbol = (url.searchParams.get('symbol') || 'SPY').toUpperCase();
+        const dte = Math.max(1, Number(url.searchParams.get('dte') || 35));
+        const contracts = Math.max(1, Number(url.searchParams.get('contracts') || 1));
+        const dte_back = Number(url.searchParams.get('dte_back') || 30);
+        const ivOverride = url.searchParams.get('iv_override');
+
+        if (!strategy) return json({ error: 'strategy required (e.g. BPS, IC, IF, JADE_LIZARD, BWB_PUT, CALENDAR_PUT, DIAGONAL_PUT, RATIO_BACK_PUT, STRANGLE)' }, corsHeaders, 400);
+
+        try {
+          // 1. Fetch underlying price + IV
+          const quotes = await ttQuote(env, [symbol]).catch(() => ({}));
+          const S = quotes?.[symbol]?.last || quotes?.[symbol]?.mid || 0;
+          if (!S) return json({ error: `Cannot get price for ${symbol}` }, corsHeaders, 503);
+
+          let sigma = ivOverride != null ? Number(ivOverride) : null;
+          let ivSource = ivOverride != null ? 'manual_override' : null;
+          if (sigma == null || !Number.isFinite(sigma) || sigma <= 0) {
+            try {
+              const ivData = await ttIvRank(env, symbol);
+              sigma = ivData?.iv_index || 0.20;
+              ivSource = ivData?._source || 'tt_bridge';
+            } catch {
+              sigma = 0.20;
+              ivSource = 'fallback_default';
+            }
+          }
+
+          const T = dte / 365;
+          const r = BS.DEFAULT_RISK_FREE_RATE;
+          const q = BS.DIVIDEND_YIELDS[symbol] ?? BS.DIVIDEND_YIELDS.default;
+
+          // 2. Build legs
+          const built = BS.buildLegs(strategy, { S, sigma, T, r, q, contracts, dte_back });
+
+          // 3. Compute premium (credit/debit per share)
+          const premium = BS.computeLegPremium(built.legs, S, r, sigma, T, q);
+          const creditDollars = premium * 100 * contracts;  // contracts already in qty if leg has it
+
+          // Recompute properly: each leg already has its own qty, so per-contract premium is sum/contracts
+          // For stock leg, treat px = S
+          let perShare = 0;
+          for (const leg of built.legs) {
+            if (leg.type === 'stock') {
+              const dir = (leg.action === 'sell') ? 1 : -1;
+              perShare += dir * S * (Math.abs(leg.qty || 0) / 100);  // normalize stock to per-spread basis
+              continue;
+            }
+            const T_use = leg.T ?? T;
+            const sig_use = leg.sigma ?? sigma;
+            const optType = (leg.type === 'C' || leg.type === 'call') ? 'call' : 'put';
+            const px = BS.bsPrice(S, leg.strike, T_use, r, sig_use, optType, q);
+            const dir = (leg.action === 'sell' || leg.action === 'short') ? 1 : -1;
+            const qtyPerSpread = (leg.qty || 1) / contracts;  // 2× legs in BWB will give 2 per spread
+            perShare += dir * px * qtyPerSpread;
+          }
+          const creditDollarsTotal = perShare * 100 * contracts;
+
+          // 4. Payoff diagram (200 points spanning ±35% around spot OR strike range × 1.0)
+          const payoff = BS.multiLegPayoff(built.legs, perShare, {
+            n_points: 81,
+            multiplier: 100,
+            S_min: Math.max(0, S * 0.65),
+            S_max: S * 1.35,
+          });
+
+          // 5. Breakevens + max P/L from payoff
+          const bes = BS.breakevens(payoff);
+          const mpl = BS.multiLegMaxProfitLoss(payoff);
+
+          // 6. Greeks (multi-leg aggregate using BS.multiLegGreeks)
+          const greekLegs = built.legs
+            .filter(l => l.type !== 'stock')
+            .map(l => ({
+              S, K: l.strike,
+              T: l.T ?? T,
+              r,
+              sigma: l.sigma ?? sigma,
+              type: (l.type === 'C' || l.type === 'call') ? 'call' : 'put',
+              q,
+              qty: l.qty || 1,
+              action: l.action,
+              multiplier: 100,
+            }));
+          const greeks = BS.multiLegGreeks(greekLegs);
+          // Normalize per-spread (divide by contracts)
+          const greeksPerSpread = {
+            delta: Math.round((greeks.delta / contracts) * 100) / 100,
+            gamma: Math.round((greeks.gamma / contracts) * 10000) / 10000,
+            theta: Math.round((greeks.theta / contracts) * 100) / 100,
+            vega:  Math.round((greeks.vega  / contracts) * 100) / 100,
+            rho:   Math.round((greeks.rho   / contracts) * 100) / 100,
+          };
+
+          // 7. Strategy-specific ideal-condition analysis
+          const ideal = (() => {
+            switch (strategy) {
+              case 'JADE_LIZARD':   return 'IVR>40, neutral-bull bias, no upcoming binary catalyst. Designed-condition: net credit ≥ width above short call.';
+              case 'IF':            return 'IVR>50, post-catalyst vol crush expected, expectation of pin-at-strike.';
+              case 'BWB_PUT':       return 'IVR>30, slight bullish bias, willing to take some downside risk for net credit.';
+              case 'CALENDAR_PUT':  return 'Low to moderate IV in front-month relative to back-month. Expectation of S near strike at front expiry.';
+              case 'CALENDAR_CALL': return 'Low to moderate IV in front-month vs back-month. Expectation of S near strike at front expiry.';
+              case 'DIAGONAL_PUT':  return 'IVR>30, slight bearish bias, theta + directional play.';
+              case 'RATIO_BACK_PUT':return 'Low IVR (cheap puts to buy 2:1 ratio). Expectation of binary downside (crash, earnings miss, news).';
+              case 'STRANGLE':      return 'IVR>50, expectation of vol crush, willing to accept undefined-risk uncapped tails.';
+              case 'BPS':           return 'IVR>30, neutral-bull bias, classic Tastytrade entry.';
+              case 'BCS':           return 'IVR>30, neutral-bear bias.';
+              case 'IC':            return 'IVR>50, neutral bias, post-catalyst vol crush.';
+              case 'COVERED_CALL':  return 'Long stock, willing to cap upside at short call strike for income.';
+              default: return '';
+            }
+          })();
+
+          return json({
+            ok: true,
+            strategy,
+            symbol,
+            spot: Math.round(S * 100) / 100,
+            iv_index: Math.round(sigma * 10000) / 100,  // pct (e.g. 18.45)
+            iv_source: ivSource,
+            dte,
+            dte_back: ['CALENDAR_PUT','CALENDAR_CALL','DIAGONAL_PUT'].includes(strategy) ? dte + dte_back : null,
+            T_years: Math.round(T * 10000) / 10000,
+            risk_free_rate: r,
+            dividend_yield: q,
+            contracts,
+            legs: built.legs.map(l => ({
+              type: l.type,
+              strike: l.strike,
+              action: l.action,
+              qty: l.qty,
+              dte: l.T != null ? Math.round(l.T * 365) : dte,
+            })),
+            premium_per_share: Math.round(perShare * 100) / 100,  // >0 credit, <0 debit
+            credit_dollars: Math.round(creditDollarsTotal * 100) / 100,
+            max_profit: mpl.maxProfit,
+            max_loss: mpl.maxLoss,
+            max_profit_at_S: mpl.maxProfitS,
+            max_loss_at_S: mpl.maxLossS,
+            profit_capped: mpl.profitCapped,
+            loss_capped: mpl.lossCapped,
+            breakevens: bes,
+            payoff,  // Sprint 6: include payoff so UI doesn't need 2 calls
+            greeks_per_spread: greeksPerSpread,
+            greeks_total: {
+              delta: Math.round(greeks.delta * 100) / 100,
+              gamma: Math.round(greeks.gamma * 10000) / 10000,
+              theta: Math.round(greeks.theta * 100) / 100,
+              vega:  Math.round(greeks.vega  * 100) / 100,
+              rho:   Math.round(greeks.rho   * 100) / 100,
+            },
+            notes: built.notes,
+            ideal_conditions: ideal,
+            generated_at: new Date().toISOString(),
+            warning: mpl.lossCapped ? 'Max loss may be unbounded — verify wing legs are present.' : null,
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/thetagang/multileg/payoff?strategy=X&symbol=SPY&dte=35[&contracts=1][&n_points=81][&iv_override=0.18]
+      // Slim version: returns only payoff diagram points (lighter for chart UI).
+      if (path === "/api/thetagang/multileg/payoff" && request.method === "GET") {
+        const strategy = (url.searchParams.get('strategy') || '').toUpperCase();
+        const symbol = (url.searchParams.get('symbol') || 'SPY').toUpperCase();
+        const dte = Math.max(1, Number(url.searchParams.get('dte') || 35));
+        const contracts = Math.max(1, Number(url.searchParams.get('contracts') || 1));
+        const dte_back = Number(url.searchParams.get('dte_back') || 30);
+        const n_points = Math.max(20, Math.min(401, Number(url.searchParams.get('n_points') || 81)));
+        const ivOverride = url.searchParams.get('iv_override');
+        if (!strategy) return json({ error: 'strategy required' }, corsHeaders, 400);
+
+        try {
+          const quotes = await ttQuote(env, [symbol]).catch(() => ({}));
+          const S = quotes?.[symbol]?.last || quotes?.[symbol]?.mid || 0;
+          if (!S) return json({ error: `Cannot get price for ${symbol}` }, corsHeaders, 503);
+
+          let sigma = ivOverride != null ? Number(ivOverride) : null;
+          if (sigma == null || !Number.isFinite(sigma) || sigma <= 0) {
+            try { sigma = (await ttIvRank(env, symbol))?.iv_index || 0.20; }
+            catch { sigma = 0.20; }
+          }
+          const T = dte / 365;
+          const r = BS.DEFAULT_RISK_FREE_RATE;
+          const q = BS.DIVIDEND_YIELDS[symbol] ?? BS.DIVIDEND_YIELDS.default;
+          const built = BS.buildLegs(strategy, { S, sigma, T, r, q, contracts, dte_back });
+
+          let perShare = 0;
+          for (const leg of built.legs) {
+            if (leg.type === 'stock') continue;
+            const T_use = leg.T ?? T;
+            const sig_use = leg.sigma ?? sigma;
+            const optType = (leg.type === 'C' || leg.type === 'call') ? 'call' : 'put';
+            const px = BS.bsPrice(S, leg.strike, T_use, r, sig_use, optType, q);
+            const dir = (leg.action === 'sell' || leg.action === 'short') ? 1 : -1;
+            const qtyPerSpread = (leg.qty || 1) / contracts;
+            perShare += dir * px * qtyPerSpread;
+          }
+
+          const payoff = BS.multiLegPayoff(built.legs, perShare, {
+            n_points,
+            multiplier: 100,
+            S_min: Math.max(0, S * 0.65),
+            S_max: S * 1.35,
+          });
+          const bes = BS.breakevens(payoff);
+          const mpl = BS.multiLegMaxProfitLoss(payoff);
+
+          return json({
+            ok: true,
+            strategy, symbol, spot: Math.round(S * 100) / 100, dte,
+            iv_index: Math.round(sigma * 10000) / 100,
+            premium_per_share: Math.round(perShare * 100) / 100,
+            payoff,
+            breakevens: bes,
+            max_profit: mpl.maxProfit,
+            max_loss: mpl.maxLoss,
+            generated_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
       }
 
       // GET /api/health/check — comprehensive health check de toda la app.
