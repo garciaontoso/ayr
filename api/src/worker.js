@@ -10860,19 +10860,21 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           // SÍ puede usar self-fetch porque corre en contexto distinto.
           const stateProvided = body.state || null;
 
-          let brainResp, capsResp, openResp, stratsResp;
+          let brainResp, capsResp, openResp, stratsResp, tournResp;
           if (stateProvided) {
             brainResp = stateProvided.brain_scan;
             capsResp = stateProvided.caps_status;
             openResp = stateProvided.paper_positions;
             stratsResp = stateProvided.strategies;
+            tournResp = stateProvided.tournament_leaderboard;
           } else {
             // Fetch state in parallel (works in scheduled context)
-            [brainResp, capsResp, openResp, stratsResp] = await Promise.all([
+            [brainResp, capsResp, openResp, stratsResp, tournResp] = await Promise.all([
               fetch(`${apiBase}/api/thetagang/brain/scan`, { headers: auth }).then(r => r.json()).catch(() => null),
               fetch(`${apiBase}/api/thetagang/risk/caps-status`).then(r => r.json()).catch(() => null),
               fetch(`${apiBase}/api/thetagang/paper/positions`, { headers: auth }).then(r => r.json()).catch(() => null),
               fetch(`${apiBase}/api/thetagang/strategies`).then(r => r.json()).catch(() => null),
+              fetch(`${apiBase}/api/thetagang/tournament/leaderboard?limit=20`).then(r => r.json()).catch(() => null),
             ]);
           }
 
@@ -10892,7 +10894,9 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const strategies = stratsResp?.strategies || [];
 
           // Plan decisions (pure function)
-          const plan = AutoPaper.planAutoPaperCycle(brainScan, capsStatus, openPositions, strategies);
+          // Sprint 15 — pass tournament leaderboard al plan engine para tournament-aware filter
+          const tournamentLeaderboard = tournResp?.leaderboard || [];
+          const plan = AutoPaper.planAutoPaperCycle(brainScan, capsStatus, openPositions, strategies, {}, tournamentLeaderboard);
 
           // Execute (unless dry run)
           const executions = { opens: [], closes: [], errors: [] };

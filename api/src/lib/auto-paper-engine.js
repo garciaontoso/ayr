@@ -25,6 +25,9 @@ export const AUTO_PAPER_DEFAULTS = {
   delta_breach_threshold: 0.30,    // close if short delta moves to >0.30 (originally ~0.16)
   iv_crush_threshold_pct: 30,      // close if IV bajó >30% desde entry AND pnl ≥25%
   time_based_elapsed_frac: 0.60,   // close if 60%+ time elapsed AND pnl < 25%
+  // Sprint 15 — tournament-aware sizing
+  min_tournament_score: 30,        // require strategy_id appears in top-N rankings AND score >= 30
+  tournament_required: false,      // if true, ONLY trade strategies present in last tournament leaderboard
 };
 
 // ─── shouldOpen(candidate, state, opts) ─────────────────────────────────────
@@ -62,6 +65,19 @@ export function shouldOpen(candidate, state, opts = {}) {
   );
   if (dups.length >= t.max_concurrent_per_symbol) {
     return { action: 'skip', reason: `MAX_CONCURRENT_PER_SYMBOL_${dups.length}>=${t.max_concurrent_per_symbol}` };
+  }
+
+  // Sprint 15 — tournament-aware filter (opt-in via opts.tournament_required)
+  // Si el flag está ON, requiere que el strategy_id aparezca en últimas rankings.
+  // Si OFF (default), solo skip cuando hay leaderboard Y el score es bajo.
+  if (state.tournament_leaderboard && state.tournament_leaderboard.length > 0) {
+    const ranking = state.tournament_leaderboard.find(r => r.strategy_id === stratId || r.strategy_id?.startsWith(stratId.slice(0, -3)));
+    if (t.tournament_required && !ranking) {
+      return { action: 'skip', reason: `NOT_IN_TOURNAMENT_LEADERBOARD` };
+    }
+    if (ranking && (ranking.score || 0) < t.min_tournament_score) {
+      return { action: 'skip', reason: `TOURNAMENT_SCORE_${ranking.score}<${t.min_tournament_score}` };
+    }
   }
 
   // Sizing — Quarter Kelly default; if no historical stats use minimum 1 contract
@@ -180,7 +196,7 @@ function lookupStrategyStats(catalog, strategy_id) {
 // High-level orchestrator (still pure — caller does the I/O).
 // Returns { open_decisions: [], close_decisions: [], summary }
 //   where each decision has: action, reason, params (open) / position (close)
-export function planAutoPaperCycle(brainScan, capsStatus, openPositions, strategies, opts = {}) {
+export function planAutoPaperCycle(brainScan, capsStatus, openPositions, strategies, opts = {}, tournamentLeaderboard = []) {
   const openDecisions = [];
   const closeDecisions = [];
 
@@ -188,6 +204,7 @@ export function planAutoPaperCycle(brainScan, capsStatus, openPositions, strateg
     caps_allowed: capsStatus?.allowed === true,
     open_positions: openPositions || [],
     strategies: strategies || [],
+    tournament_leaderboard: tournamentLeaderboard || [],
   };
 
   // Open decisions from brain candidates

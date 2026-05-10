@@ -35,6 +35,8 @@ traders particulares.
 | 12 | Tax-aware execution (1256 + wash + LT) | ⏳ | — |
 | 13 | Production monitoring + Telegram alerts | ✅ LIVE | `141d137` |
 | C | Cleanup audit + 5 sub-tabs reales (Greeks/Defense/Paper/Live/PnL) | ✅ LIVE | `c4b28a3` |
+| 14 | Auto Paper Trading 100% autónomo (cron + UI + log) | ✅ LIVE | `a902997` |
+| 15 | Strategy tournament + dynamic exit + intraday check + tournament-aware sizing | ✅ LIVE | (este commit) |
 
 ## Arquitectura
 

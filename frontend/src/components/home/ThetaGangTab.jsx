@@ -69,6 +69,10 @@ function fmtMoney(n) { if (n == null) return '—'; const sign = n < 0 ? '-' : '
 function fmtPct(n) { if (n == null) return '—'; return n.toFixed(1) + '%'; }
 function fmtN(n, d = 2) { if (n == null) return '—'; return Number(n).toFixed(d); }
 
+// Sprint 15 audit fix L1: card style hoisted module-level (DRY).
+// Antes redefinido localmente en 8+ componentes (re-allocated per render).
+const CARD = Object.freeze({ padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 });
+
 // ─── 🧠 Brain — entries sugeridas hoy ───────────────────────────────────────
 function BrainSubtab() {
   const [data, setData] = useState(null);
@@ -141,18 +145,46 @@ function BrainSubtab() {
 function StrategiesSubtab() {
   const [strategies, setStrategies] = useState([]);
   const [loading, setLoading] = useState(true);
-  // Sprint cleanup audit H6: error state visible (antes catch silencioso)
   const [err, setErr] = useState(null);
+  // Sprint 15 — Tournament leaderboard
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [lastTournamentRun, setLastTournamentRun] = useState(null);
+  const [tournamentBusy, setTournamentBusy] = useState(false);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/thetagang/strategies`)
-      .then(r => r.json())
-      .then(d => { if (d.error) setErr(d.error); else setStrategies(d.strategies || []); setLoading(false); })
-      .catch(e => { setErr(e.message); setLoading(false); });
+    Promise.all([
+      fetch(`${API_URL}/api/thetagang/strategies`).then(r => r.json()),
+      fetch(`${API_URL}/api/thetagang/tournament/leaderboard?limit=15`).then(r => r.json()).catch(() => null),
+    ]).then(([sR, lR]) => {
+      if (sR.error) setErr(sR.error); else setStrategies(sR.strategies || []);
+      setLeaderboard(lR?.leaderboard || []);
+      setLastTournamentRun(lR?.last_run || null);
+      setLoading(false);
+    }).catch(e => { setErr(e.message); setLoading(false); });
   }, []);
 
+  const runTournament = async () => {
+    setTournamentBusy(true);
+    try {
+      const r = await fetch(`${API_URL}/api/thetagang/tournament/run`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbols: ['SPY', 'QQQ', 'IWM'], years_back: 3 }),
+      });
+      const j = await r.json();
+      if (j.ok) {
+        // Re-fetch leaderboard
+        const lR = await fetch(`${API_URL}/api/thetagang/tournament/leaderboard?limit=15`).then(r => r.json());
+        setLeaderboard(lR?.leaderboard || []);
+        setLastTournamentRun(lR?.last_run || null);
+      } else {
+        setErr(j.error || 'Tournament failed');
+      }
+    } catch (e) { setErr(e.message); }
+    setTournamentBusy(false);
+  };
+
   if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Cargando catálogo...</div>;
-  if (err) return <div style={{ padding: 12, margin: 14, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, color: '#ef4444', fontSize: 12 }}>⚠ Error cargando catálogo: {err}</div>;
+  if (err) return <div style={{ padding: 12, margin: 14, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, color: '#ef4444', fontSize: 12 }}>⚠ Error: {err}</div>;
 
   const STATUS_COLOR = {
     backtesting: '#fbbf24',
@@ -164,6 +196,47 @@ function StrategiesSubtab() {
 
   return (
     <div style={{ padding: 14 }}>
+      {/* Sprint 15 — Tournament leaderboard */}
+      <div style={{ ...CARD, marginBottom: 14, borderColor: leaderboard.length > 0 ? 'var(--gold, #fbbf24)' : 'var(--border)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700 }}>🏆 Strategy Tournament — Walk-forward ranking</div>
+          <button onClick={runTournament} disabled={tournamentBusy} style={{ padding: '4px 12px', fontSize: 11, background: 'var(--gold, #fbbf24)', color: '#000', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>{tournamentBusy ? 'Corriendo... (~30s)' : '▶ Run tournament'}</button>
+        </div>
+        {leaderboard.length === 0 ? (
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+            No hay rankings aún. Click "Run tournament" → ejecuta walk-forward de 81 configs (3 symbols × 3 DTEs × 3 deltas × 3 TPs) sobre últimos 3 años de data.
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 6 }}>Last run: {lastTournamentRun?.slice(0, 19).replace('T', ' ')}</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                <thead><tr style={{ background: 'var(--bg-primary)', textAlign: 'left' }}>
+                  <th style={{ padding: 4 }}>#</th><th>Strategy</th><th>Sym</th><th>Score</th><th>N</th><th>Win%</th><th>Sharpe</th><th>P&L</th><th>MaxDD</th><th>PF</th><th>Verdict</th>
+                </tr></thead>
+                <tbody>
+                  {leaderboard.map((r, i) => (
+                    <tr key={r.strategy_id} style={{ borderTop: '1px solid var(--border)' }}>
+                      <td style={{ padding: 4, fontWeight: 700, color: i < 3 ? 'var(--gold, #fbbf24)' : 'var(--text-secondary)' }}>{r.rank}</td>
+                      <td style={{ padding: 4, fontSize: 10 }}>{r.strategy_id?.slice(0, 24)}</td>
+                      <td>{r.symbol}</td>
+                      <td style={{ fontWeight: 700, color: r.score >= 50 ? '#30d158' : r.score >= 30 ? '#fbbf24' : '#ef4444' }}>{Math.round(r.score)}</td>
+                      <td>{r.n_trades}</td>
+                      <td>{fmtPct(r.win_rate)}</td>
+                      <td>{fmtN(r.sharpe, 2)}</td>
+                      <td style={{ color: r.total_pnl > 0 ? '#30d158' : '#ef4444' }}>{fmtMoney(r.total_pnl)}</td>
+                      <td>{fmtMoney(r.max_dd)}</td>
+                      <td>{fmtN(r.profit_factor, 2)}</td>
+                      <td style={{ fontSize: 9, color: r.verdict?.startsWith('PASS') ? '#30d158' : 'var(--text-tertiary)' }}>{r.verdict?.slice(0, 12)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+
       <h3 style={{ margin: '0 0 14px 0', fontSize: 14 }}>Catálogo de estrategias — 5 gates promotion</h3>
       <div style={{ display: 'grid', gap: 10 }}>
         {strategies.map(s => (
@@ -730,7 +803,7 @@ function BacktestResults({ data }) {
         </div>
       </div>
       {data.trades?.length > 0 && (
-        <div style={{ overflowX: 'auto', maxHeight: 320 }}>
+        <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 320 }}>{/* Sprint 15 audit fix L3: overflowY explicito para mobile */}
           <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
             <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
               <th style={{ padding: '6px 8px', textAlign: 'left' }}>Entry</th>
@@ -785,7 +858,7 @@ function GreeksSubtab() {
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
 
-  const card = { padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 };
+  const card = CARD;  // Sprint 15 audit fix L1: hoisted module-level
 
   if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Cargando Greeks portfolio…</div>;
   if (err) return <div style={{ padding: 12, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, color: '#ef4444', fontSize: 12, margin: 14 }}>⚠ {err}</div>;
@@ -863,7 +936,7 @@ function DefenseSubtab() {
     } catch (e) { setRollSugg({ ...rollSugg, [group.underlying + group.short_strike]: { error: e.message } }); }
   };
 
-  const card = { padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 };
+  const card = CARD;  // Sprint 15 audit fix L1: hoisted module-level
   if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Evaluando defense…</div>;
   if (err) return <div style={{ padding: 12, margin: 14, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, color: '#ef4444', fontSize: 12 }}>⚠ {err}</div>;
 
@@ -976,7 +1049,7 @@ function PaperSubtab() {
     setAutoPaperBusy(false);
   };
 
-  const card = { padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 };
+  const card = CARD;  // Sprint 15 audit fix L1: hoisted module-level
   if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Cargando paper trades…</div>;
   if (err) return <div style={{ padding: 12, margin: 14, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, color: '#ef4444', fontSize: 12 }}>⚠ {err}</div>;
 
@@ -1109,7 +1182,7 @@ function LiveSubtab() {
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
 
-  const card = { padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 };
+  const card = CARD;  // Sprint 15 audit fix L1: hoisted module-level
   if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Cargando estado live…</div>;
 
   return (
@@ -1204,7 +1277,7 @@ function RiskSubtab() {
     } catch (e) { setKellyResult({ error: e.message }); }
   }, [kellyForm]);
 
-  const card = { padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 };
+  const card = CARD;  // Sprint 15 audit fix L1: hoisted module-level
   const sectionTitle = { fontSize: 12, fontWeight: 700, color: 'var(--gold, #fbbf24)', marginBottom: 8 };
 
   if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Cargando risk dashboard…</div>;
@@ -1387,7 +1460,7 @@ function PnLSubtab() {
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
 
-  const card = { padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 };
+  const card = CARD;  // Sprint 15 audit fix L1: hoisted module-level
   if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Agregando P&L de las 3 fuentes…</div>;
 
   const paperPnL = paper?.aggregated?.total_pnl || 0;
@@ -1487,20 +1560,27 @@ function WheelSubtab() {
   const [confirmExpire, setConfirmExpire] = useState(null);  // { cycleId, outcome }
   // Sprint cleanup audit H4: ref guard sincrónico contra double-submit
   const busyRef = useRef(false);
+  // Sprint 15 audit fix M6: AbortController para race en unmount/symbol change
+  const abortRef = useRef(null);
 
   const load = useCallback(async () => {
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
     setLoading(true);
     try {
-      const r = await fetch(`${API_URL}/api/thetagang/wheel/status${symbol ? '?symbol=' + symbol : ''}`);
+      const r = await fetch(`${API_URL}/api/thetagang/wheel/status${symbol ? '?symbol=' + symbol : ''}`, { signal: abortRef.current.signal });
       setData(await r.json());
-      const sR = await fetch(`${API_URL}/api/thetagang/wheel/suggest?symbol=${symbol}&dte=35`);
+      const sR = await fetch(`${API_URL}/api/thetagang/wheel/suggest?symbol=${symbol}&dte=35`, { signal: abortRef.current.signal });
       const sJ = await sR.json();
       setSuggestion(sJ.suggestion);
-    } catch (e) { console.error(e); }
+    } catch (e) { if (e.name !== 'AbortError') console.error(e); }
     setLoading(false);
   }, [symbol]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    return () => { if (abortRef.current) abortRef.current.abort(); };
+  }, [load]);
 
   const submitCSP = async (e) => {
     e.preventDefault();
@@ -1547,7 +1627,7 @@ function WheelSubtab() {
   const stats = data?.stats || {};
   const open = data?.open_cycles || [];
   const done = data?.completed_cycles || [];
-  const card = { padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 };
+  const card = CARD;  // Sprint 15 audit fix L1: hoisted module-level
 
   return (
     <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1661,12 +1741,22 @@ function TailHedgeSubtab() {
   const [hedgeType, setHedgeType] = useState('put_roll');
   const [nav, setNav] = useState(1_400_000);
   const [loading, setLoading] = useState(false);
+  // Sprint 15 audit fix M2: AbortController para evitar race en unmount
+  const abortRef = useRef(null);
 
   const loadStatus = useCallback(async () => {
-    try { setStatus(await (await fetch(`${API_URL}/api/thetagang/tail-hedge/status`)).json()); } catch {}
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
+    try {
+      const r = await fetch(`${API_URL}/api/thetagang/tail-hedge/status`, { signal: abortRef.current.signal });
+      setStatus(await r.json());
+    } catch (e) { if (e.name !== 'AbortError') console.error(e); }
   }, []);
 
-  useEffect(() => { loadStatus(); }, [loadStatus]);
+  useEffect(() => {
+    loadStatus();
+    return () => { if (abortRef.current) abortRef.current.abort(); };
+  }, [loadStatus]);
 
   const computeSuggestion = useCallback(async () => {
     setLoading(true);
@@ -1680,7 +1770,7 @@ function TailHedgeSubtab() {
     setLoading(false);
   }, [hedgeType, nav]);
 
-  const card = { padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 };
+  const card = CARD;  // Sprint 15 audit fix L1: hoisted module-level
   const open = status?.open || [];
   const totals = status?.totals || {};
   const protection = status?.protection || [];

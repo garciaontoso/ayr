@@ -7,6 +7,7 @@ import {
   STRESS_PERIODS, CALM_PERIODS,
   computeStats, runBPSOnBars, filterBarsByDate,
   walkForwardWindows, monteCarloBootstrap, promotionVerdict,
+  runStrategyTournament, scoreStrategy,
 } from '../../../api/src/lib/backtest-engine.js';
 
 // Seedable PRNG (LCG) — deterministic across CI runs.
@@ -262,5 +263,67 @@ describe('Sprint 8 — promotionVerdict()', () => {
   it('PASS_GATES_1_2 when all criteria met', () => {
     const v = promotionVerdict({ n: 30, sharpe: 2.0, max_dd: 500, profit_factor: 1.5 }, { initial_capital: 10000 });
     expect(v.verdict).toBe('PASS_GATES_1_2');
+  });
+});
+
+// Sprint 15 — Tournament tests
+describe('Sprint 15 — scoreStrategy()', () => {
+  it('returns 0 for insufficient sample', () => {
+    expect(scoreStrategy({ n: 3 })).toBe(0);
+    expect(scoreStrategy({ n: 0 })).toBe(0);
+    expect(scoreStrategy(null)).toBe(0);
+  });
+
+  it('high sharpe + good PF + reasonable DD → high score', () => {
+    const s = scoreStrategy({ n: 50, sharpe: 2.0, profit_factor: 1.8, win_rate: 75, total_pnl: 5000, max_dd: 500 });
+    expect(s).toBeGreaterThan(50);
+  });
+
+  it('low sharpe + low PF → low score', () => {
+    const s = scoreStrategy({ n: 50, sharpe: 0.2, profit_factor: 0.9, win_rate: 50, total_pnl: 100, max_dd: 200 });
+    expect(s).toBeLessThan(40);
+  });
+
+  it('caps score at 100', () => {
+    const s = scoreStrategy({ n: 100, sharpe: 5, profit_factor: 10, win_rate: 100, total_pnl: 100000, max_dd: 100 });
+    expect(s).toBeLessThanOrEqual(100);
+  });
+
+  it('caps score at 0 (no negatives)', () => {
+    const s = scoreStrategy({ n: 50, sharpe: -5, profit_factor: 0, win_rate: 0, total_pnl: -1000, max_dd: 5000 });
+    expect(s).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('Sprint 15 — runStrategyTournament()', () => {
+  it('returns sorted array (highest score first)', () => {
+    const bars = makeGBMBars(700, 600, 0.10, 0.18, '2023-01-01');
+    const configs = [
+      { id: 'c1', symbol: 'SPY', dte: 35, take_profit_pct: 0.5, stop_loss_x: 2.0, delta_short_pct: 1.0, delta_long_pct: 1.5 },
+      { id: 'c2', symbol: 'SPY', dte: 21, take_profit_pct: 0.3, stop_loss_x: 1.5, delta_short_pct: 0.85, delta_long_pct: 1.5 },
+    ];
+    const r = runStrategyTournament(configs, { SPY: bars });
+    expect(r.length).toBe(2);
+    if (r[0].score != null && r[1].score != null) {
+      expect(r[0].score).toBeGreaterThanOrEqual(r[1].score);
+    }
+  });
+
+  it('handles missing bars gracefully', () => {
+    const r = runStrategyTournament(
+      [{ id: 'c1', symbol: 'IWM' }],
+      { SPY: [] }
+    );
+    expect(r[0].error).toBe('insufficient_bars');
+  });
+
+  it('every result has id, symbol', () => {
+    const bars = makeGBMBars(700, 600);
+    const configs = [{ id: 'test', symbol: 'SPY', dte: 35 }];
+    const r = runStrategyTournament(configs, { SPY: bars });
+    for (const item of r) {
+      expect(item.id).toBeTruthy();
+      expect(item.symbol).toBeTruthy();
+    }
   });
 });

@@ -74,6 +74,30 @@ describe('Sprint 14 — shouldOpen()', () => {
     expect(shouldOpen(null, baseState).action).toBe('skip');
     expect(shouldOpen({}, baseState).action).toBe('skip');
   });
+
+  // Sprint 15 — tournament-aware filter
+  it('skip si tournament_required AND strategy NO en leaderboard', () => {
+    const c = { symbol: 'SPY', strategy: 'IC short', score: 80, action: 'ENTRY_CANDIDATE' };
+    const state = { ...baseState, tournament_leaderboard: [{ strategy_id: 'qqq-bps-d30', score: 50 }] };
+    const r = shouldOpen(c, state, { tournament_required: true });
+    expect(r.action).toBe('skip');
+    expect(r.reason).toBe('NOT_IN_TOURNAMENT_LEADERBOARD');
+  });
+
+  it('skip si tournament leaderboard tiene strategy con score bajo', () => {
+    const c = { symbol: 'SPY', strategy: 'IC short', score: 80, action: 'ENTRY_CANDIDATE' };
+    const state = { ...baseState, tournament_leaderboard: [{ strategy_id: 'ic-spy-35', score: 15 }] };
+    const r = shouldOpen(c, state);
+    expect(r.action).toBe('skip');
+    expect(r.reason).toContain('TOURNAMENT_SCORE');
+  });
+
+  it('open si tournament leaderboard tiene strategy con score >= 30', () => {
+    const c = { symbol: 'SPY', strategy: 'IC short', score: 80, action: 'ENTRY_CANDIDATE' };
+    const state = { ...baseState, tournament_leaderboard: [{ strategy_id: 'ic-spy-35', score: 50 }] };
+    const r = shouldOpen(c, state);
+    expect(r.action).toBe('open');
+  });
 });
 
 describe('Sprint 14 — shouldClose()', () => {
