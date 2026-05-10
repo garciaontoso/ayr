@@ -7,6 +7,7 @@ import {
   kellyCriterion, recommendSize, correlationMatrix,
   evaluateRiskCaps, DEFAULT_RISK_CAPS,
   portfolioHeatByUnderlying, portfolioRiskScore,
+  checkSingleLossKillSwitch, checkLiquidity,
 } from '../../../api/src/lib/risk-engine.js';
 
 describe('Sprint 9 — kellyCriterion()', () => {
@@ -236,5 +237,52 @@ describe('Sprint 9 — portfolioRiskScore()', () => {
     const s = portfolioRiskScore({ vix: 20, n_concurrent_positions: 4, drawdown_pct: 5 }, [{ weight_pct: 30 }]);
     const sum = s.breakdown.vix + s.breakdown.concurrent + s.breakdown.drawdown + s.breakdown.concentration;
     expect(Math.abs(sum - s.total)).toBeLessThanOrEqual(2);
+  });
+});
+
+// Sprint 17 — Single-loss kill + liquidity
+describe('Sprint 17 — checkSingleLossKillSwitch()', () => {
+  it('triggers si single trade loss > 5% NAV', () => {
+    expect(checkSingleLossKillSwitch([{ pnl_realized: -6000 }], 100000)).toBe(true);
+    expect(checkSingleLossKillSwitch([{ pnl_realized: -4000 }], 100000)).toBe(false);
+  });
+
+  it('handles empty / null', () => {
+    expect(checkSingleLossKillSwitch([], 100000)).toBe(false);
+    expect(checkSingleLossKillSwitch(null, 100000)).toBe(false);
+  });
+
+  it('custom threshold respected', () => {
+    expect(checkSingleLossKillSwitch([{ pnl_realized: -3000 }], 100000, 2)).toBe(true);
+    expect(checkSingleLossKillSwitch([{ pnl_realized: -1500 }], 100000, 2)).toBe(false);
+  });
+});
+
+describe('Sprint 17 — checkLiquidity()', () => {
+  it('OK con spread tight + good OI + good volume', () => {
+    const r = checkLiquidity({ mid: 1.00, bid: 0.98, ask: 1.02, open_interest: 500, volume: 100 });
+    expect(r.ok).toBe(true);
+  });
+
+  it('reject wide spread (> 10% mid)', () => {
+    const r = checkLiquidity({ mid: 1.00, bid: 0.80, ask: 1.20, open_interest: 500 });
+    expect(r.ok).toBe(false);
+    expect(r.reasons.some(x => x.includes('WIDE_SPREAD'))).toBe(true);
+  });
+
+  it('reject low OI', () => {
+    const r = checkLiquidity({ mid: 1.00, bid: 0.98, ask: 1.02, open_interest: 10 });
+    expect(r.ok).toBe(false);
+    expect(r.reasons.some(x => x.includes('LOW_OI'))).toBe(true);
+  });
+
+  it('reject low volume', () => {
+    const r = checkLiquidity({ mid: 1.00, bid: 0.98, ask: 1.02, open_interest: 500, volume: 1 });
+    expect(r.ok).toBe(false);
+    expect(r.reasons.some(x => x.includes('LOW_VOLUME'))).toBe(true);
+  });
+
+  it('reject si chain null', () => {
+    expect(checkLiquidity(null).ok).toBe(false);
   });
 });

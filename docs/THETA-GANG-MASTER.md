@@ -36,7 +36,9 @@ traders particulares.
 | 13 | Production monitoring + Telegram alerts | ✅ LIVE | `141d137` |
 | C | Cleanup audit + 5 sub-tabs reales (Greeks/Defense/Paper/Live/PnL) | ✅ LIVE | `c4b28a3` |
 | 14 | Auto Paper Trading 100% autónomo (cron + UI + log) | ✅ LIVE | `a902997` |
-| 15 | Strategy tournament + dynamic exit + intraday check + tournament-aware sizing | ✅ LIVE | (este commit) |
+| 15 | Strategy tournament + dynamic exit + intraday check + tournament-aware sizing | ✅ LIVE | `2c34a08` |
+| 16 | IC backtest engine + tournament 162 configs (BPS+IC mix) | ✅ LIVE | `3111800` |
+| 17 | Earnings filter + tournament size modifier + single-loss kill-switch + liquidity check | ✅ LIVE | (este commit) |
 
 ## Arquitectura
 

@@ -171,6 +171,60 @@ function pearson(xs, ys) {
   return denom === 0 ? 0 : num / denom;
 }
 
+// ─── Sprint 17 — Single-trade max-loss kill-switch ─────────────────────────
+//
+// Rule: si UNA SOLA pérdida realizada > X% NAV, kill switch.
+// Justificación: si un solo trade perdió 5% de NAV, el sistema demostró que
+// el sizing está roto (Quarter Kelly nunca debería permitir eso). Mejor
+// pausar antes de que se repita.
+//
+// Returns true si debe activarse el kill switch.
+export function checkSingleLossKillSwitch(closedTrades, nav, threshold_pct = 5) {
+  if (!Array.isArray(closedTrades) || nav <= 0) return false;
+  for (const t of closedTrades) {
+    const pnl = t.pnl_realized || t.pnl || 0;
+    if (pnl < 0 && Math.abs(pnl) > nav * (threshold_pct / 100)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// ─── Sprint 17 — Liquidity check (option chain quality) ────────────────────
+//
+// Rule: pre-entry, requerir bid-ask spread < X% del mid AND open_interest > N.
+// Si chain es illíquida → slippage destroy edge. Skip the trade.
+//
+// chain: { mid, bid, ask, open_interest, volume }
+// Returns { ok, reasons[] }
+export function checkLiquidity(chain, opts = {}) {
+  const max_spread_pct = opts.max_spread_pct || 10;     // 10% del mid OK
+  const min_open_interest = opts.min_open_interest || 50;
+  const min_volume = opts.min_volume || 5;
+  const reasons = [];
+
+  if (!chain) return { ok: false, reasons: ['NO_CHAIN_DATA'] };
+
+  const mid = chain.mid;
+  const bid = chain.bid;
+  const ask = chain.ask;
+  if (mid != null && bid != null && ask != null && mid > 0) {
+    const spreadPct = ((ask - bid) / mid) * 100;
+    if (spreadPct > max_spread_pct) {
+      reasons.push(`WIDE_SPREAD_${spreadPct.toFixed(1)}%>${max_spread_pct}%`);
+    }
+  }
+
+  if (chain.open_interest != null && chain.open_interest < min_open_interest) {
+    reasons.push(`LOW_OI_${chain.open_interest}<${min_open_interest}`);
+  }
+  if (chain.volume != null && chain.volume < min_volume) {
+    reasons.push(`LOW_VOLUME_${chain.volume}<${min_volume}`);
+  }
+
+  return { ok: reasons.length === 0, reasons };
+}
+
 // ─── Risk caps state machine ─────────────────────────────────────────────────
 //
 // Decides if a new trade is ALLOWED given current portfolio + market state.

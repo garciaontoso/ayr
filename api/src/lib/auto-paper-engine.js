@@ -91,6 +91,17 @@ export function shouldOpen(candidate, state, opts = {}) {
     });
     contracts = sz.recommended_contracts || 1;
   }
+  // Sprint 17 — Tournament-based size modifier:
+  // Si tournament leaderboard tiene esta strategy con score alto, escalar +50%.
+  // Si score bajo (< 50), reducir tamaño 50%. Esto premia evidencia real.
+  if (state.tournament_leaderboard && state.tournament_leaderboard.length > 0) {
+    const ranking = state.tournament_leaderboard.find(r => r.strategy_id === stratId || r.strategy_id?.startsWith(stratId.slice(0, -3)));
+    if (ranking?.score >= 50) {
+      contracts = Math.min(contracts * 2, 10);  // double pero cap a 10
+    } else if (ranking?.score && ranking.score < 30) {
+      contracts = Math.max(1, Math.floor(contracts / 2));
+    }
+  }
 
   return {
     action: 'open',

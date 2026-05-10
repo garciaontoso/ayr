@@ -7847,6 +7847,27 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
               action = 'NO_ENTRY';
             }
 
+            // Sprint 17 — Earnings calendar check (avoid CSP/short premium 7d antes de earnings)
+            // Para SPY/QQQ/IWM (ETFs): NO aplica (no earnings)
+            // Pero si añadimos single-name symbols futuros (KO, PG, etc), este filtro
+            // automáticamente bloquea apertura cerca de earnings.
+            let earningsWarning = null;
+            try {
+              const earningsRow = await env.DB.prepare(
+                `SELECT date FROM earnings_calendar WHERE ticker = ? AND date BETWEEN date('now') AND date('now', '+14 days') ORDER BY date ASC LIMIT 1`
+              ).bind(sym).first().catch(() => null);
+              if (earningsRow?.date) {
+                const daysUntil = Math.floor((new Date(earningsRow.date) - Date.now()) / 86400000);
+                if (daysUntil <= 7 && action === 'ENTRY_CANDIDATE') {
+                  earningsWarning = `EARNINGS_IN_${daysUntil}d`;
+                  // Downgrade de ENTRY_CANDIDATE a ENTRY_MAYBE para forzar revisión humana
+                  action = 'ENTRY_MAYBE';
+                  notes = `⚠ Earnings en ${daysUntil}d. ${notes}`;
+                  score = Math.max(40, score - 20);  // penaliza 20 puntos
+                }
+              }
+            } catch {}
+
             const candidate = {
               symbol: sym,
               strategy,
@@ -7864,6 +7885,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
               credit_expected: null,
               max_loss: null,
               pop: deltaShort ? Math.round((1 - deltaShort) * 100) : null,
+              earnings_warning: earningsWarning,
               notes,
               data_source: ivData._source || "tt_bridge",
               data_ts: ivData.ts,
