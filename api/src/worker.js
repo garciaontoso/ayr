@@ -7686,6 +7686,25 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           updated_at TEXT DEFAULT (datetime('now'))
         )`).run();
         await env.DB.prepare(`INSERT OR IGNORE INTO thetagang_auto_paper_config (id, enabled) VALUES (1, 0)`).run();
+        // Sprint 15 — Strategy tournament rankings persisted
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS thetagang_strategy_rankings (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          run_at TEXT DEFAULT (datetime('now')),
+          strategy_id TEXT NOT NULL,
+          symbol TEXT NOT NULL,
+          score REAL,
+          n_trades INTEGER,
+          total_pnl REAL,
+          win_rate REAL,
+          sharpe REAL,
+          max_dd REAL,
+          profit_factor REAL,
+          verdict TEXT,
+          rank INTEGER,
+          stats_json TEXT
+        )`).run();
+        await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_strategy_rank
+          ON thetagang_strategy_rankings(run_at DESC, rank)`).run();
       };
 
       // GET /api/thetagang/strategies — catálogo de las 9 estrategias seedeadas
@@ -10551,6 +10570,230 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const effectiveness = TH.evaluateHedgeEffectiveness(portfolioPnL, hedgePnL);
           return json({ ok: true, days, n_hedges: (hedges || []).length, n_nav_points: series.length, effectiveness, generated_at: new Date().toISOString() }, corsHeaders);
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // ─── Sprint 15 — Strategy tournament (walk-forward all configs) ──────
+
+      // POST /api/thetagang/tournament/run body:{symbols=['SPY','QQQ','IWM'], years_back=3, configs?}
+      // Runs all 27 strategy configs through BPS engine on multi-symbol bars,
+      // ranks by composite score, persists to thetagang_strategy_rankings.
+      if (path === "/api/thetagang/tournament/run" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        await ensureThetaGangTables();
+        try {
+          const b = await request.json().catch(() => ({}));
+          const symbols = Array.isArray(b.symbols) ? b.symbols : ['SPY', 'QQQ', 'IWM'];
+          const yearsBack = Math.max(2, Math.min(10, Number(b.years_back || 3)));
+
+          // Default configs: variations of dte/delta/TP/SL across symbols
+          const baseDeltas = [0.16, 0.20, 0.30];
+          const baseDtes = [21, 35, 45];
+          const baseTPs = [0.25, 0.50, 0.75];
+          const configs = b.configs || [];
+          if (configs.length === 0) {
+            for (const sym of symbols) {
+              for (const dte of baseDtes) {
+                for (const ds of baseDeltas) {
+                  for (const tp of baseTPs) {
+                    configs.push({
+                      id: `${sym.toLowerCase()}-bps-d${(ds * 100) | 0}-dte${dte}-tp${(tp * 100) | 0}`,
+                      symbol: sym,
+                      dte,
+                      take_profit_pct: tp,
+                      stop_loss_x: 2.0,
+                      delta_short_pct: ds === 0.16 ? 1.0 : ds === 0.20 ? 0.85 : 0.6,
+                      delta_long_pct: 1.5,
+                      ivr_threshold: 0,
+                      regime_filter: false,
+                    });
+                  }
+                }
+              }
+            }
+          }
+
+          // Fetch bars for each unique symbol once
+          const fetchStart = new Date();
+          fetchStart.setFullYear(fetchStart.getFullYear() - yearsBack - 1);
+          const period1 = Math.floor(fetchStart.getTime() / 1000);
+          const period2 = Math.floor(Date.now() / 1000);
+          const uniqSymbols = [...new Set(configs.map(c => c.symbol || 'SPY'))];
+          const barsBySymbol = {};
+          for (const sym of uniqSymbols) {
+            try {
+              const r = await fetchYahoo(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?period1=${period1}&period2=${period2}&interval=1d`);
+              if (!r.ok) continue;
+              const j = await r.json();
+              const result = j?.chart?.result?.[0];
+              const ts = result?.timestamp || [];
+              const cl = result?.indicators?.quote?.[0]?.close || [];
+              barsBySymbol[sym] = ts.map((t, i) => ({
+                date: new Date(t * 1000).toISOString().slice(0, 10),
+                close: cl[i],
+              })).filter(x => x.close != null);
+            } catch {}
+          }
+
+          const ranked = BTE.runStrategyTournament(configs, barsBySymbol);
+
+          // Persist top 50 (most useful) with rank
+          const runAt = new Date().toISOString();
+          for (let i = 0; i < Math.min(50, ranked.length); i++) {
+            const r = ranked[i];
+            if (r.error) continue;
+            const s = r.stats || {};
+            await env.DB.prepare(
+              `INSERT INTO thetagang_strategy_rankings
+               (run_at, strategy_id, symbol, score, n_trades, total_pnl, win_rate, sharpe, max_dd, profit_factor, verdict, rank, stats_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).bind(
+              runAt, r.id, r.symbol,
+              r.score ?? 0, r.n_trades ?? 0,
+              s.total_pnl ?? 0, s.win_rate ?? 0,
+              s.sharpe ?? 0, s.max_dd ?? 0,
+              s.profit_factor ?? 0,
+              r.verdict?.verdict || 'UNKNOWN',
+              i + 1,
+              JSON.stringify({ stats: s, verdict: r.verdict, config: r.config })
+            ).run().catch(() => {});
+          }
+
+          return json({
+            ok: true,
+            n_configs: configs.length,
+            symbols,
+            years_back: yearsBack,
+            ranked: ranked.slice(0, 20),  // top 20 in response
+            full_results_count: ranked.length,
+            generated_at: runAt,
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
+      // GET /api/thetagang/tournament/leaderboard?limit=20
+      // Returns most recent ranking results
+      if (path === "/api/thetagang/tournament/leaderboard" && request.method === "GET") {
+        await ensureThetaGangTables();
+        try {
+          const limit = Math.max(1, Math.min(100, Number(url.searchParams.get('limit') || 20)));
+          const lastRunRow = await env.DB.prepare(
+            `SELECT run_at FROM thetagang_strategy_rankings ORDER BY id DESC LIMIT 1`
+          ).first().catch(() => null);
+          if (!lastRunRow) {
+            return json({ ok: true, leaderboard: [], last_run: null, hint: 'POST /api/thetagang/tournament/run to populate' }, corsHeaders);
+          }
+          const { results } = await env.DB.prepare(
+            `SELECT rank, strategy_id, symbol, score, n_trades, total_pnl, win_rate, sharpe, max_dd, profit_factor, verdict
+             FROM thetagang_strategy_rankings WHERE run_at = ? ORDER BY rank ASC LIMIT ?`
+          ).bind(lastRunRow.run_at, limit).all();
+          return json({ ok: true, last_run: lastRunRow.run_at, leaderboard: results || [] }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // ─── Sprint 15 — Intra-day quick check ──────────────────────────────
+      // POST /api/thetagang/intraday/quick-check
+      // Lightweight check (no Brain scan, no full backtest): solo VIX live +
+      // caps state + open positions con delta breach detection.
+      // Diseñado para correr cada 30min durante market hours via cron piggyback.
+      // Si detecta CRITICAL → Telegram inmediato (no espera al cron diario).
+      if (path === "/api/thetagang/intraday/quick-check" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        await ensureThetaGangTables();
+        try {
+          const alerts = [];
+
+          // VIX live
+          let vix = null;
+          try { const q = await ttQuote(env, ['VIX']); vix = q?.VIX?.last || q?.VIX?.mid; } catch {}
+          if (vix != null) {
+            if (vix >= 30) alerts.push({ severity: 'CRITICAL', code: 'VIX_KILL_INTRADAY', message: `🚨 VIX intra-day = ${vix.toFixed(1)} ≥ 30 (kill threshold)`, action: 'NEW_OPENS_BLOCKED' });
+            else if (vix >= 25) alerts.push({ severity: 'WARN', code: 'VIX_APPROACHING', message: `⚠ VIX ${vix.toFixed(1)} acercándose a kill (30)` });
+            else if (vix >= 20) alerts.push({ severity: 'INFO', code: 'VIX_ELEVATED', message: `ℹ VIX ${vix.toFixed(1)} elevado` });
+          }
+
+          // Open paper positions con delta breach intraday
+          const { results: openPaper } = await env.DB.prepare(
+            `SELECT id, symbol, strategy_id, opened_at, dte_open, credit_received, strikes_json
+             FROM thetagang_paper_trades WHERE status = 'open'`
+          ).all().catch(() => ({ results: [] }));
+
+          let breachedCount = 0;
+          for (const p of (openPaper || [])) {
+            try {
+              const strikes = JSON.parse(p.strikes_json || '{}');
+              const shortStrike = strikes.short_put || strikes.short_call || strikes.short;
+              if (!shortStrike) continue;
+              const ulQ = await ttQuote(env, [p.symbol]).catch(() => ({}));
+              const spot = ulQ?.[p.symbol]?.last || ulQ?.[p.symbol]?.mid;
+              if (!spot) continue;
+              // Approximate delta breach: si spot está dentro del 2% del short strike → DELTA growing rapidly
+              const distPct = Math.abs(spot - shortStrike) / shortStrike * 100;
+              if (distPct < 2) {
+                breachedCount++;
+                alerts.push({
+                  severity: 'CRITICAL', code: 'DELTA_BREACH_INTRADAY',
+                  message: `🚨 ${p.symbol} ${shortStrike} short tested: spot ${spot.toFixed(2)} (${distPct.toFixed(1)}% away)`,
+                  action: 'CONSIDER_CLOSE_OR_ROLL', paper_trade_id: p.id,
+                });
+              }
+            } catch {}
+          }
+
+          // Open hedges con DTE crítico
+          const { results: openHedges } = await env.DB.prepare(
+            `SELECT id, hedge_type, symbol, strike, expiry,
+                    CAST(julianday(expiry) - julianday('now') AS INTEGER) AS dte
+             FROM thetagang_tail_hedges WHERE status = 'open'`
+          ).all().catch(() => ({ results: [] }));
+          for (const h of (openHedges || [])) {
+            if (h.dte != null && h.dte <= 14) {
+              alerts.push({
+                severity: h.dte <= 7 ? 'CRITICAL' : 'WARN',
+                code: 'HEDGE_ROLL_URGENT_INTRADAY',
+                message: `🛡️ Hedge ${h.symbol} ${h.strike} DTE ${h.dte} — ${h.dte <= 7 ? 'ROLL YA' : 'considera rolar'}`,
+                hedge_id: h.id,
+              });
+            }
+          }
+
+          const summary = {
+            n_alerts: alerts.length,
+            n_critical: alerts.filter(a => a.severity === 'CRITICAL').length,
+            n_warn: alerts.filter(a => a.severity === 'WARN').length,
+            vix,
+            n_open_paper: (openPaper || []).length,
+            n_breached_paper: breachedCount,
+            n_open_hedges: (openHedges || []).length,
+          };
+
+          // Telegram CRITICAL solo si hay critical alerts
+          // Anti-spam: usar agent_memory para deduplicar dentro de 1h
+          if (summary.n_critical > 0) {
+            const memKey = 'intraday_critical_last_alert';
+            const last = await env.DB.prepare(`SELECT updated_at FROM agent_memory WHERE key = ? LIMIT 1`).bind(memKey).first().catch(() => null);
+            const minutesAgo = last?.updated_at
+              ? (Date.now() - new Date(last.updated_at + 'Z').getTime()) / 60000
+              : 999;
+            if (minutesAgo >= 60) {
+              const text = [
+                `🚨 *Theta Gang intra-day alert*`,
+                `${new Date().toISOString().slice(0, 16)}Z`,
+                ``,
+                ...alerts.filter(a => a.severity === 'CRITICAL').map(a => `• ${a.message}`),
+              ].join('\n');
+              await sendTelegram(env, { text, severity: 'critical', source: 'thetagang_intraday' });
+              await env.DB.prepare(
+                `INSERT INTO agent_memory (key, value, updated_at) VALUES (?, ?, datetime('now'))
+                 ON CONFLICT(key) DO UPDATE SET updated_at = datetime('now')`
+              ).bind(memKey, JSON.stringify({ ts: new Date().toISOString(), n_critical: summary.n_critical })).run().catch(() => {});
+            }
+          }
+
+          return json({
+            ok: true, summary, alerts,
+            generated_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
       }
 
       // ─── Sprint 14 — Auto Paper Trading loop ─────────────────────────────
@@ -26829,6 +27072,29 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
       } catch (e) {
         console.error("[scheduled] bridge sync failed:", e.message);
       }
+
+      // 2026-05-11: Sprint 15 — Theta Gang intra-day quick check piggyback.
+      // Cada 30min durante market hours USA: VIX live + delta breach scan.
+      // Auto Telegram CRITICAL si VIX>30 OR short strike tested OR hedge urgente.
+      // Anti-spam: máximo 1 alerta crítica/h.
+      try {
+        const r = await fetch(`${apiBase}/api/thetagang/intraday/quick-check`, {
+          method: 'POST',
+          headers: { 'X-AYR-Auth': env.AYR_WORKER_TOKEN, 'Content-Type': 'application/json' },
+          body: '{}',
+          signal: AbortSignal.timeout(30000),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (d.ok) {
+          const s = d.summary || {};
+          if (s.n_critical > 0 || s.n_warn > 0) {
+            console.log(`[scheduled] intraday: vix=${s.vix} critical=${s.n_critical} warn=${s.n_warn} breached=${s.n_breached_paper}`);
+          }
+        }
+      } catch (e) {
+        console.error("[scheduled] intraday quick-check failed:", e.message);
+      }
+
       return;
     }
 

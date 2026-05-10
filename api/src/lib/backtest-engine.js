@@ -390,6 +390,72 @@ export function monteCarloBootstrap(trades, nSims = 10000, nTradesPerSim = null,
   };
 }
 
+// ─── Strategy tournament — Sprint 15 ───────────────────────────────────────
+//
+// Runs the BPS engine across a SET of parameter combinations and returns a
+// ranked leaderboard. Used to pick which strategies to actually paper-trade.
+//
+// configs: [{ id, dte, take_profit_pct, stop_loss_x, delta_short_pct,
+//             delta_long_pct, ivr_threshold, regime_filter, symbol? }]
+// barsBySymbol: { SPY: [...], QQQ: [...], IWM: [...] }
+// opts: { initial_capital }
+// Returns: [{ id, symbol, stats, verdict, score }] sorted by score desc
+export function runStrategyTournament(configs, barsBySymbol, opts = {}) {
+  const results = [];
+  for (const cfg of configs) {
+    const symbol = cfg.symbol || 'SPY';
+    const bars = barsBySymbol[symbol];
+    if (!bars || bars.length < 504) {
+      results.push({
+        id: cfg.id, symbol, error: 'insufficient_bars', n_bars: bars?.length || 0,
+      });
+      continue;
+    }
+    try {
+      const { trades } = runBPSOnBars(bars, cfg, {
+        symbol,
+        ivr_threshold: cfg.ivr_threshold ?? 0,
+        regime_filter: cfg.regime_filter ?? false,
+      });
+      const stats = computeStats(trades);
+      const verdict = promotionVerdict(stats, opts);
+      // Composite score: balance return, risk-adjusted, and consistency
+      // Normalizes to roughly 0-100. Higher = better.
+      const score = scoreStrategy(stats);
+      results.push({
+        id: cfg.id, symbol, config: cfg,
+        n_trades: trades.length, stats, verdict, score,
+      });
+    } catch (e) {
+      results.push({ id: cfg.id, symbol, error: e.message });
+    }
+  }
+  return results.sort((a, b) => (b.score ?? -Infinity) - (a.score ?? -Infinity));
+}
+
+// ─── scoreStrategy(stats) — composite ranking metric ───────────────────────
+// Combines: total_pnl (return), sharpe (risk-adjusted), profit_factor (efficiency),
+// max_dd penalty (risk), win_rate baseline. Returns 0-100 normalized.
+export function scoreStrategy(stats) {
+  if (!stats || !stats.n || stats.n < 5) return 0;
+  // Components clamped to reasonable ranges
+  const sharpe = Math.max(-2, Math.min(3, stats.sharpe || 0));     // -2..3
+  const pf = Math.max(0, Math.min(5, stats.profit_factor || 0));   // 0..5
+  const winRate = Math.max(0, Math.min(100, stats.win_rate || 0)); // 0..100
+  // Max DD as % of total_pnl (if total > 0): smaller = better
+  const ddPenalty = stats.total_pnl > 0
+    ? Math.min(1, (stats.max_dd || 0) / Math.max(1, stats.total_pnl))
+    : 1;  // if no profit, full penalty
+
+  const score = (
+    Math.max(0, sharpe) * 25            // 0-75 for sharpe up to 3
+    + Math.min(pf, 2) * 10              // 0-20 for pf up to 2 (above is diminishing)
+    + (winRate / 100) * 15              // 0-15 for win rate
+    - ddPenalty * 20                    // -20 max for terrible DD
+  );
+  return Math.round(Math.max(0, Math.min(100, score)));
+}
+
 // ─── Promotion gate verdict ────────────────────────────────────────────────
 // Given stats from a backtest, returns PASS / FAIL_GATE_X / MARGINAL.
 //

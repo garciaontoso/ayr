@@ -109,6 +109,50 @@ describe('Sprint 14 — shouldClose()', () => {
     const r = shouldClose(null);
     expect(r.action).toBe('hold');
   });
+
+  // Sprint 15 — dynamic exit logic tests
+  it('delta breach close si short delta >= 0.30', () => {
+    const r = shouldClose({ live_pnl_pct: 10, current_dte: 25, current_short_delta: 0.35 });
+    expect(r.action).toBe('close');
+    expect(r.reason).toContain('DELTA_BREACH');
+  });
+
+  it('hold si delta menor al threshold (default 0.30)', () => {
+    const r = shouldClose({ live_pnl_pct: 10, current_dte: 25, current_short_delta: 0.25 });
+    expect(r.action).toBe('hold');
+  });
+
+  it('IV crush close si iv bajó >30% AND pnl >= 25%', () => {
+    const r = shouldClose({ live_pnl_pct: 30, current_dte: 25, iv_at_entry: 0.30, iv_now: 0.18 });
+    expect(r.action).toBe('close');
+    expect(r.reason).toContain('IV_CRUSH');
+  });
+
+  it('NO IV crush close si pnl < 25% (necesita ganancia mínima)', () => {
+    const r = shouldClose({ live_pnl_pct: 10, current_dte: 25, iv_at_entry: 0.30, iv_now: 0.18 });
+    expect(r.action).toBe('hold');
+  });
+
+  it('time-based close si 60%+ time elapsed AND pnl < 25%', () => {
+    const r = shouldClose({ live_pnl_pct: 15, dte_open: 35, current_dte: 12 });  // (35-12)/35 = 65%
+    expect(r.action).toBe('close');
+    expect(r.reason).toContain('TIME_BASED');
+  });
+
+  it('NO time-based close si pnl >= 25% (deja correr)', () => {
+    const r = shouldClose({ live_pnl_pct: 30, dte_open: 35, current_dte: 12 });
+    expect(r.action).toBe('hold');
+  });
+
+  it('priority order: TP triggers antes que delta breach', () => {
+    const r = shouldClose({ live_pnl_pct: 60, current_dte: 25, current_short_delta: 0.40 });
+    expect(r.reason).toContain('TAKE_PROFIT');
+  });
+
+  it('priority order: SL triggers antes que delta breach', () => {
+    const r = shouldClose({ live_pnl_pct: -250, current_dte: 25, current_short_delta: 0.40 });
+    expect(r.reason).toContain('STOP_LOSS');
+  });
 });
 
 describe('Sprint 14 — mapBrainStrategyToCatalog()', () => {

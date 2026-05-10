@@ -21,6 +21,10 @@ export const AUTO_PAPER_DEFAULTS = {
   default_paper_nav: 100000,       // assumed NAV for sizing (paper, separate from real NAV)
   default_max_loss_per_contract: 1000,  // for typical BPS-SPY 5-wide
   kelly_fraction: 'quarter',       // quarter | half | full
+  // Sprint 15 — dynamic exit additions
+  delta_breach_threshold: 0.30,    // close if short delta moves to >0.30 (originally ~0.16)
+  iv_crush_threshold_pct: 30,      // close if IV bajó >30% desde entry AND pnl ≥25%
+  time_based_elapsed_frac: 0.60,   // close if 60%+ time elapsed AND pnl < 25%
 };
 
 // ─── shouldOpen(candidate, state, opts) ─────────────────────────────────────
@@ -86,10 +90,11 @@ export function shouldOpen(candidate, state, opts = {}) {
 
 // ─── shouldClose(position, opts) ────────────────────────────────────────────
 //
-// Decides whether to close an open paper position given live P&L.
+// Sprint 15 enhanced: 5 exit rules en orden de prioridad.
 //
 // position: { strategy_id, symbol, credit_received, dte_open, opened_at,
-//             live_pnl, live_pnl_pct, current_dte, ... }
+//             live_pnl, live_pnl_pct, current_dte,
+//             current_short_delta?, iv_at_entry?, iv_now? ... }
 // Returns { action: 'close'|'hold', reason }
 export function shouldClose(position, opts = {}) {
   const t = { ...AUTO_PAPER_DEFAULTS, ...opts };
@@ -97,23 +102,55 @@ export function shouldClose(position, opts = {}) {
 
   const pnlPct = position.live_pnl_pct;
   const currentDte = position.current_dte;
+  const dteOpen = position.dte_open || currentDte || 35;
+  const shortDelta = position.current_short_delta;
+  const ivEntry = position.iv_at_entry;
+  const ivNow = position.iv_now;
 
-  // Take profit
+  // ── 1. Take profit (priority 1: lock gains) ──
   if (pnlPct != null && pnlPct >= t.take_profit_pct) {
     return { action: 'close', reason: `TAKE_PROFIT_${pnlPct.toFixed(0)}%>=${t.take_profit_pct}%` };
   }
-  // Stop loss (2× credit lost)
+
+  // ── 2. Stop loss (priority 2: cut losses) ──
   if (pnlPct != null && pnlPct <= -100 * t.stop_loss_x) {
     return { action: 'close', reason: `STOP_LOSS_${pnlPct.toFixed(0)}%<=${-100 * t.stop_loss_x}%` };
   }
-  // Gamma exit (DTE close + insufficient profit)
+
+  // ── 3. Delta breach (priority 3: defensive — short strike got tested) ──
+  // Sprint 15: si el short delta original era ~0.16 y ahora >0.30, el strike está
+  // siendo testeado → cerrar antes de que assignment risk crezca exponencialmente
+  if (shortDelta != null && Math.abs(shortDelta) >= (t.delta_breach_threshold || 0.30)) {
+    return { action: 'close', reason: `DELTA_BREACH_short_delta=${shortDelta.toFixed(2)}>=${t.delta_breach_threshold || 0.30}` };
+  }
+
+  // ── 4. IV crush exit (priority 4: tomar ganancia premature si vol colapsó) ──
+  // Sprint 15: si IV bajó >30% desde entry, gran parte del decay ya ocurrió → take what we have
+  if (ivEntry != null && ivNow != null && ivEntry > 0) {
+    const ivCrushPct = ((ivEntry - ivNow) / ivEntry) * 100;
+    if (ivCrushPct >= (t.iv_crush_threshold_pct || 30) && pnlPct != null && pnlPct >= 25) {
+      return { action: 'close', reason: `IV_CRUSH_${ivCrushPct.toFixed(0)}%_AND_PNL_${pnlPct.toFixed(0)}%>=25%` };
+    }
+  }
+
+  // ── 5. Time-based exit (priority 5: 60% time elapsed + < 25% pnl = stale trade) ──
+  // Sprint 15: si pasaron >60% de los DTEs y todavía no llegó a 25% pnl, theta decay
+  // ya hizo lo suyo y el riesgo gamma sube. Mejor liberar capital.
+  if (currentDte != null && dteOpen > 0) {
+    const timeElapsedFrac = (dteOpen - currentDte) / dteOpen;
+    if (timeElapsedFrac >= 0.60 && pnlPct != null && pnlPct < 25) {
+      return { action: 'close', reason: `TIME_BASED_elapsed=${(timeElapsedFrac * 100).toFixed(0)}%_pnl=${pnlPct.toFixed(0)}%<25%` };
+    }
+  }
+
+  // ── 6. Gamma exit (priority 6: DTE close + insufficient profit) ──
   if (currentDte != null && currentDte <= t.gamma_exit_dte) {
     if (pnlPct == null || pnlPct < t.gamma_exit_min_pct) {
       return { action: 'close', reason: `GAMMA_EXIT_DTE${currentDte}<=${t.gamma_exit_dte}_AND_PNL_${pnlPct?.toFixed(0)}%<${t.gamma_exit_min_pct}%` };
     }
   }
 
-  return { action: 'hold', reason: `PNL_${pnlPct?.toFixed(0)}%_DTE_${currentDte}` };
+  return { action: 'hold', reason: `PNL_${pnlPct?.toFixed(0)}%_DTE_${currentDte}_DELTA_${shortDelta?.toFixed(2) || 'n/a'}` };
 }
 
 // ─── mapBrainStrategyToCatalog(brainStrategy, symbol) ──────────────────────
