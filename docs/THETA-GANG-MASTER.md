@@ -29,7 +29,7 @@ traders particulares.
 | 6 | Multi-leg avanzados (calendar, BWB, diagonal, jade lizard, iron fly, ratio back) | ✅ LIVE | `fbcd9cd` |
 | 7 | Wheel + Tail hedges + 10 multi-leg adicionales (debit verticals, straddles, fly, collar, big lizard, risk reversal) | ✅ LIVE | (este commit) |
 | 8 | Walk-forward backtest + stress periods + Monte Carlo | ✅ LIVE | `b587e34` |
-| 9 | Kelly sizing + correlation matrix | ⏳ | — |
+| 9 | Kelly sizing + correlation matrix + risk caps + portfolio heat | ✅ LIVE | (este commit) |
 | 10 | Multi-leg + complex strategies | ⏳ | — |
 | 11 | Auto-execution real money + VPS US East | ⏳ | — |
 | 12 | Tax-aware execution (1256 + wash + LT) | ⏳ | — |
@@ -85,7 +85,12 @@ Backend (Cloudflare Worker)
 ├── /api/thetagang/tail-hedge/suggest      — Sprint 7: hedge type + strike + qty + cost
 ├── /api/thetagang/tail-hedge/open         — Sprint 7: register hedge open
 ├── /api/thetagang/tail-hedge/roll         — Sprint 7: close + open new equivalent
-└── /api/thetagang/tail-hedge/close        — Sprint 7: close hedge with realized P&L
+├── /api/thetagang/tail-hedge/close        — Sprint 7: close hedge with realized P&L
+├── /api/thetagang/risk/kelly              — Sprint 9: Kelly + half/quarter recommendation
+├── /api/thetagang/risk/sizing             — Sprint 9: contracts + capital_at_risk
+├── /api/thetagang/risk/correlation        — Sprint 9: pairwise Pearson trades por strategy
+├── /api/thetagang/risk/caps-status        — Sprint 9: VIX/concurrent/DD/streak guard rails
+└── /api/thetagang/risk/portfolio-heat     — Sprint 9: delta exposure por underlying + risk score
 
 Datos fuente:
 └── PRIMARY: Tastytrade Bridge en NAS Synology
@@ -301,8 +306,8 @@ curl -sS -X POST https://api.onto-so.com/api/thetagang/backtest/run-with-filters
 - ✅ **NAS España OK por ahora** — VPS US deferred hasta Sprint 11
 - ✅ **5 gates promotion** antes de real money
 - ✅ **NO auto-open hasta Sprint 11**
-- ✅ **136 tests Vitest** (41 originales + 23 Sprint 6 multi-leg + 25 Sprint 8 backtest + 47 Sprint 7 Wheel/Hedge/one-shot)
-- ✅ **578/578 tests app totales** pass
+- ✅ **165 tests Vitest** (41 originales + 23 Sprint 6 multi-leg + 25 Sprint 8 backtest + 47 Sprint 7 Wheel/Hedge/one-shot + 29 Sprint 9 risk-engine)
+- ✅ **607/607 tests app totales** pass
 - ✅ **2026-05-10 todo el día**: 6 sprints, 1500+ líneas worker, 3 días de progress en 1 sesión
 
 ## Files clave

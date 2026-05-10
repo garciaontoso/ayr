@@ -16,6 +16,7 @@ import * as BS from "./lib/black-scholes.js";
 import * as BTE from "./lib/backtest-engine.js";
 import * as Wheel from "./lib/wheel-engine.js";
 import * as TH from "./lib/tail-hedge-engine.js";
+import * as Risk from "./lib/risk-engine.js";
 import { FMP_MAP, toFMP, fromFMP, FMP_REVERSE, fmpQuote, fmpRiskMetrics, fmpSpyCloses, fmpSpark, FCF_PAYOUT_CARVEOUT, CURRENCY_MAP } from "./lib/fmp.js";
 
 // FMP_MAP, toFMP, fromFMP, fmpQuote, fmpRiskMetrics, fmpSpyCloses, fmpSpark → ./lib/fmp.js
@@ -10132,6 +10133,199 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           ).bind(new Date().toISOString(), b.close_pnl ?? 0, b.close_reason ?? null, b.id).run();
           return json({ ok: true }, corsHeaders);
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // ─── Sprint 9 — Risk engine (Kelly + sizing + correlation + caps + heat) ──
+
+      // POST /api/thetagang/risk/kelly  body:{stats:{win_rate,avg_win,avg_loss}, cap_pct?}
+      // Pure calc — returns full/half/quarter Kelly + warnings.
+      if (path === "/api/thetagang/risk/kelly" && request.method === "POST") {
+        try {
+          const b = await request.json().catch(() => ({}));
+          if (!b.stats) return json({ error: 'stats {win_rate,avg_win,avg_loss} required' }, corsHeaders, 400);
+          const k = Risk.kellyCriterion(b.stats, { cap_pct: b.cap_pct ?? 0.20 });
+          return json({ ok: true, ...k, generated_at: new Date().toISOString() }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // POST /api/thetagang/risk/sizing
+      // body:{stats, nav, max_loss_per_contract, fraction?, cap_pct?, min_contracts?}
+      if (path === "/api/thetagang/risk/sizing" && request.method === "POST") {
+        try {
+          const b = await request.json().catch(() => ({}));
+          if (!b.stats || !b.nav || !b.max_loss_per_contract) {
+            return json({ error: 'stats + nav + max_loss_per_contract required' }, corsHeaders, 400);
+          }
+          const r = Risk.recommendSize(b.stats, b.nav, b.max_loss_per_contract, {
+            fraction: b.fraction,
+            cap_pct: b.cap_pct,
+            min_contracts: b.min_contracts ?? 1,
+          });
+          return json({ ok: true, ...r, generated_at: new Date().toISOString() }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // GET /api/thetagang/risk/correlation
+      // Reads thetagang_paper_trades + thetagang_backtest_runs (closed trades),
+      // groups by strategy_id, computes pairwise Pearson correlation of trade pnls
+      // bucketed by date.
+      if (path === "/api/thetagang/risk/correlation" && request.method === "GET") {
+        await ensureThetaGangTables();
+        try {
+          // Get closed paper trades grouped by strategy
+          const { results: trades } = await env.DB.prepare(
+            `SELECT strategy_id, close_date as date, pnl_realized as pnl
+             FROM thetagang_paper_trades
+             WHERE status = 'closed' AND close_date IS NOT NULL
+             ORDER BY close_date`
+          ).all();
+          const byStrategy = {};
+          for (const t of (trades || [])) {
+            if (!t.strategy_id) continue;
+            (byStrategy[t.strategy_id] = byStrategy[t.strategy_id] || []).push({ date: t.date, pnl: t.pnl || 0 });
+          }
+          if (Object.keys(byStrategy).length < 2) {
+            return json({
+              ok: true,
+              warning: 'Need ≥2 strategies with closed trades for correlation',
+              n_strategies: Object.keys(byStrategy).length,
+              matrix: {}, high_correlation_pairs: [],
+            }, corsHeaders);
+          }
+          const r = Risk.correlationMatrix(byStrategy, Number(url.searchParams.get('threshold') || 0.7));
+          return json({
+            ok: true,
+            n_strategies: Object.keys(byStrategy).length,
+            ...r,
+            generated_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // GET /api/thetagang/risk/caps-status — evalúa portfolio actual vs DEFAULT_RISK_CAPS
+      if (path === "/api/thetagang/risk/caps-status" && request.method === "GET") {
+        await ensureThetaGangTables();
+        try {
+          // Fetch live state
+          let vix = null;
+          try { const q = await ttQuote(env, ['VIX']); vix = q?.VIX?.last || q?.VIX?.mid; } catch {}
+
+          // Concurrent positions: open paper trades + open wheel cycles + open hedges
+          const counts = await Promise.all([
+            env.DB.prepare(`SELECT COUNT(*) as n FROM thetagang_paper_trades WHERE status='open'`).first(),
+            env.DB.prepare(`SELECT COUNT(*) as n FROM thetagang_wheel_cycles WHERE state != 'cycle_complete'`).first(),
+            env.DB.prepare(`SELECT COUNT(*) as n FROM thetagang_tail_hedges WHERE status='open'`).first(),
+          ]).catch(() => [{n:0},{n:0},{n:0}]);
+          const concurrent = (counts[0]?.n || 0) + (counts[1]?.n || 0) + (counts[2]?.n || 0);
+
+          // Drawdown estimate from recent paper scoreboard
+          let drawdownPct = 0;
+          try {
+            const { results: closed } = await env.DB.prepare(
+              `SELECT pnl_realized FROM thetagang_paper_trades WHERE status='closed' ORDER BY close_date DESC LIMIT 100`
+            ).all();
+            const pnls = (closed || []).map(r => r.pnl_realized || 0).reverse();
+            let peak = 0, cum = 0, maxDD = 0;
+            for (const p of pnls) {
+              cum += p;
+              if (cum > peak) peak = cum;
+              if (peak - cum > maxDD) maxDD = peak - cum;
+            }
+            drawdownPct = peak > 0 ? (maxDD / peak) * 100 : 0;
+          } catch {}
+
+          // Loss streak from recent closed trades
+          let lossStreak = 0;
+          try {
+            const { results: recent } = await env.DB.prepare(
+              `SELECT pnl_realized FROM thetagang_paper_trades WHERE status='closed' ORDER BY close_date DESC LIMIT 10`
+            ).all();
+            for (const r of (recent || [])) {
+              if ((r.pnl_realized || 0) < 0) lossStreak++;
+              else break;
+            }
+          } catch {}
+
+          const state = {
+            vix,
+            n_concurrent_positions: concurrent,
+            drawdown_pct: drawdownPct,
+            recent_loss_streak: lossStreak,
+          };
+          const evaluation = Risk.evaluateRiskCaps(state);
+          return json({
+            ok: true,
+            ...evaluation,
+            counts: {
+              paper: counts[0]?.n || 0,
+              wheel: counts[1]?.n || 0,
+              hedge: counts[2]?.n || 0,
+            },
+            generated_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // GET /api/thetagang/risk/portfolio-heat — delta exposure per underlying
+      // Reads from /api/thetagang/greeks/portfolio (TT positions + BS Greeks).
+      if (path === "/api/thetagang/risk/portfolio-heat" && request.method === "GET") {
+        try {
+          // Fetch positions via TT bridge
+          const accountsResp = await ttBridgeFetch(env, "/marketdata/accounts").catch(() => null);
+          const accounts = accountsResp?.accounts || [];
+          const positions = [];
+          for (const acct of accounts) {
+            try {
+              const accNum = acct.account_number;
+              const r = await ttBridgeFetch(env, `/marketdata/positions/${encodeURIComponent(accNum)}`);
+              const accPositions = r?.positions || [];
+              for (const p of accPositions) {
+                positions.push({ ...p, account_number: accNum });
+              }
+            } catch {}
+          }
+
+          // Get unique underlyings + spot prices
+          const baseSymbol = (sym) => /^(RUT|SPX|NDX|OEX)W$/.test(sym) ? sym.slice(0, -1) : sym;
+          const underlyings = [...new Set(positions.map(p => baseSymbol(p.underlying || p.symbol)))].filter(Boolean);
+          const quotes = underlyings.length ? await ttQuote(env, underlyings).catch(() => ({})) : {};
+          const r = BS.DEFAULT_RISK_FREE_RATE;
+          const today = new Date();
+
+          // Compute Greeks per option position (server-side) for heat aggregation
+          const enriched = positions.map(p => {
+            const isOption = p.instrument_type === 'Equity Option' || p.is_option;
+            const underlying = baseSymbol(p.underlying || p.symbol);
+            const ulPx = quotes?.[underlying]?.last || quotes?.[underlying]?.mid || 0;
+            if (!isOption) {
+              return { ...p, underlying, underlying_price: ulPx, delta: 1, multiplier: 1 };
+            }
+            const K = parseFloat(p.strike) || 0;
+            const T = p.expiry ? BS.yearFraction(p.expiry, today) : 0;
+            const optType = p.opt_type === 'P' ? 'put' : 'call';
+            const sigma = 0.20;
+            const q = BS.DIVIDEND_YIELDS[underlying] ?? BS.DIVIDEND_YIELDS.default;
+            let delta = 0;
+            if (T > 0 && ulPx > 0) {
+              try { const g = BS.bsGreeks(ulPx, K, T, r, sigma, optType, q); delta = g.delta; } catch {}
+            }
+            return { ...p, underlying, underlying_price: ulPx, delta, multiplier: 100 };
+          });
+
+          const heat = Risk.portfolioHeatByUnderlying(enriched);
+          const score = Risk.portfolioRiskScore({
+            vix: quotes?.VIX?.last || null,
+            n_concurrent_positions: positions.length,
+          }, heat);
+          return json({
+            ok: true,
+            n_positions: positions.length,
+            n_underlyings: heat.length,
+            heat,
+            risk_score: score,
+            generated_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
       }
 
       // GET /api/health/check — comprehensive health check de toda la app.

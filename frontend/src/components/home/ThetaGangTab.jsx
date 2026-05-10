@@ -761,8 +761,201 @@ function LiveSubtab() {
 
 // ─── 🏗️ Risk — Sprint 9 ────────────────────────────────────────────────────
 function RiskSubtab() {
-  return <PlaceholderTab icon="🏗️" title="Risk Management" sprint="Sprint 9"
-    description="Guard rails (sizing 5% NAV, VIX kill 30, concurrent 8 max, drawdown kill 10%). Kelly sizing con haircut. Correlation matrix dynamic." />;
+  const [caps, setCaps] = useState(null);
+  const [heat, setHeat] = useState(null);
+  const [kellyForm, setKellyForm] = useState({ win_rate: 65, avg_win: 100, avg_loss: 100, nav: 100000, max_loss_per_contract: 1000 });
+  const [kellyResult, setKellyResult] = useState(null);
+  const [correlation, setCorrelation] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const loadAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [c, h, corr] = await Promise.all([
+        fetch(`${API_URL}/api/thetagang/risk/caps-status`).then(r => r.json()).catch(() => null),
+        fetch(`${API_URL}/api/thetagang/risk/portfolio-heat`).then(r => r.json()).catch(() => null),
+        fetch(`${API_URL}/api/thetagang/risk/correlation`).then(r => r.json()).catch(() => null),
+      ]);
+      setCaps(c); setHeat(h); setCorrelation(corr);
+    } catch {}
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  const computeKelly = useCallback(async () => {
+    try {
+      const k = await fetch(`${API_URL}/api/thetagang/risk/kelly`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stats: { win_rate: kellyForm.win_rate, avg_win: kellyForm.avg_win, avg_loss: kellyForm.avg_loss } }),
+      }).then(r => r.json());
+      const s = await fetch(`${API_URL}/api/thetagang/risk/sizing`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stats: { win_rate: kellyForm.win_rate, avg_win: kellyForm.avg_win, avg_loss: kellyForm.avg_loss },
+          nav: kellyForm.nav, max_loss_per_contract: kellyForm.max_loss_per_contract,
+        }),
+      }).then(r => r.json());
+      setKellyResult({ kelly: k, sizing: s });
+    } catch (e) { setKellyResult({ error: e.message }); }
+  }, [kellyForm]);
+
+  const card = { padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 };
+  const sectionTitle = { fontSize: 12, fontWeight: 700, color: 'var(--gold, #fbbf24)', marginBottom: 8 };
+
+  if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Cargando risk dashboard…</div>;
+
+  const score = heat?.risk_score;
+  const scoreColor = score?.interpretation === 'LOW' ? '#30d158'
+    : score?.interpretation === 'MODERATE' ? '#fbbf24'
+    : score?.interpretation === 'HIGH' ? '#f97316' : '#ef4444';
+
+  return (
+    <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Risk score + caps status */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 2fr)', gap: 12 }}>
+        {/* Score gauge */}
+        <div style={{ ...card, textAlign: 'center' }}>
+          <div style={sectionTitle}>RISK SCORE</div>
+          <div style={{ fontSize: 36, fontWeight: 700, color: scoreColor, lineHeight: 1.1 }}>{score?.total || '—'}</div>
+          <div style={{ fontSize: 13, color: scoreColor, fontWeight: 600 }}>{score?.interpretation || '—'}</div>
+          {score?.breakdown && (
+            <div style={{ marginTop: 10, fontSize: 10, textAlign: 'left', color: 'var(--text-tertiary)' }}>
+              <div>VIX: {score.breakdown.vix}/30</div>
+              <div>Concurrent: {score.breakdown.concurrent}/25</div>
+              <div>Drawdown: {score.breakdown.drawdown}/25</div>
+              <div>Concentration: {score.breakdown.concentration}/20</div>
+            </div>
+          )}
+        </div>
+
+        {/* Caps */}
+        <div style={card}>
+          <div style={sectionTitle}>RISK CAPS — Guard rails</div>
+          <div style={{
+            padding: 8, marginBottom: 8, borderRadius: 4,
+            background: caps?.allowed ? 'rgba(48,209,88,.1)' : 'rgba(239,68,68,.1)',
+            border: '1px solid ' + (caps?.allowed ? 'rgba(48,209,88,.4)' : 'rgba(239,68,68,.4)'),
+            color: caps?.allowed ? '#30d158' : '#ef4444',
+            fontWeight: 700, fontSize: 12,
+          }}>{caps?.allowed ? '🟢 NUEVAS ENTRADAS PERMITIDAS' : '🔴 ENTRADAS BLOQUEADAS'}</div>
+
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6 }}>
+            <div>VIX: <b>{caps?.state_snapshot?.vix?.toFixed(1) || '—'}</b> / max {caps?.caps_used?.vix_max}</div>
+            <div>Concurrent: <b>{caps?.state_snapshot?.n_concurrent_positions || 0}</b> / max {caps?.caps_used?.max_concurrent}</div>
+            <div>Drawdown: <b>{(caps?.state_snapshot?.drawdown_pct || 0).toFixed(1)}%</b> / kill {caps?.caps_used?.drawdown_kill_pct}%</div>
+            <div>Loss streak: <b>{caps?.state_snapshot?.recent_loss_streak || 0}</b> / max {caps?.caps_used?.max_loss_streak}</div>
+          </div>
+
+          {(caps?.blocked_by || []).length > 0 && (
+            <div style={{ marginTop: 8, padding: 8, background: 'rgba(239,68,68,.08)', borderRadius: 4, fontSize: 11 }}>
+              {caps.blocked_by.map((b, i) => <div key={i} style={{ color: '#ef4444' }}>⛔ {b}</div>)}
+            </div>
+          )}
+          {(caps?.warnings || []).length > 0 && (
+            <div style={{ marginTop: 8, padding: 8, background: 'rgba(251,191,36,.08)', borderRadius: 4, fontSize: 11 }}>
+              {caps.warnings.map((w, i) => <div key={i} style={{ color: '#fbbf24' }}>⚠ {w}</div>)}
+            </div>
+          )}
+
+          <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-tertiary)' }}>
+            Posiciones abiertas: paper {caps?.counts?.paper || 0} · wheel {caps?.counts?.wheel || 0} · hedge {caps?.counts?.hedge || 0}
+          </div>
+        </div>
+      </div>
+
+      {/* Kelly sizing calculator */}
+      <div style={card}>
+        <div style={sectionTitle}>KELLY SIZING — Position size recommender</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 8, marginBottom: 10 }}>
+          <label style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Win % <input type="number" value={kellyForm.win_rate} onChange={e => setKellyForm({ ...kellyForm, win_rate: Number(e.target.value) })} style={{ width: '100%', padding: 6, fontSize: 12, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} /></label>
+          <label style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Avg win <input type="number" value={kellyForm.avg_win} onChange={e => setKellyForm({ ...kellyForm, avg_win: Number(e.target.value) })} style={{ width: '100%', padding: 6, fontSize: 12, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} /></label>
+          <label style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Avg loss <input type="number" value={kellyForm.avg_loss} onChange={e => setKellyForm({ ...kellyForm, avg_loss: Number(e.target.value) })} style={{ width: '100%', padding: 6, fontSize: 12, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} /></label>
+          <label style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>NAV <input type="number" value={kellyForm.nav} onChange={e => setKellyForm({ ...kellyForm, nav: Number(e.target.value) })} style={{ width: '100%', padding: 6, fontSize: 12, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} /></label>
+          <label style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Max loss/ctr <input type="number" value={kellyForm.max_loss_per_contract} onChange={e => setKellyForm({ ...kellyForm, max_loss_per_contract: Number(e.target.value) })} style={{ width: '100%', padding: 6, fontSize: 12, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} /></label>
+          <button onClick={computeKelly} style={{ alignSelf: 'flex-end', padding: 8, fontSize: 12, background: 'var(--gold, #fbbf24)', color: '#000', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 700 }}>Compute</button>
+        </div>
+        {kellyResult?.kelly?.ok && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 8, padding: 10, background: 'var(--bg-primary)', borderRadius: 4 }}>
+            <Stat label="Edge" value={kellyResult.kelly.edge_pct + '%'} color={kellyResult.kelly.edge_pct > 0 ? '#30d158' : '#ef4444'} />
+            <Stat label="Full Kelly" value={(kellyResult.kelly.full_kelly * 100).toFixed(2) + '%'} />
+            <Stat label="Half Kelly" value={(kellyResult.kelly.half_kelly * 100).toFixed(2) + '%'} />
+            <Stat label="Quarter Kelly" value={(kellyResult.kelly.quarter_kelly * 100).toFixed(2) + '%'} color="var(--gold, #fbbf24)" />
+            <Stat label="Recommend" value={(kellyResult.sizing?.recommended_contracts || 0) + ' ctr'} />
+            <Stat label="At risk" value={fmtMoney(kellyResult.sizing?.capital_at_risk || 0)} />
+            <Stat label="% NAV" value={(kellyResult.sizing?.capital_pct || 0) + '%'} />
+          </div>
+        )}
+        {kellyResult?.kelly?.kelly_warning && (
+          <div style={{ marginTop: 8, padding: 8, background: 'rgba(251,191,36,.1)', borderRadius: 4, fontSize: 11, color: '#fbbf24' }}>⚠ {kellyResult.kelly.kelly_warning}</div>
+        )}
+      </div>
+
+      {/* Portfolio heat by underlying */}
+      <div style={card}>
+        <div style={sectionTitle}>PORTFOLIO HEAT — Delta exposure por underlying</div>
+        {(!heat?.heat || heat.heat.length === 0) ? (
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>No hay posiciones abiertas en TT.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {heat.heat.slice(0, 10).map((h, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
+                <div style={{ width: 50, fontWeight: 600 }}>{h.underlying}</div>
+                <div style={{ width: 50, color: 'var(--text-tertiary)' }}>{h.n_positions}p</div>
+                <div style={{ flex: 1, height: 16, background: 'var(--bg-primary)', borderRadius: 2, overflow: 'hidden', position: 'relative' }}>
+                  <div style={{
+                    width: h.weight_pct + '%', height: '100%',
+                    background: h.delta_dollars > 0 ? 'rgba(48,209,88,.4)' : 'rgba(239,68,68,.4)',
+                    borderRight: '2px solid ' + (h.delta_dollars > 0 ? '#30d158' : '#ef4444'),
+                  }} />
+                  <div style={{ position: 'absolute', top: 1, left: 6, fontSize: 9, color: 'var(--text-secondary)' }}>{h.weight_pct}% · Δ$ {h.delta_dollars >= 0 ? '+' : ''}{(h.delta_dollars).toLocaleString()}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Correlation matrix */}
+      {correlation?.ok && correlation.n_strategies >= 2 && (
+        <div style={card}>
+          <div style={sectionTitle}>CORRELATION MATRIX (paper trades closed)</div>
+          {correlation.high_correlation_pairs.length > 0 && (
+            <div style={{ marginBottom: 8, padding: 8, background: 'rgba(251,191,36,.08)', borderRadius: 4, fontSize: 11 }}>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>⚠ {correlation.high_correlation_pairs.length} par(es) altamente correlacionado(s):</div>
+              {correlation.high_correlation_pairs.slice(0, 5).map((p, i) => (
+                <div key={i} style={{ color: 'var(--text-secondary)' }}>{p.a} ↔ {p.b}: <b>{p.corr.toFixed(2)}</b> ({p.n_samples} samples)</div>
+              ))}
+            </div>
+          )}
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ fontSize: 10, borderCollapse: 'collapse' }}>
+              <thead>
+                <tr><th style={{ padding: 4 }}></th>
+                  {Object.keys(correlation.matrix).map(s => <th key={s} style={{ padding: 4, color: 'var(--text-tertiary)' }}>{s.slice(0, 8)}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {Object.keys(correlation.matrix).map(a => (
+                  <tr key={a}>
+                    <td style={{ padding: 4, color: 'var(--text-tertiary)' }}>{a.slice(0, 8)}</td>
+                    {Object.keys(correlation.matrix).map(b => {
+                      const v = correlation.matrix[a]?.[b];
+                      const color = v == null ? 'var(--bg-primary)'
+                        : Math.abs(v) > 0.7 ? `rgba(239,68,68,${0.3 + Math.abs(v) * 0.4})`
+                        : Math.abs(v) > 0.4 ? `rgba(251,191,36,${0.3 + Math.abs(v) * 0.4})`
+                        : `rgba(48,209,88,${0.3 + Math.abs(v) * 0.4})`;
+                      return <td key={b} style={{ padding: 4, background: color, textAlign: 'center', minWidth: 32 }}>{v == null ? '—' : v.toFixed(2)}</td>;
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── 📈 P&L — Sprint 13 ────────────────────────────────────────────────────
