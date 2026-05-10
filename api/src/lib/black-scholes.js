@@ -35,6 +35,8 @@ export function normPdf(x) {
 // q      = continuous dividend yield (annualized, decimal — 0.015 = 1.5%) — default 0
 // type   = 'call' or 'put'
 export function bsPrice(S, K, T, r, sigma, type = 'call', q = 0) {
+  // Sprint 13 audit fix C4: guard against degenerate inputs that produce NaN/Infinity
+  if (!Number.isFinite(S) || !Number.isFinite(K) || S <= 0 || K <= 0) return 0;
   if (T <= 0 || sigma <= 0) {
     // At expiration: intrinsic value
     return type === 'call' ? Math.max(0, S - K) : Math.max(0, K - S);
@@ -59,6 +61,10 @@ export function bsPrice(S, K, T, r, sigma, type = 'call', q = 0) {
 // vega per 1% change in IV (sigma * 0.01).
 // rho per 1% change in r.
 export function bsGreeks(S, K, T, r, sigma, type = 'call', q = 0) {
+  // Sprint 13 audit fix C4: guard against degenerate inputs
+  if (!Number.isFinite(S) || !Number.isFinite(K) || S <= 0 || K <= 0) {
+    return { delta: 0, gamma: 0, theta: 0, vega: 0, rho: 0 };
+  }
   if (T <= 0 || sigma <= 0) {
     return { delta: 0, gamma: 0, theta: 0, vega: 0, rho: 0 };
   }
@@ -169,7 +175,10 @@ export function multiLegGreeks(legs) {
 // ── Year fraction from date string YYYY-MM-DD to today ──
 // Assumes 365-day year for option pricing (standard).
 export function yearFraction(expiryDateStr, fromDate = new Date()) {
+  // Sprint 13 audit fix C5: guard malformed/missing date → 0 instead of NaN
+  if (!expiryDateStr || typeof expiryDateStr !== 'string') return 0;
   const expiry = new Date(expiryDateStr + 'T16:00:00Z'); // assume 16:00 UTC market close
+  if (isNaN(expiry.getTime())) return 0;
   const ms = expiry.getTime() - fromDate.getTime();
   return Math.max(0, ms / (1000 * 60 * 60 * 24 * 365));
 }

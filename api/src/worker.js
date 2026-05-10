@@ -17,6 +17,7 @@ import * as BTE from "./lib/backtest-engine.js";
 import * as Wheel from "./lib/wheel-engine.js";
 import * as TH from "./lib/tail-hedge-engine.js";
 import * as Risk from "./lib/risk-engine.js";
+import * as Monitor from "./lib/monitoring-engine.js";
 import { FMP_MAP, toFMP, fromFMP, FMP_REVERSE, fmpQuote, fmpRiskMetrics, fmpSpyCloses, fmpSpark, FCF_PAYOUT_CARVEOUT, CURRENCY_MAP } from "./lib/fmp.js";
 
 // FMP_MAP, toFMP, fromFMP, fmpQuote, fmpRiskMetrics, fmpSpyCloses, fmpSpark → ./lib/fmp.js
@@ -7730,6 +7731,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // Yahoo HV proxy queda como fallback degraded mode si TT bridge OFF.
       // Sprint 1 inicial usaba HV proxy → IV rank wrong (67% vs 38% real TT).
       if (path === "/api/thetagang/brain/scan" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
         await ensureThetaGangTables();
         try {
           const symbols = ['SPY', 'IWM', 'QQQ'];
@@ -7934,6 +7936,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // Result aggregates net portfolio delta/gamma/theta/vega/rho.
       // Beta-weighted delta vs SPY como verdadero risk metric.
       if (path === "/api/thetagang/greeks/portfolio" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
         try {
           // Fetch all accounts then iterate positions per account
           const accountsResp = await ttBridgeFetch(env, "/marketdata/accounts");
@@ -8140,7 +8143,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
                 if (window[i-1] > 0) wReturns.push(Math.log(window[i] / window[i-1]));
               }
               const wMean = wReturns.reduce((a, b) => a + b, 0) / wReturns.length;
-              const wVar = wReturns.reduce((a, b) => a + (b - wMean) ** 2, 0) / (wReturns.length - 1);
+              const wVar = wReturns.reduce((a, b) => a + (b - wMean) ** 2, 0) / Math.max(1, wReturns.length - 1);
               hvHistory.push(Math.sqrt(wVar) * Math.sqrt(252) * 100);
             }
             // IV rank = (current - min) / (max - min) over 252d
@@ -8352,7 +8355,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
               if (window[k-1] > 0) returns.push(Math.log(window[k] / window[k-1]));
             }
             const meanRet = returns.reduce((a, b) => a + b, 0) / returns.length;
-            const variance = returns.reduce((a, b) => a + (b - meanRet) ** 2, 0) / (returns.length - 1);
+            const variance = returns.reduce((a, b) => a + (b - meanRet) ** 2, 0) / Math.max(1, returns.length - 1);
             const dailyStd = Math.sqrt(variance);
             const sigma = dailyStd * Math.sqrt(252);
             const hv30 = sigma * 100;
@@ -8366,7 +8369,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
                 if (w[k-1] > 0) wReturns.push(Math.log(w[k] / w[k-1]));
               }
               const wMean = wReturns.reduce((a, b) => a + b, 0) / wReturns.length;
-              const wVar = wReturns.reduce((a, b) => a + (b - wMean) ** 2, 0) / (wReturns.length - 1);
+              const wVar = wReturns.reduce((a, b) => a + (b - wMean) ** 2, 0) / Math.max(1, wReturns.length - 1);
               hvHistory.push(Math.sqrt(wVar) * Math.sqrt(252) * 100);
             }
             const hvHigh = Math.max(...hvHistory, hv30);
@@ -8618,6 +8621,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // GET /api/thetagang/paper/positions — paper positions abiertas con P&L live
       if (path === "/api/thetagang/paper/positions" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
         await ensureThetaGangTables();
         try {
           const { results: trades } = await env.DB.prepare(
@@ -8777,6 +8781,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // GET /api/thetagang/paper/scoreboard — paper P&L history aggregated
       if (path === "/api/thetagang/paper/scoreboard" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
         await ensureThetaGangTables();
         try {
           const { results: trades } = await env.DB.prepare(
@@ -8857,6 +8862,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       //   TAKE_PROFIT_NOW    — already 50%+ profit, close mecánico
       //   GAMMA_EXIT         — DTE <7, close to avoid gamma risk
       if (path === "/api/thetagang/defense/eval" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
         try {
           // Get all positions across TT accounts
           const accountsResp = await ttBridgeFetch(env, "/marketdata/accounts");
@@ -9147,7 +9153,9 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const trades = [];
           let cooldownUntil = 0; // index — wait between trades
 
-          for (let i = 30; i < bars.length - TARGET_DTE; i++) {
+          // Sprint 13 audit fix B1: warmup 252 days (consistent with run-with-filters,
+          // gives stable HV estimates instead of noisy ones from <1y of data)
+          for (let i = 252; i < bars.length - TARGET_DTE; i++) {
             if (i < cooldownUntil) continue;
             const entryBar = bars[i];
             const S0 = entryBar.close;
@@ -9159,7 +9167,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
               if (window[k-1] > 0) returns.push(Math.log(window[k] / window[k-1]));
             }
             const meanRet = returns.reduce((a, b) => a + b, 0) / returns.length;
-            const variance = returns.reduce((a, b) => a + (b - meanRet) ** 2, 0) / (returns.length - 1);
+            const variance = returns.reduce((a, b) => a + (b - meanRet) ** 2, 0) / Math.max(1, returns.length - 1);
             const dailyStd = Math.sqrt(variance);
             const sigma = dailyStd * Math.sqrt(252);
 
@@ -9254,7 +9262,8 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const winRate = trades.length > 0 ? wins.length / trades.length : 0;
           const avgWin = wins.length > 0 ? wins.reduce((a, b) => a + b, 0) / wins.length : 0;
           const avgLoss = losses.length > 0 ? losses.reduce((a, b) => a + b, 0) / losses.length : 0;
-          const profitFactor = avgLoss !== 0 ? Math.abs(wins.reduce((a, b) => a + b, 0) / losses.reduce((a, b) => a + b, 0)) : 0;
+          // Sprint 13 audit fix C3: 100% wins should be 99 (capped), not 0
+          const profitFactor = losses.length > 0 ? Math.abs(wins.reduce((a, b) => a + b, 0) / losses.reduce((a, b) => a + b, 0)) : (wins.length > 0 ? 99 : 0);
 
           // Equity curve + Sharpe + MaxDD
           let equity = 0, peak = 0, maxDD = 0;
@@ -10326,6 +10335,111 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             generated_at: new Date().toISOString(),
           }, corsHeaders);
         } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
+      // ─── Sprint 13 — Theta Gang monitoring + anomaly detection ───────────
+      // POST /api/thetagang/monitoring/check
+      // Snapshot current state (caps + heat + open hedges), detect anomalies vs
+      // last snapshot, persist new snapshot to agent_memory, return alerts +
+      // formatted Telegram message.
+      if (path === "/api/thetagang/monitoring/check" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        await ensureThetaGangTables();
+        try {
+          // 1. Build current snapshot (re-uses existing endpoints' logic via DB)
+          // Caps state
+          let vix = null;
+          try { const q = await ttQuote(env, ['VIX']); vix = q?.VIX?.last || q?.VIX?.mid; } catch {}
+          const counts = await Promise.all([
+            env.DB.prepare(`SELECT COUNT(*) as n FROM thetagang_paper_trades WHERE status='open'`).first(),
+            env.DB.prepare(`SELECT COUNT(*) as n FROM thetagang_wheel_cycles WHERE state != 'cycle_complete'`).first(),
+            env.DB.prepare(`SELECT COUNT(*) as n FROM thetagang_tail_hedges WHERE status='open'`).first(),
+          ]).catch(() => [{n:0},{n:0},{n:0}]);
+          const concurrent = (counts[0]?.n || 0) + (counts[1]?.n || 0) + (counts[2]?.n || 0);
+
+          let drawdownPct = 0, lossStreak = 0;
+          try {
+            const { results: closed } = await env.DB.prepare(
+              `SELECT pnl_realized FROM thetagang_paper_trades WHERE status='closed' ORDER BY close_date DESC LIMIT 100`
+            ).all();
+            const pnls = (closed || []).map(r => r.pnl_realized || 0).reverse();
+            let peak = 0, cum = 0, maxDD = 0;
+            for (const p of pnls) {
+              cum += p;
+              if (cum > peak) peak = cum;
+              if (peak - cum > maxDD) maxDD = peak - cum;
+            }
+            drawdownPct = peak > 0 ? (maxDD / peak) * 100 : 0;
+            for (let i = pnls.length - 1; i >= 0; i--) {
+              if (pnls[i] < 0) lossStreak++; else break;
+            }
+          } catch {}
+
+          const capsState = { vix, n_concurrent_positions: concurrent, drawdown_pct: drawdownPct, recent_loss_streak: lossStreak };
+          const capsEval = Risk.evaluateRiskCaps(capsState);
+
+          // Open hedges with calculated DTE
+          const { results: openHedges } = await env.DB.prepare(
+            `SELECT id, hedge_type, symbol, strike, opt_type, expiry, qty, cost_dollars,
+                    CAST(julianday(expiry) - julianday('now') AS INTEGER) AS dte_calculated
+             FROM thetagang_tail_hedges WHERE status = 'open'`
+          ).all().catch(() => ({ results: [] }));
+
+          // Portfolio heat (light version — read from existing endpoint logic deferred)
+          const portfolioHeat = []; // skip TT call for monitoring (too slow); covered by /risk/portfolio-heat directly
+
+          const current = {
+            caps_status: { ...capsEval, state_snapshot: capsState },
+            portfolio_heat: portfolioHeat,
+            open_hedges: openHedges || [],
+            timestamp: new Date().toISOString(),
+          };
+
+          // 2. Read previous snapshot from agent_memory
+          const prevRow = await env.DB.prepare(
+            `SELECT value FROM agent_memory WHERE key = 'thetagang_monitoring_snapshot' LIMIT 1`
+          ).first().catch(() => null);
+          const previous = prevRow?.value ? JSON.parse(prevRow.value) : null;
+
+          // 3. Detect anomalies
+          const alerts = Monitor.detectAnomalies(current, previous);
+          const summary = Monitor.summarizeAlerts(alerts);
+          const telegramMessage = Monitor.formatTelegramMessage(alerts, Monitor.SEVERITY.WARN);
+
+          // 4. Persist new snapshot
+          await env.DB.prepare(
+            `INSERT INTO agent_memory (key, value, updated_at) VALUES ('thetagang_monitoring_snapshot', ?, datetime('now'))
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`
+          ).bind(JSON.stringify(current)).run().catch(() => {});
+
+          return json({
+            ok: true,
+            alerts,
+            summary,
+            telegram_message: telegramMessage,
+            current_state: {
+              caps_allowed: capsEval.allowed,
+              n_concurrent: concurrent,
+              vix,
+              drawdown_pct: drawdownPct,
+              n_open_hedges: (openHedges || []).length,
+            },
+            previous_check: previous?.timestamp || null,
+            generated_at: current.timestamp,
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
+      // GET /api/thetagang/monitoring/last — last snapshot + alerts (read-only)
+      if (path === "/api/thetagang/monitoring/last" && request.method === "GET") {
+        try {
+          const row = await env.DB.prepare(
+            `SELECT value, updated_at FROM agent_memory WHERE key = 'thetagang_monitoring_snapshot' LIMIT 1`
+          ).first().catch(() => null);
+          if (!row?.value) return json({ ok: true, snapshot: null, last_check: null }, corsHeaders);
+          const snap = JSON.parse(row.value);
+          return json({ ok: true, snapshot: snap, last_check: row.updated_at }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
       }
 
       // GET /api/health/check — comprehensive health check de toda la app.
@@ -26753,6 +26867,30 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
         console.log(`[audit-cron] earnings refresh: ${r.status} inserted=${d.inserted ?? '?'} updated=${d.updated ?? '?'}`);
       } catch (e) {
         console.error('[audit-cron] earnings refresh failed:', e.message);
+      }
+
+      // 2026-05-10: Sprint 13 — Theta Gang monitoring piggyback.
+      // Llama /api/thetagang/monitoring/check que detecta anomalías
+      // (caps blocked, drawdown spike, hedge DTE<14, concentration spike).
+      // Si hay CRITICAL alerts → Telegram. Persiste snapshot en agent_memory
+      // para detectar state changes (allowed→blocked) en el siguiente run.
+      try {
+        const r = await fetch(`${apiBase}/api/thetagang/monitoring/check`, {
+          method: 'POST',
+          headers: { 'X-AYR-Auth': env.AYR_WORKER_TOKEN },
+          signal: AbortSignal.timeout(30000),
+        });
+        const d = await r.json().catch(() => ({}));
+        const summary = d.summary || {};
+        console.log(`[audit-cron] thetagang monitoring: ${r.status} alerts=${summary.total ?? 0} critical=${summary.by_severity?.CRITICAL ?? 0}`);
+        if (d.telegram_message && summary.has_critical) {
+          await sendTelegram(env, {
+            text: d.telegram_message,
+            severity: 'critical', source: 'thetagang_monitoring',
+          });
+        }
+      } catch (e) {
+        console.error('[audit-cron] thetagang monitoring failed:', e.message);
       }
 
       // 2026-05-05: piggyback TT transactions sync — mantiene cost_basis.account='TT_*'

@@ -202,7 +202,9 @@ function MultiLegSubtab() {
       .catch(e => { setErr(e.message); setLoading(false); });
   }, [strategy, symbol, dte, contracts]);
 
-  useEffect(() => { fetchBuild(); }, [fetchBuild]);
+  // Sprint 13 audit fix H1: only fetch on mount + when user clicks Build button.
+  // Previously fired on every keystroke (DTE 35→40 = 3 fetches while typing).
+  useEffect(() => { fetchBuild(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div style={{ padding: 14 }}>
@@ -658,19 +660,35 @@ function MonteCarloPanel() {
                 </tr>
               </thead>
               <tbody>
-                <tr><td style={{ padding: '6px 8px' }}>p05 (very bad)</td><td style={{ padding: '6px 8px', textAlign: 'right', color: data.monte_carlo.total_pnl_p05 < 0 ? '#ef4444' : '#30d158' }}>${data.monte_carlo.total_pnl_p05.toLocaleString()}</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>—</td></tr>
-                <tr><td style={{ padding: '6px 8px' }}>p25</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>${data.monte_carlo.total_pnl_p25.toLocaleString()}</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>—</td></tr>
-                <tr><td style={{ padding: '6px 8px' }}>p50 (median)</td><td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700 }}>${data.monte_carlo.total_pnl_p50.toLocaleString()}</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>${data.monte_carlo.max_dd_p50}</td></tr>
-                <tr><td style={{ padding: '6px 8px' }}>p75</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>${data.monte_carlo.total_pnl_p75.toLocaleString()}</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>—</td></tr>
-                <tr><td style={{ padding: '6px 8px' }}>p95 (very good)</td><td style={{ padding: '6px 8px', textAlign: 'right', color: '#30d158' }}>${data.monte_carlo.total_pnl_p95.toLocaleString()}</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>${data.monte_carlo.max_dd_p95}</td></tr>
-                <tr><td style={{ padding: '6px 8px', color: '#ef4444' }}>p99 max DD (worst case)</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>—</td><td style={{ padding: '6px 8px', textAlign: 'right', color: '#ef4444' }}>${data.monte_carlo.max_dd_p99}</td></tr>
+                {/* Sprint 13 audit fix H5: safe accessors for partial API responses */}
+                {(() => {
+                  const mc = data.monte_carlo || {};
+                  const safeMoney = (v) => v == null ? '—' : '$' + Number(v).toLocaleString();
+                  const safeNum = (v) => v == null ? '—' : Number(v).toFixed(0);
+                  const p05Color = (mc.total_pnl_p05 ?? 0) < 0 ? '#ef4444' : '#30d158';
+                  return <>
+                    <tr><td style={{ padding: '6px 8px' }}>p05 (very bad)</td><td style={{ padding: '6px 8px', textAlign: 'right', color: p05Color }}>{safeMoney(mc.total_pnl_p05)}</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>—</td></tr>
+                    <tr><td style={{ padding: '6px 8px' }}>p25</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>{safeMoney(mc.total_pnl_p25)}</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>—</td></tr>
+                    <tr><td style={{ padding: '6px 8px' }}>p50 (median)</td><td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700 }}>{safeMoney(mc.total_pnl_p50)}</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>{safeNum(mc.max_dd_p50)}</td></tr>
+                    <tr><td style={{ padding: '6px 8px' }}>p75</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>{safeMoney(mc.total_pnl_p75)}</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>—</td></tr>
+                    <tr><td style={{ padding: '6px 8px' }}>p95 (very good)</td><td style={{ padding: '6px 8px', textAlign: 'right', color: '#30d158' }}>{safeMoney(mc.total_pnl_p95)}</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>{safeNum(mc.max_dd_p95)}</td></tr>
+                    <tr><td style={{ padding: '6px 8px', color: '#ef4444' }}>p99 max DD (worst case)</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>—</td><td style={{ padding: '6px 8px', textAlign: 'right', color: '#ef4444' }}>{safeNum(mc.max_dd_p99)}</td></tr>
+                  </>;
+                })()}
               </tbody>
             </table>
           </div>
           <div style={{ padding: 12, background: 'rgba(96,165,250,.06)', border: '1px solid rgba(96,165,250,.2)', borderRadius: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
-            <div style={{ marginBottom: 4 }}><b>Probability profitable</b>: <span style={{ color: data.monte_carlo.prob_profitable_pct > 70 ? '#30d158' : data.monte_carlo.prob_profitable_pct > 50 ? '#fbbf24' : '#ef4444' }}>{data.monte_carlo.prob_profitable_pct}%</span></div>
-            <div style={{ marginBottom: 4 }}><b>Probability blowup (loss &gt;$10k)</b>: <span style={{ color: data.monte_carlo.prob_blowup_pct > 5 ? '#ef4444' : 'var(--text-primary)' }}>{data.monte_carlo.prob_blowup_pct}%</span></div>
-            <div>{data.interpretation?.edge_quality}</div>
+            {(() => {
+              const mc = data.monte_carlo || {};
+              const profProb = mc.prob_profitable_pct ?? 0;
+              const blowProb = mc.prob_blowup_pct ?? 0;
+              return <>
+                <div style={{ marginBottom: 4 }}><b>Probability profitable</b>: <span style={{ color: profProb > 70 ? '#30d158' : profProb > 50 ? '#fbbf24' : '#ef4444' }}>{profProb}%</span></div>
+                <div style={{ marginBottom: 4 }}><b>Probability blowup (loss &gt;$10k)</b>: <span style={{ color: blowProb > 5 ? '#ef4444' : 'var(--text-primary)' }}>{blowProb}%</span></div>
+                <div>{data.interpretation?.edge_quality || '—'}</div>
+              </>;
+            })()}
           </div>
         </div>
       )}
@@ -1289,19 +1307,26 @@ function PlaceholderTab({ icon, title, sprint, description }) {
 export default function ThetaGangTab() {
   const [subTab, setSubTab] = useState('brain');
 
-  const subTabComponents = {
-    brain: <BrainSubtab />,
-    strategies: <StrategiesSubtab />,
-    multileg: <MultiLegSubtab />,
-    wheel: <WheelSubtab />,
-    hedge: <TailHedgeSubtab />,
-    backtests: <BacktestsSubtab />,
-    greeks: <GreeksSubtab />,
-    defense: <DefenseSubtab />,
-    paper: <PaperSubtab />,
-    live: <LiveSubtab />,
-    risk: <RiskSubtab />,
-    pnl: <PnLSubtab />,
+  // Sprint 13 audit fix C1: lazy-mount only the active sub-tab.
+  // Previously all 12 components mounted at once on tab open → 8+ concurrent
+  // fetches incl. monte-carlo, walk-forward, risk endpoints (heavy). Now only
+  // the user-selected sub-tab fetches.
+  const renderActive = () => {
+    switch (subTab) {
+      case 'brain':      return <BrainSubtab />;
+      case 'strategies': return <StrategiesSubtab />;
+      case 'multileg':   return <MultiLegSubtab />;
+      case 'wheel':      return <WheelSubtab />;
+      case 'hedge':      return <TailHedgeSubtab />;
+      case 'backtests':  return <BacktestsSubtab />;
+      case 'greeks':     return <GreeksSubtab />;
+      case 'defense':    return <DefenseSubtab />;
+      case 'paper':      return <PaperSubtab />;
+      case 'live':       return <LiveSubtab />;
+      case 'risk':       return <RiskSubtab />;
+      case 'pnl':        return <PnLSubtab />;
+      default:           return null;
+    }
   };
 
   return (
@@ -1346,7 +1371,7 @@ export default function ThetaGangTab() {
       </div>
 
       {/* Active sub-tab */}
-      {subTabComponents[subTab]}
+      {renderActive()}
     </div>
   );
 }
