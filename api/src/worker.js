@@ -7585,6 +7585,252 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         }
       }
 
+      // ─── Theta Gang (options premium selling system) — 2026-05-10 ──
+      // Camino C 6-month construction. Sprint 1: brain scan + strategies catalog.
+      // Helper inline migrations (idempotent, garantiza tablas exist en cold start)
+      const ensureThetaGangTables = async () => {
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS iv_rank_cache (
+          symbol TEXT NOT NULL, date TEXT NOT NULL,
+          iv_current REAL, iv_rank REAL, iv_percentile REAL,
+          iv_high_52w REAL, iv_low_52w REAL,
+          term_structure REAL, put_skew REAL, call_skew REAL,
+          hv_30d REAL, data_source TEXT DEFAULT 'yahoo',
+          created_at TEXT DEFAULT (datetime('now')),
+          PRIMARY KEY (symbol, date)
+        )`).run();
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS thetagang_strategies (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT,
+          strategy_type TEXT, dte_range TEXT,
+          delta_short REAL, delta_long REAL, ivr_min REAL DEFAULT 30,
+          take_profit_pct REAL DEFAULT 0.50, stop_loss_x REAL DEFAULT 2.0,
+          status TEXT DEFAULT 'pending',
+          sharpe REAL, max_dd REAL, win_rate REAL, avg_win REAL, avg_loss REAL,
+          n_trades INTEGER, last_backtest TEXT,
+          config_json TEXT DEFAULT '{}',
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now'))
+        )`).run();
+      };
+
+      // GET /api/thetagang/strategies — catálogo de las 9 estrategias seedeadas
+      if (path === "/api/thetagang/strategies" && request.method === "GET") {
+        await ensureThetaGangTables();
+        try {
+          // Seed if empty (idempotent)
+          const { results: existing } = await env.DB.prepare(
+            `SELECT COUNT(*) as cnt FROM thetagang_strategies`
+          ).all();
+          if (existing[0]?.cnt === 0) {
+            const seedStrategies = [
+              { id: 'bps-spy-35', name: '🟢 BPS-SPY 35DTE Δ16', description: 'Bull Put Spread SPY 35-45 DTE delta short ~16. Tastytrade-classic. High win rate, modest credit.', strategy_type: 'BPS', dte_range: '35-45', delta_short: 0.16, delta_long: 0.05, ivr_min: 30 },
+              { id: 'ic-spy-35',  name: '🟢 IC-SPY 35DTE Δ16/5',  description: 'Iron Condor SPY 35-45 DTE. Both sides short Δ16, long Δ5. Vol crush play, neutral bias.', strategy_type: 'IC', dte_range: '35-45', delta_short: 0.16, delta_long: 0.05, ivr_min: 40 },
+              { id: 'strangle-spy-30', name: '🟡 Strangle SPY 30DTE Δ20', description: 'Short strangle SPY 30 DTE delta 20 each side, no wings. Higher credit but undefined risk.', strategy_type: 'Strangle', dte_range: '25-35', delta_short: 0.20, delta_long: null, ivr_min: 50 },
+              { id: 'bps-spy-weekly', name: '🟡 BPS-SPY Weekly Δ20', description: 'Weekly BPS SPY 5-7 DTE delta 20. Higher prob, lower credit, intensive monitoring.', strategy_type: 'BPS', dte_range: '5-7', delta_short: 0.20, delta_long: 0.10, ivr_min: 25 },
+              { id: 'ic-spx-postfomc', name: '🟡 IC-SPX post-FOMC', description: 'Iron Condor SPX after FOMC announcement. Vol crush specific. SPX = 1256 contract (60/40 LT/ST tax).', strategy_type: 'IC', dte_range: '7-14', delta_short: 0.15, delta_long: 0.05, ivr_min: 60 },
+              { id: 'lottery-earnings', name: '🔴 Lottery longs earnings', description: 'Long calls/puts pre-earnings. Asymmetric small bets. Lose-many win-occasionally.', strategy_type: 'LongOption', dte_range: '7-14', delta_short: null, delta_long: 0.30, ivr_min: 0 },
+              { id: 'ic-spx-0dte', name: '🔴 0DTE IC-SPX Δ8/3', description: 'Same-day Iron Condor SPX delta 8/3. Highest risk: pin risk + intraday gamma. ÚLTIMO en testear.', strategy_type: 'IC', dte_range: '0', delta_short: 0.08, delta_long: 0.03, ivr_min: 30 },
+              { id: 'calendar-preearn', name: '🟡 Calendar pre-earnings SPY', description: 'Long backmonth + short frontmonth same strike. Vol skew time-based play.', strategy_type: 'Calendar', dte_range: '7-30', delta_short: 0.50, delta_long: 0.50, ivr_min: 30 },
+              { id: 'pre-fomc-strangle', name: '🟡 Pre-FOMC strangle short', description: 'Short strangle SPY day before FOMC, close right after announcement. Vol expansion + crush trade.', strategy_type: 'Strangle', dte_range: '1-3', delta_short: 0.20, delta_long: null, ivr_min: 30 },
+            ];
+            const stmt = env.DB.prepare(`INSERT INTO thetagang_strategies (id, name, description, strategy_type, dte_range, delta_short, delta_long, ivr_min, status) VALUES (?,?,?,?,?,?,?,?, 'pending')`);
+            for (const s of seedStrategies) {
+              await stmt.bind(s.id, s.name, s.description, s.strategy_type, s.dte_range, s.delta_short, s.delta_long, s.ivr_min).run();
+            }
+          }
+          const { results } = await env.DB.prepare(
+            `SELECT id, name, description, strategy_type, dte_range, delta_short, delta_long, ivr_min,
+                    take_profit_pct, stop_loss_x, status, sharpe, max_dd, win_rate, avg_win, avg_loss,
+                    n_trades, last_backtest
+             FROM thetagang_strategies ORDER BY id`
+          ).all();
+          return json({ ok: true, strategies: results || [] }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/thetagang/brain/scan — entries sugeridas hoy SPY/IWM/QQQ
+      // Sprint 1: básico con IV rank cache D1. Sprint 5+ añade smile/skew avanzado.
+      if (path === "/api/thetagang/brain/scan" && request.method === "GET") {
+        await ensureThetaGangTables();
+        try {
+          const symbols = ['SPY', 'IWM', 'QQQ'];
+          const today = new Date().toISOString().slice(0, 10);
+
+          // Get latest IV rank for each symbol from cache
+          const candidates = [];
+          for (const sym of symbols) {
+            const { results: ivRows } = await env.DB.prepare(
+              `SELECT * FROM iv_rank_cache WHERE symbol = ? ORDER BY date DESC LIMIT 1`
+            ).bind(sym).all();
+            const ivRow = ivRows?.[0];
+            if (!ivRow) continue;
+
+            const ivr = ivRow.iv_rank || 0;
+            const ivp = ivRow.iv_percentile || 0;
+            // Score 0-100: peso IVR + IVP + skew. >70 = entry candidate.
+            let score = 0;
+            score += Math.min(50, ivr * 0.5);   // 50 pts max from IVR
+            score += Math.min(30, ivp * 0.3);   // 30 pts max from IVP
+            score += Math.min(20, Math.max(0, (ivRow.put_skew || 0) * 100)); // 20 pts max skew
+            score = Math.round(score);
+
+            // Pick strategy by score + IVR
+            let strategy, dte, deltaShort, notes;
+            if (score >= 70 && ivr >= 50) {
+              strategy = 'IC short (high IV)';
+              dte = 35;
+              deltaShort = 0.16;
+              notes = 'High IV rank — vol crush play. IC both sides Δ16/5.';
+            } else if (score >= 50) {
+              strategy = 'BPS (moderate IV)';
+              dte = 35;
+              deltaShort = 0.16;
+              notes = 'Moderate IV — BPS only, bullish bias. Take profit 50%.';
+            } else if (score >= 30) {
+              strategy = 'Wait';
+              dte = null;
+              deltaShort = null;
+              notes = 'IV comprimido — premium muy bajo. Wait or use cash.';
+            } else {
+              strategy = 'No entry';
+              dte = null;
+              deltaShort = null;
+              notes = 'Vol muy bajo, no compensa el riesgo.';
+            }
+
+            // Estimate credit (rough — needs real chain to compute exact)
+            const creditExpected = strategy.startsWith('IC') ? 1.20 : strategy.startsWith('BPS') ? 0.85 : 0;
+            const maxLoss = strategy.startsWith('IC') ? 380 : strategy.startsWith('BPS') ? 415 : 0;
+            const pop = strategy === 'No entry' || strategy === 'Wait' ? null : (deltaShort ? (1 - deltaShort) * 100 : 80);
+
+            candidates.push({
+              symbol: sym,
+              strategy,
+              score,
+              iv_rank: ivr,
+              iv_percentile: ivp,
+              term_structure: ivRow.term_structure,
+              put_skew: ivRow.put_skew,
+              dte,
+              delta_short: deltaShort,
+              credit_expected: creditExpected * 100, // contract = 100x
+              max_loss: maxLoss,
+              pop,
+              strikes_short: null,  // Sprint 5: real chain pricing
+              notes,
+              data_date: ivRow.date,
+            });
+          }
+          return json({
+            ok: true,
+            scan_at: new Date().toISOString(),
+            scan_date: today,
+            candidates: candidates.sort((a, b) => b.score - a.score),
+            symbols_scanned: symbols,
+            note: candidates.length === 0 ? 'No IV rank cache yet. Cron diario actualizará.' : null,
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/thetagang/iv-rank/:symbol — IV rank actual de un underlying
+      if (path.startsWith("/api/thetagang/iv-rank/") && request.method === "GET") {
+        await ensureThetaGangTables();
+        const symbol = decodeURIComponent(path.slice("/api/thetagang/iv-rank/".length)).toUpperCase();
+        if (!symbol) return json({ error: "symbol required" }, corsHeaders, 400);
+        const { results } = await env.DB.prepare(
+          `SELECT * FROM iv_rank_cache WHERE symbol = ? ORDER BY date DESC LIMIT 30`
+        ).bind(symbol).all();
+        return json({ ok: true, symbol, history: results || [] }, corsHeaders);
+      }
+
+      // POST /api/thetagang/iv-rank/refresh — fetch IV from Yahoo + update cache
+      // Llamado por cron diario y manual desde UI.
+      // Sprint 1: usa fetchYahoo helper (con crumb) + HV proxy 30d.
+      // Sprint 5+ implementará vol surface real con options chain.
+      if (path === "/api/thetagang/iv-rank/refresh" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        await ensureThetaGangTables();
+        const symbols = ['SPY', 'IWM', 'QQQ'];
+        const today = new Date().toISOString().slice(0, 10);
+        const results = [];
+        for (const sym of symbols) {
+          try {
+            // Step 1: Fetch chart history 1 year for HV calculation
+            const histResp = await fetchYahoo(
+              `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?range=1y&interval=1d`
+            );
+            if (!histResp.ok) {
+              results.push({ symbol: sym, status: 'yf_chart_fail', code: histResp.status });
+              continue;
+            }
+            const histJson = await histResp.json();
+            const result = histJson?.chart?.result?.[0];
+            if (!result) {
+              results.push({ symbol: sym, status: 'no_chart_data' });
+              continue;
+            }
+            const closes = result.indicators?.quote?.[0]?.close?.filter(c => c != null) || [];
+            const meta = result.meta || {};
+            const currentPrice = meta.regularMarketPrice;
+
+            // Compute 30d realized volatility (standard deviation of log returns)
+            const returns30 = [];
+            for (let i = Math.max(1, closes.length - 30); i < closes.length; i++) {
+              if (closes[i-1] > 0) returns30.push(Math.log(closes[i] / closes[i-1]));
+            }
+            const meanRet = returns30.reduce((a, b) => a + b, 0) / Math.max(1, returns30.length);
+            const variance = returns30.reduce((a, b) => a + (b - meanRet) ** 2, 0) / Math.max(1, returns30.length - 1);
+            const dailyStd = Math.sqrt(variance);
+            const hv30 = dailyStd * Math.sqrt(252) * 100;  // annualized %
+
+            // Compute 252-day HV history para IV rank rolling
+            const hvHistory = [];
+            for (let end = 30; end < closes.length; end++) {
+              const window = closes.slice(end - 30, end);
+              const wReturns = [];
+              for (let i = 1; i < window.length; i++) {
+                if (window[i-1] > 0) wReturns.push(Math.log(window[i] / window[i-1]));
+              }
+              const wMean = wReturns.reduce((a, b) => a + b, 0) / wReturns.length;
+              const wVar = wReturns.reduce((a, b) => a + (b - wMean) ** 2, 0) / (wReturns.length - 1);
+              hvHistory.push(Math.sqrt(wVar) * Math.sqrt(252) * 100);
+            }
+            // IV rank = (current - min) / (max - min) over 252d
+            const hvHigh = Math.max(...hvHistory, hv30);
+            const hvLow = Math.min(...hvHistory, hv30);
+            const ivRank = hvHigh > hvLow ? ((hv30 - hvLow) / (hvHigh - hvLow)) * 100 : 50;
+            // IV percentile = % of days where HV was below current
+            const belowCurrent = hvHistory.filter(h => h < hv30).length;
+            const ivPercentile = hvHistory.length > 0 ? (belowCurrent / hvHistory.length) * 100 : 50;
+            // IV proxy = HV × 1.05 (IV typically slight premium over HV)
+            const iv = hv30 * 1.05;
+
+            await env.DB.prepare(
+              `INSERT OR REPLACE INTO iv_rank_cache
+                (symbol, date, iv_current, iv_rank, iv_percentile, iv_high_52w, iv_low_52w, hv_30d, data_source)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).bind(sym, today, iv, ivRank, ivPercentile, hvHigh * 1.05, hvLow * 1.05, hv30, 'yahoo_hv_v1').run();
+
+            results.push({
+              symbol: sym, status: 'ok',
+              iv: Math.round(iv * 10) / 10,
+              hv30: Math.round(hv30 * 10) / 10,
+              iv_rank: Math.round(ivRank),
+              iv_percentile: Math.round(ivPercentile),
+              price: currentPrice,
+              n_history: hvHistory.length,
+            });
+          } catch (e) {
+            results.push({ symbol: sym, status: 'error', error: e.message?.slice(0, 200) });
+          }
+        }
+        return json({ ok: true, refreshed_at: new Date().toISOString(), date: today, results }, corsHeaders);
+      }
+
       // GET /api/health/check — comprehensive health check de toda la app.
       // Detecta silent failures: data freshness, secrets caducados, bridge OFF,
       // cron jobs sin run reciente. Devuelve summary + items con severity.

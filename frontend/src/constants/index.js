@@ -162,6 +162,7 @@ export const HOME_TAB_GROUPS = [
       {id:"opt-optimizer",lbl:"Optimizer",ico:"⚡"},      // find new trades
       {id:"scanner",lbl:"Scanner",ico:"🔍"},
       {id:"auto-trading",lbl:"Auto Trading",ico:"⚙️"},
+      {id:"theta-gang",lbl:"Theta Gang",ico:"🤡"},        // 2026-05-10: options premium selling — Camino C 6m
       {id:"opciones-orphans",lbl:"Sin loguear",ico:"⚠️"}, // edge-case cleanup
     ],
   },

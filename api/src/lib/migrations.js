@@ -1404,6 +1404,101 @@ export async function ensureMigrations(env) {
     )`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_scanner_alerts_ticker ON scanner_alerts(ticker, alerted_at DESC)`).run();
 
+    // ─── Theta Gang (options premium selling system) — 2026-05-10 ──
+    // Sprint 1 schema: IV rank cache, strategies catalog, backtests, paper trades.
+    // Camino C 6-month construction (Brain → Backtest → Paper → Live).
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS iv_rank_cache (
+      symbol TEXT NOT NULL,
+      date TEXT NOT NULL,
+      iv_current REAL,
+      iv_rank REAL,
+      iv_percentile REAL,
+      iv_high_52w REAL,
+      iv_low_52w REAL,
+      term_structure REAL,
+      put_skew REAL,
+      call_skew REAL,
+      hv_30d REAL,
+      data_source TEXT DEFAULT 'yahoo',
+      created_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (symbol, date)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_iv_rank_symbol_date ON iv_rank_cache(symbol, date DESC)`).run();
+
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS thetagang_strategies (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      strategy_type TEXT,
+      dte_range TEXT,
+      delta_short REAL,
+      delta_long REAL,
+      ivr_min REAL DEFAULT 30,
+      take_profit_pct REAL DEFAULT 0.50,
+      stop_loss_x REAL DEFAULT 2.0,
+      status TEXT DEFAULT 'pending',
+      sharpe REAL,
+      max_dd REAL,
+      win_rate REAL,
+      avg_win REAL,
+      avg_loss REAL,
+      n_trades INTEGER,
+      last_backtest TEXT,
+      config_json TEXT DEFAULT '{}',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_thetagang_strategies_status ON thetagang_strategies(status)`).run();
+
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS thetagang_backtest_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      strategy_id TEXT NOT NULL,
+      start_date TEXT,
+      end_date TEXT,
+      n_trades INTEGER,
+      total_pnl REAL,
+      sharpe REAL,
+      sortino REAL,
+      max_dd REAL,
+      win_rate REAL,
+      profit_factor REAL,
+      avg_win REAL,
+      avg_loss REAL,
+      transaction_costs REAL,
+      walk_forward INTEGER DEFAULT 0,
+      out_of_sample INTEGER DEFAULT 0,
+      params_json TEXT,
+      trades_json TEXT,
+      run_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (strategy_id) REFERENCES thetagang_strategies(id)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_thetagang_backtest_strat ON thetagang_backtest_runs(strategy_id, run_at DESC)`).run();
+
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS thetagang_paper_trades (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      strategy_id TEXT NOT NULL,
+      symbol TEXT NOT NULL,
+      direction TEXT,
+      open_date TEXT,
+      close_date TEXT,
+      dte_open INTEGER,
+      strikes_json TEXT,
+      credit_received REAL,
+      max_loss REAL,
+      pop_estimate REAL,
+      status TEXT DEFAULT 'open',
+      close_reason TEXT,
+      pnl_realized REAL,
+      pnl_pct REAL,
+      hold_days INTEGER,
+      defense_actions_json TEXT,
+      meta_json TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (strategy_id) REFERENCES thetagang_strategies(id)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_thetagang_paper_status ON thetagang_paper_trades(status, open_date DESC)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_thetagang_paper_strat ON thetagang_paper_trades(strategy_id, open_date DESC)`).run();
+
     migrationState.migrated = true;
   } catch(e) {
     console.error("Migration error:", e.message);
