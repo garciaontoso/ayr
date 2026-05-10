@@ -19,6 +19,8 @@ const SUB_TABS = [
   { id: 'brain',      lbl: '🧠 Brain' },
   { id: 'strategies', lbl: '🎢 Strategies' },
   { id: 'multileg',   lbl: '🦎 Multi-leg' },
+  { id: 'wheel',      lbl: '🎡 Wheel' },
+  { id: 'hedge',      lbl: '🛡️ Tail Hedge' },
   { id: 'backtests',  lbl: '🧪 Backtests' },
   { id: 'greeks',     lbl: '📊 Greeks' },
   { id: 'defense',    lbl: '🛡️ Defense' },
@@ -28,20 +30,39 @@ const SUB_TABS = [
   { id: 'pnl',        lbl: '📈 P&L' },
 ];
 
-// Sprint 6 — multi-leg strategies catalog (frontend mirror of buildLegs())
+// Sprint 6+7 — multi-leg strategies catalog (frontend mirror of buildLegs())
 const MULTI_LEG_STRATEGIES = [
-  { id: 'BPS',            label: 'Bull Put Spread',      tier: '🟢' },
-  { id: 'BCS',            label: 'Bear Call Spread',     tier: '🟢' },
-  { id: 'IC',             label: 'Iron Condor',          tier: '🟢' },
-  { id: 'IF',             label: 'Iron Fly (ATM butterfly)', tier: '🟡' },
-  { id: 'JADE_LIZARD',    label: 'Jade Lizard',          tier: '🟢' },
-  { id: 'BWB_PUT',        label: 'Broken-Wing BFly Put', tier: '🟡' },
-  { id: 'BWB_CALL',       label: 'Broken-Wing BFly Call',tier: '🟡' },
-  { id: 'CALENDAR_PUT',   label: 'Put Calendar',         tier: '🟡' },
-  { id: 'CALENDAR_CALL',  label: 'Call Calendar',        tier: '🟡' },
-  { id: 'DIAGONAL_PUT',   label: 'Diagonal Put',         tier: '🟡' },
-  { id: 'RATIO_BACK_PUT', label: 'Ratio Backspread Put', tier: '🔴' },
+  // Credit verticals
+  { id: 'BPS',            label: 'Bull Put Spread (credit)',  tier: '🟢' },
+  { id: 'BCS',            label: 'Bear Call Spread (credit)', tier: '🟢' },
+  // Debit verticals (Sprint 7)
+  { id: 'BCS_DEBIT',      label: 'Bull Call Spread (debit)',  tier: '🟢' },
+  { id: 'BPS_DEBIT',      label: 'Bear Put Spread (debit)',   tier: '🟢' },
+  // Condors
+  { id: 'IC',             label: 'Iron Condor',               tier: '🟢' },
+  { id: 'IF',             label: 'Iron Fly (ATM butterfly)',  tier: '🟡' },
+  { id: 'REVERSE_IF',     label: 'Reverse Iron Fly',          tier: '🔴' },
+  // Lizards & hybrids
+  { id: 'JADE_LIZARD',    label: 'Jade Lizard',               tier: '🟢' },
+  { id: 'BIG_LIZARD',     label: 'Big Lizard',                tier: '🟡' },
+  // Butterflies
+  { id: 'BWB_PUT',        label: 'Broken-Wing BFly Put',      tier: '🟡' },
+  { id: 'BWB_CALL',       label: 'Broken-Wing BFly Call',     tier: '🟡' },
+  { id: 'LONG_FLY_CALL',  label: 'Long Call Butterfly',       tier: '🟡' },
+  { id: 'LONG_FLY_PUT',   label: 'Long Put Butterfly',        tier: '🟡' },
+  // Calendars/diagonals
+  { id: 'CALENDAR_PUT',   label: 'Put Calendar',              tier: '🟡' },
+  { id: 'CALENDAR_CALL',  label: 'Call Calendar',             tier: '🟡' },
+  { id: 'DIAGONAL_PUT',   label: 'Diagonal Put',              tier: '🟡' },
+  // Straddles/strangles
+  { id: 'LONG_STRADDLE',  label: 'Long Straddle',             tier: '🟡' },
+  { id: 'LONG_STRANGLE',  label: 'Long Strangle',             tier: '🟡' },
   { id: 'STRANGLE',       label: 'Short Strangle (no wings)', tier: '🔴' },
+  // Ratios & defensive
+  { id: 'RATIO_BACK_PUT', label: 'Ratio Backspread Put',      tier: '🔴' },
+  { id: 'RISK_REVERSAL',  label: 'Risk Reversal',             tier: '🔴' },
+  { id: 'COLLAR',         label: 'Collar (defensive)',        tier: '🟢' },
+  { id: 'COVERED_CALL',   label: 'Covered Call',              tier: '🟢' },
 ];
 
 function fmtMoney(n) { if (n == null) return '—'; const sign = n < 0 ? '-' : ''; return sign + '$' + Math.abs(n).toLocaleString('es-ES', {maximumFractionDigits: 0}); }
@@ -750,6 +771,313 @@ function PnLSubtab() {
     description="P&L por estrategia. Real vs paper match. Sharpe / Sortino / Max DD. Live scoreboard." />;
 }
 
+// ─── 🎡 Wheel — Sprint 7 ────────────────────────────────────────────────────
+function WheelSubtab() {
+  const [data, setData] = useState(null);
+  const [suggestion, setSuggestion] = useState(null);
+  const [symbol, setSymbol] = useState('SPY');
+  const [loading, setLoading] = useState(true);
+  const [form, setForm] = useState({ strike: '', premium_per_share: '', qty: 1, expiry: '' });
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/thetagang/wheel/status${symbol ? '?symbol=' + symbol : ''}`);
+      setData(await r.json());
+      const sR = await fetch(`${API_URL}/api/thetagang/wheel/suggest?symbol=${symbol}&dte=35`);
+      const sJ = await sR.json();
+      setSuggestion(sJ.suggestion);
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  }, [symbol]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const submitCSP = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const r = await fetch(`${API_URL}/api/thetagang/wheel/open-csp`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol,
+          strike: parseFloat(form.strike),
+          premium_per_share: parseFloat(form.premium_per_share),
+          qty: parseInt(form.qty, 10) || 1,
+          expiry: form.expiry,
+        }),
+      });
+      const j = await r.json();
+      if (!j.ok) alert(j.error || 'Error'); else { setForm({ strike: '', premium_per_share: '', qty: 1, expiry: '' }); load(); }
+    } catch (e) { alert(e.message); }
+    setBusy(false);
+  };
+
+  const expire = async (cycleId, outcome) => {
+    if (!window.confirm(`Marcar ciclo #${cycleId} como ${outcome}?`)) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${API_URL}/api/thetagang/wheel/expire`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cycle_id: cycleId, outcome }),
+      });
+      const j = await r.json();
+      if (!j.ok) alert(j.error || 'Error'); else load();
+    } catch (e) { alert(e.message); }
+    setBusy(false);
+  };
+
+  if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Cargando ciclos…</div>;
+  const stats = data?.stats || {};
+  const open = data?.open_cycles || [];
+  const done = data?.completed_cycles || [];
+  const card = { padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 };
+
+  return (
+    <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
+        <div style={card}><div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>CICLOS COMPLETOS</div><div style={{ fontSize: 18, fontWeight: 700 }}>{stats.n_cycles || 0}</div></div>
+        <div style={card}><div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>P&L TOTAL</div><div style={{ fontSize: 18, fontWeight: 700, color: (stats.total_pnl || 0) >= 0 ? '#30d158' : '#ef4444' }}>{fmtMoney(stats.total_pnl)}</div></div>
+        <div style={card}><div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>PRIMA TOTAL</div><div style={{ fontSize: 18, fontWeight: 700, color: 'var(--gold, #fbbf24)' }}>{fmtMoney(stats.total_premium)}</div></div>
+        <div style={card}><div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>YIELD ANUALIZ.</div><div style={{ fontSize: 18, fontWeight: 700 }}>{fmtPct(stats.annualized_return_pct)}</div></div>
+        <div style={card}><div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>WIN RATE</div><div style={{ fontSize: 18, fontWeight: 700 }}>{fmtPct(stats.win_rate)}</div></div>
+      </div>
+
+      {/* Suggestion */}
+      {suggestion && (
+        <div style={{ ...card, borderColor: 'var(--gold, #fbbf24)' }}>
+          <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>SUGERENCIA</div>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{(suggestion.action || '').replace(/_/g, ' ').toUpperCase()}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>{suggestion.rationale || suggestion.reason || '—'}</div>
+        </div>
+      )}
+
+      {/* Form */}
+      <form onSubmit={submitCSP} style={card}>
+        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Abrir CSP nuevo</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 8 }}>
+          <select value={symbol} onChange={e => setSymbol(e.target.value)} style={{ padding: 8, fontSize: 12, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }}>
+            <option>SPY</option><option>QQQ</option><option>IWM</option><option>KO</option><option>JNJ</option><option>PG</option>
+          </select>
+          <input value={form.strike} onChange={e => setForm({ ...form, strike: e.target.value })} placeholder="Strike" type="number" step="0.5" required style={{ padding: 8, fontSize: 12, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} />
+          <input value={form.premium_per_share} onChange={e => setForm({ ...form, premium_per_share: e.target.value })} placeholder="Prima/sh" type="number" step="0.01" required style={{ padding: 8, fontSize: 12, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} />
+          <input value={form.qty} onChange={e => setForm({ ...form, qty: e.target.value })} placeholder="Qty" type="number" min="1" style={{ padding: 8, fontSize: 12, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} />
+          <input value={form.expiry} onChange={e => setForm({ ...form, expiry: e.target.value })} type="date" required style={{ padding: 8, fontSize: 12, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} />
+          <button type="submit" disabled={busy} style={{ padding: 8, background: 'var(--gold, #fbbf24)', color: '#000', fontWeight: 700, fontSize: 12, border: 'none', borderRadius: 4, cursor: 'pointer' }}>{busy ? '…' : '+ Abrir CSP'}</button>
+        </div>
+      </form>
+
+      {/* Open cycles */}
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Ciclos abiertos ({open.length})</div>
+        {open.length === 0 ? <div style={{ ...card, fontSize: 11, color: 'var(--text-tertiary)' }}>Sin ciclos abiertos.</div> : (
+          open.map(c => (
+            <div key={c.id} style={{ ...card, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ fontWeight: 700 }}>{c.symbol}</div>
+              <div style={{ fontSize: 10, padding: '2px 6px', background: 'var(--bg-primary)', borderRadius: 3 }}>{c.state}</div>
+              {c.strike_csp && <div style={{ fontSize: 11 }}>CSP {c.strike_csp} · ${fmtN(c.premium_csp, 2)}</div>}
+              {c.strike_cc && <div style={{ fontSize: 11 }}>CC {c.strike_cc} · ${fmtN(c.premium_cc, 2)}</div>}
+              {c.cost_basis_effective && <div style={{ fontSize: 11, color: 'var(--gold, #fbbf24)' }}>basis ${fmtN(c.cost_basis_effective, 2)}</div>}
+              <div style={{ flex: 1 }} />
+              <button disabled={busy} onClick={() => expire(c.id, 'expired_otm')} style={{ padding: '4px 8px', fontSize: 10, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 4, cursor: 'pointer' }}>Expiró OTM</button>
+              <button disabled={busy} onClick={() => expire(c.id, 'assigned')} style={{ padding: '4px 8px', fontSize: 10, background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', borderRadius: 4, cursor: 'pointer' }}>Assigned</button>
+              <button disabled={busy} onClick={() => expire(c.id, 'closed_early')} style={{ padding: '4px 8px', fontSize: 10, background: 'transparent', border: '1px solid #30d158', color: '#30d158', borderRadius: 4, cursor: 'pointer' }}>TP</button>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* History */}
+      {done.length > 0 && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Histórico ciclos completos ({done.length})</div>
+          <div style={{ ...card, padding: 0, overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead><tr style={{ background: 'var(--bg-primary)', textAlign: 'left' }}>
+                <th style={{ padding: 6 }}>Symbol</th><th>Inicio</th><th>Cierre</th><th>Días</th><th>Prima</th><th>P&L</th>
+              </tr></thead>
+              <tbody>
+                {done.slice(0, 30).map(c => {
+                  const days = c.cycle_started_at && c.cycle_closed_at
+                    ? Math.round((new Date(c.cycle_closed_at) - new Date(c.cycle_started_at)) / 86400000) : 0;
+                  return (
+                    <tr key={c.id} style={{ borderTop: '1px solid var(--border)' }}>
+                      <td style={{ padding: 6, fontWeight: 600 }}>{c.symbol}</td>
+                      <td>{c.cycle_started_at?.slice(0, 10)}</td>
+                      <td>{c.cycle_closed_at?.slice(0, 10)}</td>
+                      <td>{days}d</td>
+                      <td>${fmtN(c.cycle_premium_total, 0)}</td>
+                      <td style={{ color: c.cycle_pnl >= 0 ? '#30d158' : '#ef4444', fontWeight: 600 }}>${fmtN(c.cycle_pnl, 0)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── 🛡️ Tail Hedge — Sprint 7 ──────────────────────────────────────────────
+function TailHedgeSubtab() {
+  const [status, setStatus] = useState(null);
+  const [suggestion, setSuggestion] = useState(null);
+  const [hedgeType, setHedgeType] = useState('put_roll');
+  const [nav, setNav] = useState(1_400_000);
+  const [loading, setLoading] = useState(false);
+
+  const loadStatus = useCallback(async () => {
+    try { setStatus(await (await fetch(`${API_URL}/api/thetagang/tail-hedge/status`)).json()); } catch {}
+  }, []);
+
+  useEffect(() => { loadStatus(); }, [loadStatus]);
+
+  const computeSuggestion = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/thetagang/tail-hedge/suggest`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hedge_type: hedgeType, nav }),
+      });
+      setSuggestion(await r.json());
+    } catch (e) { setSuggestion({ error: e.message }); }
+    setLoading(false);
+  }, [hedgeType, nav]);
+
+  const card = { padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 };
+  const open = status?.open || [];
+  const totals = status?.totals || {};
+  const protection = status?.protection || [];
+
+  return (
+    <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Current protection */}
+      <div style={card}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--gold, #fbbf24)' }}>Protección actual</div>
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>SPY {status?.spy_spot ? '$' + fmtN(status.spy_spot, 2) : '—'}</div>
+        </div>
+        {open.length === 0 ? (
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Sin hedges abiertos. La cartera está expuesta a tail risk sin cobertura.</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+              <thead><tr style={{ color: 'var(--text-tertiary)', textAlign: 'left' }}>
+                <th>Type</th><th>Sym</th><th>Strike</th><th>Expiry</th><th>Qty</th><th>Cost</th><th>Status</th>
+              </tr></thead>
+              <tbody>
+                {open.map(h => (
+                  <tr key={h.id} style={{ borderTop: '1px solid var(--border)' }}>
+                    <td style={{ padding: 4 }}>{h.hedge_type}</td>
+                    <td>{h.symbol}</td>
+                    <td>{h.strike}</td>
+                    <td>{h.expiry}</td>
+                    <td>{h.qty}</td>
+                    <td>{fmtMoney(h.cost_dollars)}</td>
+                    <td>{h.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {protection.length > 0 && (
+          <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 6 }}>
+            {protection.map(p => (
+              <div key={p.scenario} style={{ padding: 8, background: 'var(--bg-primary)', borderRadius: 4, textAlign: 'center' }}>
+                <div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>{((p.scenario || 0) * 100).toFixed(0)}%</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: p.hedge_pnl > 0 ? '#30d158' : 'var(--text-secondary)' }}>{fmtMoney(p.hedge_pnl)}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-tertiary)' }}>
+          Cost-to-date {fmtMoney(totals.total_cost)} · Realized P&L <span style={{ color: (totals.realized_pnl || 0) >= 0 ? '#30d158' : '#ef4444' }}>{fmtMoney(totals.realized_pnl)}</span>
+        </div>
+      </div>
+
+      {/* Today's suggestion */}
+      <div style={card}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--gold, #fbbf24)' }}>Sugerencia hoy</div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <select value={hedgeType} onChange={e => setHedgeType(e.target.value)} style={{ padding: '4px 8px', fontSize: 11, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }}>
+              <option value="put_roll">Put Roll (SPY)</option>
+              <option value="vix_call">VIX Call</option>
+              <option value="convexity_backspread">Convexity Backspread</option>
+            </select>
+            <input type="number" value={nav} onChange={e => setNav(Number(e.target.value))} placeholder="NAV" style={{ padding: '4px 8px', fontSize: 11, width: 120, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} />
+            <button onClick={computeSuggestion} disabled={loading} style={{ padding: '4px 10px', fontSize: 11, background: 'var(--gold, #fbbf24)', color: '#000', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>{loading ? '…' : 'Compute'}</button>
+          </div>
+        </div>
+        {suggestion && (
+          <div style={{ padding: 10, background: 'var(--bg-primary)', borderRadius: 4 }}>
+            {suggestion.error ? (
+              <div style={{ color: '#ef4444', fontSize: 11 }}>⚠ {suggestion.error}</div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 3,
+                    background: suggestion.action === 'open' ? '#1b5e20' : suggestion.action === 'roll' ? '#0d47a1' : suggestion.action === 'skip' ? '#5d4037' : '#444',
+                    color: '#fff',
+                  }}>{(suggestion.action || '?').toUpperCase()}</span>
+                  <span style={{ fontSize: 12 }}>{suggestion.reason || ''}</span>
+                </div>
+                {suggestion.suggestion && (
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                    {suggestion.suggestion.symbol} {suggestion.suggestion.type || suggestion.suggestion.structure}
+                    {suggestion.suggestion.strike != null && ` K=${suggestion.suggestion.strike}`}
+                    {suggestion.suggestion.dte != null && ` · ${suggestion.suggestion.dte} DTE`}
+                    {suggestion.suggestion.qty != null && ` · qty ${suggestion.suggestion.qty}`}
+                    {suggestion.suggestion.est_cost != null && ` · ${fmtMoney(suggestion.suggestion.est_cost)}`}
+                  </div>
+                )}
+                {suggestion.inputs && (
+                  <div style={{ marginTop: 6, fontSize: 10, color: 'var(--text-tertiary)' }}>
+                    Inputs: VIX={fmtN(suggestion.inputs.vix, 1)} · IVR={fmtN(suggestion.inputs.ivr, 0)} · spot={fmtN(suggestion.inputs.spot, 2)} · NAV={fmtMoney(suggestion.inputs.nav)}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* History (slim) */}
+      {(status?.history || []).length > 0 && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Histórico hedges ({status.history.length})</div>
+          <div style={{ ...card, padding: 0, overflowX: 'auto' }}>
+            <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+              <thead><tr style={{ color: 'var(--text-tertiary)', textAlign: 'left' }}>
+                <th style={{ padding: 6 }}>Type</th><th>Sym</th><th>Opened</th><th>Closed</th><th>Cost</th><th>P&L</th><th>Status</th>
+              </tr></thead>
+              <tbody>
+                {status.history.slice(0, 20).map(h => (
+                  <tr key={h.id} style={{ borderTop: '1px solid var(--border)' }}>
+                    <td style={{ padding: 6 }}>{h.hedge_type}</td>
+                    <td>{h.symbol}</td>
+                    <td>{h.opened_at?.slice(0, 10)}</td>
+                    <td>{h.closed_at?.slice(0, 10) || '—'}</td>
+                    <td>{fmtMoney(h.cost_dollars)}</td>
+                    <td style={{ color: (h.close_pnl || 0) >= 0 ? '#30d158' : '#ef4444' }}>{fmtMoney(h.close_pnl)}</td>
+                    <td>{h.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Placeholder reusable ──────────────────────────────────────────────────
 function PlaceholderTab({ icon, title, sprint, description }) {
   return (
@@ -772,6 +1100,8 @@ export default function ThetaGangTab() {
     brain: <BrainSubtab />,
     strategies: <StrategiesSubtab />,
     multileg: <MultiLegSubtab />,
+    wheel: <WheelSubtab />,
+    hedge: <TailHedgeSubtab />,
     backtests: <BacktestsSubtab />,
     greeks: <GreeksSubtab />,
     defense: <DefenseSubtab />,

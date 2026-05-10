@@ -516,6 +516,144 @@ export function buildLegs(strategyType, params) {
         };
       }
 
+    // ─── Sprint 7 — additional one-shot strategies ────────────────────────
+    case 'BCS_DEBIT': // Bull Call Spread (debit) — bullish bias
+      {
+        const k_long  = round(S);              // ATM long call
+        const k_short = round(S + sd * 1.0);   // OTM short call
+        return {
+          legs: [
+            { type: 'call', strike: k_long,  action: 'buy',  qty: contracts, T, sigma },
+            { type: 'call', strike: k_short, action: 'sell', qty: contracts, T, sigma },
+          ],
+          notes: 'Bull Call Spread (debit) — direccional alcista. Cost = debit, max profit = width − debit.',
+        };
+      }
+
+    case 'BPS_DEBIT': // Bear Put Spread (debit) — bearish bias
+      {
+        const k_long  = round(S);              // ATM long put
+        const k_short = round(S - sd * 1.0);   // OTM short put
+        return {
+          legs: [
+            { type: 'put', strike: k_long,  action: 'buy',  qty: contracts, T, sigma },
+            { type: 'put', strike: k_short, action: 'sell', qty: contracts, T, sigma },
+          ],
+          notes: 'Bear Put Spread (debit) — direccional bajista. Cost = debit, max profit = width − debit.',
+        };
+      }
+
+    case 'LONG_STRADDLE': // Buy ATM call + ATM put — big move ANY direction
+      {
+        const k_atm = round(S);
+        return {
+          legs: [
+            { type: 'call', strike: k_atm, action: 'buy', qty: contracts, T, sigma },
+            { type: 'put',  strike: k_atm, action: 'buy', qty: contracts, T, sigma },
+          ],
+          notes: 'Long Straddle — long volatility play. Profits si gran movimiento ANY direction. Best pre-earnings/binary.',
+        };
+      }
+
+    case 'LONG_STRANGLE': // Buy OTM call + OTM put — cheaper long-vol
+      {
+        const k_call = round(S + sd * 0.5);
+        const k_put  = round(S - sd * 0.5);
+        return {
+          legs: [
+            { type: 'call', strike: k_call, action: 'buy', qty: contracts, T, sigma },
+            { type: 'put',  strike: k_put,  action: 'buy', qty: contracts, T, sigma },
+          ],
+          notes: 'Long Strangle — long vol, más barato que straddle pero requiere mayor movimiento.',
+        };
+      }
+
+    case 'REVERSE_IF': // Long ATM straddle + short wings — big move bounded
+      {
+        const k_atm = round(S);
+        const wing = round(sd);
+        return {
+          legs: [
+            { type: 'put',  strike: k_atm,        action: 'buy',  qty: contracts, T, sigma },
+            { type: 'call', strike: k_atm,        action: 'buy',  qty: contracts, T, sigma },
+            { type: 'put',  strike: k_atm - wing, action: 'sell', qty: contracts, T, sigma },
+            { type: 'call', strike: k_atm + wing, action: 'sell', qty: contracts, T, sigma },
+          ],
+          notes: 'Reverse Iron Fly — long ATM straddle + short wings. Profits big move ±. Max loss limited (debit).',
+        };
+      }
+
+    case 'LONG_FLY_PUT': // Long Put Butterfly — pin-at-strike bearish (debit)
+      {
+        const k_high = round(S);              // ATM upper wing (buy)
+        const k_mid  = round(S - sd * 0.7);   // body (sell 2)
+        const k_low  = round(S - sd * 1.4);   // lower wing (buy)
+        return {
+          legs: [
+            { type: 'put', strike: k_high, action: 'buy',  qty: contracts,     T, sigma },
+            { type: 'put', strike: k_mid,  action: 'sell', qty: contracts * 2, T, sigma },
+            { type: 'put', strike: k_low,  action: 'buy',  qty: contracts,     T, sigma },
+          ],
+          notes: 'Long Put Butterfly — pin-at-K_mid bajista. Debit pequeño, max profit en K_mid.',
+        };
+      }
+
+    case 'LONG_FLY_CALL': // Long Call Butterfly — pin-at-strike bullish (debit)
+      {
+        const k_low  = round(S);              // ATM lower wing (buy)
+        const k_mid  = round(S + sd * 0.7);   // body (sell 2)
+        const k_high = round(S + sd * 1.4);   // upper wing (buy)
+        return {
+          legs: [
+            { type: 'call', strike: k_low,  action: 'buy',  qty: contracts,     T, sigma },
+            { type: 'call', strike: k_mid,  action: 'sell', qty: contracts * 2, T, sigma },
+            { type: 'call', strike: k_high, action: 'buy',  qty: contracts,     T, sigma },
+          ],
+          notes: 'Long Call Butterfly — pin-at-K_mid alcista. Debit pequeño, max profit en K_mid.',
+        };
+      }
+
+    case 'COLLAR': // Long stock + protective put + short OTM call (defensive overlay)
+      {
+        const k_put  = round(S - sd * 0.7);   // protective put
+        const k_call = round(S + sd * 1.0);   // covered call
+        return {
+          legs: [
+            { type: 'stock', strike: 0,       action: 'buy',  qty: contracts * 100, T: 0, sigma: 0 },
+            { type: 'put',   strike: k_put,   action: 'buy',  qty: contracts,       T,    sigma },
+            { type: 'call',  strike: k_call,  action: 'sell', qty: contracts,       T,    sigma },
+          ],
+          notes: 'Collar — long stock + protective put + short OTM call. Defensive: caps upside, floors downside.',
+        };
+      }
+
+    case 'RISK_REVERSAL': // Sell put + buy call (synthetic long, often net credit)
+      {
+        const k_put  = round(S - sd * 1.0);   // sell OTM put
+        const k_call = round(S + sd * 1.0);   // buy OTM call
+        return {
+          legs: [
+            { type: 'put',  strike: k_put,  action: 'sell', qty: contracts, T, sigma },
+            { type: 'call', strike: k_call, action: 'buy',  qty: contracts, T, sigma },
+          ],
+          notes: 'Risk Reversal — sell OTM put + buy OTM call. Synthetic long bias, often net credit. Asignación si S < put.',
+        };
+      }
+
+    case 'BIG_LIZARD': // Short ATM straddle + long OTM call (no upside risk if credit ≥ width)
+      {
+        const k_atm = round(S);
+        const k_call = round(S + sd * 1.5);   // long OTM call protection (caps upside)
+        return {
+          legs: [
+            { type: 'put',  strike: k_atm,   action: 'sell', qty: contracts, T, sigma },
+            { type: 'call', strike: k_atm,   action: 'sell', qty: contracts, T, sigma },
+            { type: 'call', strike: k_call,  action: 'buy',  qty: contracts, T, sigma },
+          ],
+          notes: 'Big Lizard — short ATM straddle + long OTM call. Theta + neutral, NO UPSIDE RISK si credit ≥ width call.',
+        };
+      }
+
     default:
       throw new Error(`Unknown strategy type: ${strategyType}`);
   }

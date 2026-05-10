@@ -121,6 +121,103 @@ describe('Sprint 6 — buildLegs() leg structure', () => {
   it('Unknown strategy throws', () => {
     expect(() => buildLegs('NONEXISTENT', { S, sigma, T, r, q })).toThrow();
   });
+
+  // Sprint 7 — additional one-shot strategies
+  it('BCS_DEBIT: long ATM call + short OTM call, debit', () => {
+    const { legs } = buildLegs('BCS_DEBIT', { S, sigma, T, r, q, contracts: 1 });
+    expect(legs).toHaveLength(2);
+    expect(legs.every(l => l.type === 'call')).toBe(true);
+    const buy = legs.find(l => l.action === 'buy');
+    const sell = legs.find(l => l.action === 'sell');
+    expect(buy.strike).toBeLessThan(sell.strike);
+  });
+
+  it('BPS_DEBIT: long ATM put + short OTM put, debit', () => {
+    const { legs } = buildLegs('BPS_DEBIT', { S, sigma, T, r, q, contracts: 1 });
+    expect(legs).toHaveLength(2);
+    expect(legs.every(l => l.type === 'put')).toBe(true);
+    const buy = legs.find(l => l.action === 'buy');
+    const sell = legs.find(l => l.action === 'sell');
+    expect(buy.strike).toBeGreaterThan(sell.strike);
+  });
+
+  it('LONG_STRADDLE: long ATM call + long ATM put (same strike)', () => {
+    const { legs } = buildLegs('LONG_STRADDLE', { S, sigma, T, r, q, contracts: 1 });
+    expect(legs).toHaveLength(2);
+    expect(legs.every(l => l.action === 'buy')).toBe(true);
+    expect(legs[0].strike).toBe(legs[1].strike);
+    expect(legs.find(l => l.type === 'call')).toBeTruthy();
+    expect(legs.find(l => l.type === 'put')).toBeTruthy();
+  });
+
+  it('LONG_STRANGLE: long OTM call + long OTM put (different strikes)', () => {
+    const { legs } = buildLegs('LONG_STRANGLE', { S, sigma, T, r, q, contracts: 1 });
+    expect(legs).toHaveLength(2);
+    expect(legs.every(l => l.action === 'buy')).toBe(true);
+    const call = legs.find(l => l.type === 'call');
+    const put = legs.find(l => l.type === 'put');
+    expect(call.strike).toBeGreaterThan(put.strike);
+  });
+
+  it('REVERSE_IF: long ATM straddle + short wings (4 legs)', () => {
+    const { legs } = buildLegs('REVERSE_IF', { S, sigma, T, r, q, contracts: 1 });
+    expect(legs).toHaveLength(4);
+    expect(legs.filter(l => l.action === 'buy')).toHaveLength(2);
+    expect(legs.filter(l => l.action === 'sell')).toHaveLength(2);
+    // Both buys at same ATM strike
+    const buys = legs.filter(l => l.action === 'buy');
+    expect(buys[0].strike).toBe(buys[1].strike);
+  });
+
+  it('LONG_FLY_PUT: 3 legs, 2× sold middle, debit', () => {
+    const { legs } = buildLegs('LONG_FLY_PUT', { S, sigma, T, r, q, contracts: 1 });
+    expect(legs).toHaveLength(3);
+    expect(legs.every(l => l.type === 'put')).toBe(true);
+    const sold = legs.find(l => l.action === 'sell');
+    expect(sold.qty).toBe(2);
+  });
+
+  it('LONG_FLY_CALL: 3 legs, 2× sold middle, debit', () => {
+    const { legs } = buildLegs('LONG_FLY_CALL', { S, sigma, T, r, q, contracts: 1 });
+    expect(legs).toHaveLength(3);
+    expect(legs.every(l => l.type === 'call')).toBe(true);
+    const sold = legs.find(l => l.action === 'sell');
+    expect(sold.qty).toBe(2);
+  });
+
+  it('COLLAR: long stock + protective put + short OTM call', () => {
+    const { legs } = buildLegs('COLLAR', { S, sigma, T, r, q, contracts: 1 });
+    expect(legs).toHaveLength(3);
+    expect(legs.find(l => l.type === 'stock')).toBeTruthy();
+    const put = legs.find(l => l.type === 'put');
+    const call = legs.find(l => l.type === 'call');
+    expect(put.action).toBe('buy');
+    expect(call.action).toBe('sell');
+    expect(put.strike).toBeLessThan(S);
+    expect(call.strike).toBeGreaterThan(S);
+  });
+
+  it('RISK_REVERSAL: sell put + buy call, synthetic long', () => {
+    const { legs } = buildLegs('RISK_REVERSAL', { S, sigma, T, r, q, contracts: 1 });
+    expect(legs).toHaveLength(2);
+    const put = legs.find(l => l.type === 'put');
+    const call = legs.find(l => l.type === 'call');
+    expect(put.action).toBe('sell');
+    expect(call.action).toBe('buy');
+    expect(put.strike).toBeLessThan(S);
+    expect(call.strike).toBeGreaterThan(S);
+  });
+
+  it('BIG_LIZARD: short ATM straddle + long OTM call (3 legs)', () => {
+    const { legs } = buildLegs('BIG_LIZARD', { S, sigma, T, r, q, contracts: 1 });
+    expect(legs).toHaveLength(3);
+    const sells = legs.filter(l => l.action === 'sell');
+    expect(sells).toHaveLength(2);
+    expect(sells[0].strike).toBe(sells[1].strike);  // ATM straddle short
+    const longCall = legs.find(l => l.action === 'buy');
+    expect(longCall.type).toBe('call');
+    expect(longCall.strike).toBeGreaterThan(S);
+  });
 });
 
 describe('Sprint 6 — payoff diagram + breakevens + max P/L', () => {

@@ -27,8 +27,8 @@ traders particulares.
 | 4 | Paper trading engine completo | ✅ LIVE | `47034cc` |
 | 5 | Regime detection + IV rank filters | ✅ LIVE | `3611426` |
 | 6 | Multi-leg avanzados (calendar, BWB, diagonal, jade lizard, iron fly, ratio back) | ✅ LIVE | `fbcd9cd` |
-| 7 | Tail hedges programáticos | ⏳ | — |
-| 8 | Walk-forward backtest + stress periods + Monte Carlo | ✅ LIVE | (este commit) |
+| 7 | Wheel + Tail hedges + 10 multi-leg adicionales (debit verticals, straddles, fly, collar, big lizard, risk reversal) | ✅ LIVE | (este commit) |
+| 8 | Walk-forward backtest + stress periods + Monte Carlo | ✅ LIVE | `b587e34` |
 | 9 | Kelly sizing + correlation matrix | ⏳ | — |
 | 10 | Multi-leg + complex strategies | ⏳ | — |
 | 11 | Auto-execution real money + VPS US East | ⏳ | — |
@@ -39,11 +39,13 @@ traders particulares.
 
 ```
 Frontend tab (Theta Gang grupo Ingresos)
-└── 10 sub-tabs:
+└── 12 sub-tabs:
     ├── 🧠 Brain — entries hoy SPY/IWM/QQQ
-    ├── 🎢 Strategies — catálogo 15 estrategias seedeadas (Sprint 6 +6)
-    ├── 🦎 Multi-leg — builder Sprint 6 con SVG payoff diagram
-    ├── 🧪 Backtests — placeholders (use endpoints directamente)
+    ├── 🎢 Strategies — catálogo 27 estrategias seedeadas (Sprint 7 +12)
+    ├── 🦎 Multi-leg — builder Sprint 6 con SVG payoff diagram (23 strategies)
+    ├── 🎡 Wheel — Sprint 7 CSP→assigned→CC state machine + lifecycle UI
+    ├── 🛡️ Tail Hedge — Sprint 7 programmatic put roll + VIX overlay
+    ├── 🧪 Backtests — Sprint 8: stress + walk-forward + Monte Carlo
     ├── 📊 Greeks — portfolio Greeks BS server-side
     ├── 🛡️ Defense — playbook automation
     ├── 📝 Paper — paper trading engine
@@ -73,7 +75,17 @@ Backend (Cloudflare Worker)
 ├── /api/thetagang/backtest/stress-periods — Sprint 8: catálogo 7 stress + 2 calm periods
 ├── /api/thetagang/backtest/stress-test    — Sprint 8: corre estrategia en período histórico
 ├── /api/thetagang/backtest/walk-forward   — Sprint 8: sliding window train/test stability
-└── /api/thetagang/backtest/monte-carlo    — Sprint 8: bootstrap N sims (P&L distribution + tail risk)
+├── /api/thetagang/backtest/monte-carlo    — Sprint 8: bootstrap N sims (P&L distribution + tail risk)
+├── /api/thetagang/wheel/status            — Sprint 7: open + completed cycles + stats
+├── /api/thetagang/wheel/suggest           — Sprint 7: pure-fn next action recommendation
+├── /api/thetagang/wheel/open-csp          — Sprint 7: register CSP open
+├── /api/thetagang/wheel/open-cc           — Sprint 7: register CC open (post-assignment)
+├── /api/thetagang/wheel/expire            — Sprint 7: state transition (assigned/expired/closed)
+├── /api/thetagang/tail-hedge/status       — Sprint 7: open hedges + protection scenarios
+├── /api/thetagang/tail-hedge/suggest      — Sprint 7: hedge type + strike + qty + cost
+├── /api/thetagang/tail-hedge/open         — Sprint 7: register hedge open
+├── /api/thetagang/tail-hedge/roll         — Sprint 7: close + open new equivalent
+└── /api/thetagang/tail-hedge/close        — Sprint 7: close hedge with realized P&L
 
 Datos fuente:
 └── PRIMARY: Tastytrade Bridge en NAS Synology
@@ -234,10 +246,34 @@ curl -sS -X POST https://api.onto-so.com/api/thetagang/backtest/run-with-filters
 - ✅ 23 tests Vitest nuevos (47 total para BS lib)
 - ✅ Auto-detect calendar evalAt (back-month leg keeps residual time value)
 
-**Sprint 7 — Tail hedges programáticos**:
-- Long-way-OTM puts rolled monthly como insurance
-- VIX calls durante low vol regimes
-- Convexity overlays
+**Sprint 7 — ✅ COMPLETO 2026-05-10 (Wheel + Tail Hedges + 10 multi-leg adicionales)**:
+- ✅ Wheel state machine completo (`api/src/lib/wheel-engine.js` 600L) con 6 states + 6 events
+  - States: AWAITING_CSP → CSP_OPEN → ASSIGNED_LONG_STOCK → CC_OPEN → CYCLE_COMPLETE
+  - Funciones: `wheelStateMachine`, `computeWheelStats`, `suggestNextAction`, `simulateWheelOnBars`
+  - Sub-tab `🎡 Wheel` con form + cycles abiertos + histórico + sugerencia live
+- ✅ Tail Hedge engine (`api/src/lib/tail-hedge-engine.js` 568L)
+  - 3 tipos: put_roll mensual / vix_call / convexity_backspread
+  - VIX>30 skip, VIX<13 buy 2× scaler
+  - `suggestPutRoll`, `suggestVIXCall`, `suggestConvexityBackspread`,
+    `computeHedgeProtection`, `historicalHedgeBacktest`, `evaluateHedgeEffectiveness`
+  - Sub-tab `🛡️ Tail Hedge` con protection scenarios + suggest + history
+- ✅ Cron piggyback 08:00 UTC: alerta DTE<30 con Telegram (snippet listo, integración pendiente futuro)
+- ✅ 10 strategies adicionales en `buildLegs()`:
+  - BCS_DEBIT, BPS_DEBIT (debit verticals)
+  - LONG_STRADDLE, LONG_STRANGLE (long vol plays)
+  - REVERSE_IF (long vol bounded)
+  - LONG_FLY_PUT, LONG_FLY_CALL (debit butterflies)
+  - COLLAR (defensive overlay)
+  - RISK_REVERSAL (synthetic long)
+  - BIG_LIZARD (extension de Jade Lizard)
+- ✅ Catalog ampliado a 27 strategies (15 → 27, +12 nuevas)
+- ✅ 47 tests Vitest nuevos (10 one-shot + 19 Wheel + 28 Tail Hedge) → 578/578 total
+- ✅ Construcción paralela: 2 agentes Claude trabajando en módulos AISLADOS (wheel-engine.js + tail-hedge-engine.js)
+  para evitar conflictos. YO integré endpoints/UI/seed catalog. Calidad verificada con review de exports y tests.
+
+**Sprint 7 (alternative) — Tail hedges programáticos pendientes (ya tenemos engine)**:
+- Convexity overlays con backspreads (engine listo, falta UI específica si se quiere)
+- Cron job daily check con Telegram CRITICAL si DTE<14 (snippet entregado, falta integrar al scheduled handler)
 
 **Sprint 8 — ✅ COMPLETO 2026-05-10 (walk-forward + stress + Monte Carlo)**:
 - ✅ 7 stress periods seedeados (COVID 2020, Volmageddon 2018, Yen carry 2024,
@@ -265,7 +301,8 @@ curl -sS -X POST https://api.onto-so.com/api/thetagang/backtest/run-with-filters
 - ✅ **NAS España OK por ahora** — VPS US deferred hasta Sprint 11
 - ✅ **5 gates promotion** antes de real money
 - ✅ **NO auto-open hasta Sprint 11**
-- ✅ **89 tests Vitest** (41 originales + 23 Sprint 6 multi-leg + 25 Sprint 8 backtest) + commit en cada sprint
+- ✅ **136 tests Vitest** (41 originales + 23 Sprint 6 multi-leg + 25 Sprint 8 backtest + 47 Sprint 7 Wheel/Hedge/one-shot)
+- ✅ **578/578 tests app totales** pass
 - ✅ **2026-05-10 todo el día**: 6 sprints, 1500+ líneas worker, 3 días de progress en 1 sesión
 
 ## Files clave

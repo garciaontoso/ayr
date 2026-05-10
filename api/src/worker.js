@@ -14,6 +14,8 @@ import { ytRequireToken } from "./lib/auth.js";
 import { ensureMigrations, ensureScannerMigrations, _errorLogRateLimit, migrationState } from "./lib/migrations.js";
 import * as BS from "./lib/black-scholes.js";
 import * as BTE from "./lib/backtest-engine.js";
+import * as Wheel from "./lib/wheel-engine.js";
+import * as TH from "./lib/tail-hedge-engine.js";
 import { FMP_MAP, toFMP, fromFMP, FMP_REVERSE, fmpQuote, fmpRiskMetrics, fmpSpyCloses, fmpSpark, FCF_PAYOUT_CARVEOUT, CURRENCY_MAP } from "./lib/fmp.js";
 
 // FMP_MAP, toFMP, fromFMP, fmpQuote, fmpRiskMetrics, fmpSpyCloses, fmpSpark → ./lib/fmp.js
@@ -7612,6 +7614,54 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           created_at TEXT DEFAULT (datetime('now')),
           updated_at TEXT DEFAULT (datetime('now'))
         )`).run();
+        // Sprint 7 — Wheel cycles state machine
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS thetagang_wheel_cycles (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          symbol TEXT NOT NULL,
+          state TEXT NOT NULL,
+          qty INTEGER DEFAULT 1,
+          strike_csp REAL, premium_csp REAL,
+          strike_cc REAL, premium_cc REAL,
+          expiry TEXT,
+          shares_owned INTEGER DEFAULT 0,
+          stock_basis_per_share REAL,
+          cost_basis_effective REAL,
+          cash_committed REAL,
+          cycle_premium_total REAL DEFAULT 0,
+          cycle_pnl REAL,
+          cycle_started_at TEXT, cycle_closed_at TEXT,
+          opened_at TEXT, assigned_at TEXT,
+          updated_at TEXT DEFAULT (datetime('now')),
+          last_note TEXT,
+          state_json TEXT
+        )`).run();
+        await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_thetagang_wheel_state
+          ON thetagang_wheel_cycles(state, symbol)`).run();
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS thetagang_wheel_transitions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          cycle_id INTEGER NOT NULL,
+          from_state TEXT, to_state TEXT, event TEXT,
+          at TEXT, note TEXT, payload_json TEXT
+        )`).run();
+        await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_thetagang_wheel_trans
+          ON thetagang_wheel_transitions(cycle_id, at DESC)`).run();
+        // Sprint 7 — Tail hedge book
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS thetagang_tail_hedges (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          hedge_type TEXT NOT NULL,
+          opened_at TEXT NOT NULL,
+          closed_at TEXT,
+          symbol TEXT NOT NULL,
+          strike REAL, opt_type TEXT, expiry TEXT, dte_at_open INTEGER,
+          cost_dollars REAL NOT NULL, qty INTEGER NOT NULL,
+          status TEXT NOT NULL DEFAULT 'open',
+          close_pnl REAL, close_reason TEXT,
+          vix_at_open REAL, ivr_at_open REAL, spot_at_open REAL,
+          meta_json TEXT, rolled_to_id INTEGER,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )`).run();
+        await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_tail_hedges_status
+          ON thetagang_tail_hedges(status)`).run();
       };
 
       // GET /api/thetagang/strategies — catálogo de las 9 estrategias seedeadas
@@ -7640,6 +7690,22 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
               { id: 'calendar-put-spy', name: '🟡 Put Calendar SPY 14×30', description: 'Sell front-month ATM put, buy back-month same strike. Vol skew + theta diff. Profits at expiry of front near strike.', strategy_type: 'CALENDAR_PUT', dte_range: '14-21', delta_short: 0.50, delta_long: 0.50, ivr_min: 25 },
               { id: 'diagonal-put-spy', name: '🟡 Diagonal Put SPY', description: 'Sell front higher-strike put, buy back lower-strike put. Calendar-vertical hybrid. Theta + slight bearish bias.', strategy_type: 'DIAGONAL_PUT', dte_range: '14-21', delta_short: 0.30, delta_long: 0.30, ivr_min: 30 },
               { id: 'ratio-back-put-spy', name: '🔴 Ratio Backspread Put SPY', description: 'Sell 1 close put, buy 2 further OTM (debit). Long convexity hedge. Profits big down moves, max loss between strikes.', strategy_type: 'RATIO_BACK_PUT', dte_range: '30-45', delta_short: 0.30, delta_long: 0.15, ivr_min: 0 },
+              // Sprint 7 — additional one-shot strategies
+              { id: 'bcs-debit-spy', name: '🟢 Bull Call Spread (debit) SPY', description: 'Long ATM call + short OTM call. Direccional alcista. Cost=debit, max profit=width-debit. Bias bullish.', strategy_type: 'BCS_DEBIT', dte_range: '30-60', delta_short: null, delta_long: 0.50, ivr_min: 0 },
+              { id: 'bps-debit-spy', name: '🟢 Bear Put Spread (debit) SPY', description: 'Long ATM put + short OTM put. Direccional bajista. Cost=debit, max profit=width-debit. Bias bearish.', strategy_type: 'BPS_DEBIT', dte_range: '30-60', delta_short: null, delta_long: 0.50, ivr_min: 0 },
+              { id: 'long-straddle-earnings', name: '🟡 Long Straddle pre-earnings', description: 'Long ATM call + ATM put. Vol expansion play pre-binary event. Profits movimiento ANY direction.', strategy_type: 'LONG_STRADDLE', dte_range: '7-21', delta_short: null, delta_long: 0.50, ivr_min: 0 },
+              { id: 'long-strangle-spy', name: '🟡 Long Strangle SPY', description: 'Long OTM call + OTM put. Más barato que straddle pero requiere mayor movimiento. Big-move play.', strategy_type: 'LONG_STRANGLE', dte_range: '14-30', delta_short: null, delta_long: 0.30, ivr_min: 0 },
+              { id: 'reverse-if-spy', name: '🔴 Reverse Iron Fly SPY', description: 'Long ATM straddle + short wings. Profits big move ±. Max loss limited (debit small). Vol expansion play.', strategy_type: 'REVERSE_IF', dte_range: '14-30', delta_short: 0.16, delta_long: 0.50, ivr_min: 0 },
+              { id: 'fly-call-spy', name: '🟡 Long Call BFly SPY', description: 'Long+sell2+long calls. Pin-at-strike alcista. Debit pequeño, max profit en K_mid. Bias bullish moderate.', strategy_type: 'LONG_FLY_CALL', dte_range: '21-45', delta_short: 0.30, delta_long: 0.50, ivr_min: 0 },
+              { id: 'fly-put-spy', name: '🟡 Long Put BFly SPY', description: 'Long+sell2+long puts. Pin-at-strike bajista. Debit pequeño, max profit en K_mid. Bias bearish moderate.', strategy_type: 'LONG_FLY_PUT', dte_range: '21-45', delta_short: 0.30, delta_long: 0.50, ivr_min: 0 },
+              { id: 'collar-spy', name: '🟢 Collar SPY (defensive)', description: 'Long stock + protective put + short OTM call. Defensive overlay para posiciones grandes ganadoras. Caps upside, floors downside.', strategy_type: 'COLLAR', dte_range: '30-90', delta_short: 0.16, delta_long: 0.30, ivr_min: 0 },
+              { id: 'risk-reversal-spy', name: '🔴 Risk Reversal SPY', description: 'Sell OTM put + buy OTM call. Synthetic long bias, often net credit. Asignación si S < put strike.', strategy_type: 'RISK_REVERSAL', dte_range: '30-60', delta_short: 0.16, delta_long: 0.16, ivr_min: 30 },
+              { id: 'big-lizard-spy', name: '🟡 Big Lizard SPY', description: 'Short ATM straddle + long OTM call. Theta + neutral, NO UPSIDE RISK si credit ≥ width call. Asignación put posible.', strategy_type: 'BIG_LIZARD', dte_range: '30-45', delta_short: 0.50, delta_long: 0.16, ivr_min: 50 },
+              // Sprint 7 — Wheel strategy (state machine, not one-shot)
+              { id: 'wheel-spy', name: '🎡 Wheel SPY (CSP→CC cycle)', description: 'CSP Δ16 → assignment → CC Δ16 → assignment → cash → repeat. Income loop sobre stocks que te gusta poseer. Lifecycle managed.', strategy_type: 'WHEEL', dte_range: '30-45', delta_short: 0.16, delta_long: null, ivr_min: 25 },
+              // Sprint 7 — Tail hedge (programmatic, not one-shot)
+              { id: 'tail-hedge-spy-put', name: '🛡️ Tail Hedge SPY put roll', description: 'Long-OTM put Δ0.05 60-90 DTE rolled mensual. Insurance contra crash sistémico. Default 0.5% NAV/mes.', strategy_type: 'TAIL_HEDGE_PUT', dte_range: '60-90', delta_short: null, delta_long: 0.05, ivr_min: 0 },
+              { id: 'tail-hedge-vix-call', name: '🛡️ Tail Hedge VIX call', description: 'Long VIX call Δ0.20 30-60 DTE durante low-vol regimes. Vol spike insurance. Default 0.25% NAV cuando VIX<14.', strategy_type: 'TAIL_HEDGE_VIX', dte_range: '30-60', delta_short: null, delta_long: 0.20, ivr_min: 0 },
             ];
             const stmt = env.DB.prepare(`INSERT INTO thetagang_strategies (id, name, description, strategy_type, dte_range, delta_short, delta_long, ivr_min, status) VALUES (?,?,?,?,?,?,?,?, 'pending')`);
             for (const s of seedStrategies) {
@@ -9752,6 +9818,320 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         } catch (e) {
           return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500);
         }
+      }
+
+      // ─── Sprint 7 — Wheel state machine (CSP→assigned→CC→cycle) ──────────
+      // GET /api/thetagang/wheel/status?symbol=SPY
+      if (path === "/api/thetagang/wheel/status" && request.method === "GET") {
+        await ensureThetaGangTables();
+        try {
+          const symbol = url.searchParams.get('symbol');
+          const sql = symbol
+            ? `SELECT * FROM thetagang_wheel_cycles WHERE symbol = ? ORDER BY id DESC LIMIT 200`
+            : `SELECT * FROM thetagang_wheel_cycles ORDER BY id DESC LIMIT 200`;
+          const stmt = symbol ? env.DB.prepare(sql).bind(symbol) : env.DB.prepare(sql);
+          const { results: rows } = await stmt.all();
+          const cycles = (rows || []).map(r => ({ ...r, ...(r.state_json ? JSON.parse(r.state_json) : {}) }));
+          const open = cycles.filter(c => c.state !== Wheel.WHEEL_STATES.CYCLE_COMPLETE);
+          const completed = cycles.filter(c => c.state === Wheel.WHEEL_STATES.CYCLE_COMPLETE);
+          return json({
+            ok: true,
+            open_cycles: open,
+            completed_cycles: completed,
+            stats: Wheel.computeWheelStats(cycles),
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // POST /api/thetagang/wheel/open-csp body:{symbol,strike,premium_per_share,qty?,expiry}
+      if (path === "/api/thetagang/wheel/open-csp" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        await ensureThetaGangTables();
+        try {
+          const body = await request.json();
+          if (!body.symbol || !body.strike || body.premium_per_share == null) {
+            return json({ error: 'symbol, strike, premium_per_share required' }, corsHeaders, 400);
+          }
+          const { results: existing } = await env.DB.prepare(
+            `SELECT * FROM thetagang_wheel_cycles WHERE symbol = ? AND state != ? ORDER BY id DESC LIMIT 1`
+          ).bind(body.symbol, Wheel.WHEEL_STATES.CYCLE_COMPLETE).all();
+          let prior = existing?.[0]
+            ? { ...existing[0], ...(existing[0].state_json ? JSON.parse(existing[0].state_json) : {}) }
+            : null;
+          const r = Wheel.wheelStateMachine(prior, Wheel.WHEEL_EVENTS.OPEN_CSP, body);
+          if (!r.ok) return json({ error: r.error }, corsHeaders, 400);
+          const ns = r.nextState;
+          let cycleId = prior?.id;
+          if (cycleId) {
+            await env.DB.prepare(`UPDATE thetagang_wheel_cycles
+              SET state=?, strike_csp=?, premium_csp=?, qty=?, expiry=?, cash_committed=?,
+                  cycle_premium_total=?, opened_at=?, updated_at=datetime('now'), state_json=?
+              WHERE id=?`).bind(
+              ns.state, ns.strike_csp, ns.premium_csp, ns.qty, ns.expiry,
+              ns.cash_committed, ns.cycle_premium_total, ns.opened_at, JSON.stringify(ns), cycleId
+            ).run();
+          } else {
+            const ins = await env.DB.prepare(`INSERT INTO thetagang_wheel_cycles
+              (symbol, state, strike_csp, premium_csp, qty, expiry, cash_committed,
+               cycle_premium_total, opened_at, cycle_started_at, state_json)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(
+              ns.symbol, ns.state, ns.strike_csp, ns.premium_csp, ns.qty, ns.expiry,
+              ns.cash_committed, ns.cycle_premium_total, ns.opened_at, ns.cycle_started_at, JSON.stringify(ns)
+            ).run();
+            cycleId = ins.meta?.last_row_id;
+            ns.id = cycleId;
+          }
+          await env.DB.prepare(`INSERT INTO thetagang_wheel_transitions
+            (cycle_id, from_state, to_state, event, at, payload_json) VALUES (?,?,?,?,?,?)`).bind(
+            cycleId, r.transition.from, r.transition.to, r.transition.event,
+            r.transition.at, JSON.stringify(body)
+          ).run();
+          return json({ ok: true, cycle: ns, transition: r.transition }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // POST /api/thetagang/wheel/open-cc body:{cycle_id,strike,premium_per_share,qty?,expiry}
+      if (path === "/api/thetagang/wheel/open-cc" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        await ensureThetaGangTables();
+        try {
+          const body = await request.json();
+          if (!body.cycle_id) return json({ error: 'cycle_id required' }, corsHeaders, 400);
+          const { results: rows } = await env.DB.prepare(
+            `SELECT * FROM thetagang_wheel_cycles WHERE id = ?`
+          ).bind(body.cycle_id).all();
+          if (!rows?.[0]) return json({ error: 'cycle not found' }, corsHeaders, 404);
+          const prior = { ...rows[0], ...(rows[0].state_json ? JSON.parse(rows[0].state_json) : {}) };
+          const r = Wheel.wheelStateMachine(prior, Wheel.WHEEL_EVENTS.OPEN_CC, body);
+          if (!r.ok) return json({ error: r.error }, corsHeaders, 400);
+          const ns = r.nextState;
+          await env.DB.prepare(`UPDATE thetagang_wheel_cycles
+            SET state=?, strike_cc=?, premium_cc=?, expiry=?, cycle_premium_total=?,
+                cost_basis_effective=?, updated_at=datetime('now'), last_note=?, state_json=?
+            WHERE id=?`).bind(
+            ns.state, ns.strike_cc, ns.premium_cc, ns.expiry, ns.cycle_premium_total,
+            ns.cost_basis_effective, ns.last_note || null, JSON.stringify(ns), body.cycle_id
+          ).run();
+          await env.DB.prepare(`INSERT INTO thetagang_wheel_transitions
+            (cycle_id, from_state, to_state, event, at, note, payload_json) VALUES (?,?,?,?,?,?,?)`).bind(
+            body.cycle_id, r.transition.from, r.transition.to, r.transition.event,
+            r.transition.at, ns.last_note || null, JSON.stringify(body)
+          ).run();
+          return json({ ok: true, cycle: ns, transition: r.transition }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // POST /api/thetagang/wheel/expire body:{cycle_id, outcome}
+      if (path === "/api/thetagang/wheel/expire" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        await ensureThetaGangTables();
+        try {
+          const body = await request.json();
+          if (!body.cycle_id || !body.outcome) {
+            return json({ error: 'cycle_id + outcome required' }, corsHeaders, 400);
+          }
+          const { results: rows } = await env.DB.prepare(
+            `SELECT * FROM thetagang_wheel_cycles WHERE id = ?`
+          ).bind(body.cycle_id).all();
+          if (!rows?.[0]) return json({ error: 'cycle not found' }, corsHeaders, 404);
+          const prior = { ...rows[0], ...(rows[0].state_json ? JSON.parse(rows[0].state_json) : {}) };
+          const ev = body.outcome === 'assigned' ? Wheel.WHEEL_EVENTS.ASSIGN
+            : body.outcome === 'closed_early' ? Wheel.WHEEL_EVENTS.CLOSE_EARLY
+            : Wheel.WHEEL_EVENTS.EXPIRE_OTM;
+          const r = Wheel.wheelStateMachine(prior, ev, body);
+          if (!r.ok) return json({ error: r.error }, corsHeaders, 400);
+          const ns = r.nextState;
+          await env.DB.prepare(`UPDATE thetagang_wheel_cycles
+            SET state=?, shares_owned=?, stock_basis_per_share=?, cost_basis_effective=?,
+                strike_csp=?, premium_csp=?, strike_cc=?, premium_cc=?, expiry=?,
+                cycle_pnl=?, cycle_premium_total=?, cycle_closed_at=?, assigned_at=?,
+                updated_at=datetime('now'), state_json=?
+            WHERE id=?`).bind(
+            ns.state, ns.shares_owned || 0, ns.stock_basis_per_share || null,
+            ns.cost_basis_effective || null, ns.strike_csp || null, ns.premium_csp || null,
+            ns.strike_cc || null, ns.premium_cc || null, ns.expiry || null,
+            ns.cycle_pnl || null, ns.cycle_premium_total, ns.cycle_closed_at || null,
+            ns.assigned_at || null, JSON.stringify(ns), body.cycle_id
+          ).run();
+          await env.DB.prepare(`INSERT INTO thetagang_wheel_transitions
+            (cycle_id, from_state, to_state, event, at, payload_json) VALUES (?,?,?,?,?,?)`).bind(
+            body.cycle_id, r.transition.from, r.transition.to, r.transition.event,
+            r.transition.at, JSON.stringify(body)
+          ).run();
+          return json({ ok: true, cycle: ns, transition: r.transition }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // GET /api/thetagang/wheel/suggest?symbol=SPY[&S=580&iv=0.18&dte=35]
+      if (path === "/api/thetagang/wheel/suggest" && request.method === "GET") {
+        await ensureThetaGangTables();
+        try {
+          const symbol = url.searchParams.get('symbol') || 'SPY';
+          let S = parseFloat(url.searchParams.get('S')) || 0;
+          let iv = parseFloat(url.searchParams.get('iv')) || 0;
+          const dte = parseInt(url.searchParams.get('dte') || '35', 10);
+          if (!S) {
+            try { const q = await ttQuote(env, [symbol]); S = q?.[symbol]?.last || q?.[symbol]?.mid || 0; } catch {}
+          }
+          if (!iv) {
+            try { const r = await ttIvRank(env, symbol); iv = r?.iv_index || 0.20; } catch { iv = 0.20; }
+          }
+          const { results: rows } = await env.DB.prepare(
+            `SELECT * FROM thetagang_wheel_cycles WHERE symbol = ? AND state != ? ORDER BY id DESC LIMIT 1`
+          ).bind(symbol, Wheel.WHEEL_STATES.CYCLE_COMPLETE).all();
+          const cur = rows?.[0]
+            ? { ...rows[0], ...(rows[0].state_json ? JSON.parse(rows[0].state_json) : {}) }
+            : { state: Wheel.WHEEL_STATES.AWAITING_CSP };
+          const suggestion = Wheel.suggestNextAction(cur, { S, sigma_iv: iv, dte });
+          return json({ ok: true, current_state: cur.state, spot: S, iv_index: iv, suggestion }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // ─── Sprint 7 — Tail Hedges (programmatic put roll + VIX overlay) ────
+      // GET /api/thetagang/tail-hedge/status — open hedges + protection + cost-to-date
+      if (path === "/api/thetagang/tail-hedge/status" && request.method === "GET") {
+        await ensureThetaGangTables();
+        try {
+          const { results: open } = await env.DB.prepare(
+            `SELECT * FROM thetagang_tail_hedges WHERE status = 'open' ORDER BY opened_at DESC`
+          ).all();
+          const { results: history } = await env.DB.prepare(
+            `SELECT * FROM thetagang_tail_hedges WHERE status != 'open' ORDER BY opened_at DESC LIMIT 50`
+          ).all();
+          const totals = await env.DB.prepare(
+            `SELECT SUM(cost_dollars) AS total_cost,
+                    SUM(COALESCE(close_pnl, 0)) AS realized_pnl,
+                    COUNT(*) AS n_total
+             FROM thetagang_tail_hedges`
+          ).first();
+          let spyPrice = null;
+          try { const q = await ttQuote(env, ['SPY']); spyPrice = q?.SPY?.last || q?.SPY?.mid || null; } catch {}
+          const spyLegs = (open || [])
+            .filter(h => h.symbol === 'SPY' && h.opt_type)
+            .map(h => ({
+              type: h.opt_type, strike: h.strike, action: 'buy', qty: h.qty,
+              T: Math.max(0, (new Date(h.expiry) - Date.now()) / (365 * 86400 * 1000)),
+              sigma: 0.20,
+            }));
+          const protection = spyPrice && spyLegs.length
+            ? TH.computeHedgeProtection(spyLegs, spyPrice, [-0.30, -0.20, -0.10, 0, 0.05])
+            : [];
+          return json({
+            ok: true,
+            open: open || [],
+            history: history || [],
+            totals: totals || {},
+            spy_spot: spyPrice,
+            protection,
+            fetched_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // POST /api/thetagang/tail-hedge/suggest body:{hedge_type, nav?, params?}
+      if (path === "/api/thetagang/tail-hedge/suggest" && request.method === "POST") {
+        await ensureThetaGangTables();
+        try {
+          const body = await request.json().catch(() => ({}));
+          const hedge_type = body.hedge_type || 'put_roll';
+          const nav = body.nav || 1_400_000;
+          let spot = body.spot, vix = body.vix, ivr = body.ivr, sigma = body.sigma;
+          let spy_regime = body.spy_regime;
+          if (!Number.isFinite(spot)) {
+            try { const q = await ttQuote(env, ['SPY']); spot = q?.SPY?.last || q?.SPY?.mid; } catch {}
+          }
+          if (!Number.isFinite(vix)) {
+            try { const q = await ttQuote(env, ['VIX']); vix = q?.VIX?.last || q?.VIX?.mid; } catch {}
+          }
+          if (!Number.isFinite(ivr)) {
+            try { const r = await ttIvRank(env, 'SPY'); ivr = (r?.iv_rank || 0) * 100; sigma = sigma || r?.iv_index; } catch {}
+          }
+          if (!Number.isFinite(sigma)) sigma = 0.18;
+          const current = await env.DB.prepare(
+            `SELECT id, strike, qty, expiry,
+              CAST(julianday(expiry) - julianday('now') AS INTEGER) AS dte
+            FROM thetagang_tail_hedges WHERE status = 'open' AND hedge_type = ? LIMIT 1`
+          ).bind(hedge_type).first();
+
+          let result;
+          if (hedge_type === 'put_roll') {
+            result = TH.suggestPutRoll({ spot, sigma, vix, ivRank: ivr, nav, currentHedgePosition: current, params: body.params });
+          } else if (hedge_type === 'vix_call') {
+            result = TH.suggestVIXCall({ vix, spy_regime, ivRank: ivr, nav, currentHedgePosition: current, params: body.params });
+          } else if (hedge_type === 'convexity_backspread') {
+            result = TH.suggestConvexityBackspread({ spot, sigma, vix, ivRank: ivr, nav, params: body.params });
+          } else {
+            return json({ error: 'unknown hedge_type (use: put_roll | vix_call | convexity_backspread)' }, corsHeaders, 400);
+          }
+          return json({ ok: true, ...result, hedge_type, inputs: { spot, vix, ivr, nav, spy_regime } }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // POST /api/thetagang/tail-hedge/open body:{hedge_type,symbol,cost_dollars,qty,strike?,opt_type?,expiry?,...}
+      if (path === "/api/thetagang/tail-hedge/open" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        await ensureThetaGangTables();
+        try {
+          const b = await request.json();
+          for (const k of ['hedge_type', 'symbol', 'cost_dollars', 'qty']) {
+            if (b[k] == null) return json({ error: `missing ${k}` }, corsHeaders, 400);
+          }
+          const stmt = await env.DB.prepare(
+            `INSERT INTO thetagang_tail_hedges
+             (hedge_type, opened_at, symbol, strike, opt_type, expiry, dte_at_open,
+              cost_dollars, qty, vix_at_open, ivr_at_open, spot_at_open, meta_json)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          ).bind(
+            b.hedge_type, new Date().toISOString(), b.symbol,
+            b.strike ?? null, b.opt_type ?? null, b.expiry ?? null, b.dte_at_open ?? null,
+            b.cost_dollars, b.qty, b.vix_at_open ?? null, b.ivr_at_open ?? null,
+            b.spot_at_open ?? null, b.meta_json ? JSON.stringify(b.meta_json) : null
+          ).run();
+          return json({ ok: true, id: stmt.meta?.last_row_id }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // POST /api/thetagang/tail-hedge/roll body:{from_id,new_strike,new_expiry,new_dte,new_cost,close_pnl?}
+      if (path === "/api/thetagang/tail-hedge/roll" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        await ensureThetaGangTables();
+        try {
+          const b = await request.json();
+          const orig = await env.DB.prepare(`SELECT * FROM thetagang_tail_hedges WHERE id = ?`).bind(b.from_id).first();
+          if (!orig) return json({ error: 'from_id not found' }, corsHeaders, 404);
+          const insert = await env.DB.prepare(
+            `INSERT INTO thetagang_tail_hedges
+             (hedge_type, opened_at, symbol, strike, opt_type, expiry, dte_at_open,
+              cost_dollars, qty, vix_at_open, ivr_at_open, spot_at_open)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+          ).bind(
+            orig.hedge_type, new Date().toISOString(), orig.symbol,
+            b.new_strike, orig.opt_type, b.new_expiry, b.new_dte,
+            b.new_cost, b.new_qty ?? orig.qty,
+            b.vix_now ?? null, b.ivr_now ?? null, b.spot_now ?? null
+          ).run();
+          const newId = insert.meta?.last_row_id;
+          await env.DB.prepare(
+            `UPDATE thetagang_tail_hedges
+             SET status = 'rolled', closed_at = ?, close_pnl = ?, close_reason = 'rolled', rolled_to_id = ?
+             WHERE id = ?`
+          ).bind(new Date().toISOString(), b.close_pnl ?? 0, newId, b.from_id).run();
+          return json({ ok: true, closed_id: b.from_id, new_id: newId }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // POST /api/thetagang/tail-hedge/close body:{id, close_pnl, close_reason}
+      if (path === "/api/thetagang/tail-hedge/close" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        await ensureThetaGangTables();
+        try {
+          const b = await request.json();
+          if (!b.id) return json({ error: 'id required' }, corsHeaders, 400);
+          await env.DB.prepare(
+            `UPDATE thetagang_tail_hedges SET status='closed', closed_at=?, close_pnl=?, close_reason=? WHERE id=?`
+          ).bind(new Date().toISOString(), b.close_pnl ?? 0, b.close_reason ?? null, b.id).run();
+          return json({ ok: true }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
       }
 
       // GET /api/health/check — comprehensive health check de toda la app.
