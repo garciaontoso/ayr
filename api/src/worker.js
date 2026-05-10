@@ -7650,85 +7650,283 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       }
 
       // GET /api/thetagang/brain/scan — entries sugeridas hoy SPY/IWM/QQQ
-      // Sprint 1: básico con IV rank cache D1. Sprint 5+ añade smile/skew avanzado.
+      // Sprint 1.5 (2026-05-10): rebuild con TT bridge PRIMARY (real-time).
+      // Yahoo HV proxy queda como fallback degraded mode si TT bridge OFF.
+      // Sprint 1 inicial usaba HV proxy → IV rank wrong (67% vs 38% real TT).
       if (path === "/api/thetagang/brain/scan" && request.method === "GET") {
         await ensureThetaGangTables();
         try {
           const symbols = ['SPY', 'IWM', 'QQQ'];
           const today = new Date().toISOString().slice(0, 10);
-
-          // Get latest IV rank for each symbol from cache
           const candidates = [];
+          let dataSource = "tt_bridge";
+          let degradedMode = false;
+
           for (const sym of symbols) {
-            const { results: ivRows } = await env.DB.prepare(
-              `SELECT * FROM iv_rank_cache WHERE symbol = ? ORDER BY date DESC LIMIT 1`
-            ).bind(sym).all();
-            const ivRow = ivRows?.[0];
-            if (!ivRow) continue;
-
-            const ivr = ivRow.iv_rank || 0;
-            const ivp = ivRow.iv_percentile || 0;
-            // Score 0-100: peso IVR + IVP + skew. >70 = entry candidate.
-            let score = 0;
-            score += Math.min(50, ivr * 0.5);   // 50 pts max from IVR
-            score += Math.min(30, ivp * 0.3);   // 30 pts max from IVP
-            score += Math.min(20, Math.max(0, (ivRow.put_skew || 0) * 100)); // 20 pts max skew
-            score = Math.round(score);
-
-            // Pick strategy by score + IVR
-            let strategy, dte, deltaShort, notes;
-            if (score >= 70 && ivr >= 50) {
-              strategy = 'IC short (high IV)';
-              dte = 35;
-              deltaShort = 0.16;
-              notes = 'High IV rank — vol crush play. IC both sides Δ16/5.';
-            } else if (score >= 50) {
-              strategy = 'BPS (moderate IV)';
-              dte = 35;
-              deltaShort = 0.16;
-              notes = 'Moderate IV — BPS only, bullish bias. Take profit 50%.';
-            } else if (score >= 30) {
-              strategy = 'Wait';
-              dte = null;
-              deltaShort = null;
-              notes = 'IV comprimido — premium muy bajo. Wait or use cash.';
-            } else {
-              strategy = 'No entry';
-              dte = null;
-              deltaShort = null;
-              notes = 'Vol muy bajo, no compensa el riesgo.';
+            let ivData;
+            try {
+              // PRIMARY: TT real-time IV rank
+              ivData = await ttIvRank(env, sym);
+            } catch (err) {
+              degradedMode = true;
+              dataSource = "yahoo_hv_fallback";
+              // FALLBACK: Yahoo HV-based proxy from D1 cache
+              const { results: ivRows } = await env.DB.prepare(
+                `SELECT * FROM iv_rank_cache WHERE symbol = ? ORDER BY date DESC LIMIT 1`
+              ).bind(sym).all();
+              if (!ivRows?.[0]) continue;
+              const row = ivRows[0];
+              ivData = {
+                iv_rank: (row.iv_rank || 0) / 100,
+                iv_percentile: (row.iv_percentile || 0) / 100,
+                iv_index: (row.iv_current || 0) / 100,
+                hv_30d: row.hv_30d,
+                _source: "yahoo_hv_v1",
+              };
             }
 
-            // Estimate credit (rough — needs real chain to compute exact)
-            const creditExpected = strategy.startsWith('IC') ? 1.20 : strategy.startsWith('BPS') ? 0.85 : 0;
-            const maxLoss = strategy.startsWith('IC') ? 380 : strategy.startsWith('BPS') ? 415 : 0;
-            const pop = strategy === 'No entry' || strategy === 'Wait' ? null : (deltaShort ? (1 - deltaShort) * 100 : 80);
+            // TT returns iv_rank/percentile as 0-1 floats. Convert to 0-100.
+            const ivRank = (ivData.iv_rank || 0) * 100;
+            const ivPercentile = (ivData.iv_percentile || 0) * 100;
+            const ivIndex = (ivData.iv_index || 0) * 100;
+            const hv30 = ivData.hv_30d || null;
 
-            candidates.push({
+            // Score 0-100 (entry filter)
+            // Tastytrade Tom Sosnoff filter: IV rank >50 = entry candidate.
+            // We weight IVR higher than IVP (rank vs current high/low).
+            let score = 0;
+            score += Math.min(60, ivRank * 0.8);  // 60 max from IVR (peso alto)
+            score += Math.min(30, ivPercentile * 0.4); // 30 max from IVP
+            score += Math.min(10, Math.max(0, (ivData.iv_5d_change || 0) * 1000)); // recent change
+            score = Math.round(score);
+
+            // Strategy selection — vol comprimido = no entry
+            let strategy, dte, deltaShort, deltaLong, notes, action;
+            if (ivRank >= 50) {
+              strategy = 'IC short';
+              dte = 35;
+              deltaShort = 0.16;
+              deltaLong = 0.05;
+              notes = `IVR ${ivRank.toFixed(0)} alto. Vol crush IC Δ16/5 35 DTE.`;
+              action = 'ENTRY_CANDIDATE';
+            } else if (ivRank >= 35) {
+              strategy = 'BPS only';
+              dte = 35;
+              deltaShort = 0.16;
+              deltaLong = 0.05;
+              notes = `IVR ${ivRank.toFixed(0)} moderado. BPS solo, sesgo neutral-bull. TP 50%.`;
+              action = 'ENTRY_MAYBE';
+            } else if (ivRank >= 20) {
+              strategy = 'WAIT';
+              dte = null; deltaShort = null; deltaLong = null;
+              notes = `IVR ${ivRank.toFixed(0)} bajo. Vol comprimido, premium poco. Wait or use cash.`;
+              action = 'WAIT';
+            } else {
+              strategy = 'NO ENTRY';
+              dte = null; deltaShort = null; deltaLong = null;
+              notes = `IVR ${ivRank.toFixed(0)} muy bajo. NO vender vol aquí.`;
+              action = 'NO_ENTRY';
+            }
+
+            const candidate = {
               symbol: sym,
               strategy,
+              action,
               score,
-              iv_rank: ivr,
-              iv_percentile: ivp,
-              term_structure: ivRow.term_structure,
-              put_skew: ivRow.put_skew,
+              iv_rank: Math.round(ivRank * 10) / 10,
+              iv_percentile: Math.round(ivPercentile * 10) / 10,
+              iv_index: Math.round(ivIndex * 10) / 10,
+              hv_30d: hv30,
+              iv_5d_change: ivData.iv_5d_change,
               dte,
               delta_short: deltaShort,
-              credit_expected: creditExpected * 100, // contract = 100x
-              max_loss: maxLoss,
-              pop,
-              strikes_short: null,  // Sprint 5: real chain pricing
+              delta_long: deltaLong,
+              strikes_short: null,
+              credit_expected: null,
+              max_loss: null,
+              pop: deltaShort ? Math.round((1 - deltaShort) * 100) : null,
               notes,
-              data_date: ivRow.date,
-            });
+              data_source: ivData._source || "tt_bridge",
+              data_ts: ivData.ts,
+            };
+            candidates.push(candidate);
           }
           return json({
             ok: true,
             scan_at: new Date().toISOString(),
             scan_date: today,
+            data_source: dataSource,
+            degraded_mode: degradedMode,
             candidates: candidates.sort((a, b) => b.score - a.score),
             symbols_scanned: symbols,
-            note: candidates.length === 0 ? 'No IV rank cache yet. Cron diario actualizará.' : null,
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/thetagang/brain/trade-ticket?symbol=SPY&dte=35&strategy=BPS
+      // Construye trade ticket completo con strikes + credit reales TT.
+      // Identifica strikes Δ16 short / Δ5 long, calcula credit/loss/ROR.
+      if (path === "/api/thetagang/brain/trade-ticket" && request.method === "GET") {
+        const symbol = (url.searchParams.get('symbol') || '').toUpperCase();
+        const targetDte = Math.max(1, Number(url.searchParams.get('dte') || 35));
+        const strategy = (url.searchParams.get('strategy') || 'BPS').toUpperCase();
+        if (!symbol) return json({ error: 'symbol required' }, corsHeaders, 400);
+        try {
+          // 1. Fetch chain TT
+          const chain = await ttOptionChain(env, symbol);
+          if (!chain) return json({ error: 'No chain data from TT bridge' }, corsHeaders, 503);
+          const expirations = chain.expirations || [];
+          // Find expiration closest to target DTE
+          const candidate = expirations
+            .filter(e => Math.abs((e['days-to-expiration'] || 0) - targetDte) <= 10)
+            .sort((a, b) => Math.abs((a['days-to-expiration'] || 0) - targetDte) - Math.abs((b['days-to-expiration'] || 0) - targetDte))[0];
+          if (!candidate) return json({ error: `No expiration within ±10 days of ${targetDte}` }, corsHeaders, 404);
+          const expiration = candidate['expiration-date'];
+          const dte = candidate['days-to-expiration'];
+
+          // 2. Get current price
+          const quotes = await ttQuote(env, [symbol]);
+          const underlyingPx = quotes?.[symbol]?.last || quotes?.[symbol]?.mid || 0;
+          if (!underlyingPx) return json({ error: 'Cannot get underlying price' }, corsHeaders, 503);
+
+          // 3. Approximate strikes by % OTM (proxy for delta — Sprint 5 implementará delta real via Black-Scholes)
+          // Δ16 ≈ ~1 SD strike (using 30d HV)
+          // For BPS, we want short put OTM, long put further OTM
+          const ivIdx = (await ttIvRank(env, symbol)).iv_index || 0.20; // default 20% if missing
+          const sdMove = underlyingPx * ivIdx * Math.sqrt(dte / 365);  // 1 SD expected move
+          const targetShortPut = underlyingPx - sdMove;          // ~Δ16 approximation
+          const targetLongPut  = underlyingPx - sdMove * 1.5;    // ~Δ5 approximation
+
+          // Find closest strikes available
+          const strikes = (candidate.strikes || []).map(s => parseFloat(s['strike-price']));
+          const findClosest = (target) => strikes.reduce((best, k) => Math.abs(k - target) < Math.abs(best - target) ? k : best, strikes[0] || target);
+          const strikeShort = findClosest(targetShortPut);
+          const strikeLong  = findClosest(targetLongPut);
+
+          // 4. Get spread quote real
+          const legs = strategy === 'IC' ? [
+            { type: 'P', strike: strikeShort, action: 'sell' },
+            { type: 'P', strike: strikeLong,  action: 'buy'  },
+            { type: 'C', strike: findClosest(underlyingPx + sdMove),       action: 'sell' },
+            { type: 'C', strike: findClosest(underlyingPx + sdMove * 1.5), action: 'buy'  },
+          ] : [
+            { type: 'P', strike: strikeShort, action: 'sell' },
+            { type: 'P', strike: strikeLong,  action: 'buy'  },
+          ];
+
+          const spreadQ = await ttSpreadQuote(env, { underlying: symbol, expiration, legs });
+          const credit = spreadQ?.credit?.mid || 0;
+          const widthPut = strikeShort - strikeLong;
+          const maxLoss = (widthPut - credit) * 100;  // per contract
+          const ror = maxLoss > 0 ? (credit * 100 / maxLoss) * 100 : 0;
+
+          return json({
+            ok: true,
+            symbol,
+            strategy,
+            expiration,
+            dte,
+            underlying_price: underlyingPx,
+            iv_index: ivIdx,
+            sd_move: Math.round(sdMove * 100) / 100,
+            legs: spreadQ?.legs || legs,
+            credit_per_contract: {
+              worst: Math.round((spreadQ?.credit?.worst || 0) * 100) / 100,
+              mid: Math.round(credit * 100) / 100,
+              best: Math.round((spreadQ?.credit?.best || 0) * 100) / 100,
+            },
+            credit_dollars: Math.round(credit * 100),  // 1 contract = 100x
+            max_loss_dollars: Math.round(maxLoss),
+            ror_pct: Math.round(ror * 10) / 10,
+            pop_estimate_pct: 84,  // for Δ16 short typically
+            generated_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/thetagang/greeks/portfolio — net Greeks del portfolio TT
+      // Sprint 2: agrega Greeks de positions across all TT accounts.
+      // Beta-weighted delta vs SPY como verdadero risk metric.
+      if (path === "/api/thetagang/greeks/portfolio" && request.method === "GET") {
+        try {
+          // Fetch all accounts then iterate positions per account
+          const accountsResp = await ttBridgeFetch(env, "/marketdata/accounts");
+          const accounts = accountsResp?.accounts || [];
+          const positions = [];
+          for (const acct of accounts) {
+            try {
+              const accNum = acct.account_number;
+              const r = await ttBridgeFetch(env, `/marketdata/positions/${encodeURIComponent(accNum)}`);
+              const accPositions = r?.positions || [];
+              for (const p of accPositions) {
+                positions.push({ ...p, account_number: accNum });
+              }
+            } catch {}
+          }
+
+          let netDelta = 0, netGamma = 0, netTheta = 0, netVega = 0, netRho = 0;
+          let bsDelta = 0;  // beta-weighted SPY-equivalent
+
+          // Get SPY price for beta-weight
+          const quotes = await ttQuote(env, ['SPY']).catch(() => ({}));
+          const spyPx = quotes?.SPY?.last || quotes?.SPY?.mid || 600;
+
+          const positionGreeks = [];
+          for (const p of positions) {
+            const greeks = p.greeks || {};
+            const qty = p.quantity || 0;
+            const dirMult = (p.quantity_direction || 'Long') === 'Long' ? 1 : -1;
+            const multiplier = p.multiplier || (p.instrument_type === 'Equity Option' ? 100 : 1);
+
+            // Net contribution per Greek
+            const dContrib = (greeks.delta || 0) * qty * dirMult * multiplier;
+            const gContrib = (greeks.gamma || 0) * qty * dirMult * multiplier;
+            const tContrib = (greeks.theta || 0) * qty * dirMult * multiplier;
+            const vContrib = (greeks.vega  || 0) * qty * dirMult * multiplier;
+            const rContrib = (greeks.rho   || 0) * qty * dirMult * multiplier;
+
+            netDelta += dContrib;
+            netGamma += gContrib;
+            netTheta += tContrib;
+            netVega  += vContrib;
+            netRho   += rContrib;
+
+            // Beta-weight to SPY (simplified — Sprint 9 implementará beta real)
+            const ulPx = p.underlying_price || spyPx;
+            const beta = p.symbol?.startsWith('SPY') ? 1.0
+                       : p.symbol?.startsWith('QQQ') ? 1.15
+                       : p.symbol?.startsWith('IWM') ? 1.25
+                       : 1.0;
+            bsDelta += dContrib * (ulPx / spyPx) * beta;
+
+            positionGreeks.push({
+              symbol: p.symbol, instrument_type: p.instrument_type,
+              qty: qty * dirMult, multiplier,
+              delta: greeks.delta, gamma: greeks.gamma, theta: greeks.theta, vega: greeks.vega,
+              delta_dollars: Math.round(dContrib * spyPx * 100) / 100,
+              theta_dollars: Math.round(tContrib * 100) / 100,
+            });
+          }
+
+          return json({
+            ok: true,
+            net_greeks: {
+              delta: Math.round(netDelta * 100) / 100,
+              gamma: Math.round(netGamma * 100) / 100,
+              theta: Math.round(netTheta * 100) / 100,
+              vega: Math.round(netVega * 100) / 100,
+              rho: Math.round(netRho * 100) / 100,
+            },
+            beta_weighted_delta_spy: Math.round(bsDelta * 100) / 100,
+            theta_per_day_dollars: Math.round(netTheta * 100),  // per contract = 100x already in qty
+            spy_price: spyPx,
+            positions_count: positions.length,
+            positions: positionGreeks,
+            generated_at: new Date().toISOString(),
           }, corsHeaders);
         } catch (e) {
           return json({ error: e.message }, corsHeaders, 500);
