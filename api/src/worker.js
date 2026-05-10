@@ -8100,6 +8100,346 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return json({ ok: true, refreshed_at: new Date().toISOString(), date: today, results }, corsHeaders);
       }
 
+      // ─── PAPER TRADING ENGINE ─────────────────────────────────────────────
+      // Sprint 4: virtual position lifecycle (open/manage/close) sin submit
+      // real a TT. Mismo algoritmo que el live engine, fills mockados a:
+      //   * mid - 30% del spread (peor caso retail realistic)
+      //   * timing instantáneo (no slippage simulation Sprint 8)
+      //
+      // Drift detection: cada cierre paper, comparamos PnL real-paper vs
+      // backtest expectation. Si drift >30% sostenido → strategy REJECT.
+
+      // POST /api/thetagang/paper/open — abre paper position
+      // Body: { strategy_id, symbol, dte, contracts, strikes_short_put?, strikes_long_put?, ... }
+      if (path === "/api/thetagang/paper/open" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        await ensureThetaGangTables();
+        let body;
+        try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const { strategy_id, symbol = 'SPY', dte: targetDte = 35, contracts = 1, force = false } = body;
+        if (!strategy_id) return json({ error: 'strategy_id required' }, corsHeaders, 400);
+
+        try {
+          // 1. Build trade ticket using existing logic (chain + spread-quote)
+          const chain = await ttOptionChain(env, symbol);
+          if (!chain) return json({ error: 'No chain data' }, corsHeaders, 503);
+          const expirations = chain.expirations || [];
+          const candidate = expirations
+            .filter(e => Math.abs((e['days-to-expiration'] || 0) - targetDte) <= 10)
+            .sort((a, b) => Math.abs((a['days-to-expiration'] || 0) - targetDte) - Math.abs((b['days-to-expiration'] || 0) - targetDte))[0];
+          if (!candidate) return json({ error: `No expiration within ±10 of ${targetDte} DTE` }, corsHeaders, 404);
+          const expiration = candidate['expiration-date'];
+          const dte = candidate['days-to-expiration'];
+
+          const quotes = await ttQuote(env, [symbol]);
+          const ulPx = quotes?.[symbol]?.last || quotes?.[symbol]?.mid || 0;
+          if (!ulPx) return json({ error: 'No underlying quote' }, corsHeaders, 503);
+
+          const ivData = await ttIvRank(env, symbol).catch(() => ({}));
+          const ivIdx = ivData?.iv_index || 0.20;
+          const sdMove = ulPx * ivIdx * Math.sqrt(dte / 365);
+
+          // Pre-trade IV rank gate (mecánico — Sprint 5 filters)
+          const ivRank = (ivData?.iv_rank || 0) * 100;
+          if (!force && ivRank < 35) {
+            return json({
+              error: 'IV rank too low for entry',
+              iv_rank: ivRank,
+              threshold: 35,
+              hint: 'Pass force=true to override or wait for higher IV',
+            }, corsHeaders, 400);
+          }
+
+          // Strike selection (Δ16 short / Δ5 long approx)
+          const strikes = (candidate.strikes || []).map(s => parseFloat(s['strike-price']));
+          const findClosest = (target) => strikes.reduce((b, k) => Math.abs(k - target) < Math.abs(b - target) ? k : b, strikes[0]);
+          const Kshort = findClosest(ulPx - sdMove);
+          const Klong  = findClosest(ulPx - sdMove * 1.5);
+          if (Kshort <= Klong) return json({ error: 'Strike selection failed' }, corsHeaders, 500);
+
+          const legs = [
+            { type: 'P', strike: Kshort, action: 'sell' },
+            { type: 'P', strike: Klong,  action: 'buy' },
+          ];
+          const spreadQ = await ttSpreadQuote(env, { underlying: symbol, expiration, legs });
+          // Mock fill price: mid - 30% del spread (worst case retail)
+          const mid = spreadQ?.credit?.mid || 0;
+          const worst = spreadQ?.credit?.worst || 0;
+          const fillCredit = mid - 0.3 * (mid - worst); // closer to worst
+          if (fillCredit <= 0) return json({ error: 'Spread credit non-positive' }, corsHeaders, 500);
+
+          const width = Kshort - Klong;
+          const maxLoss = (width - fillCredit) * 100 * contracts;
+          const txCosts = 1.10 * 4 * contracts;
+
+          // 2. Insert paper trade
+          const insertRes = await env.DB.prepare(
+            `INSERT INTO thetagang_paper_trades
+              (strategy_id, symbol, direction, open_date, dte_open, strikes_json,
+               credit_received, max_loss, pop_estimate, status, meta_json)
+             VALUES (?, ?, 'short_premium', ?, ?, ?, ?, ?, ?, 'open', ?)`
+          ).bind(
+            strategy_id, symbol,
+            new Date().toISOString().slice(0,10),
+            dte,
+            JSON.stringify({ short_put: Kshort, long_put: Klong, expiration }),
+            fillCredit * 100 * contracts,
+            maxLoss,
+            (1 - 0.16) * 100,  // POP estimate from delta short
+            JSON.stringify({
+              underlying_price_open: ulPx,
+              iv_rank_open: ivRank,
+              iv_index_open: ivIdx,
+              sd_move: sdMove,
+              fill_mid: mid,
+              fill_actual: fillCredit,
+              tx_costs_open: txCosts,
+              contracts,
+              spread_quote: spreadQ,
+            })
+          ).run();
+
+          return json({
+            ok: true,
+            paper_trade_id: insertRes.meta?.last_row_id,
+            strategy_id,
+            symbol, expiration, dte,
+            contracts,
+            fills: {
+              credit_per_contract: Math.round(fillCredit * 100) / 100,
+              credit_dollars: Math.round(fillCredit * 100 * contracts),
+              max_loss_dollars: Math.round(maxLoss),
+              tx_costs: Math.round(txCosts * 100) / 100,
+            },
+            iv_rank_at_entry: Math.round(ivRank * 10) / 10,
+            note: 'Paper trade opened. mock fill = mid - 30% spread (worst case retail).',
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/thetagang/paper/positions — paper positions abiertas con P&L live
+      if (path === "/api/thetagang/paper/positions" && request.method === "GET") {
+        await ensureThetaGangTables();
+        try {
+          const { results: trades } = await env.DB.prepare(
+            `SELECT * FROM thetagang_paper_trades WHERE status = 'open' ORDER BY open_date DESC`
+          ).all();
+
+          const r_rate = BS.DEFAULT_RISK_FREE_RATE;
+          const today = new Date();
+
+          // Get unique underlyings to quote
+          const underlyings = [...new Set(trades.map(t => t.symbol))];
+          const quotes = await ttQuote(env, underlyings).catch(() => ({}));
+
+          const enriched = [];
+          for (const t of trades) {
+            const meta = JSON.parse(t.meta_json || '{}');
+            const strikes = JSON.parse(t.strikes_json || '{}');
+            const ulPx = quotes?.[t.symbol]?.last || quotes?.[t.symbol]?.mid || meta.underlying_price_open;
+            const expiration = strikes.expiration;
+            const T = expiration ? BS.yearFraction(expiration, today) : 0;
+            const dteNow = Math.round(T * 365);
+            const q = BS.DIVIDEND_YIELDS[t.symbol] ?? BS.DIVIDEND_YIELDS.default;
+
+            // Recompute current spread value
+            let sigma = meta.iv_index_open || 0.20;
+            try {
+              const ivLive = await ttIvRank(env, t.symbol);
+              if (ivLive?.iv_index) sigma = ivLive.iv_index;
+            } catch {}
+
+            const shortPx = strikes.short_put && T > 0 ? BS.bsPrice(ulPx, strikes.short_put, T, r_rate, sigma, 'put', q) : 0;
+            const longPx  = strikes.long_put  && T > 0 ? BS.bsPrice(ulPx, strikes.long_put,  T, r_rate, sigma, 'put', q) : 0;
+            const currentDebit = (shortPx - longPx) * 100 * (meta.contracts || 1);
+            const unrealizedPnl = t.credit_received - currentDebit - meta.tx_costs_open;
+            const pnlPct = t.credit_received !== 0 ? unrealizedPnl / t.credit_received : 0;
+
+            // Defense severity
+            const shortDelta = strikes.short_put && T > 0 ? Math.abs(BS.bsGreeks(ulPx, strikes.short_put, T, r_rate, sigma, 'put', q).delta) : 0;
+            let severity = 'OK';
+            if (dteNow <= 7) severity = 'GAMMA';
+            else if (shortDelta >= 0.45) severity = 'CRITICAL';
+            else if (shortDelta >= 0.30) severity = 'CHALLENGED';
+            else if (shortDelta >= 0.20) severity = 'WATCH';
+
+            // Auto-close triggers (50% TP, 200% SL)
+            let closeRecommend = null;
+            if (pnlPct >= 0.50) closeRecommend = 'TAKE_PROFIT';
+            else if (pnlPct <= -2.0) closeRecommend = 'STOP_LOSS';
+            else if (severity === 'GAMMA' && pnlPct < 0.25) closeRecommend = 'GAMMA_EXIT';
+
+            enriched.push({
+              id: t.id,
+              strategy_id: t.strategy_id,
+              symbol: t.symbol,
+              open_date: t.open_date,
+              dte_open: t.dte_open,
+              dte_now: dteNow,
+              strikes,
+              credit_received: t.credit_received,
+              current_debit_to_close: Math.round(currentDebit * 100) / 100,
+              unrealized_pnl: Math.round(unrealizedPnl * 100) / 100,
+              pnl_pct: Math.round(pnlPct * 1000) / 10,
+              underlying_price: Math.round(ulPx * 100) / 100,
+              short_delta: Math.round(shortDelta * 1000) / 1000,
+              severity,
+              close_recommend: closeRecommend,
+            });
+          }
+          return json({ ok: true, count: enriched.length, positions: enriched }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // POST /api/thetagang/paper/close — cierra paper position con mock debit
+      if (path === "/api/thetagang/paper/close" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        let body;
+        try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+        const { paper_trade_id, reason = 'manual' } = body;
+        if (!paper_trade_id) return json({ error: 'paper_trade_id required' }, corsHeaders, 400);
+
+        try {
+          const t = await env.DB.prepare(`SELECT * FROM thetagang_paper_trades WHERE id = ? AND status = 'open'`).bind(paper_trade_id).first();
+          if (!t) return json({ error: 'Trade not found or already closed' }, corsHeaders, 404);
+
+          const meta = JSON.parse(t.meta_json || '{}');
+          const strikes = JSON.parse(t.strikes_json || '{}');
+          const r_rate = BS.DEFAULT_RISK_FREE_RATE;
+          const today = new Date();
+          const T = BS.yearFraction(strikes.expiration, today);
+          const q = BS.DIVIDEND_YIELDS[t.symbol] ?? BS.DIVIDEND_YIELDS.default;
+
+          // Quote underlying for closing price
+          const quotes = await ttQuote(env, [t.symbol]).catch(() => ({}));
+          const ulPx = quotes?.[t.symbol]?.last || quotes?.[t.symbol]?.mid || meta.underlying_price_open;
+
+          let sigma = meta.iv_index_open || 0.20;
+          try {
+            const ivLive = await ttIvRank(env, t.symbol);
+            if (ivLive?.iv_index) sigma = ivLive.iv_index;
+          } catch {}
+
+          let closeDebit;
+          if (T <= 0) {
+            // Expired: intrinsic value
+            const sp = Math.max(0, strikes.short_put - ulPx);
+            const lp = Math.max(0, strikes.long_put - ulPx);
+            closeDebit = (sp - lp) * 100 * (meta.contracts || 1);
+          } else {
+            const shortPx = BS.bsPrice(ulPx, strikes.short_put, T, r_rate, sigma, 'put', q);
+            const longPx  = BS.bsPrice(ulPx, strikes.long_put,  T, r_rate, sigma, 'put', q);
+            // Mock fill: mid + 30% (worst case for closing — pay slightly above mid)
+            const mid = shortPx - longPx;
+            closeDebit = mid * 1.05 * 100 * (meta.contracts || 1);
+          }
+
+          const txCostsClose = 1.10 * 4 * (meta.contracts || 1);
+          const realizedPnl = t.credit_received - closeDebit - meta.tx_costs_open - txCostsClose;
+          const pnlPct = t.credit_received !== 0 ? realizedPnl / t.credit_received : 0;
+          const holdDays = Math.ceil((today.getTime() - new Date(t.open_date).getTime()) / 86400000);
+
+          await env.DB.prepare(
+            `UPDATE thetagang_paper_trades SET
+              status = 'closed', close_date = ?, close_reason = ?,
+              pnl_realized = ?, pnl_pct = ?, hold_days = ?
+             WHERE id = ?`
+          ).bind(
+            today.toISOString().slice(0, 10),
+            reason,
+            realizedPnl,
+            pnlPct * 100,
+            holdDays,
+            paper_trade_id
+          ).run();
+
+          return json({
+            ok: true,
+            paper_trade_id,
+            close: {
+              underlying_price: ulPx,
+              close_debit: Math.round(closeDebit * 100) / 100,
+              realized_pnl: Math.round(realizedPnl * 100) / 100,
+              pnl_pct: Math.round(pnlPct * 1000) / 10,
+              hold_days: holdDays,
+              tx_costs_close: Math.round(txCostsClose * 100) / 100,
+              total_tx_costs: Math.round((meta.tx_costs_open + txCostsClose) * 100) / 100,
+            },
+            verdict: realizedPnl > 0 ? 'WIN' : 'LOSS',
+            reason,
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/thetagang/paper/scoreboard — paper P&L history aggregated
+      if (path === "/api/thetagang/paper/scoreboard" && request.method === "GET") {
+        await ensureThetaGangTables();
+        try {
+          const { results: trades } = await env.DB.prepare(
+            `SELECT * FROM thetagang_paper_trades WHERE status = 'closed' ORDER BY close_date DESC LIMIT 200`
+          ).all();
+
+          // Aggregate by strategy
+          const byStrategy = {};
+          for (const t of trades) {
+            const sid = t.strategy_id;
+            if (!byStrategy[sid]) byStrategy[sid] = { strategy_id: sid, n: 0, total_pnl: 0, wins: 0, losses: 0 };
+            byStrategy[sid].n++;
+            byStrategy[sid].total_pnl += t.pnl_realized || 0;
+            if ((t.pnl_realized || 0) > 0) byStrategy[sid].wins++;
+            else byStrategy[sid].losses++;
+          }
+          const summary = Object.values(byStrategy).map(s => ({
+            ...s,
+            win_rate: s.n > 0 ? Math.round(s.wins / s.n * 1000) / 10 : 0,
+            total_pnl: Math.round(s.total_pnl * 100) / 100,
+          }));
+
+          // Drift vs backtest: compare paper vs backtest for each strategy
+          const driftAlerts = [];
+          for (const s of summary) {
+            const bt = await env.DB.prepare(
+              `SELECT win_rate, total_pnl, n_trades FROM thetagang_backtest_runs WHERE strategy_id = ? ORDER BY run_at DESC LIMIT 1`
+            ).bind(s.strategy_id).first();
+            if (!bt || s.n < 5) continue; // need enough trades to compare
+            const expectedWinRate = bt.win_rate * 100;
+            const drift = Math.abs(s.win_rate - expectedWinRate);
+            if (drift > 30) {
+              driftAlerts.push({
+                strategy_id: s.strategy_id,
+                paper_win_rate: s.win_rate,
+                backtest_win_rate: expectedWinRate,
+                drift_pct: Math.round(drift * 10) / 10,
+                verdict: 'DRIFT_HIGH — investigate before promote',
+              });
+            }
+          }
+
+          return json({
+            ok: true,
+            total_trades: trades.length,
+            by_strategy: summary,
+            drift_alerts: driftAlerts,
+            recent: trades.slice(0, 20).map(t => ({
+              id: t.id, strategy_id: t.strategy_id, symbol: t.symbol,
+              open_date: t.open_date, close_date: t.close_date,
+              hold_days: t.hold_days, pnl_realized: t.pnl_realized,
+              pnl_pct: t.pnl_pct, close_reason: t.close_reason,
+            })),
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
       // GET /api/thetagang/defense/eval — Sprint 3 defense playbook engine.
       // Para cada open position TT, calcula severidad + recomienda acción defensiva.
       //
