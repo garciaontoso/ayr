@@ -401,10 +401,317 @@ function PayoffChart({ spot, payoff, breakevens, maxProfit, maxLoss }) {
   );
 }
 
-// ─── 🧪 Backtests — placeholder, se construye Sprint 2 ──────────────────────
+// ─── 🧪 Backtests — Sprint 8 (stress + walk-forward + Monte Carlo) ──────────
 function BacktestsSubtab() {
-  return <PlaceholderTab icon="🧪" title="Backtests" sprint="Sprint 2"
-    description="Walk-forward histórico 3 años con transaction costs realistas. Sharpe / MaxDD / Profit Factor por estrategia." />;
+  const [mode, setMode] = useState('stress');
+  return (
+    <div style={{ padding: 14 }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14, borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
+        {[
+          { id: 'stress', lbl: '🔥 Stress periods' },
+          { id: 'wf',     lbl: '🚶 Walk-forward' },
+          { id: 'mc',     lbl: '🎲 Monte Carlo' },
+        ].map(m => (
+          <button key={m.id} onClick={() => setMode(m.id)}
+            style={{
+              padding: '6px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              background: mode === m.id ? 'var(--gold, #fbbf24)' : 'transparent',
+              color: mode === m.id ? '#000' : 'var(--text-secondary)',
+              border: '1px solid ' + (mode === m.id ? 'var(--gold, #fbbf24)' : 'var(--border)'),
+              borderRadius: 4,
+            }}>{m.lbl}</button>
+        ))}
+      </div>
+      {mode === 'stress' && <StressTestPanel />}
+      {mode === 'wf' && <WalkForwardPanel />}
+      {mode === 'mc' && <MonteCarloPanel />}
+    </div>
+  );
+}
+
+function StressTestPanel() {
+  const [periods, setPeriods] = useState([]);
+  const [periodId, setPeriodId] = useState('covid_2020');
+  const [symbol, setSymbol] = useState('SPY');
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/thetagang/backtest/stress-periods`)
+      .then(r => r.json())
+      .then(d => setPeriods([...(d.stress_periods || []), ...(d.calm_periods || [])]))
+      .catch(() => {});
+  }, []);
+
+  const run = useCallback(() => {
+    setLoading(true); setErr(null); setData(null);
+    fetch(`${API_URL}/api/thetagang/backtest/stress-test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ period_id: periodId, symbol, contracts: 1 }),
+    }).then(r => r.json())
+      .then(d => { setData(d); setLoading(false); if (d.error) setErr(d.error); })
+      .catch(e => { setErr(e.message); setLoading(false); });
+  }, [periodId, symbol]);
+
+  return (
+    <div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 14, padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, flex: 1, minWidth: 280 }}>
+          <span style={{ color: 'var(--text-tertiary)' }}>Stress period</span>
+          <select value={periodId} onChange={e => setPeriodId(e.target.value)}
+            style={{ padding: '6px 8px', fontSize: 12, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }}>
+            {periods.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+          </select>
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11 }}>
+          <span style={{ color: 'var(--text-tertiary)' }}>Symbol</span>
+          <select value={symbol} onChange={e => setSymbol(e.target.value)}
+            style={{ padding: '6px 8px', fontSize: 12, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }}>
+            <option>SPY</option><option>QQQ</option><option>IWM</option>
+          </select>
+        </label>
+        <button onClick={run} disabled={loading}
+          style={{ alignSelf: 'flex-end', padding: '6px 14px', fontSize: 12, background: 'var(--gold, #fbbf24)', color: '#000', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>
+          {loading ? 'Running...' : '▶ Run stress test'}
+        </button>
+      </div>
+
+      {err && <div style={{ padding: 10, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, color: '#ef4444', fontSize: 12, marginBottom: 12 }}>⚠ {err}</div>}
+      {data?.ok && <BacktestResults data={data} />}
+    </div>
+  );
+}
+
+function WalkForwardPanel() {
+  const [symbol, setSymbol] = useState('SPY');
+  const [trainMonths, setTrainMonths] = useState(12);
+  const [testMonths, setTestMonths] = useState(3);
+  const [yearsBack, setYearsBack] = useState(5);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const run = useCallback(() => {
+    setLoading(true); setErr(null); setData(null);
+    fetch(`${API_URL}/api/thetagang/backtest/walk-forward`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol, train_months: trainMonths, test_months: testMonths, years_back: yearsBack }),
+    }).then(r => r.json())
+      .then(d => { setData(d); setLoading(false); if (d.error) setErr(d.error); })
+      .catch(e => { setErr(e.message); setLoading(false); });
+  }, [symbol, trainMonths, testMonths, yearsBack]);
+
+  return (
+    <div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 14, padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11 }}>
+          <span style={{ color: 'var(--text-tertiary)' }}>Symbol</span>
+          <select value={symbol} onChange={e => setSymbol(e.target.value)} style={{ padding: '6px 8px', fontSize: 12, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }}>
+            <option>SPY</option><option>QQQ</option><option>IWM</option>
+          </select>
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11 }}>
+          <span style={{ color: 'var(--text-tertiary)' }}>Train (mo)</span>
+          <input type="number" value={trainMonths} onChange={e => setTrainMonths(Number(e.target.value))} min={3} max={36} style={{ padding: '6px 8px', fontSize: 12, width: 60, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11 }}>
+          <span style={{ color: 'var(--text-tertiary)' }}>Test (mo)</span>
+          <input type="number" value={testMonths} onChange={e => setTestMonths(Number(e.target.value))} min={1} max={12} style={{ padding: '6px 8px', fontSize: 12, width: 60, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11 }}>
+          <span style={{ color: 'var(--text-tertiary)' }}>Years back</span>
+          <input type="number" value={yearsBack} onChange={e => setYearsBack(Number(e.target.value))} min={2} max={15} style={{ padding: '6px 8px', fontSize: 12, width: 60, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} />
+        </label>
+        <button onClick={run} disabled={loading} style={{ alignSelf: 'flex-end', padding: '6px 14px', fontSize: 12, background: 'var(--gold, #fbbf24)', color: '#000', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>
+          {loading ? 'Running...' : '▶ Run walk-forward'}
+        </button>
+      </div>
+      {err && <div style={{ padding: 10, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, color: '#ef4444', fontSize: 12, marginBottom: 12 }}>⚠ {err}</div>}
+      {data?.ok && (
+        <div>
+          <div style={{ padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 14, fontSize: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
+              <Stat label="Windows" value={data.n_windows} />
+              <Stat label="Consistency" value={data.consistency_pct + '%'} color={data.consistency_pct >= 60 ? '#30d158' : '#fbbf24'} />
+              <Stat label="OOS Sharpe" value={data.overall_oos_stats?.sharpe} />
+              <Stat label="OOS Total P&L" value={'$' + (data.overall_oos_stats?.total_pnl || 0).toLocaleString()} />
+              <Stat label="Verdict" value={data.overall_oos_verdict?.verdict} color={data.overall_oos_verdict?.verdict?.startsWith('PASS') ? '#30d158' : '#ef4444'} small />
+            </div>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
+                  <th style={{ padding: '6px 8px' }}>Test window</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>N trades</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Win %</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Total P&L</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Sharpe</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>MaxDD</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.windows.map((w, i) => (
+                  <tr key={i} style={{ borderBottom: '1px dashed var(--border)' }}>
+                    <td style={{ padding: '6px 8px' }}>{w.window.test_start} → {w.window.test_end}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'right' }}>{w.n_trades}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'right' }}>{w.stats.win_rate}%</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'right', color: w.stats.total_pnl > 0 ? '#30d158' : '#ef4444' }}>${w.stats.total_pnl}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'right' }}>{w.stats.sharpe}</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'right' }}>${w.stats.max_dd}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MonteCarloPanel() {
+  const [symbol, setSymbol] = useState('SPY');
+  const [nSims, setNSims] = useState(10000);
+  const [yearsBack, setYearsBack] = useState(5);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const run = useCallback(() => {
+    setLoading(true); setErr(null); setData(null);
+    fetch(`${API_URL}/api/thetagang/backtest/monte-carlo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol, n_sims: nSims, years_back: yearsBack }),
+    }).then(r => r.json())
+      .then(d => { setData(d); setLoading(false); if (d.error) setErr(d.error); })
+      .catch(e => { setErr(e.message); setLoading(false); });
+  }, [symbol, nSims, yearsBack]);
+
+  return (
+    <div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 14, padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11 }}>
+          <span style={{ color: 'var(--text-tertiary)' }}>Symbol</span>
+          <select value={symbol} onChange={e => setSymbol(e.target.value)} style={{ padding: '6px 8px', fontSize: 12, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }}>
+            <option>SPY</option><option>QQQ</option><option>IWM</option>
+          </select>
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11 }}>
+          <span style={{ color: 'var(--text-tertiary)' }}>Sims</span>
+          <input type="number" value={nSims} onChange={e => setNSims(Number(e.target.value))} min={100} max={50000} step={1000} style={{ padding: '6px 8px', fontSize: 12, width: 80, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11 }}>
+          <span style={{ color: 'var(--text-tertiary)' }}>Years back</span>
+          <input type="number" value={yearsBack} onChange={e => setYearsBack(Number(e.target.value))} min={2} max={15} style={{ padding: '6px 8px', fontSize: 12, width: 60, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} />
+        </label>
+        <button onClick={run} disabled={loading} style={{ alignSelf: 'flex-end', padding: '6px 14px', fontSize: 12, background: 'var(--gold, #fbbf24)', color: '#000', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>
+          {loading ? 'Running...' : `▶ Run ${nSims.toLocaleString()} sims`}
+        </button>
+      </div>
+      {err && <div style={{ padding: 10, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, color: '#ef4444', fontSize: 12, marginBottom: 12 }}>⚠ {err}</div>}
+      {data?.ok && (
+        <div>
+          <div style={{ padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 14 }}>
+            <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 6 }}>BASE BACKTEST ({data.n_base_trades} trades over {data.years_back}y)</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, fontSize: 12 }}>
+              <Stat label="Total P&L" value={'$' + (data.base_stats?.total_pnl || 0).toLocaleString()} />
+              <Stat label="Win rate" value={data.base_stats?.win_rate + '%'} />
+              <Stat label="Sharpe" value={data.base_stats?.sharpe} />
+              <Stat label="Max DD" value={'$' + (data.base_stats?.max_dd || 0)} />
+              <Stat label="Profit factor" value={data.base_stats?.profit_factor} />
+            </div>
+          </div>
+          <div style={{ padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 14 }}>
+            <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 6 }}>{nSims.toLocaleString()} BOOTSTRAP SIMULATIONS</div>
+            <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                  <th style={{ padding: '6px 8px', textAlign: 'left' }}>Percentile</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Total P&L</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Max DD</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td style={{ padding: '6px 8px' }}>p05 (very bad)</td><td style={{ padding: '6px 8px', textAlign: 'right', color: data.monte_carlo.total_pnl_p05 < 0 ? '#ef4444' : '#30d158' }}>${data.monte_carlo.total_pnl_p05.toLocaleString()}</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>—</td></tr>
+                <tr><td style={{ padding: '6px 8px' }}>p25</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>${data.monte_carlo.total_pnl_p25.toLocaleString()}</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>—</td></tr>
+                <tr><td style={{ padding: '6px 8px' }}>p50 (median)</td><td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700 }}>${data.monte_carlo.total_pnl_p50.toLocaleString()}</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>${data.monte_carlo.max_dd_p50}</td></tr>
+                <tr><td style={{ padding: '6px 8px' }}>p75</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>${data.monte_carlo.total_pnl_p75.toLocaleString()}</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>—</td></tr>
+                <tr><td style={{ padding: '6px 8px' }}>p95 (very good)</td><td style={{ padding: '6px 8px', textAlign: 'right', color: '#30d158' }}>${data.monte_carlo.total_pnl_p95.toLocaleString()}</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>${data.monte_carlo.max_dd_p95}</td></tr>
+                <tr><td style={{ padding: '6px 8px', color: '#ef4444' }}>p99 max DD (worst case)</td><td style={{ padding: '6px 8px', textAlign: 'right' }}>—</td><td style={{ padding: '6px 8px', textAlign: 'right', color: '#ef4444' }}>${data.monte_carlo.max_dd_p99}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style={{ padding: 12, background: 'rgba(96,165,250,.06)', border: '1px solid rgba(96,165,250,.2)', borderRadius: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+            <div style={{ marginBottom: 4 }}><b>Probability profitable</b>: <span style={{ color: data.monte_carlo.prob_profitable_pct > 70 ? '#30d158' : data.monte_carlo.prob_profitable_pct > 50 ? '#fbbf24' : '#ef4444' }}>{data.monte_carlo.prob_profitable_pct}%</span></div>
+            <div style={{ marginBottom: 4 }}><b>Probability blowup (loss &gt;$10k)</b>: <span style={{ color: data.monte_carlo.prob_blowup_pct > 5 ? '#ef4444' : 'var(--text-primary)' }}>{data.monte_carlo.prob_blowup_pct}%</span></div>
+            <div>{data.interpretation?.edge_quality}</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BacktestResults({ data }) {
+  return (
+    <div>
+      <div style={{ padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 14 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{data.period?.label}</div>
+        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 8 }}>{data.period?.description}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 10, fontSize: 12 }}>
+          <Stat label="Trades" value={data.n_trades} />
+          <Stat label="Total P&L" value={'$' + (data.stats?.total_pnl || 0).toLocaleString()} color={(data.stats?.total_pnl || 0) > 0 ? '#30d158' : '#ef4444'} />
+          <Stat label="Win rate" value={(data.stats?.win_rate || 0) + '%'} />
+          <Stat label="Sharpe" value={data.stats?.sharpe} />
+          <Stat label="Max DD" value={'$' + (data.stats?.max_dd || 0)} color="#ef4444" />
+          <Stat label="Profit factor" value={data.stats?.profit_factor} />
+          <Stat label="Verdict" value={data.verdict?.verdict} color={data.verdict?.verdict?.startsWith('PASS') ? '#30d158' : '#ef4444'} small />
+        </div>
+      </div>
+      {data.trades?.length > 0 && (
+        <div style={{ overflowX: 'auto', maxHeight: 320 }}>
+          <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+            <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
+              <th style={{ padding: '6px 8px', textAlign: 'left' }}>Entry</th>
+              <th style={{ padding: '6px 8px', textAlign: 'left' }}>Exit</th>
+              <th style={{ padding: '6px 8px', textAlign: 'right' }}>Days</th>
+              <th style={{ padding: '6px 8px', textAlign: 'right' }}>Strikes</th>
+              <th style={{ padding: '6px 8px', textAlign: 'right' }}>Credit</th>
+              <th style={{ padding: '6px 8px', textAlign: 'right' }}>P&L</th>
+              <th style={{ padding: '6px 8px', textAlign: 'left' }}>Exit reason</th>
+            </tr></thead>
+            <tbody>
+              {data.trades.map((t, i) => (
+                <tr key={i} style={{ borderBottom: '1px dashed var(--border)' }}>
+                  <td style={{ padding: '4px 8px' }}>{t.entry_date}</td>
+                  <td style={{ padding: '4px 8px' }}>{t.exit_date}</td>
+                  <td style={{ padding: '4px 8px', textAlign: 'right' }}>{t.hold_days}</td>
+                  <td style={{ padding: '4px 8px', textAlign: 'right' }}>{t.Kshort}/{t.Klong}</td>
+                  <td style={{ padding: '4px 8px', textAlign: 'right' }}>${t.credit}</td>
+                  <td style={{ padding: '4px 8px', textAlign: 'right', color: t.pnl > 0 ? '#30d158' : '#ef4444' }}>${t.pnl}</td>
+                  <td style={{ padding: '4px 8px', fontSize: 10, color: 'var(--text-tertiary)' }}>{t.exit_reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Stat({ label, value, color, small }) {
+  return (
+    <div>
+      <div style={{ fontSize: 9, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</div>
+      <div style={{ fontSize: small ? 11 : 16, fontWeight: 600, color: color || 'var(--text-primary)' }}>{value ?? '—'}</div>
+    </div>
+  );
 }
 
 // ─── 📊 Greeks portfolio — Sprint 2 ──────────────────────────────────────────

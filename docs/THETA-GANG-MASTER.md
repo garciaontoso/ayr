@@ -26,9 +26,9 @@ traders particulares.
 | 3 | Defense playbook engine + Roll calc | ✅ LIVE | `370e4a3` |
 | 4 | Paper trading engine completo | ✅ LIVE | `47034cc` |
 | 5 | Regime detection + IV rank filters | ✅ LIVE | `3611426` |
-| 6 | Multi-leg avanzados (calendar, BWB, diagonal, jade lizard, iron fly, ratio back) | ✅ LIVE | (este commit) |
-| 7 | Tail hedges programáticos | ⏳ next | — |
-| 8 | Walk-forward backtest + stress periods | ⏳ | — |
+| 6 | Multi-leg avanzados (calendar, BWB, diagonal, jade lizard, iron fly, ratio back) | ✅ LIVE | `fbcd9cd` |
+| 7 | Tail hedges programáticos | ⏳ | — |
+| 8 | Walk-forward backtest + stress periods + Monte Carlo | ✅ LIVE | (este commit) |
 | 9 | Kelly sizing + correlation matrix | ⏳ | — |
 | 10 | Multi-leg + complex strategies | ⏳ | — |
 | 11 | Auto-execution real money + VPS US East | ⏳ | — |
@@ -69,7 +69,11 @@ Backend (Cloudflare Worker)
 ├── /api/thetagang/backtest/run-with-filters — backtest v2 con IVR + regime
 ├── /api/thetagang/backtest/results   — historial runs
 ├── /api/thetagang/multileg/build     — Sprint 6: strikes + credit + greeks + payoff
-└── /api/thetagang/multileg/payoff    — Sprint 6: solo payoff array (chart UI)
+├── /api/thetagang/multileg/payoff    — Sprint 6: solo payoff array (chart UI)
+├── /api/thetagang/backtest/stress-periods — Sprint 8: catálogo 7 stress + 2 calm periods
+├── /api/thetagang/backtest/stress-test    — Sprint 8: corre estrategia en período histórico
+├── /api/thetagang/backtest/walk-forward   — Sprint 8: sliding window train/test stability
+└── /api/thetagang/backtest/monte-carlo    — Sprint 8: bootstrap N sims (P&L distribution + tail risk)
 
 Datos fuente:
 └── PRIMARY: Tastytrade Bridge en NAS Synology
@@ -235,11 +239,18 @@ curl -sS -X POST https://api.onto-so.com/api/thetagang/backtest/run-with-filters
 - VIX calls durante low vol regimes
 - Convexity overlays
 
-**Sprint 8 — Walk-forward riguroso**:
-- Out-of-sample reservorio
-- Monte Carlo 10K sims per strategy
-- Regime-specific backtests (Mar20/Aug24/Apr25)
-- Sharpe + Sortino + Calmar + tail ratio
+**Sprint 8 — ✅ COMPLETO 2026-05-10 (walk-forward + stress + Monte Carlo)**:
+- ✅ 7 stress periods seedeados (COVID 2020, Volmageddon 2018, Yen carry 2024,
+  Tariffs 2025, Fed pivot 2018, Debt ceiling 2011, Flash crash 2010) + 2 calm
+- ✅ /backtest/stress-test corre estrategia en período histórico específico
+- ✅ /backtest/walk-forward sliding window con consistency_pct entre ventanas
+- ✅ /backtest/monte-carlo bootstrap 10K sims con percentiles + tail risk + prob_blowup
+- ✅ Engine compartido `lib/backtest-engine.js` (extracted from worker)
+- ✅ promotionVerdict() con 2 gates iniciales (sharpe ≥1.5 + maxDD ≤10% + PF ≥1.3)
+- ✅ Sub-tab `🧪 Backtests` con 3 modos (stress / walk-forward / Monte Carlo)
+- ✅ 25 tests Vitest (computeStats, runBPSOnBars, walkForwardWindows, MC, verdict)
+- ✅ Hallazgo: BPS-SPY 35DTE default tiene 39% prob profitable en MC 5y →
+  NO TIENE EDGE real, sistema correctamente bloquea promote.
 
 **Sprint 11 — Auto-execution + VPS US East**:
 - Cuando lleguemos: aprovisionar Hetzner Ashburn ($4.50/mo)
@@ -254,7 +265,7 @@ curl -sS -X POST https://api.onto-so.com/api/thetagang/backtest/run-with-filters
 - ✅ **NAS España OK por ahora** — VPS US deferred hasta Sprint 11
 - ✅ **5 gates promotion** antes de real money
 - ✅ **NO auto-open hasta Sprint 11**
-- ✅ **64 tests Vitest** (41 originales + 23 Sprint 6 multi-leg) + commit en cada sprint
+- ✅ **89 tests Vitest** (41 originales + 23 Sprint 6 multi-leg + 25 Sprint 8 backtest) + commit en cada sprint
 - ✅ **2026-05-10 todo el día**: 6 sprints, 1500+ líneas worker, 3 días de progress en 1 sesión
 
 ## Files clave

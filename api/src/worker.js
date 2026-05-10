@@ -13,6 +13,7 @@ import { sendTelegram, logEvent, errorBudget, TELEGRAM_EMOJI } from "./lib/teleg
 import { ytRequireToken } from "./lib/auth.js";
 import { ensureMigrations, ensureScannerMigrations, _errorLogRateLimit, migrationState } from "./lib/migrations.js";
 import * as BS from "./lib/black-scholes.js";
+import * as BTE from "./lib/backtest-engine.js";
 import { FMP_MAP, toFMP, fromFMP, FMP_REVERSE, fmpQuote, fmpRiskMetrics, fmpSpyCloses, fmpSpark, FCF_PAYOUT_CARVEOUT, CURRENCY_MAP } from "./lib/fmp.js";
 
 // FMP_MAP, toFMP, fromFMP, fmpQuote, fmpRiskMetrics, fmpSpyCloses, fmpSpark → ./lib/fmp.js
@@ -9484,6 +9485,272 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           }, corsHeaders);
         } catch (e) {
           return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // ─── Sprint 8 — Walk-forward + stress periods + Monte Carlo ───────────
+      // GET /api/thetagang/backtest/stress-periods — catalog of historic stress events
+      if (path === "/api/thetagang/backtest/stress-periods" && request.method === "GET") {
+        return json({
+          ok: true,
+          stress_periods: BTE.STRESS_PERIODS,
+          calm_periods: BTE.CALM_PERIODS,
+        }, corsHeaders);
+      }
+
+      // POST /api/thetagang/backtest/stress-test — Sprint 8
+      // Run a strategy on a specific historic stress period.
+      // Body: { strategy_id?, period_id (e.g. 'covid_2020'), symbol = 'SPY', contracts = 1,
+      //         strategy_overrides?: { dte, take_profit_pct, stop_loss_x, ... } }
+      if (path === "/api/thetagang/backtest/stress-test" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        await ensureThetaGangTables();
+        let body;
+        try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+
+        const periodId = String(body.period_id || '').trim();
+        const symbol = String(body.symbol || 'SPY').toUpperCase();
+        const contracts = Number(body.contracts || 1);
+        const strategyId = String(body.strategy_id || '').trim();
+        const overrides = body.strategy_overrides || {};
+
+        const period = [...BTE.STRESS_PERIODS, ...BTE.CALM_PERIODS].find(p => p.id === periodId);
+        if (!period) return json({ error: `period_id not found: ${periodId}. See /api/thetagang/backtest/stress-periods` }, corsHeaders, 400);
+
+        try {
+          // Fetch enough history: need 252 prior days for IV rank rolling + period range
+          const periodStart = new Date(period.start_date);
+          const fetchStart = new Date(periodStart);
+          fetchStart.setFullYear(fetchStart.getFullYear() - 2);  // 2y prior for IVR + warmup
+
+          const histResp = await fetchYahoo(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${Math.floor(fetchStart.getTime() / 1000)}&period2=${Math.floor(new Date(period.end_date).getTime() / 1000)}&interval=1d`);
+          if (!histResp.ok) return json({ error: 'historical fetch failed', code: histResp.status }, corsHeaders, 503);
+          const histJson = await histResp.json();
+          const result = histJson?.chart?.result?.[0];
+          const timestamps = result?.timestamp || [];
+          const closes = result?.indicators?.quote?.[0]?.close || [];
+          const bars = timestamps.map((ts, i) => ({
+            date: new Date(ts * 1000).toISOString().slice(0, 10),
+            close: closes[i],
+          })).filter(b => b.close != null);
+
+          if (bars.length < 252) return json({ error: `insufficient bars: ${bars.length} (need 252+ for IVR warmup)` }, corsHeaders, 400);
+
+          // Fetch strategy config from D1 if strategyId provided, else use defaults
+          let stratRow = null;
+          if (strategyId) {
+            stratRow = await env.DB.prepare(`SELECT * FROM thetagang_strategies WHERE id = ?`).bind(strategyId).first();
+          }
+          const stratConfig = {
+            dte: overrides.dte ?? 35,
+            take_profit_pct: overrides.take_profit_pct ?? (stratRow?.take_profit_pct || 0.5),
+            stop_loss_x: overrides.stop_loss_x ?? (stratRow?.stop_loss_x || 2.0),
+            delta_short_pct: overrides.delta_short_pct ?? 1.0,
+            delta_long_pct: overrides.delta_long_pct ?? 1.5,
+          };
+
+          const { trades, skip_counts } = BTE.runBPSOnBars(bars, stratConfig, {
+            symbol,
+            ivr_threshold: overrides.ivr_threshold ?? 0,
+            regime_filter: overrides.regime_filter ?? false,
+          });
+
+          // Filter trades to ones that ENTERED during the stress period (so we measure
+          // strategy behavior specifically during the shock, not warmup)
+          const periodTrades = trades.filter(t => t.entry_date >= period.start_date && t.entry_date <= period.end_date);
+          const stats = BTE.computeStats(periodTrades);
+          const verdict = BTE.promotionVerdict(stats);
+
+          return json({
+            ok: true,
+            period: {
+              id: period.id,
+              label: period.label,
+              start_date: period.start_date,
+              end_date: period.end_date,
+              description: period.description,
+              expected_regime: period.expected_regime,
+              relevance: period.relevance,
+            },
+            symbol,
+            strategy: { id: strategyId || null, ...stratConfig },
+            n_bars_total: bars.length,
+            n_trades: periodTrades.length,
+            stats,
+            verdict,
+            skip_counts,
+            trades: periodTrades,
+            generated_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500);
+        }
+      }
+
+      // POST /api/thetagang/backtest/walk-forward — Sprint 8
+      // Sliding window: trains on `train_months`, tests on `test_months`, slides by `step_months`.
+      // Body: { strategy_id?, symbol = 'SPY', train_months = 12, test_months = 3, step_months = 3,
+      //         years_back = 5, strategy_overrides? }
+      if (path === "/api/thetagang/backtest/walk-forward" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        await ensureThetaGangTables();
+        let body;
+        try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+
+        const symbol = String(body.symbol || 'SPY').toUpperCase();
+        const trainMonths = Number(body.train_months || 12);
+        const testMonths = Number(body.test_months || 3);
+        const stepMonths = Number(body.step_months || 3);
+        const yearsBack = Math.max(2, Math.min(15, Number(body.years_back || 5)));
+        const overrides = body.strategy_overrides || {};
+        const strategyId = String(body.strategy_id || '').trim();
+
+        try {
+          const fetchStart = new Date();
+          fetchStart.setFullYear(fetchStart.getFullYear() - yearsBack - 1);
+          const histResp = await fetchYahoo(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${Math.floor(fetchStart.getTime() / 1000)}&period2=${Math.floor(Date.now() / 1000)}&interval=1d`);
+          if (!histResp.ok) return json({ error: 'historical fetch failed', code: histResp.status }, corsHeaders, 503);
+          const histJson = await histResp.json();
+          const result = histJson?.chart?.result?.[0];
+          const timestamps = result?.timestamp || [];
+          const closes = result?.indicators?.quote?.[0]?.close || [];
+          const bars = timestamps.map((ts, i) => ({
+            date: new Date(ts * 1000).toISOString().slice(0, 10),
+            close: closes[i],
+          })).filter(b => b.close != null);
+
+          if (bars.length < 504) return json({ error: 'need at least 2y of bars for walk-forward' }, corsHeaders, 400);
+
+          const stratConfig = {
+            dte: overrides.dte ?? 35,
+            take_profit_pct: overrides.take_profit_pct ?? 0.5,
+            stop_loss_x: overrides.stop_loss_x ?? 2.0,
+            delta_short_pct: overrides.delta_short_pct ?? 1.0,
+            delta_long_pct: overrides.delta_long_pct ?? 1.5,
+          };
+
+          // Run strategy on full bar set ONCE (deterministic — train doesn't tune params here)
+          // For real walk-forward with parameter optimization we'd train per-window.
+          // For now: slice the trade list per window to measure stability.
+          const { trades } = BTE.runBPSOnBars(bars, stratConfig, {
+            symbol,
+            ivr_threshold: overrides.ivr_threshold ?? 0,
+            regime_filter: overrides.regime_filter ?? false,
+          });
+
+          const windows = BTE.walkForwardWindows(bars, trainMonths, testMonths, stepMonths);
+          const windowResults = windows.map(w => {
+            const wTrades = trades.filter(t => t.entry_date >= w.test_start && t.entry_date <= w.test_end);
+            const stats = BTE.computeStats(wTrades);
+            return { window: w, n_trades: wTrades.length, stats };
+          });
+
+          // Aggregate stats across all OOS windows
+          const allOOSTrades = trades.filter(t => {
+            const firstTest = windows[0]?.test_start;
+            const lastTest = windows[windows.length - 1]?.test_end;
+            return firstTest && lastTest && t.entry_date >= firstTest && t.entry_date <= lastTest;
+          });
+          const overallStats = BTE.computeStats(allOOSTrades);
+          const overallVerdict = BTE.promotionVerdict(overallStats);
+
+          // Win rate consistency: fraction of windows with positive total_pnl
+          const positiveWindows = windowResults.filter(w => w.stats.total_pnl > 0).length;
+          const consistency_pct = windowResults.length > 0 ? Math.round(positiveWindows / windowResults.length * 1000) / 10 : 0;
+
+          return json({
+            ok: true,
+            symbol,
+            strategy: { id: strategyId || null, ...stratConfig },
+            params: { train_months: trainMonths, test_months: testMonths, step_months: stepMonths, years_back: yearsBack },
+            n_windows: windowResults.length,
+            n_bars_total: bars.length,
+            consistency_pct,
+            overall_oos_stats: overallStats,
+            overall_oos_verdict: overallVerdict,
+            windows: windowResults,
+            generated_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500);
+        }
+      }
+
+      // POST /api/thetagang/backtest/monte-carlo — Sprint 8
+      // Bootstrap-resample trades from a recent backtest to estimate distribution
+      // of total return / sharpe / max DD over N simulated paths.
+      // Body: { strategy_id?, symbol = 'SPY', n_sims = 10000, n_trades_per_sim?,
+      //         years_back = 5, strategy_overrides? }
+      if (path === "/api/thetagang/backtest/monte-carlo" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        await ensureThetaGangTables();
+        let body;
+        try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, corsHeaders, 400); }
+
+        const symbol = String(body.symbol || 'SPY').toUpperCase();
+        const nSims = Math.max(100, Math.min(50000, Number(body.n_sims || 10000)));
+        const nTradesPerSim = body.n_trades_per_sim ? Number(body.n_trades_per_sim) : null;
+        const yearsBack = Math.max(2, Math.min(15, Number(body.years_back || 5)));
+        const overrides = body.strategy_overrides || {};
+        const strategyId = String(body.strategy_id || '').trim();
+
+        try {
+          const fetchStart = new Date();
+          fetchStart.setFullYear(fetchStart.getFullYear() - yearsBack - 1);
+          const histResp = await fetchYahoo(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${Math.floor(fetchStart.getTime() / 1000)}&period2=${Math.floor(Date.now() / 1000)}&interval=1d`);
+          if (!histResp.ok) return json({ error: 'historical fetch failed', code: histResp.status }, corsHeaders, 503);
+          const histJson = await histResp.json();
+          const result = histJson?.chart?.result?.[0];
+          const timestamps = result?.timestamp || [];
+          const closes = result?.indicators?.quote?.[0]?.close || [];
+          const bars = timestamps.map((ts, i) => ({
+            date: new Date(ts * 1000).toISOString().slice(0, 10),
+            close: closes[i],
+          })).filter(b => b.close != null);
+
+          const stratConfig = {
+            dte: overrides.dte ?? 35,
+            take_profit_pct: overrides.take_profit_pct ?? 0.5,
+            stop_loss_x: overrides.stop_loss_x ?? 2.0,
+            delta_short_pct: overrides.delta_short_pct ?? 1.0,
+            delta_long_pct: overrides.delta_long_pct ?? 1.5,
+          };
+
+          const { trades } = BTE.runBPSOnBars(bars, stratConfig, {
+            symbol,
+            ivr_threshold: overrides.ivr_threshold ?? 0,
+            regime_filter: overrides.regime_filter ?? false,
+          });
+
+          if (trades.length < 10) return json({ error: 'insufficient base trades for MC bootstrap (need 10+)', n_trades: trades.length }, corsHeaders, 400);
+
+          const baseStats = BTE.computeStats(trades);
+          const mc = BTE.monteCarloBootstrap(trades, nSims, nTradesPerSim);
+
+          return json({
+            ok: true,
+            symbol,
+            strategy: { id: strategyId || null, ...stratConfig },
+            years_back: yearsBack,
+            n_base_trades: trades.length,
+            base_stats: baseStats,
+            monte_carlo: mc,
+            interpretation: {
+              p05_to_p95: `Expected total P&L 90% range: $${mc.total_pnl_p05} to $${mc.total_pnl_p95}`,
+              tail_risk: `Worst-case max DD (p99): $${mc.max_dd_p99}`,
+              edge_quality: mc.prob_profitable_pct > 70
+                ? `Strong edge (${mc.prob_profitable_pct}% profitable across ${nSims} sims)`
+                : mc.prob_profitable_pct > 50
+                  ? `Marginal edge (${mc.prob_profitable_pct}% profitable)`
+                  : `NO edge (${mc.prob_profitable_pct}% profitable — likely random)`,
+            },
+            generated_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500);
         }
       }
 
