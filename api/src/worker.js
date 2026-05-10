@@ -19,6 +19,7 @@ import * as TH from "./lib/tail-hedge-engine.js";
 import * as Risk from "./lib/risk-engine.js";
 import * as Monitor from "./lib/monitoring-engine.js";
 import * as AutoPaper from "./lib/auto-paper-engine.js";
+import * as PortfolioIdeas from "./lib/portfolio-ideas-engine.js";
 import { FMP_MAP, toFMP, fromFMP, FMP_REVERSE, fmpQuote, fmpRiskMetrics, fmpSpyCloses, fmpSpark, FCF_PAYOUT_CARVEOUT, CURRENCY_MAP } from "./lib/fmp.js";
 
 // FMP_MAP, toFMP, fromFMP, fmpQuote, fmpRiskMetrics, fmpSpyCloses, fmpSpark → ./lib/fmp.js
@@ -10717,6 +10718,162 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           ).bind(lastRunRow.run_at, limit).all();
           return json({ ok: true, last_run: lastRunRow.run_at, leaderboard: results || [] }, corsHeaders);
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // ─── Sprint 18 — Portfolio-aware strategy ideas ──────────────────────
+      // GET /api/thetagang/portfolio-ideas/scan?min_confidence=50
+      // Lee positions D1 + analiza cada una → propone CC/CSP/BPS/Collar
+      if (path === "/api/thetagang/portfolio-ideas/scan" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        try {
+          const minConf = Number(url.searchParams.get('min_confidence') || 50);
+          // Fetch positions from D1 — schema real: shares + last_price + cost_basis + pnl_abs + market_value
+          const { results: posRows } = await env.DB.prepare(
+            `SELECT ticker, account, shares, cost_basis, last_price, market_value, pnl_abs, div_ttm
+             FROM positions
+             WHERE shares > 0 AND ticker IS NOT NULL
+             ORDER BY ABS(COALESCE(market_value, 0)) DESC LIMIT 100`
+          ).all().catch(() => ({ results: [] }));
+
+          // Aggregate por ticker (sum shares across accounts)
+          const byTicker = {};
+          for (const p of (posRows || [])) {
+            const t = p.ticker;
+            if (!byTicker[t]) {
+              byTicker[t] = {
+                ticker: t,
+                shares: 0,
+                current_price: p.last_price || 0,
+                market_value: 0, total_cost: 0,
+              };
+            }
+            byTicker[t].shares += (p.shares || 0);
+            byTicker[t].market_value += (p.market_value || 0);
+            // cost_basis is per-share avg cost in this schema
+            byTicker[t].total_cost += ((p.cost_basis || 0) * (p.shares || 0));
+            if (p.last_price) byTicker[t].current_price = p.last_price;
+          }
+          const positions = Object.values(byTicker).map(p => ({
+            ...p,
+            avg_cost: p.shares > 0 ? p.total_cost / p.shares : 0,
+            pnl_pct: p.total_cost > 0 ? ((p.market_value - p.total_cost) / p.total_cost) * 100 : 0,
+          }));
+
+          const allIdeas = PortfolioIdeas.scanPortfolio(positions);
+          const filtered = allIdeas.filter(i => (i.confidence_score || 0) >= minConf);
+
+          return json({
+            ok: true,
+            n_positions_analyzed: positions.length,
+            n_ideas_total: allIdeas.length,
+            n_ideas_filtered: filtered.length,
+            min_confidence: minConf,
+            ideas: filtered.slice(0, 50),  // top 50
+            generated_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
+      // GET /api/thetagang/open-options/with-suggestions
+      // Aggrega open options de IB + TT bridges + analiza cada una con suggestion
+      if (path === "/api/thetagang/open-options/with-suggestions" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        try {
+          const baseSymbolStrip = (sym) => {
+            if (!sym) return sym;
+            if (/^(RUT|SPX|NDX|OEX)W$/.test(sym)) return sym.slice(0, -1);
+            return sym;
+          };
+          const allOpts = [];
+
+          // Source 1: TT bridge positions (multi-account)
+          try {
+            const accountsResp = await ttBridgeFetch(env, "/marketdata/accounts");
+            const accounts = accountsResp?.accounts || [];
+            for (const acct of accounts) {
+              try {
+                const accNum = acct.account_number;
+                const r = await ttBridgeFetch(env, `/marketdata/positions/${encodeURIComponent(accNum)}`);
+                const pos = r?.positions || [];
+                for (const p of pos) {
+                  if (p.instrument_type === 'Equity Option' || p.is_option) {
+                    allOpts.push({ ...p, source: 'TT', account: accNum });
+                  }
+                }
+              } catch {}
+            }
+          } catch {}
+
+          // Source 2: IB bridge positions
+          try {
+            const ibResp = await ttBridgeFetch(env, "/api/ib-bridge/positions").catch(() => null);
+            if (ibResp?.positions) {
+              for (const p of ibResp.positions) {
+                if (p.contract_type === 'OPT' || p.is_option) {
+                  allOpts.push({ ...p, source: 'IB' });
+                }
+              }
+            }
+          } catch {}
+
+          // Source 3: D1 positions table (fallback for legacy)
+          if (allOpts.length === 0) {
+            const { results: dbOpts } = await env.DB.prepare(
+              `SELECT ticker, underlying, opt_type, strike, expiry, shares as qty,
+                      avg_cost, current_price, market_value, account
+               FROM positions
+               WHERE opt_type IN ('P', 'C', 'put', 'call') AND shares != 0
+               LIMIT 200`
+            ).all().catch(() => ({ results: [] }));
+            for (const o of (dbOpts || [])) {
+              allOpts.push({ ...o, source: 'D1', symbol: o.ticker, ticker: o.underlying || o.ticker });
+            }
+          }
+
+          // Get unique underlyings to fetch spot prices
+          const uniqUnderlyings = [...new Set(allOpts.map(o => baseSymbolStrip(o.underlying || o.ticker)).filter(Boolean))];
+          const quotes = uniqUnderlyings.length ? await ttQuote(env, uniqUnderlyings).catch(() => ({})) : {};
+
+          // Analyze each option with suggestion
+          const enriched = allOpts.map(o => {
+            const underlying = baseSymbolStrip(o.underlying || o.ticker);
+            const spot = quotes?.[underlying]?.last || quotes?.[underlying]?.mid || o.current_price || 0;
+            const dteFromExpiry = o.expiry ? Math.max(0, Math.floor((new Date(o.expiry).getTime() - Date.now()) / 86400000)) : null;
+            const suggestion = spot > 0 ? PortfolioIdeas.analyzeOpenOption({
+              ...o, ticker: underlying, dte: dteFromExpiry,
+            }, spot) : null;
+            return {
+              source: o.source,
+              account: o.account || '—',
+              underlying,
+              symbol: o.symbol || `${underlying} ${o.expiry || ''} ${o.strike || ''}${o.opt_type || ''}`,
+              opt_type: o.opt_type,
+              strike: o.strike,
+              expiry: o.expiry,
+              dte: dteFromExpiry,
+              qty: o.qty || o.quantity,
+              avg_cost: o.avg_cost || o.entry_premium,
+              spot,
+              market_value: o.market_value,
+              suggestion,
+            };
+          });
+
+          // Group by suggestion urgency
+          const summary = {
+            total: enriched.length,
+            critical: enriched.filter(e => e.suggestion?.urgency === 'HIGH').length,
+            medium: enriched.filter(e => e.suggestion?.urgency === 'MEDIUM').length,
+            low: enriched.filter(e => e.suggestion?.urgency === 'LOW').length,
+          };
+
+          return json({
+            ok: true,
+            options: enriched,
+            summary,
+            generated_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
       }
 
       // ─── Sprint 15 — Intra-day quick check ──────────────────────────────

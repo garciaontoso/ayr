@@ -18,6 +18,8 @@ import { API_URL } from '../../constants/index.js';
 const SUB_TABS = [
   { id: 'brain',      lbl: '🧠 Brain' },
   { id: 'strategies', lbl: '🎢 Strategies' },
+  { id: 'ideas',      lbl: '💡 Cartera Ideas' },
+  { id: 'openopts',   lbl: '🎯 Open Options' },
   { id: 'multileg',   lbl: '🦎 Multi-leg' },
   { id: 'wheel',      lbl: '🎡 Wheel' },
   { id: 'hedge',      lbl: '🛡️ Tail Hedge' },
@@ -1900,6 +1902,232 @@ function TailHedgeSubtab() {
   );
 }
 
+// ─── 💡 Cartera Ideas — Sprint 18 ───────────────────────────────────────────
+// Por cada position en tu cartera, propone CC/CSP/BPS/Collar con confidence score.
+function PortfolioIdeasSubtab() {
+  const [ideas, setIdeas] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+  const [minConf, setMinConf] = useState(50);
+  const [filterType, setFilterType] = useState('ALL');
+  const [stats, setStats] = useState({});
+
+  const refresh = useCallback(async () => {
+    setLoading(true); setErr(null);
+    try {
+      const r = await fetch(`${API_URL}/api/thetagang/portfolio-ideas/scan?min_confidence=${minConf}`);
+      const j = await r.json();
+      if (j.error) setErr(j.error);
+      else {
+        setIdeas(j.ideas || []);
+        setStats({
+          n_positions: j.n_positions_analyzed,
+          n_ideas_total: j.n_ideas_total,
+          n_filtered: j.n_ideas_filtered,
+        });
+      }
+    } catch (e) { setErr(e.message); }
+    setLoading(false);
+  }, [minConf]);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Analizando tu cartera...</div>;
+  if (err) return <div style={{ padding: 12, margin: 14, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, color: '#ef4444', fontSize: 12 }}>⚠ {err}</div>;
+
+  const filtered = filterType === 'ALL' ? ideas : ideas.filter(i => i.type === filterType);
+  const TYPE_LABEL = {
+    COVERED_CALL: '📞 Covered Call',
+    CASH_SECURED_PUT: '💰 Cash-Secured Put',
+    BPS_COST_REDUCTION: '⬇️ BPS Cost Reduction',
+    COLLAR_PROTECTION: '🛡️ Collar Protection',
+  };
+  const TYPE_COLOR = {
+    COVERED_CALL: '#30d158',
+    CASH_SECURED_PUT: 'var(--gold, #fbbf24)',
+    BPS_COST_REDUCTION: '#fbbf24',
+    COLLAR_PROTECTION: '#60a5fa',
+  };
+
+  return (
+    <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Header + filters */}
+      <div style={CARD}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--gold, #fbbf24)' }}>💡 Ideas de la cartera</div>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{stats.n_positions} positions analizadas · {stats.n_ideas_total} ideas totales · {stats.n_filtered} filtradas (confidence ≥ {minConf})</div>
+          </div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <label style={{ fontSize: 11 }}>Min conf: <input type="number" value={minConf} onChange={e => setMinConf(Number(e.target.value))} min={0} max={100} step={10} style={{ width: 50, padding: 4, fontSize: 11, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} /></label>
+            <select value={filterType} onChange={e => setFilterType(e.target.value)} style={{ padding: 4, fontSize: 11, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }}>
+              <option value="ALL">Todas</option>
+              {Object.keys(TYPE_LABEL).map(t => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}
+            </select>
+            <button onClick={refresh} style={{ padding: '4px 10px', fontSize: 11, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}>↻</button>
+          </div>
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div style={{ ...CARD, fontSize: 12, color: 'var(--text-tertiary)', textAlign: 'center', padding: 30 }}>
+          No hay ideas con confidence ≥ {minConf}. Baja el umbral o cambia el filtro.
+        </div>
+      ) : (
+        filtered.map((idea, i) => {
+          const color = TYPE_COLOR[idea.type] || 'var(--text-secondary)';
+          return (
+            <div key={i} style={{ ...CARD, borderColor: color }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+                <div>
+                  <span style={{ fontSize: 14, fontWeight: 700 }}>{TYPE_LABEL[idea.type] || idea.type} · <span style={{ color }}>{idea.ticker}</span></span>
+                </div>
+                <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: idea.confidence_score >= 75 ? '#30d158' : idea.confidence_score >= 50 ? '#fbbf24' : 'var(--text-tertiary)', color: '#000', fontWeight: 700 }}>
+                  Confidence {idea.confidence_score}
+                </span>
+              </div>
+
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>{idea.rationale}</div>
+
+              {/* Stats grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 8, fontSize: 11 }}>
+                {idea.contracts != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Contracts:</span> <b>{idea.contracts}</b></div>}
+                {idea.strike != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Strike:</span> <b>${idea.strike}</b></div>}
+                {idea.short_strike != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Strikes:</span> <b>{idea.short_strike}/{idea.long_strike}</b></div>}
+                {idea.put_strike != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Put/Call:</span> <b>{idea.put_strike}/{idea.call_strike}</b></div>}
+                {idea.dte != null && <div><span style={{ color: 'var(--text-tertiary)' }}>DTE:</span> <b>{idea.dte}d</b></div>}
+                {idea.premium_estimate != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Premium:</span> <b style={{ color: idea.premium_estimate > 0 ? '#30d158' : '#ef4444' }}>{fmtMoney(idea.premium_estimate)}</b></div>}
+                {idea.capital_required != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Capital:</span> <b>{fmtMoney(idea.capital_required)}</b></div>}
+                {idea.annualized_yield_pct != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Yield ann:</span> <b style={{ color: 'var(--gold, #fbbf24)' }}>{idea.annualized_yield_pct}%</b></div>}
+                {idea.effective_buy_price != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Buy effective:</span> <b>${idea.effective_buy_price}</b></div>}
+                {idea.assignment_discount_pct != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Descuento:</span> <b style={{ color: '#30d158' }}>{idea.assignment_discount_pct}%</b></div>}
+                {idea.cost_basis_reduction_per_share != null && idea.cost_basis_reduction_per_share > 0 && <div><span style={{ color: 'var(--text-tertiary)' }}>Reduce coste:</span> <b style={{ color: '#30d158' }}>${idea.cost_basis_reduction_per_share}/sh</b></div>}
+                {idea.downside_protection != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Protect down:</span> <b style={{ color: '#ef4444' }}>{fmtMoney(idea.downside_protection)}</b></div>}
+                {idea.upside_cap != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Cap up:</span> <b style={{ color: '#30d158' }}>{fmtMoney(idea.upside_cap)}</b></div>}
+              </div>
+            </div>
+          );
+        })
+      )}
+
+      <div style={{ padding: 10, background: 'rgba(96,165,250,.06)', border: '1px solid rgba(96,165,250,.2)', borderRadius: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
+        💡 Estas son <b>sugerencias generadas automáticamente</b> basadas en tu cartera + IV asumida 25%. Premium es estimación BS, no quote real. Para ejecución: revisa quote real en TT/IBKR antes de abrir.
+      </div>
+    </div>
+  );
+}
+
+// ─── 🎯 Open Options — Sprint 18 ────────────────────────────────────────────
+// Vista consolidada de opciones abiertas en TT + IB con sugerencias IA por cada una.
+function OpenOptionsSubtab() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+  const [filterUrg, setFilterUrg] = useState('ALL');
+
+  const refresh = useCallback(async () => {
+    setLoading(true); setErr(null);
+    try {
+      const r = await fetch(`${API_URL}/api/thetagang/open-options/with-suggestions`);
+      const j = await r.json();
+      if (j.error) setErr(j.error); else setData(j);
+    } catch (e) { setErr(e.message); }
+    setLoading(false);
+  }, []);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Cargando opciones abiertas...</div>;
+  if (err) return <div style={{ padding: 12, margin: 14, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, color: '#ef4444', fontSize: 12 }}>⚠ {err}</div>;
+  const opts = data?.options || [];
+  const summary = data?.summary || {};
+  const filtered = filterUrg === 'ALL' ? opts : opts.filter(o => o.suggestion?.urgency === filterUrg);
+
+  const URG_COLOR = { HIGH: '#ef4444', MEDIUM: '#fbbf24', LOW: 'var(--text-tertiary)' };
+  const URG_BG = { HIGH: 'rgba(239,68,68,.08)', MEDIUM: 'rgba(251,191,36,.08)', LOW: 'transparent' };
+
+  return (
+    <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Summary header */}
+      <div style={CARD}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--gold, #fbbf24)' }}>🎯 Opciones abiertas — IB + TT</div>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{summary.total} totales · {summary.critical} CRITICAL · {summary.medium} MEDIUM · {summary.low} LOW</div>
+          </div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <select value={filterUrg} onChange={e => setFilterUrg(e.target.value)} style={{ padding: 4, fontSize: 11, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }}>
+              <option value="ALL">Todas</option>
+              <option value="HIGH">🚨 HIGH (defensive)</option>
+              <option value="MEDIUM">⚠ MEDIUM (TP/gamma)</option>
+              <option value="LOW">✓ LOW (hold)</option>
+            </select>
+            <button onClick={refresh} style={{ padding: '4px 10px', fontSize: 11, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}>↻</button>
+          </div>
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div style={{ ...CARD, fontSize: 12, color: 'var(--text-tertiary)', textAlign: 'center', padding: 30 }}>
+          No hay opciones {filterUrg === 'ALL' ? 'abiertas' : `con urgencia ${filterUrg}`}.
+        </div>
+      ) : (
+        <div style={{ ...CARD, padding: 0, overflowX: 'auto' }}>
+          <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+            <thead><tr style={{ background: 'var(--bg-primary)', textAlign: 'left' }}>
+              <th style={{ padding: 8 }}>Source</th>
+              <th>Underlying</th>
+              <th>Type</th>
+              <th>Strike</th>
+              <th>Expiry</th>
+              <th>DTE</th>
+              <th>Qty</th>
+              <th>Spot</th>
+              <th>Live PnL</th>
+              <th>Suggestion</th>
+            </tr></thead>
+            <tbody>
+              {filtered.map((o, i) => {
+                const urg = o.suggestion?.urgency || 'LOW';
+                return (
+                  <tr key={i} style={{ borderTop: '1px solid var(--border)', background: URG_BG[urg] }}>
+                    <td style={{ padding: 6 }}>{o.source}</td>
+                    <td style={{ fontWeight: 600 }}>{o.underlying}</td>
+                    <td>{o.opt_type === 'P' ? 'PUT' : o.opt_type === 'C' ? 'CALL' : o.opt_type}</td>
+                    <td>${o.strike}</td>
+                    <td>{o.expiry?.slice(5)}</td>
+                    <td>{o.dte}d</td>
+                    <td style={{ color: (o.qty || 0) < 0 ? '#ef4444' : '#30d158' }}>{o.qty}</td>
+                    <td>${fmtN(o.spot, 2)}</td>
+                    <td style={{ color: (o.suggestion?.live_pnl_pct || 0) >= 0 ? '#30d158' : '#ef4444' }}>{o.suggestion?.live_pnl_pct != null ? o.suggestion.live_pnl_pct + '%' : '—'}</td>
+                    <td>
+                      <span style={{ padding: '2px 6px', borderRadius: 3, background: URG_COLOR[urg], color: '#000', fontSize: 10, fontWeight: 700 }}>{o.suggestion?.action || 'HOLD'}</span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Detail cards for HIGH urgency */}
+      {filtered.filter(o => o.suggestion?.urgency === 'HIGH').length > 0 && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: '#ef4444' }}>🚨 Acciones HIGH urgency — recomendadas YA</div>
+          {filtered.filter(o => o.suggestion?.urgency === 'HIGH').map((o, i) => (
+            <div key={i} style={{ ...CARD, borderColor: '#ef4444', marginBottom: 6 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>{o.underlying} {o.strike}{o.opt_type} ({o.dte}d, {o.qty} qty)</div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>{o.suggestion.rationale}</div>
+              {o.suggestion.suggested_strike && (
+                <div style={{ fontSize: 11, color: 'var(--gold, #fbbf24)' }}>→ Roll a strike <b>${o.suggestion.suggested_strike}</b> con DTE <b>{o.suggestion.suggested_dte}d</b></div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Placeholder reusable ──────────────────────────────────────────────────
 function PlaceholderTab({ icon, title, sprint, description }) {
   return (
@@ -1926,6 +2154,8 @@ export default function ThetaGangTab() {
     switch (subTab) {
       case 'brain':      return <BrainSubtab />;
       case 'strategies': return <StrategiesSubtab />;
+      case 'ideas':      return <PortfolioIdeasSubtab />;
+      case 'openopts':   return <OpenOptionsSubtab />;
       case 'multileg':   return <MultiLegSubtab />;
       case 'wheel':      return <WheelSubtab />;
       case 'hedge':      return <TailHedgeSubtab />;
