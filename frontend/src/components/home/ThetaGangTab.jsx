@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, useId } from 'react';
 import { API_URL } from '../../constants/index.js';
 
 // ─── 🤡 Theta Gang Tab ──────────────────────────────────────────────────────
@@ -74,25 +74,32 @@ function BrainSubtab() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
+  // Sprint cleanup audit H2/M7: AbortController + ref para evitar race conditions
+  const abortRef = useRef(null);
 
   const refresh = useCallback(() => {
-    setLoading(true);
-    fetch(`${API_URL}/api/thetagang/brain/scan`)
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
+    setLoading(true); setErr(null);
+    fetch(`${API_URL}/api/thetagang/brain/scan`, { signal: abortRef.current.signal })
       .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
-      .catch(e => { setErr(e.message); setLoading(false); });
+      .then(d => { if (d.error) setErr(d.error); else setData(d); setLoading(false); })
+      .catch(e => { if (e.name !== 'AbortError') { setErr(e.message); setLoading(false); } });
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    refresh();
+    return () => { if (abortRef.current) abortRef.current.abort(); };
+  }, [refresh]);
 
   if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Scanning underlyings...</div>;
-  if (err) return <div style={{ padding: 20, color: 'var(--danger)' }}>Error: {err}</div>;
+  if (err) return <div style={{ padding: 20, color: 'var(--danger, #ef4444)' }}>Error: {err}</div>;
 
   return (
     <div style={{ padding: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <h3 style={{ margin: 0, fontSize: 14, color: 'var(--text-primary)' }}>Entries hoy — {new Date().toISOString().slice(0,10)}</h3>
-        <button onClick={refresh} style={{ padding: '4px 10px', fontSize: 11, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', borderRadius: 4, cursor: 'pointer' }}>↻ Refresh</button>
+        <button onClick={refresh} disabled={loading} style={{ padding: '4px 10px', fontSize: 11, border: '1px solid var(--border)', background: 'transparent', color: loading ? 'var(--text-tertiary)' : 'var(--text-secondary)', borderRadius: 4, cursor: loading ? 'wait' : 'pointer' }}>↻ Refresh</button>
       </div>
       {(data?.candidates || []).length === 0 ? (
         <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
@@ -134,15 +141,18 @@ function BrainSubtab() {
 function StrategiesSubtab() {
   const [strategies, setStrategies] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Sprint cleanup audit H6: error state visible (antes catch silencioso)
+  const [err, setErr] = useState(null);
 
   useEffect(() => {
     fetch(`${API_URL}/api/thetagang/strategies`)
       .then(r => r.json())
-      .then(d => { setStrategies(d.strategies || []); setLoading(false); })
-      .catch(() => setLoading(false));
+      .then(d => { if (d.error) setErr(d.error); else setStrategies(d.strategies || []); setLoading(false); })
+      .catch(e => { setErr(e.message); setLoading(false); });
   }, []);
 
   if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Cargando catálogo...</div>;
+  if (err) return <div style={{ padding: 12, margin: 14, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, color: '#ef4444', fontSize: 12 }}>⚠ Error cargando catálogo: {err}</div>;
 
   const STATUS_COLOR = {
     backtesting: '#fbbf24',
@@ -354,6 +364,9 @@ function buildPayoffFromData(data) {
 
 // SVG payoff chart
 function PayoffChart({ spot, payoff, breakevens, maxProfit, maxLoss }) {
+  // Sprint cleanup audit M1: useId() ensures unique clipPath id even if multiple
+  // PayoffCharts mount simultaneously (was hardcoded 'pchart-clip' → SVG corruption).
+  const clipId = `pchart-clip-${useId().replace(/:/g, '')}`;
   const W = 540, H = 220, padL = 50, padR = 14, padT = 14, padB = 28;
   const cw = W - padL - padR, ch = H - padT - padB;
   if (!payoff?.length) return <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-tertiary)' }}>No payoff data</div>;
@@ -378,7 +391,7 @@ function PayoffChart({ spot, payoff, breakevens, maxProfit, maxLoss }) {
     <div style={{ padding: 12, background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8 }}>
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: H, display: 'block' }}>
         <defs>
-          <clipPath id="pchart-clip"><rect x={padL} y={padT} width={cw} height={ch} /></clipPath>
+          <clipPath id={clipId}><rect x={padL} y={padT} width={cw} height={ch} /></clipPath>
         </defs>
         {/* Grid bg */}
         <rect x={padL} y={padT} width={cw} height={ch} fill="rgba(255,255,255,.02)" />
@@ -388,7 +401,7 @@ function PayoffChart({ spot, payoff, breakevens, maxProfit, maxLoss }) {
         <line x1={xScale(spot)} x2={xScale(spot)} y1={padT} y2={padT + ch} stroke="rgba(96,165,250,.5)" strokeDasharray="3 3" strokeWidth="1" />
         <text x={xScale(spot) + 4} y={padT + 10} fill="rgba(96,165,250,1)" fontSize="9">Spot ${spot.toFixed(0)}</text>
         {/* Payoff fill split by zero — simpler approach: clip to positive area only */}
-        <g clipPath="url(#pchart-clip)">
+        <g clipPath={`url(#${clipId})`}>
           {/* Negative area (below zero) red fill */}
           <path d={pathStr + ` L${xScale(xMax).toFixed(1)},${(padT + ch).toFixed(1)} L${xScale(xMin).toFixed(1)},${(padT + ch).toFixed(1)} Z`}
             fill="rgba(239,68,68,.10)" />
@@ -464,7 +477,11 @@ function StressTestPanel() {
     fetch(`${API_URL}/api/thetagang/backtest/stress-periods`)
       .then(r => r.json())
       .then(d => setPeriods([...(d.stress_periods || []), ...(d.calm_periods || [])]))
-      .catch(() => {});
+      // Sprint cleanup audit M5: fallback period si endpoint falla
+      .catch(() => setPeriods([
+        { id: 'covid_2020', label: 'COVID Crash (Feb-Apr 2020) — fallback' },
+        { id: 'tariffs_2025', label: 'Trump Tariffs (Apr 2025) — fallback' },
+      ]));
   }, []);
 
   const run = useCallback(() => {
@@ -1074,6 +1091,11 @@ function RiskSubtab() {
   useEffect(() => { loadAll(); }, [loadAll]);
 
   const computeKelly = useCallback(async () => {
+    // Sprint cleanup audit M3: validate inputs antes de POST (evita NaN del backend con avg_loss=0)
+    if (!kellyForm.win_rate || !kellyForm.avg_win || !kellyForm.avg_loss || !kellyForm.nav || !kellyForm.max_loss_per_contract) {
+      setKellyResult({ error: 'Todos los campos requeridos: win_rate, avg_win, avg_loss, nav, max_loss_per_contract (>0)' });
+      return;
+    }
     try {
       const k = await fetch(`${API_URL}/api/thetagang/risk/kelly`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1178,6 +1200,9 @@ function RiskSubtab() {
         )}
         {kellyResult?.kelly?.kelly_warning && (
           <div style={{ marginTop: 8, padding: 8, background: 'rgba(251,191,36,.1)', borderRadius: 4, fontSize: 11, color: '#fbbf24' }}>⚠ {kellyResult.kelly.kelly_warning}</div>
+        )}
+        {kellyResult?.error && (
+          <div style={{ marginTop: 8, padding: 8, background: 'rgba(239,68,68,.1)', borderRadius: 4, fontSize: 11, color: '#ef4444' }}>⚠ {kellyResult.error}</div>
         )}
       </div>
 
@@ -1364,6 +1389,12 @@ function WheelSubtab() {
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ strike: '', premium_per_share: '', qty: 1, expiry: '' });
   const [busy, setBusy] = useState(false);
+  // Sprint cleanup audit H3: inline error en lugar de alert() nativo (mobile-friendly)
+  const [actionErr, setActionErr] = useState(null);
+  // Sprint cleanup audit H3: confirm inline en lugar de window.confirm() nativo
+  const [confirmExpire, setConfirmExpire] = useState(null);  // { cycleId, outcome }
+  // Sprint cleanup audit H4: ref guard sincrónico contra double-submit
+  const busyRef = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1381,7 +1412,8 @@ function WheelSubtab() {
 
   const submitCSP = async (e) => {
     e.preventDefault();
-    setBusy(true);
+    if (busyRef.current) return;
+    busyRef.current = true; setBusy(true); setActionErr(null);
     try {
       const r = await fetch(`${API_URL}/api/thetagang/wheel/open-csp`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1394,23 +1426,29 @@ function WheelSubtab() {
         }),
       });
       const j = await r.json();
-      if (!j.ok) alert(j.error || 'Error'); else { setForm({ strike: '', premium_per_share: '', qty: 1, expiry: '' }); load(); }
-    } catch (e) { alert(e.message); }
-    setBusy(false);
+      if (!j.ok) setActionErr(j.error || 'Error abriendo CSP');
+      else { setForm({ strike: '', premium_per_share: '', qty: 1, expiry: '' }); load(); }
+    } catch (e) { setActionErr(e.message); }
+    busyRef.current = false; setBusy(false);
   };
 
-  const expire = async (cycleId, outcome) => {
-    if (!window.confirm(`Marcar ciclo #${cycleId} como ${outcome}?`)) return;
-    setBusy(true);
+  const requestExpire = (cycleId, outcome) => setConfirmExpire({ cycleId, outcome });
+  const cancelExpire = () => setConfirmExpire(null);
+  const confirmExpireDo = async () => {
+    if (busyRef.current || !confirmExpire) return;
+    const { cycleId, outcome } = confirmExpire;
+    busyRef.current = true; setBusy(true); setActionErr(null);
     try {
       const r = await fetch(`${API_URL}/api/thetagang/wheel/expire`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cycle_id: cycleId, outcome }),
       });
       const j = await r.json();
-      if (!j.ok) alert(j.error || 'Error'); else load();
-    } catch (e) { alert(e.message); }
-    setBusy(false);
+      if (!j.ok) setActionErr(j.error || 'Error en expire');
+      else load();
+    } catch (e) { setActionErr(e.message); }
+    busyRef.current = false; setBusy(false);
+    setConfirmExpire(null);
   };
 
   if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Cargando ciclos…</div>;
@@ -1421,6 +1459,23 @@ function WheelSubtab() {
 
   return (
     <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Sprint cleanup audit H3: inline error banner (no más alert()) */}
+      {actionErr && (
+        <div style={{ padding: 10, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, color: '#ef4444', fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>⚠ {actionErr}</span>
+          <button onClick={() => setActionErr(null)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 14 }}>×</button>
+        </div>
+      )}
+      {/* Sprint cleanup audit H3: inline confirm (no más window.confirm()) */}
+      {confirmExpire && (
+        <div style={{ padding: 12, background: 'rgba(251,191,36,.1)', border: '1px solid rgba(251,191,36,.4)', borderRadius: 6, fontSize: 12 }}>
+          <div style={{ marginBottom: 8 }}>¿Marcar ciclo #{confirmExpire.cycleId} como <b>{confirmExpire.outcome}</b>?</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={confirmExpireDo} disabled={busy} style={{ padding: '4px 12px', fontSize: 11, background: 'var(--gold, #fbbf24)', color: '#000', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 600 }}>Confirmar</button>
+            <button onClick={cancelExpire} disabled={busy} style={{ padding: '4px 12px', fontSize: 11, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}>Cancelar</button>
+          </div>
+        </div>
+      )}
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
         <div style={card}><div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>CICLOS COMPLETOS</div><div style={{ fontSize: 18, fontWeight: 700 }}>{stats.n_cycles || 0}</div></div>
@@ -1466,9 +1521,9 @@ function WheelSubtab() {
               {c.strike_cc && <div style={{ fontSize: 11 }}>CC {c.strike_cc} · ${fmtN(c.premium_cc, 2)}</div>}
               {c.cost_basis_effective && <div style={{ fontSize: 11, color: 'var(--gold, #fbbf24)' }}>basis ${fmtN(c.cost_basis_effective, 2)}</div>}
               <div style={{ flex: 1 }} />
-              <button disabled={busy} onClick={() => expire(c.id, 'expired_otm')} style={{ padding: '4px 8px', fontSize: 10, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 4, cursor: 'pointer' }}>Expiró OTM</button>
-              <button disabled={busy} onClick={() => expire(c.id, 'assigned')} style={{ padding: '4px 8px', fontSize: 10, background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', borderRadius: 4, cursor: 'pointer' }}>Assigned</button>
-              <button disabled={busy} onClick={() => expire(c.id, 'closed_early')} style={{ padding: '4px 8px', fontSize: 10, background: 'transparent', border: '1px solid #30d158', color: '#30d158', borderRadius: 4, cursor: 'pointer' }}>TP</button>
+              <button disabled={busy} onClick={() => requestExpire(c.id, 'expired_otm')} style={{ padding: '4px 8px', fontSize: 10, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 4, cursor: 'pointer' }}>Expiró OTM</button>
+              <button disabled={busy} onClick={() => requestExpire(c.id, 'assigned')} style={{ padding: '4px 8px', fontSize: 10, background: 'transparent', border: '1px solid #ef4444', color: '#ef4444', borderRadius: 4, cursor: 'pointer' }}>Assigned</button>
+              <button disabled={busy} onClick={() => requestExpire(c.id, 'closed_early')} style={{ padding: '4px 8px', fontSize: 10, background: 'transparent', border: '1px solid #30d158', color: '#30d158', borderRadius: 4, cursor: 'pointer' }}>TP</button>
             </div>
           ))
         )}

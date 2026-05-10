@@ -29,11 +29,12 @@ traders particulares.
 | 6 | Multi-leg avanzados (calendar, BWB, diagonal, jade lizard, iron fly, ratio back) | ✅ LIVE | `fbcd9cd` |
 | 7 | Wheel + Tail hedges + 10 multi-leg adicionales (debit verticals, straddles, fly, collar, big lizard, risk reversal) | ✅ LIVE | (este commit) |
 | 8 | Walk-forward backtest + stress periods + Monte Carlo | ✅ LIVE | `b587e34` |
-| 9 | Kelly sizing + correlation matrix + risk caps + portfolio heat | ✅ LIVE | (este commit) |
-| 10 | Multi-leg + complex strategies | ⏳ | — |
-| 11 | Auto-execution real money + VPS US East | ⏳ | — |
+| 9 | Kelly sizing + correlation matrix + risk caps + portfolio heat | ✅ LIVE | `2c63557` |
+| 10 | (skipped) Sprint 6+7 cubrió esto ya con 23 strategies multi-leg | ⏭️ | — |
+| 11 | Auto-execution real money + VPS US East | ⏳ pendiente usuario | — |
 | 12 | Tax-aware execution (1256 + wash + LT) | ⏳ | — |
-| 13 | Production monitoring + alerts | ⏳ | — |
+| 13 | Production monitoring + Telegram alerts | ✅ LIVE | `141d137` |
+| C | Cleanup audit + 5 sub-tabs reales (Greeks/Defense/Paper/Live/PnL) | ✅ LIVE | `c4b28a3` |
 
 ## Arquitectura
 
@@ -46,12 +47,12 @@ Frontend tab (Theta Gang grupo Ingresos)
     ├── 🎡 Wheel — Sprint 7 CSP→assigned→CC state machine + lifecycle UI
     ├── 🛡️ Tail Hedge — Sprint 7 programmatic put roll + VIX overlay
     ├── 🧪 Backtests — Sprint 8: stress + walk-forward + Monte Carlo
-    ├── 📊 Greeks — portfolio Greeks BS server-side
-    ├── 🛡️ Defense — playbook automation
-    ├── 📝 Paper — paper trading engine
-    ├── ⚡ Live — Sprint 11 (futuro)
-    ├── 🏗️ Risk — Sprint 9 (futuro)
-    └── 📈 P&L — Sprint 13 (futuro)
+    ├── 📊 Greeks — net Δ/Γ/Θ/ν + theta diaria $ + tabla per-position (real)
+    ├── 🛡️ Defense — posiciones challenged + roll suggest (real)
+    ├── 📝 Paper — open + closed + P&L por strategy + drift detection (real)
+    ├── ⚡ Live — pre-trade gate + monitoring snapshot (Sprint 11 banner)
+    ├── 🏗️ Risk — Kelly + correlation + caps + portfolio heat (Sprint 9)
+    └── 📈 P&L — agregada paper + wheel + tail hedge (real, Sprint cleanup)
 
 Backend (Cloudflare Worker)
 ├── /api/thetagang/strategies         — catálogo 9 strategies (auto-seed)
