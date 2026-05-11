@@ -7603,17 +7603,20 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           // 2. Trades aggregated per ticker (deduplicated query)
           const tradesMap = await computeTradesNetShares();
 
-          // 3. IB Bridge positions (if connected)
+          // 3. IB Bridge positions (if connected) — bridge returns ARRAY directly with {symbol, secType, qty, strike, ...}
           let ibMap = new Map();
           let ibAvailable = false;
           try {
             const probe = await ibBridgeProbe(env);
             if (probe.ib_connected) {
-              const ibData = await ibBridgeFetch(env, '/positions', { timeoutMs: 8000 }).catch(() => null);
-              for (const p of (ibData?.positions || [])) {
-                if (p.contract_type === 'STK' || !p.contract_type) {
+              const ibData = await ibBridgeFetch(env, '/positions', { timeoutMs: 45000 }).catch(() => null);
+              // Bridge returns array directly; some proxies wrap in .positions
+              const positionsArr = Array.isArray(ibData) ? ibData : (ibData?.positions || []);
+              for (const p of positionsArr) {
+                // STK only — OPT has secType=OPT or strike != null
+                if ((p.secType === 'STK' || (!p.secType && !p.strike)) && p.qty) {
                   const t = String(p.symbol || p.ticker || '').toUpperCase();
-                  if (t) ibMap.set(t, (ibMap.get(t) || 0) + (p.position || p.shares || 0));
+                  if (t) ibMap.set(t, (ibMap.get(t) || 0) + Number(p.qty || p.position || p.shares || 0));
                 }
               }
               ibAvailable = ibMap.size > 0;
@@ -7638,6 +7641,21 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             ttAvailable = ttMap.size > 0;
           } catch { /* TT auth fail */ }
 
+          // Helper: many tickers in app have "HKG:1052" but IB bridge uses just "1052"
+          // Normalize for cross-source lookup (try original, then numeric-only suffix)
+          const ibLookup = (t) => {
+            if (ibMap.has(t)) return ibMap.get(t);
+            const numeric = t.replace(/^HKG:|^BME:/, '');
+            if (numeric !== t && ibMap.has(numeric)) return ibMap.get(numeric);
+            return null;
+          };
+          const ttLookup = (t) => {
+            if (ttMap.has(t)) return ttMap.get(t);
+            const numeric = t.replace(/^HKG:|^BME:/, '');
+            if (numeric !== t && ttMap.has(numeric)) return ttMap.get(numeric);
+            return null;
+          };
+
           // 5. Union of all tickers
           const allTickers = new Set([...posMap.keys(), ...tradesMap.keys(), ...ibMap.keys(), ...ttMap.keys()]);
 
@@ -7650,14 +7668,16 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           for (const ticker of allTickers) {
             const shares_pos = posMap.get(ticker) || 0;
             const shares_trades = (tradesMap.get(ticker)?.net) || 0;
-            const shares_ib = ibAvailable ? (ibMap.get(ticker) || 0) : null;
-            const shares_tt = ttAvailable ? (ttMap.get(ticker) || 0) : null;
+            const shares_ib = ibAvailable ? ibLookup(ticker) : null;   // null if not found
+            const shares_tt = ttAvailable ? ttLookup(ticker) : null;
 
-            // Available sources (>0 or available)
-            const sources = [shares_pos, shares_trades];
-            if (shares_ib != null) sources.push(shares_ib);
-            if (shares_tt != null) sources.push(shares_tt);
-            const validSources = sources.filter(v => typeof v === 'number');
+            // Available sources — only count > 0 actual values; null = source doesn't know
+            const sources = [];
+            if (shares_pos > 0) sources.push(shares_pos);
+            if (shares_trades > 0) sources.push(shares_trades);
+            if (shares_ib != null && shares_ib > 0) sources.push(shares_ib);
+            if (shares_tt != null && shares_tt > 0) sources.push(shares_tt);
+            const validSources = sources;
             if (validSources.length === 0) continue;
 
             const minS = Math.min(...validSources);
@@ -11673,16 +11693,17 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           //   - Flag con `reconcile_warning` y `shares_sources` per idea para auditoría
           //   - Si solo hay 1 fuente, usa esa (no hay cross-check posible)
           const tradesShares = await computeTradesNetShares();
-          // IB Bridge equities (optional 3rd source)
+          // IB Bridge equities (optional 3rd source) — bridge returns ARRAY directly
           let ibStockMap = new Map();
           try {
             const probe = await ibBridgeProbe(env);
             if (probe.ib_connected) {
-              const ibData = await ibBridgeFetch(env, '/positions', { timeoutMs: 6000 }).catch(() => null);
-              for (const p of (ibData?.positions || [])) {
-                if (p.contract_type === 'STK' || !p.contract_type) {
+              const ibData = await ibBridgeFetch(env, '/positions', { timeoutMs: 45000 }).catch(() => null);
+              const positionsArr = Array.isArray(ibData) ? ibData : (ibData?.positions || []);
+              for (const p of positionsArr) {
+                if ((p.secType === 'STK' || (!p.secType && !p.strike)) && p.qty) {
                   const t = String(p.symbol || p.ticker || '').toUpperCase();
-                  if (t) ibStockMap.set(t, (ibStockMap.get(t) || 0) + (p.position || p.shares || 0));
+                  if (t) ibStockMap.set(t, (ibStockMap.get(t) || 0) + Number(p.qty || p.position || p.shares || 0));
                 }
               }
             }
@@ -11702,12 +11723,19 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             }
           } catch { /* TT auth fail */ }
 
+          // HKG:/BME: prefix normalization (IB Bridge strips them)
+          const lookupAcrossPrefix = (m, t) => {
+            if (m.has(t)) return m.get(t);
+            const num = t.replace(/^HKG:|^BME:/, '');
+            if (num !== t && m.has(num)) return m.get(num);
+            return undefined;
+          };
           const reconcileAdjusts = [];
           positionsRaw = positionsRaw.map(p => {
             const tickerUp = String(p.ticker || '').toUpperCase();
             const tradeNet = tradesShares.get(tickerUp)?.net;
-            const ibShares = ibStockMap.get(tickerUp);
-            const ttShares = ttStockMap.get(tickerUp);
+            const ibShares = lookupAcrossPrefix(ibStockMap, tickerUp);
+            const ttShares = lookupAcrossPrefix(ttStockMap, tickerUp);
 
             const sources = { positions: p.shares };
             if (typeof tradeNet === 'number' && tradeNet > 0) sources.trades = tradeNet;
@@ -16351,7 +16379,8 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       if (path === "/api/ib-bridge/positions" && request.method === "GET") {
         try {
-          const data = await ibBridgeFetch(env, "/positions");
+          // Bridge reqPositions takes 25s + quote enrichment per stock. Default 10s timeout was too low.
+          const data = await ibBridgeFetch(env, "/positions", { timeoutMs: 45000 });
           return json({ source: "ib-bridge", positions: data }, corsHeaders);
         } catch(e) {
           return json({ error: e.message, source: "ib-bridge" }, corsHeaders, 503);
