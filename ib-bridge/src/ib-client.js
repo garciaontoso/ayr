@@ -999,6 +999,48 @@ export async function fetchExecutions({ startDate = null, accountCode = null } =
   return out;
 }
 
+// --------- Sprint 20: single-contract Greeks fetcher --------
+// For a specific (symbol, expiry, strike, type) → return IV + Greeks via IB TWS.
+// expiry can be YYYY-MM-DD or YYYYMMDD; we normalize.
+export async function fetchOptionGreeks(symbol, expiry, strike, type /* 'C'|'P'|'call'|'put' */) {
+  if (!symbol) {
+    const e = new Error('symbol required'); e.code = 'MISSING_SYMBOL'; throw e;
+  }
+  const right = (String(type).toUpperCase().startsWith('C')) ? 'C' : 'P';
+  const exp = String(expiry || '').replace(/-/g, '');
+  if (!/^\d{8}$/.test(exp)) {
+    const e = new Error(`invalid expiry: ${expiry} (expected YYYY-MM-DD or YYYYMMDD)`);
+    e.code = 'INVALID_EXPIRY'; throw e;
+  }
+  const k = Number(strike);
+  if (!Number.isFinite(k) || k <= 0) {
+    const e = new Error(`invalid strike: ${strike}`); e.code = 'INVALID_STRIKE'; throw e;
+  }
+  const contract = optionContract(symbol.toUpperCase(), exp, k, right);
+  const q = await fetchOptionQuote(contract);
+  // Also fetch underlying spot for context (caller will use this for BS sanity).
+  const spotQ = await fetchQuote(symbol.toUpperCase()).catch(() => null);
+  return {
+    symbol: symbol.toUpperCase(),
+    expiry: formatExpiry(exp),
+    strike: k,
+    right,
+    spot: spotQ?.last ?? spotQ?.close ?? null,
+    bid: q.bid,
+    ask: q.ask,
+    last: q.last,
+    iv: q.iv,           // implied vol decimal (e.g. 0.225 = 22.5%)
+    delta: q.delta,
+    gamma: q.gamma,
+    theta: q.theta,
+    vega: q.vega,
+    open_interest: q.open_interest,
+    volume: q.volume,
+    fetched_at: new Date().toISOString(),
+    source: 'ib_real',
+  };
+}
+
 // --------- exports ----------
 
 export default {
@@ -1014,4 +1056,5 @@ export default {
   fetchOptionChain,
   fetchExecutions,
   fetchIV,
+  fetchOptionGreeks,
 };

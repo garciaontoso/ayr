@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { fetchOptionChain, fetchIV } from '../ib-client.js';
+import { fetchOptionChain, fetchIV, fetchOptionGreeks } from '../ib-client.js';
 import { withCache, cacheKey, isFresh } from '../cache.js';
 import { sendIbError } from './_helpers.js';
 
@@ -27,6 +27,34 @@ router.get('/option-chain', async (req, res) => {
       30,
       isFresh(req),
       () => fetchOptionChain(symbol, { dteMin, dteMax, otmPct }),
+    );
+    res.json(data);
+  } catch (err) {
+    sendIbError(res, err);
+  }
+});
+
+// Sprint 20: GET /option-greeks?symbol=KO&expiry=2026-06-20&strike=65&type=C
+// Returns IV + Greeks (delta/gamma/theta/vega) for a single option contract
+// via IB TWS pricing engine. iv_source: 'ib_real'. Worker uses this when
+// available (preferred over TT bridge HV proxy).
+router.get('/option-greeks', async (req, res) => {
+  const symbol = String(req.query.symbol || '').trim().toUpperCase();
+  const expiry = String(req.query.expiry || '').trim();
+  const strike = Number.parseFloat(req.query.strike);
+  const type = String(req.query.type || '').trim();
+
+  if (!symbol) return res.status(400).json({ error: 'missing_symbol' });
+  if (!expiry) return res.status(400).json({ error: 'missing_expiry', hint: 'YYYY-MM-DD or YYYYMMDD' });
+  if (!Number.isFinite(strike) || strike <= 0) return res.status(400).json({ error: 'invalid_strike' });
+  if (!type || !/^[CP]/i.test(type)) return res.status(400).json({ error: 'invalid_type', hint: "use 'C'|'P'|'call'|'put'" });
+
+  try {
+    const data = await withCache(
+      cacheKey('option_greeks', { symbol, expiry, strike, type: type[0].toUpperCase() }),
+      60, // 60s cache — Greeks move quickly in vol spikes
+      isFresh(req),
+      () => fetchOptionGreeks(symbol, expiry, strike, type),
     );
     res.json(data);
   } catch (err) {

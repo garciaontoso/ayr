@@ -1024,14 +1024,17 @@ async function ttIvRank(env, underlying) {
 
 // ─── Sprint 20 — IV source resolver ──────────────────────────────────────────
 // Returns { iv, source, fresh_at, warning? } for a single underlying.
-// Tries: TT bridge live IV → D1 iv_rank_cache (Yahoo HV proxy) → null.
-// IB bridge skipped here: needs dedicated /option-iv endpoint (Sprint 21).
+// Tries: IB bridge live IV (industrial) → TT bridge live IV → D1 iv_rank_cache (HV proxy) → null.
 //
 // Sources (in priority order):
-//   'tt_real'    — real implied vol from Tastytrade (forward-looking)
-//   'hv_proxy'   — Yahoo historical vol × 1.05, ONLY for SPY/IWM/QQQ in cache
-//   'fallback_hv'— HV computed from FMP/Yahoo chart on-the-fly (Sprint 21)
+//   'ib_real'    — real implied vol from IB TWS pricing engine (gold standard)
+//   'tt_real'    — real implied vol from Tastytrade
+//   'hv_proxy'   — Yahoo historical vol × 1.05, ONLY tickers cached in D1
 // Returns null if no source available — caller must NOT invent.
+//
+// Note: IB tier requires a (strike, expiry) — for symbol-only resolution we
+// only use IB bridge if its /iv endpoint reports an ATM IV directly. Greeks
+// per-contract are fetched separately via fetchGreeksFromIB(symbol, k, exp, type).
 const _ivResolverCache = new Map();         // symbol → { result, ts }
 const IV_RESOLVER_CACHE_MS = 60_000;        // 60s — avoid hammering during single scan
 
@@ -1044,8 +1047,33 @@ async function fetchIvForSymbol(env, symbol) {
 
   let result = null;
 
+  // 0. IB bridge /iv endpoint (only if IB Gateway connected — best source)
+  if (env.IB_BRIDGE_TOKEN) {
+    try {
+      const probe = await ibBridgeProbe(env);
+      if (probe.ib_connected) {
+        const ibIv = await Promise.race([
+          ibBridgeFetch(env, `/iv?symbol=${encodeURIComponent(sym)}&period=30`),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 4000)),
+        ]).catch(() => null);
+        // IB /iv returns { iv, iv_rank?, iv_percentile?, ... }. iv usually decimal.
+        const iv = ibIv?.iv;
+        if (typeof iv === 'number' && iv > 0 && iv < 5) {
+          const ivDec = iv > 1 ? iv / 100 : iv;
+          result = {
+            iv: ivDec,
+            source: 'ib_real',
+            fresh_at: new Date().toISOString(),
+            iv_rank: ibIv?.iv_rank ?? null,
+            iv_percentile: ibIv?.iv_percentile ?? null,
+          };
+        }
+      }
+    } catch { /* fall through */ }
+  }
+
   // 1. TT bridge live IV (forward-looking, gold standard)
-  try {
+  if (!result) try {
     const ttResp = await Promise.race([
       ttIvRank(env, sym),
       new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000)),

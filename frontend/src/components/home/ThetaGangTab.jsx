@@ -2191,6 +2191,12 @@ function PortfolioIdeasSubtab() {
   const [appliedMinConf, setAppliedMinConf] = useState(50);  // Sprint 19 audit fix H2: applied vs typing
   const [filterType, setFilterType] = useState('ALL');
   const [stats, setStats] = useState({});
+  // Sprint 20: IV source tracking + skipped positions transparency
+  const [ivBreakdown, setIvBreakdown] = useState(null);
+  const [skipped, setSkipped] = useState([]);
+  const [scanSummary, setScanSummary] = useState(null);
+  const [warming, setWarming] = useState(false);
+  const [warmResult, setWarmResult] = useState(null);
   const abortRef = useRef(null);  // Sprint 19 audit fix M1: AbortController
 
   const refresh = useCallback(async () => {
@@ -2208,6 +2214,9 @@ function PortfolioIdeasSubtab() {
           n_ideas_total: j.n_ideas_total ?? 0,
           n_filtered: j.n_ideas_filtered ?? 0,
         });
+        setIvBreakdown(j.iv_breakdown || null);
+        setSkipped(j.skipped || []);
+        setScanSummary(j.scan_summary || null);
       }
     } catch (e) { if (e.name !== 'AbortError') setErr(e.message); }
     setLoading(false);
@@ -2217,6 +2226,27 @@ function PortfolioIdeasSubtab() {
     return () => { if (abortRef.current) abortRef.current.abort(); };
   }, [refresh]);
   const applyMinConf = () => setAppliedMinConf(minConf);
+
+  // Sprint 20: warm HV cache for portfolio positions (Yahoo HV fallback for non-ETF tickers)
+  const warmCache = useCallback(async () => {
+    setWarming(true); setWarmResult(null);
+    try {
+      const r = await fetch(`${API_URL}/api/thetagang/iv-rank/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from_portfolio: true, limit: 40 }),
+      });
+      const j = await r.json();
+      const ok = (j.results || []).filter(x => x.status === 'ok').length;
+      const fail = (j.results || []).length - ok;
+      setWarmResult({ ok, fail });
+      // Auto-refresh ideas after warm
+      setTimeout(() => refresh(), 500);
+    } catch (e) {
+      setWarmResult({ error: e.message });
+    }
+    setWarming(false);
+  }, [refresh]);
 
   if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Analizando tu cartera...</div>;
   if (err) return <div style={{ padding: 12, margin: 14, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, color: '#ef4444', fontSize: 12 }}>⚠ {err}</div>;
@@ -2235,6 +2265,16 @@ function PortfolioIdeasSubtab() {
     COLLAR_PROTECTION: '#60a5fa',
   };
 
+  // Sprint 20: badge config for iv_source
+  const IV_BADGE = {
+    tt_real:   { color: '#30d158', bg: 'rgba(48,209,88,.12)',  emoji: '🟢', label: 'TT real' },
+    ib_real:   { color: '#30d158', bg: 'rgba(48,209,88,.12)',  emoji: '🟢', label: 'IB real' },
+    hv_proxy:  { color: '#fbbf24', bg: 'rgba(251,191,36,.12)', emoji: '🟡', label: 'HV proxy' },
+    yahoo_hv_v1: { color: '#fbbf24', bg: 'rgba(251,191,36,.12)', emoji: '🟡', label: 'HV proxy' },
+    missing:   { color: '#ef4444', bg: 'rgba(239,68,68,.12)',  emoji: '🔴', label: 'sin IV' },
+    legacy_iv_30d: { color: 'var(--text-secondary)', bg: 'transparent', emoji: '⚪', label: 'legacy' },
+  };
+
   return (
     <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
       {/* Header + filters */}
@@ -2243,8 +2283,26 @@ function PortfolioIdeasSubtab() {
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--gold, #fbbf24)' }}>💡 Ideas de la cartera</div>
             <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{stats.n_positions} positions analizadas · {stats.n_ideas_total} ideas totales · {stats.n_filtered} filtradas (confidence ≥ {minConf})</div>
+            {ivBreakdown && (
+              <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <span title="Real implied vol from Tastytrade">🟢 <b style={{ color: '#30d158' }}>{ivBreakdown.tt_real || 0}</b> real IV</span>
+                <span title="Yahoo historical vol proxy (backward-looking)">🟡 <b style={{ color: '#fbbf24' }}>{ivBreakdown.hv_proxy || 0}</b> HV proxy</span>
+                <span title="Positions sin IV cacheada — skipped">🔴 <b style={{ color: '#ef4444' }}>{ivBreakdown.none || 0}</b> sin IV</span>
+              </div>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              onClick={warmCache}
+              disabled={warming}
+              title="Cachear HV (Yahoo) para todas tus posiciones — desbloquea ideas hv_proxy"
+              style={{ padding: '4px 10px', fontSize: 11, background: 'rgba(251,191,36,.12)', color: '#fbbf24', border: '1px solid rgba(251,191,36,.4)', borderRadius: 4, cursor: warming ? 'wait' : 'pointer' }}
+            >{warming ? '⏳ Cacheando…' : '🟡 Warm HV'}</button>
+            {warmResult && (
+              <span style={{ fontSize: 10, color: warmResult.error ? '#ef4444' : '#30d158' }}>
+                {warmResult.error ? `✗ ${warmResult.error.slice(0, 20)}` : `✓ ${warmResult.ok} ok / ${warmResult.fail} fail`}
+              </span>
+            )}
             <label style={{ fontSize: 11 }}>Min conf: <input type="number" value={minConf} onChange={e => setMinConf(Number(e.target.value))} onBlur={applyMinConf} onKeyDown={e => e.key === 'Enter' && applyMinConf()} min={0} max={100} step={10} style={{ width: 50, padding: 4, fontSize: 11, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} /></label>
             <button onClick={applyMinConf} disabled={minConf === appliedMinConf} style={{ padding: '4px 8px', fontSize: 11, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}>Apply</button>
             <select value={filterType} onChange={e => setFilterType(e.target.value)} style={{ padding: 4, fontSize: 11, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }}>
@@ -2263,15 +2321,28 @@ function PortfolioIdeasSubtab() {
       ) : (
         filtered.map((idea, i) => {
           const color = TYPE_COLOR[idea.type] || 'var(--text-secondary)';
+          const ivBadge = IV_BADGE[idea.iv_source] || IV_BADGE.missing;
+          const ivPct = idea.iv_used != null ? (idea.iv_used * 100).toFixed(1) : null;
           return (
             <div key={i} style={{ ...CARD, borderColor: color }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6, gap: 8, flexWrap: 'wrap' }}>
                 <div>
                   <span style={{ fontSize: 14, fontWeight: 700 }}>{TYPE_LABEL[idea.type] || idea.type} · <span style={{ color }}>{idea.ticker}</span></span>
                 </div>
-                <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: idea.confidence_score >= 75 ? '#30d158' : idea.confidence_score >= 50 ? '#fbbf24' : 'var(--text-tertiary)', color: '#000', fontWeight: 700 }}>
-                  Confidence {idea.confidence_score}
-                </span>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  {/* Sprint 20: iv_source badge */}
+                  {idea.iv_source && (
+                    <span
+                      title={`IV usado: ${ivPct}% — fuente: ${idea.iv_source}${idea.iv_source === 'hv_proxy' ? ' (HV histórico, no IV implícita real)' : ''}`}
+                      style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, background: ivBadge.bg, color: ivBadge.color, border: `1px solid ${ivBadge.color}40`, fontWeight: 600 }}
+                    >
+                      {ivBadge.emoji} IV {ivPct}% · {ivBadge.label}
+                    </span>
+                  )}
+                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: idea.confidence_score >= 75 ? '#30d158' : idea.confidence_score >= 50 ? '#fbbf24' : 'var(--text-tertiary)', color: '#000', fontWeight: 700 }}>
+                    Confidence {idea.confidence_score}
+                  </span>
+                </div>
               </div>
 
               <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>{idea.rationale}</div>
@@ -2292,13 +2363,48 @@ function PortfolioIdeasSubtab() {
                 {idea.downside_protection != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Protect down:</span> <b style={{ color: '#ef4444' }}>{fmtMoney(idea.downside_protection)}</b></div>}
                 {idea.upside_cap != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Cap up:</span> <b style={{ color: '#30d158' }}>{fmtMoney(idea.upside_cap)}</b></div>}
               </div>
+
+              {/* Sprint 20: Greeks display */}
+              {idea.greeks && (
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border)', display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 10 }}>
+                  <span style={{ color: 'var(--text-tertiary)' }}>Greeks (net spread, BS):</span>
+                  <span title="Delta — sensibilidad por $1 de movimiento underlying"><span style={{ color: 'var(--text-tertiary)' }}>Δ</span> <b style={{ color: idea.greeks.delta >= 0 ? '#30d158' : '#ef4444' }}>{idea.greeks.delta?.toFixed(2)}</b></span>
+                  <span title="Theta — decay diario ($)"><span style={{ color: 'var(--text-tertiary)' }}>Θ</span> <b style={{ color: idea.greeks.theta >= 0 ? '#30d158' : '#ef4444' }}>{idea.greeks.theta?.toFixed(2)}/d</b></span>
+                  <span title="Vega — sensibilidad por 1% cambio IV"><span style={{ color: 'var(--text-tertiary)' }}>V</span> <b>{idea.greeks.vega?.toFixed(2)}</b></span>
+                  <span title="Gamma — convexidad delta"><span style={{ color: 'var(--text-tertiary)' }}>Γ</span> <b>{idea.greeks.gamma?.toFixed(3)}</b></span>
+                </div>
+              )}
             </div>
           );
         })
       )}
 
+      {/* Sprint 20: Skipped positions transparency */}
+      {skipped.length > 0 && (
+        <details style={{ ...CARD, padding: 10 }}>
+          <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>
+            ⏸ {skipped.length} positions skipped — sin IV disponible {scanSummary?.skipped_breakdown && (
+              <span style={{ fontSize: 10, color: 'var(--text-tertiary)', marginLeft: 8 }}>
+                ({scanSummary.skipped_breakdown.no_iv || 0} sin IV · {scanSummary.skipped_breakdown.low_spot || 0} penny stock · {scanSummary.skipped_breakdown.no_spot || 0} sin precio)
+              </span>
+            )}
+          </summary>
+          <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-tertiary)' }}>
+            Sin IV real (TT bridge no cubre) ni HV cached. Click <b>🟡 Warm HV</b> arriba para cachear desde Yahoo. Foreign tickers (HKG:, BME:) y algunos US single-names siguen sin cobertura.
+          </div>
+          <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4, fontSize: 10 }}>
+            {skipped.slice(0, 60).map((s, i) => (
+              <span key={i} title={`reason: ${s.reason}${s.spot ? ` — spot $${s.spot}` : ''}`} style={{ padding: '1px 6px', borderRadius: 3, background: 'var(--bg-primary)', border: '1px solid var(--border)', color: s.reason === 'no_iv' ? '#ef4444' : 'var(--text-tertiary)' }}>
+                {s.ticker}{s.reason !== 'no_iv' && ` (${s.reason})`}
+              </span>
+            ))}
+            {skipped.length > 60 && <span style={{ color: 'var(--text-tertiary)' }}>+{skipped.length - 60} más…</span>}
+          </div>
+        </details>
+      )}
+
       <div style={{ padding: 10, background: 'rgba(96,165,250,.06)', border: '1px solid rgba(96,165,250,.2)', borderRadius: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
-        💡 Estas son <b>sugerencias generadas automáticamente</b> basadas en tu cartera + IV asumida 25%. Premium es estimación BS, no quote real. Para ejecución: revisa quote real en TT/IBKR antes de abrir.
+        💡 Sprint 20: cada idea declara su fuente IV (🟢 TT real, 🟡 HV proxy Yahoo, 🔴 sin IV). Greeks calculados BS server-side. Confidence penalizado -15 cuando iv_source = hv_proxy. Para ejecución: revisa quote real en TT/IBKR antes de abrir.
       </div>
     </div>
   );
@@ -2369,12 +2475,22 @@ function OpenOptionsSubtab() {
               <th>DTE</th>
               <th>Qty</th>
               <th>Spot</th>
+              <th title="IV usado para BS pricing — fuente">IV</th>
+              <th title="Greeks BS computed">Δ / Θ</th>
               <th>Live PnL</th>
               <th>Suggestion</th>
             </tr></thead>
             <tbody>
               {filtered.map((o, i) => {
                 const urg = o.suggestion?.urgency || 'LOW';
+                const ivSrc = o.iv_source || o.suggestion?.iv_source;
+                const ivPct = o.iv_used != null ? (o.iv_used * 100).toFixed(0) : null;
+                const ivCfg = ivSrc === 'tt_real' || ivSrc === 'ib_real'
+                  ? { color: '#30d158', emoji: '🟢' }
+                  : ivSrc === 'hv_proxy' || ivSrc === 'yahoo_hv_v1'
+                  ? { color: '#fbbf24', emoji: '🟡' }
+                  : { color: '#ef4444', emoji: '🔴' };
+                const g = o.suggestion?.greeks;
                 return (
                   <tr key={i} style={{ borderTop: '1px solid var(--border)', background: URG_BG[urg] }}>
                     <td style={{ padding: 6 }}>{o.source}</td>
@@ -2385,6 +2501,12 @@ function OpenOptionsSubtab() {
                     <td>{o.dte}d</td>
                     <td style={{ color: (o.qty || 0) < 0 ? '#ef4444' : '#30d158' }}>{o.qty}</td>
                     <td>${fmtN(o.spot, 2)}</td>
+                    <td title={`iv_source: ${ivSrc || 'missing'}`} style={{ color: ivCfg.color, fontWeight: 600 }}>
+                      {ivPct ? `${ivCfg.emoji} ${ivPct}%` : `${ivCfg.emoji} —`}
+                    </td>
+                    <td style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
+                      {g ? `${g.delta?.toFixed(2)} / ${g.theta?.toFixed(2)}` : '—'}
+                    </td>
                     <td style={{ color: (o.suggestion?.live_pnl_pct || 0) >= 0 ? '#30d158' : '#ef4444' }}>{o.suggestion?.live_pnl_pct != null ? o.suggestion.live_pnl_pct + '%' : '—'}</td>
                     <td>
                       <span style={{ padding: '2px 6px', borderRadius: 3, background: URG_COLOR[urg], color: '#000', fontSize: 10, fontWeight: 700 }}>{o.suggestion?.action || 'HOLD'}</span>
