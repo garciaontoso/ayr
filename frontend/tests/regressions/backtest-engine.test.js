@@ -205,8 +205,10 @@ describe('Sprint 8 — walkForwardWindows()', () => {
 
 describe('Sprint 8 — monteCarloBootstrap()', () => {
   it('returns aggregate distributions', () => {
+    // Sprint 19 audit fix: use seeded prng (no Math.random for determinism)
+    seedPRNG(123);
     const trades = Array.from({ length: 50 }, () => ({
-      pnl: Math.random() > 0.5 ? 80 : -100,
+      pnl: prng() > 0.5 ? 80 : -100,
       legs_count: 2,
     }));
     const mc = monteCarloBootstrap(trades, 1000);
@@ -219,7 +221,8 @@ describe('Sprint 8 — monteCarloBootstrap()', () => {
   });
 
   it('p05 ≤ p25 ≤ p50 ≤ p75 ≤ p95 (monotonic)', () => {
-    const trades = Array.from({ length: 50 }, () => ({ pnl: 50 - Math.random() * 100, legs_count: 2 }));
+    seedPRNG(456);
+    const trades = Array.from({ length: 50 }, () => ({ pnl: 50 - prng() * 100, legs_count: 2 }));
     const mc = monteCarloBootstrap(trades, 2000);
     expect(mc.total_pnl_p05).toBeLessThanOrEqual(mc.total_pnl_p25);
     expect(mc.total_pnl_p25).toBeLessThanOrEqual(mc.total_pnl_p50);

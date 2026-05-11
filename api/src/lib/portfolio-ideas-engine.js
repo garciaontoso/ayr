@@ -101,7 +101,8 @@ export function analyzePosition(position, opts = {}) {
       max_profit: Math.round((callStrike - spot + callPrice) * 100 * contractsAvailable),
       max_loss: 'unlimited downside (stock can drop)',  // pero tú ya tienes el stock
       assignment_price: callStrike,
-      rationale: `Tienes ${shares} sh @ $${avgCost.toFixed(2)} (P&L ${pnlPct.toFixed(1)}%). Vender ${contractsAvailable} call ${callStrike}C (~Δ${(0.20 * 100).toFixed(0)}, ${dte}d) genera ~$${Math.round(premiumDollars)} (${yieldOnPositionPct.toFixed(2)}% / ${annualizedYield.toFixed(1)}% anualizado). Si asignan, vendes a $${callStrike} = ${(((callStrike - avgCost) / avgCost) * 100).toFixed(1)}% gain.`,
+      // Sprint 19 audit fix H4: guard avgCost=0 → Infinity en string
+      rationale: `Tienes ${shares} sh @ $${avgCost.toFixed(2)} (P&L ${pnlPct.toFixed(1)}%). Vender ${contractsAvailable} call ${callStrike}C (~Δ${(0.20 * 100).toFixed(0)}, ${dte}d) genera ~$${Math.round(premiumDollars)} (${yieldOnPositionPct.toFixed(2)}% / ${annualizedYield.toFixed(1)}% anualizado). Si asignan, vendes a $${callStrike}${avgCost > 0 ? ` = ${(((callStrike - avgCost) / avgCost) * 100).toFixed(1)}% gain` : ''}.`,
       confidence_score: scoreCcIdea(pnlPct, iv, dte, yieldOnPositionPct),
     });
   }

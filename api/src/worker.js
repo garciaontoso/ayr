@@ -10680,10 +10680,14 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           } catch {}
           const bridgeHealth = spot > 0;
 
+          // Sprint 19 audit fix M2: hoist apiBase + auth para reuso + auth header
+          // (caps-status no require auth pero brain/scan SÍ requiere)
+          const apiBase = "https://aar-api.garciaontoso.workers.dev";
+          const auth = { 'X-AYR-Auth': env.AYR_WORKER_TOKEN };
+
           // Fetch caps
           let capsAllowed = false;
           try {
-            const apiBase = "https://aar-api.garciaontoso.workers.dev";
             const capsResp = await fetch(`${apiBase}/api/thetagang/risk/caps-status`).then(r => r.json());
             capsAllowed = capsResp?.allowed === true;
           } catch {}
@@ -10716,24 +10720,83 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             { contracts, dte: b.dte || stratRow.dte }
           );
 
+          // Sprint 19 audit fix H1: max_loss_per_contract dinámico desde spread width real
+          // Tomar la diferencia entre strikes del put short y long (BPS) o usar max
+          // de put-side / call-side (IC). 500 fallback para single-leg.
+          let maxLossPerContract = 500;
+          try {
+            const legs = ticket.legs || [];
+            const putShort = legs.find(l => l.type === 'put' && l.action === 'sell')?.strike;
+            const putLong = legs.find(l => l.type === 'put' && l.action === 'buy')?.strike;
+            const callShort = legs.find(l => l.type === 'call' && l.action === 'sell')?.strike;
+            const callLong = legs.find(l => l.type === 'call' && l.action === 'buy')?.strike;
+            const widthPut = putShort && putLong ? Math.abs(putShort - putLong) : 0;
+            const widthCall = callShort && callLong ? Math.abs(callLong - callShort) : 0;
+            const widthMax = Math.max(widthPut, widthCall);
+            if (widthMax > 0) maxLossPerContract = widthMax * 100;  // $100/$ width
+          } catch {}
+
+          // Sprint 19 audit fix C2: NAV real desde nlv_history (no hardcoded $100k)
+          let realNav = 100000;
+          try {
+            const navRow = await env.DB.prepare(
+              `SELECT nlv FROM nlv_history ORDER BY fecha DESC LIMIT 1`
+            ).first();
+            if (navRow?.nlv && navRow.nlv > 0) realNav = navRow.nlv;
+          } catch {}
+
+          // Sprint 19 audit fix C2: brain score real desde Brain scan
+          let realBrainScore = 0;
+          try {
+            const brainResp = await fetch(`${apiBase}/api/thetagang/brain/scan`, { headers: auth }).then(r => r.json()).catch(() => null);
+            const candidate = (brainResp?.candidates || []).find(c => c.symbol === b.symbol);
+            if (candidate?.score != null) realBrainScore = candidate.score;
+          } catch {}
+
+          // Sprint 19 audit fix C4: loss streak real desde live orders cerradas
+          let realLossStreak = 0;
+          try {
+            const { results: recent } = await env.DB.prepare(
+              `SELECT close_pnl FROM thetagang_live_orders WHERE closed_at IS NOT NULL ORDER BY closed_at DESC LIMIT 10`
+            ).all();
+            for (const r of (recent || [])) {
+              if ((r.close_pnl || 0) < 0) realLossStreak++;
+              else break;
+            }
+          } catch {}
+
           // Pre-trade checks
           const trade = {
             strategy_id: b.strategy_id,
             symbol: b.symbol,
             contracts,
             dte: ticket.dte,
-            max_loss_per_contract: 500,  // TODO: compute real from spread width
+            max_loss_per_contract: maxLossPerContract,
           };
           const state = {
             caps_allowed: capsAllowed,
             n_open_live: nOpenLive,
-            n_brain_score: 75,  // TODO: get real from brain scan
+            n_brain_score: realBrainScore,
             tournament_score: tournamentScore,
-            nav: 100000,
+            nav: realNav,
             bridge_health: bridgeHealth,
-            recent_loss_streak: 0,
+            recent_loss_streak: realLossStreak,
           };
           const checks = LiveExec.preTradeChecks(trade, state, { live_enabled: !!config.enabled, ...config });
+
+          // Sprint 19 audit fix C4 + integration #4: kill switch check pre-trade
+          if (checks.allowed) {
+            try {
+              const { results: closedTrades } = await env.DB.prepare(
+                `SELECT close_pnl as pnl_realized FROM thetagang_live_orders WHERE closed_at IS NOT NULL ORDER BY closed_at DESC LIMIT 50`
+              ).all();
+              const killTriggered = Risk.checkSingleLossKillSwitch(closedTrades || [], realNav, 5);
+              if (killTriggered) {
+                checks.allowed = false;
+                checks.blocked_by = [...(checks.blocked_by || []), 'SINGLE_LOSS_KILL_SWITCH'];
+              }
+            } catch {}
+          }
 
           return json({
             ok: true,
@@ -10753,6 +10816,18 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         try {
           const b = await request.json();
           if (!b.ticket && !b.strategy_id) return json({ error: 'ticket or strategy_id required' }, corsHeaders, 400);
+
+          // Sprint 19 audit fix M5: validar ticket no expirado (5min validity)
+          if (b.ticket?.valid_until) {
+            const validUntil = new Date(b.ticket.valid_until);
+            if (!isNaN(validUntil.getTime()) && validUntil < new Date()) {
+              return json({
+                error: 'TICKET_EXPIRED',
+                hint: 'Ticket valid_until pasó. Genera nuevo ticket via /live/suggest.',
+                valid_until: b.ticket.valid_until,
+              }, corsHeaders, 400);
+            }
+          }
 
           const ticketJson = b.ticket ? JSON.stringify(b.ticket) : null;
           const insert = await env.DB.prepare(
@@ -10869,26 +10944,31 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
           const ranked = BTE.runStrategyTournament(configs, barsBySymbol);
 
-          // Persist top 50 (most useful) with rank
+          // Sprint 19 audit fix H2: collect insert errors en lugar de silent fail
           const runAt = new Date().toISOString();
+          const insertErrors = [];
+          let insertOk = 0;
           for (let i = 0; i < Math.min(50, ranked.length); i++) {
             const r = ranked[i];
             if (r.error) continue;
             const s = r.stats || {};
-            await env.DB.prepare(
-              `INSERT INTO thetagang_strategy_rankings
-               (run_at, strategy_id, symbol, score, n_trades, total_pnl, win_rate, sharpe, max_dd, profit_factor, verdict, rank, stats_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-            ).bind(
-              runAt, r.id, r.symbol,
-              r.score ?? 0, r.n_trades ?? 0,
-              s.total_pnl ?? 0, s.win_rate ?? 0,
-              s.sharpe ?? 0, s.max_dd ?? 0,
-              s.profit_factor ?? 0,
-              r.verdict?.verdict || 'UNKNOWN',
-              i + 1,
-              JSON.stringify({ stats: s, verdict: r.verdict, config: r.config })
-            ).run().catch(() => {});
+            try {
+              await env.DB.prepare(
+                `INSERT INTO thetagang_strategy_rankings
+                 (run_at, strategy_id, symbol, score, n_trades, total_pnl, win_rate, sharpe, max_dd, profit_factor, verdict, rank, stats_json)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+              ).bind(
+                runAt, r.id, r.symbol,
+                r.score ?? 0, r.n_trades ?? 0,
+                s.total_pnl ?? 0, s.win_rate ?? 0,
+                s.sharpe ?? 0, s.max_dd ?? 0,
+                s.profit_factor ?? 0,
+                r.verdict?.verdict || 'UNKNOWN',
+                i + 1,
+                JSON.stringify({ stats: s, verdict: r.verdict, config: r.config })
+              ).run();
+              insertOk++;
+            } catch (e) { insertErrors.push({ rank: i + 1, error: e.message?.slice(0, 100) }); }
           }
 
           return json({
@@ -10898,6 +10978,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             years_back: yearsBack,
             ranked: ranked.slice(0, 20),  // top 20 in response
             full_results_count: ranked.length,
+            persisted: { ok_count: insertOk, errors: insertErrors.slice(0, 5), error_count: insertErrors.length },
             generated_at: runAt,
           }, corsHeaders);
         } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
@@ -11007,13 +11088,20 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             }
           } catch {}
 
-          // Source 2: IB bridge positions
+          // Sprint 19 audit fix C3: IB bridge tiene endpoint propio en worker (NO ttBridgeFetch).
+          // Antes: ttBridgeFetch routeaba al TT bridge → 404. Ahora self-fetch al worker IB endpoint.
           try {
-            const ibResp = await ttBridgeFetch(env, "/api/ib-bridge/positions").catch(() => null);
-            if (ibResp?.positions) {
-              for (const p of ibResp.positions) {
-                if (p.contract_type === 'OPT' || p.is_option) {
-                  allOpts.push({ ...p, source: 'IB' });
+            const apiBase = "https://aar-api.garciaontoso.workers.dev";
+            const ibRespRaw = await fetch(`${apiBase}/api/ib-bridge/positions`, {
+              headers: { 'X-AYR-Auth': env.AYR_WORKER_TOKEN },
+            }).catch(() => null);
+            if (ibRespRaw?.ok) {
+              const ibResp = await ibRespRaw.json().catch(() => null);
+              if (ibResp?.positions) {
+                for (const p of ibResp.positions) {
+                  if (p.contract_type === 'OPT' || p.is_option) {
+                    allOpts.push({ ...p, source: 'IB' });
+                  }
                 }
               }
             }
@@ -11100,11 +11188,16 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             else if (vix >= 20) alerts.push({ severity: 'INFO', code: 'VIX_ELEVATED', message: `ℹ VIX ${vix.toFixed(1)} elevado` });
           }
 
-          // Open paper positions con delta breach intraday
+          // Sprint 19 audit fix H3: LIMIT 50 (no más, evita timeout) + batch quote fetch
+          // (1 ttQuote con todos los símbolos en lugar de N seriales)
           const { results: openPaper } = await env.DB.prepare(
             `SELECT id, symbol, strategy_id, opened_at, dte_open, credit_received, strikes_json
-             FROM thetagang_paper_trades WHERE status = 'open'`
+             FROM thetagang_paper_trades WHERE status = 'open' LIMIT 50`
           ).all().catch(() => ({ results: [] }));
+
+          // Pre-fetch quotes para todos los unique symbols (1 round-trip vs N)
+          const uniqSymbols = [...new Set((openPaper || []).map(p => p.symbol).filter(Boolean))];
+          const allQuotes = uniqSymbols.length ? await ttQuote(env, uniqSymbols).catch(() => ({})) : {};
 
           let breachedCount = 0;
           for (const p of (openPaper || [])) {
@@ -11112,8 +11205,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
               const strikes = JSON.parse(p.strikes_json || '{}');
               const shortStrike = strikes.short_put || strikes.short_call || strikes.short;
               if (!shortStrike) continue;
-              const ulQ = await ttQuote(env, [p.symbol]).catch(() => ({}));
-              const spot = ulQ?.[p.symbol]?.last || ulQ?.[p.symbol]?.mid;
+              const spot = allQuotes?.[p.symbol]?.last || allQuotes?.[p.symbol]?.mid;
               if (!spot) continue;
               // Approximate delta breach: si spot está dentro del 2% del short strike → DELTA growing rapidly
               const distPct = Math.abs(spot - shortStrike) / shortStrike * 100;
@@ -11160,8 +11252,10 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           if (summary.n_critical > 0) {
             const memKey = 'intraday_critical_last_alert';
             const last = await env.DB.prepare(`SELECT updated_at FROM agent_memory WHERE key = ? LIMIT 1`).bind(memKey).first().catch(() => null);
+            // Sprint 19 audit fix M1: SQLite datetime "YYYY-MM-DD HH:MM:SS" + 'Z' = Invalid Date.
+            // Normalizar a ISO antes de parsear (sino dedup nunca trigger → Telegram spam).
             const minutesAgo = last?.updated_at
-              ? (Date.now() - new Date(last.updated_at + 'Z').getTime()) / 60000
+              ? (Date.now() - new Date(String(last.updated_at).replace(' ', 'T') + 'Z').getTime()) / 60000
               : 999;
             if (minutesAgo >= 60) {
               const text = [
@@ -11278,7 +11372,15 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
               const days_held = Math.floor((Date.now() - new Date(open_date).getTime()) / 86400000);
               current_dte = Math.max(0, dte_open - days_held);
             }
-            return { ...p, current_dte };
+            // Sprint 19 audit fix C1: paper/positions devuelve `pnl_pct` pero
+            // shouldClose espera `live_pnl_pct`. Sin este map, TP/SL/delta-breach
+            // SILENTLY NEVER FIRE. Bug crítico que rompía todo auto-paper close.
+            return {
+              ...p,
+              current_dte,
+              live_pnl_pct: p.pnl_pct ?? p.live_pnl_pct,
+              current_short_delta: p.short_delta ?? p.current_short_delta,
+            };
           });
           const strategies = stratsResp?.strategies || [];
 

@@ -68,7 +68,11 @@ export function preTradeChecks(trade, state, config = {}, opts = {}) {
   }
 
   // ── 5. First month limit on contracts ──
-  const firstMonthActive = config.first_month_until && new Date(config.first_month_until) > new Date();
+  // Sprint 19 audit fix M4: SQLite datetime("YYYY-MM-DD HH:MM:SS") returns Invalid Date.
+  // Normalizar a ISO antes de parsear → silently disabling first-month cap was a safety hole.
+  const firstMonthDateStr = config.first_month_until ? String(config.first_month_until).replace(' ', 'T') : null;
+  const firstMonthDate = firstMonthDateStr ? new Date(firstMonthDateStr) : null;
+  const firstMonthActive = firstMonthDate && !isNaN(firstMonthDate.getTime()) && firstMonthDate > new Date();
   const maxContracts = firstMonthActive
     ? t.first_month_max_contracts
     : (config.max_contracts_override || 10);

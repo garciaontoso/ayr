@@ -1022,7 +1022,8 @@ function PaperSubtab() {
       });
       const j = await r.json();
       if (j.ok) setAutoPaperEnabled(j.enabled);
-    } catch {}
+      else setErr(j.error || 'Toggle auto-paper failed');  // Sprint 19 audit fix M3
+    } catch (e) { setErr(e.message); }
     setAutoPaperBusy(false);
   };
 
@@ -1184,9 +1185,17 @@ function LiveSubtab() {
   const [busy, setBusy] = useState(false);
   const [executeForm, setExecuteForm] = useState({ fill_credit: '', fill_account: '', notes: '' });
   const [loading, setLoading] = useState(true);
+  // Sprint 11 audit fix C1+C2+H1+H4: error visibility + safety
+  const [err, setErr] = useState(null);
+  const [confirmActivate, setConfirmActivate] = useState(false);
+  const [closeFormFor, setCloseFormFor] = useState(null);  // { id, pnl, reason }
+  const isMountedRef = useRef(true);
+  useEffect(() => () => { isMountedRef.current = false; }, []);
+
+  const safeSet = (fn) => (...args) => { if (isMountedRef.current) fn(...args); };
 
   const refresh = useCallback(async () => {
-    setLoading(true);
+    setLoading(true); setErr(null);
     try {
       const [cfg, o, st, c] = await Promise.all([
         fetch(`${API_URL}/api/thetagang/live/config`).then(r => r.json()).catch(() => null),
@@ -1194,43 +1203,62 @@ function LiveSubtab() {
         fetch(`${API_URL}/api/thetagang/strategies`).then(r => r.json()).catch(() => null),
         fetch(`${API_URL}/api/thetagang/risk/caps-status`).then(r => r.json()).catch(() => null),
       ]);
+      if (!isMountedRef.current) return;
       setConfig(cfg);
       setOrders(o?.orders || []);
       setStrategies(st?.strategies || []);
       setCaps(c);
-    } catch {}
-    setLoading(false);
+    } catch (e) {
+      if (isMountedRef.current) setErr(e.message);
+    }
+    if (isMountedRef.current) setLoading(false);
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
 
   const toggleEnabled = async () => {
-    setBusy(true);
+    // Sprint 11 audit fix H1: double-confirm para "Activar Live"
+    if (!config?.enabled && !confirmActivate) {
+      setConfirmActivate(true);
+      return;
+    }
+    setBusy(true); setErr(null);
     try {
       const r = await fetch(`${API_URL}/api/thetagang/live/config`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: !config?.enabled, first_month_until: config?.first_month_until || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10) }),
       });
-      if (r.ok) { await refresh(); }
-    } catch {} setBusy(false);
+      if (!r.ok) throw new Error(`config update failed: ${r.status}`);
+      setConfirmActivate(false);
+      await refresh();
+    } catch (e) {
+      if (isMountedRef.current) setErr(e.message);
+    }
+    if (isMountedRef.current) setBusy(false);
   };
 
   const generateSuggestion = async () => {
     if (!form.strategy_id || !form.symbol) return;
-    setBusy(true); setSuggestion(null);
+    setBusy(true); setSuggestion(null); setErr(null);
     try {
       const r = await fetch(`${API_URL}/api/thetagang/live/suggest`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
       const j = await r.json();
-      setSuggestion(j);
-    } catch (e) { setSuggestion({ error: e.message }); }
-    setBusy(false);
+      if (isMountedRef.current) setSuggestion(j);
+    } catch (e) {
+      if (isMountedRef.current) setSuggestion({ error: e.message });
+    }
+    if (isMountedRef.current) setBusy(false);
   };
 
   const markExecuted = async () => {
-    if (!suggestion?.ticket) return;
-    setBusy(true);
+    // Sprint 11 audit fix C1: explicit guard, no rely on disabled attribute alone
+    if (!suggestion?.ticket || !suggestion?.checks?.allowed) {
+      setErr('No se puede marcar ejecutado: pre-trade checks no permitidos');
+      return;
+    }
+    setBusy(true); setErr(null);
     try {
       const r = await fetch(`${API_URL}/api/thetagang/live/mark-executed`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1244,26 +1272,43 @@ function LiveSubtab() {
           notes: executeForm.notes || null,
         }),
       });
-      if (r.ok) {
+      if (!r.ok) throw new Error(`mark-executed failed: ${r.status}`);
+      if (isMountedRef.current) {
         setSuggestion(null);
         setExecuteForm({ fill_credit: '', fill_account: '', notes: '' });
         await refresh();
       }
-    } catch {} setBusy(false);
+    } catch (e) {
+      if (isMountedRef.current) setErr(e.message);
+    }
+    if (isMountedRef.current) setBusy(false);
   };
 
-  const closeOrder = async (id) => {
-    const pnl = window.prompt('P&L final ($, positivo o negativo):');
-    if (pnl == null) return;
-    const reason = window.prompt('Razón cierre (TP / SL / manual / etc):') || 'manual';
-    setBusy(true);
+  // Sprint 11 audit fix C2: inline close form (no window.prompt)
+  const startCloseOrder = (id) => setCloseFormFor({ id, pnl: '', reason: 'TP' });
+  const cancelCloseOrder = () => setCloseFormFor(null);
+  const submitCloseOrder = async () => {
+    if (!closeFormFor?.id) return;
+    const pnlNum = parseFloat(closeFormFor.pnl);
+    if (!Number.isFinite(pnlNum)) {
+      setErr('P&L debe ser un número finito');
+      return;
+    }
+    setBusy(true); setErr(null);
     try {
-      await fetch(`${API_URL}/api/thetagang/live/close`, {
+      const r = await fetch(`${API_URL}/api/thetagang/live/close`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, close_pnl: parseFloat(pnl), close_reason: reason }),
+        body: JSON.stringify({ id: closeFormFor.id, close_pnl: pnlNum, close_reason: closeFormFor.reason || 'manual' }),
       });
-      await refresh();
-    } catch {} setBusy(false);
+      if (!r.ok) throw new Error(`close failed: ${r.status}`);
+      if (isMountedRef.current) {
+        setCloseFormFor(null);
+        await refresh();
+      }
+    } catch (e) {
+      if (isMountedRef.current) setErr(e.message);
+    }
+    if (isMountedRef.current) setBusy(false);
   };
 
   if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Cargando estado live…</div>;
@@ -1275,6 +1320,13 @@ function LiveSubtab() {
 
   return (
     <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {/* Sprint 11 audit fix H4: error banner global */}
+      {err && (
+        <div style={{ padding: 10, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.4)', borderRadius: 6, color: '#ef4444', fontSize: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>⚠ {err}</span>
+          <button onClick={() => setErr(null)} style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 14 }}>×</button>
+        </div>
+      )}
       {/* Header status + toggle */}
       <div style={{ ...CARD, borderColor: enabled ? 'rgba(48,209,88,.4)' : 'var(--border)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
@@ -1284,10 +1336,24 @@ function LiveSubtab() {
               {firstMonthActive ? `🛡️ FIRST MONTH MODE — max 1 contract/trade hasta ${config.first_month_until}` : 'Production mode'}
             </div>
           </div>
-          <button onClick={toggleEnabled} disabled={busy} style={{ padding: '6px 14px', fontSize: 11, background: enabled ? '#ef4444' : 'var(--gold, #fbbf24)', color: enabled ? '#fff' : '#000', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 700 }}>
-            {enabled ? 'Desactivar' : 'Activar Live'}
+          <button onClick={toggleEnabled} disabled={busy} style={{ padding: '6px 14px', fontSize: 11, background: enabled ? '#ef4444' : 'var(--gold, #fbbf24)', color: enabled ? '#fff' : '#000', border: 'none', borderRadius: 4, cursor: busy ? 'wait' : 'pointer', fontWeight: 700, opacity: busy ? 0.6 : 1 }}>
+            {busy ? '...' : enabled ? 'Desactivar' : 'Activar Live'}
           </button>
         </div>
+        {/* Sprint 11 audit fix H1: doble-confirm card visible cuando se intenta activar */}
+        {confirmActivate && !enabled && (
+          <div style={{ marginTop: 10, padding: 12, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.5)', borderRadius: 6 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#ef4444', marginBottom: 6 }}>⚠ ATENCIÓN: Real Money Trading</div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.5 }}>
+              Estás a punto de activar trading con DINERO REAL. El sistema sugerirá tickets pero TÚ ejecutas manual en Tastytrade. <b>FIRST MONTH MODE</b> limita a 1 contract/trade durante 30 días.<br />
+              Confirma sólo si entiendes que cualquier trade ejecutado es responsabilidad tuya.
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={toggleEnabled} disabled={busy} style={{ padding: '6px 14px', fontSize: 12, background: '#ef4444', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 700 }}>SÍ, activar real money</button>
+              <button onClick={() => setConfirmActivate(false)} disabled={busy} style={{ padding: '6px 14px', fontSize: 12, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}>Cancelar</button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Pre-trade gate */}
@@ -1381,11 +1447,32 @@ function LiveSubtab() {
                     <td>{fmtMoney(o.fill_credit)}</td>
                     <td style={{ fontSize: 10 }}>{o.fill_account || '—'}</td>
                     <td style={{ fontSize: 10 }}>{o.marked_executed_at?.slice(0, 16) || '—'}</td>
-                    <td><button onClick={() => closeOrder(o.id)} disabled={busy} style={{ padding: '2px 8px', fontSize: 10, background: 'transparent', color: '#fbbf24', border: '1px solid #fbbf24', borderRadius: 3, cursor: 'pointer' }}>Cerrar</button></td>
+                    <td><button onClick={() => startCloseOrder(o.id)} disabled={busy} style={{ padding: '2px 8px', fontSize: 10, background: 'transparent', color: '#fbbf24', border: '1px solid #fbbf24', borderRadius: 3, cursor: 'pointer' }}>Cerrar</button></td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Sprint 11 audit fix C2: inline close order form (no window.prompt) */}
+      {closeFormFor && (
+        <div style={{ ...CARD, borderColor: '#fbbf24' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#fbbf24', marginBottom: 8 }}>Cerrar orden #{closeFormFor.id}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, marginBottom: 8 }}>
+            <input type="number" value={closeFormFor.pnl} onChange={e => setCloseFormFor({ ...closeFormFor, pnl: e.target.value })} placeholder="P&L final $ (puede ser negativo)" step="0.01" style={{ padding: 8, fontSize: 12, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} />
+            <select value={closeFormFor.reason} onChange={e => setCloseFormFor({ ...closeFormFor, reason: e.target.value })} style={{ padding: 8, fontSize: 12, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }}>
+              <option value="TP">Take Profit</option>
+              <option value="SL">Stop Loss</option>
+              <option value="gamma_exit">Gamma Exit</option>
+              <option value="defensive_roll">Defensive Roll</option>
+              <option value="manual">Manual</option>
+            </select>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={submitCloseOrder} disabled={busy || !closeFormFor.pnl} style={{ padding: '6px 14px', fontSize: 12, background: '#30d158', color: '#000', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 700 }}>{busy ? '...' : '✓ Confirmar cierre'}</button>
+            <button onClick={cancelCloseOrder} disabled={busy} style={{ padding: '6px 14px', fontSize: 12, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}>Cancelar</button>
           </div>
         </div>
       )}
@@ -2101,27 +2188,35 @@ function PortfolioIdeasSubtab() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [minConf, setMinConf] = useState(50);
+  const [appliedMinConf, setAppliedMinConf] = useState(50);  // Sprint 19 audit fix H2: applied vs typing
   const [filterType, setFilterType] = useState('ALL');
   const [stats, setStats] = useState({});
+  const abortRef = useRef(null);  // Sprint 19 audit fix M1: AbortController
 
   const refresh = useCallback(async () => {
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
     setLoading(true); setErr(null);
     try {
-      const r = await fetch(`${API_URL}/api/thetagang/portfolio-ideas/scan?min_confidence=${minConf}`);
+      const r = await fetch(`${API_URL}/api/thetagang/portfolio-ideas/scan?min_confidence=${appliedMinConf}`, { signal: abortRef.current.signal });
       const j = await r.json();
       if (j.error) setErr(j.error);
       else {
         setIdeas(j.ideas || []);
         setStats({
-          n_positions: j.n_positions_analyzed,
-          n_ideas_total: j.n_ideas_total,
-          n_filtered: j.n_ideas_filtered,
+          n_positions: j.n_positions_analyzed ?? 0,
+          n_ideas_total: j.n_ideas_total ?? 0,
+          n_filtered: j.n_ideas_filtered ?? 0,
         });
       }
-    } catch (e) { setErr(e.message); }
+    } catch (e) { if (e.name !== 'AbortError') setErr(e.message); }
     setLoading(false);
-  }, [minConf]);
-  useEffect(() => { refresh(); }, [refresh]);
+  }, [appliedMinConf]);
+  useEffect(() => {
+    refresh();
+    return () => { if (abortRef.current) abortRef.current.abort(); };
+  }, [refresh]);
+  const applyMinConf = () => setAppliedMinConf(minConf);
 
   if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Analizando tu cartera...</div>;
   if (err) return <div style={{ padding: 12, margin: 14, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, color: '#ef4444', fontSize: 12 }}>⚠ {err}</div>;
@@ -2150,7 +2245,8 @@ function PortfolioIdeasSubtab() {
             <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{stats.n_positions} positions analizadas · {stats.n_ideas_total} ideas totales · {stats.n_filtered} filtradas (confidence ≥ {minConf})</div>
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-            <label style={{ fontSize: 11 }}>Min conf: <input type="number" value={minConf} onChange={e => setMinConf(Number(e.target.value))} min={0} max={100} step={10} style={{ width: 50, padding: 4, fontSize: 11, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} /></label>
+            <label style={{ fontSize: 11 }}>Min conf: <input type="number" value={minConf} onChange={e => setMinConf(Number(e.target.value))} onBlur={applyMinConf} onKeyDown={e => e.key === 'Enter' && applyMinConf()} min={0} max={100} step={10} style={{ width: 50, padding: 4, fontSize: 11, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} /></label>
+            <button onClick={applyMinConf} disabled={minConf === appliedMinConf} style={{ padding: '4px 8px', fontSize: 11, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}>Apply</button>
             <select value={filterType} onChange={e => setFilterType(e.target.value)} style={{ padding: 4, fontSize: 11, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }}>
               <option value="ALL">Todas</option>
               {Object.keys(TYPE_LABEL).map(t => <option key={t} value={t}>{TYPE_LABEL[t]}</option>)}
@@ -2243,7 +2339,7 @@ function OpenOptionsSubtab() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--gold, #fbbf24)' }}>🎯 Opciones abiertas — IB + TT</div>
-            <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{summary.total} totales · {summary.critical} CRITICAL · {summary.medium} MEDIUM · {summary.low} LOW</div>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{summary.total ?? 0} totales · {summary.critical ?? 0} CRITICAL · {summary.medium ?? 0} MEDIUM · {summary.low ?? 0} LOW</div>
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <select value={filterUrg} onChange={e => setFilterUrg(e.target.value)} style={{ padding: 4, fontSize: 11, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }}>
