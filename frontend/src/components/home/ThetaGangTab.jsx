@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useId } from 'react';
 import { API_URL } from '../../constants/index.js';
+import DisciplinaSubtab from '../guardrails/DisciplinaSubtab.jsx';
+import PreTradeRitualModal from '../guardrails/PreTradeRitualModal.jsx';
 
 // ─── 🤡 Theta Gang Tab ──────────────────────────────────────────────────────
 // Sistema de options premium selling (Camino C — 6 meses construcción).
@@ -30,6 +32,7 @@ const SUB_TABS = [
   { id: 'live',       lbl: '⚡ Live' },
   { id: 'risk',       lbl: '🏗️ Risk' },
   { id: 'pnl',        lbl: '📈 P&L' },
+  { id: 'disciplina', lbl: '🛡 Disciplina' },
 ];
 
 // Sprint 6+7 — multi-leg strategies catalog (frontend mirror of buildLegs())
@@ -2248,6 +2251,9 @@ function PortfolioIdeasSubtab() {
     setWarming(false);
   }, [refresh]);
 
+  // Sprint 22: pre-trade ritual modal state
+  const [ritualTrade, setRitualTrade] = useState(null);
+
   if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Analizando tu cartera...</div>;
   if (err) return <div style={{ padding: 12, margin: 14, background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.3)', borderRadius: 6, color: '#ef4444', fontSize: 12 }}>⚠ {err}</div>;
 
@@ -2374,6 +2380,23 @@ function PortfolioIdeasSubtab() {
                   <span title="Gamma — convexidad delta"><span style={{ color: 'var(--text-tertiary)' }}>Γ</span> <b>{idea.greeks.gamma?.toFixed(3)}</b></span>
                 </div>
               )}
+
+              {/* Sprint 22: Pre-Trade Ritual button */}
+              <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  onClick={() => setRitualTrade({
+                    strategy: idea.type,
+                    symbol: idea.ticker,
+                    contracts: idea.contracts || 1,
+                    dte: idea.dte,
+                    brain_score: idea.confidence_score,
+                  })}
+                  title="Abre el ritual pre-trade: checklist + thesis + conviction antes de ejecutar manualmente en TT/IB"
+                  style={{ padding: '5px 10px', fontSize: 11, background: 'rgba(48,209,88,.12)', color: '#30d158', border: '1px solid rgba(48,209,88,.4)', borderRadius: 4, cursor: 'pointer' }}
+                >
+                  🛡 Open con ritual
+                </button>
+              </div>
             </div>
           );
         })
@@ -2406,6 +2429,18 @@ function PortfolioIdeasSubtab() {
       <div style={{ padding: 10, background: 'rgba(96,165,250,.06)', border: '1px solid rgba(96,165,250,.2)', borderRadius: 6, fontSize: 11, color: 'var(--text-secondary)' }}>
         💡 Sprint 20: cada idea declara su fuente IV (🟢 TT real, 🟡 HV proxy Yahoo, 🔴 sin IV). Greeks calculados BS server-side. Confidence penalizado -15 cuando iv_source = hv_proxy. Para ejecución: revisa quote real en TT/IBKR antes de abrir.
       </div>
+
+      {/* Sprint 22: Pre-Trade Ritual modal */}
+      {ritualTrade && (
+        <PreTradeRitualModal
+          tradeContext={ritualTrade}
+          onCancel={() => setRitualTrade(null)}
+          onConfirm={(result) => {
+            setRitualTrade(null);
+            alert(`✓ Journal abierto. Ahora ve a TT/IB y ejecuta:\n\n${ritualTrade.symbol} ${ritualTrade.strategy}\nConviction: ${result.conviction}\nTrade ref: ${result.trade_ref.slice(-20)}\n\nCuando cierres, ve a tab 🛡 Disciplina para review.`);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -2576,6 +2611,7 @@ export default function ThetaGangTab() {
       case 'live':       return <LiveSubtab />;
       case 'risk':       return <RiskSubtab />;
       case 'pnl':        return <PnLSubtab />;
+      case 'disciplina': return <DisciplinaSubtab />;
       default:           return null;
     }
   };

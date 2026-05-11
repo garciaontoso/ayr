@@ -42,11 +42,12 @@ crons = [
   # Otros crons existentes:
   "0 12 * * *",           # News + YouTube refresh diario 12:00 UTC (~20:00 Shanghai)
   "0 8 * * *",            # Data Audit diario 08:00 UTC (~10:00 Madrid / 16:00 Shanghai)
+                          # Sprint 22 — Weekly review reminder PIGGYBACK aquí los domingos
   # 2026-05-05: ELIMINADO "30 7 * * 1-5" (IB Flex backup).
   # El bridge sync cada 30min cubre 100% trades nuevos sin token que caduque.
   # Si Flex se necesita para reconciliación histórica, trigger manual:
   #   curl -X POST https://api.onto-so.com/api/ib-flex-sync -H "X-AYR-Auth:..."
-  # CF Workers limit = 5 crons. Ya tenemos 4, queda margen de 1.
+  # CF Workers limit = 5 crons. Actual: 4/5 + weekly review piggybacked en 08:00 UTC.
 ]
 #
 # Crons antiguos preservados como referencia (DESACTIVADOS):

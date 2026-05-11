@@ -21,6 +21,7 @@ import * as Monitor from "./lib/monitoring-engine.js";
 import * as AutoPaper from "./lib/auto-paper-engine.js";
 import * as PortfolioIdeas from "./lib/portfolio-ideas-engine.js";
 import * as LiveExec from "./lib/live-execution-engine.js";
+import * as Guardrails from "./lib/guardrails-engine.js";
 import * as ThetaAudit from "./lib/audit-engine.js";
 import { FMP_MAP, toFMP, fromFMP, FMP_REVERSE, fmpQuote, fmpRiskMetrics, fmpSpyCloses, fmpSpark, FCF_PAYOUT_CARVEOUT, CURRENCY_MAP } from "./lib/fmp.js";
 
@@ -7851,6 +7852,107 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         )`).run();
         await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_strategy_rank
           ON thetagang_strategy_rankings(run_at DESC, rank)`).run();
+        // Sprint 22 — Anti-Estupidez Engine: behavioral guardrails state
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS guardrails_behavioral_state (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          date TEXT NOT NULL UNIQUE,                    -- YYYY-MM-DD ET
+          nav REAL,
+          daily_pnl_dollars REAL DEFAULT 0,
+          daily_pnl_pct REAL DEFAULT 0,
+          weekly_opens_count INTEGER DEFAULT 0,
+          loss_streak INTEGER DEFAULT 0,
+          updated_at TEXT DEFAULT (datetime('now'))
+        )`).run();
+        await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_guardrails_state_date
+          ON guardrails_behavioral_state(date DESC)`).run();
+
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS guardrails_trade_journal (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          trade_ref TEXT NOT NULL,                       -- open_trades.id or paper trade id
+          symbol TEXT NOT NULL,
+          strategy TEXT,
+          opened_at TEXT,
+          thesis TEXT,
+          conviction INTEGER,                            -- 1-5
+          checklist_json TEXT,                           -- JSON of {iv_rank_ok:true,...}
+          brain_score REAL,
+          regime_at_entry TEXT,
+          vix_at_entry REAL,
+          closed_at TEXT,
+          close_pnl_dollars REAL,
+          was_correct INTEGER,                           -- 0/1, NULL until reviewed
+          surprise TEXT,
+          lesson TEXT,
+          emotional_state_open TEXT,
+          emotional_state_close TEXT,
+          override_used INTEGER DEFAULT 0,               -- 1 si trade pasó por override
+          override_reason TEXT
+        )`).run();
+        await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_journal_trade_ref
+          ON guardrails_trade_journal(trade_ref)`).run();
+        await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_journal_unreviewed
+          ON guardrails_trade_journal(closed_at, was_correct)
+          WHERE closed_at IS NOT NULL AND was_correct IS NULL`).run();
+
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS guardrails_cooldowns (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          type TEXT NOT NULL,                            -- TILT|REVENGE|DAILY_LOSS|MANUAL
+          started_at TEXT DEFAULT (datetime('now')),
+          expires_at TEXT NOT NULL,
+          reason TEXT,
+          triggered_by TEXT,
+          status TEXT DEFAULT 'active'                   -- active|expired|cancelled
+        )`).run();
+        await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_cooldowns_active
+          ON guardrails_cooldowns(status, expires_at)`).run();
+
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS guardrails_kill_switches (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          rule TEXT NOT NULL,                            -- DAILY_LOSS|MANUAL|LOSS_STREAK|...
+          triggered_at TEXT DEFAULT (datetime('now')),
+          expires_at TEXT,
+          reason TEXT,
+          can_override INTEGER DEFAULT 1,
+          override_count INTEGER DEFAULT 0,
+          status TEXT DEFAULT 'active'                   -- active|expired|overridden
+        )`).run();
+        await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_killswitches_active
+          ON guardrails_kill_switches(status, rule)`).run();
+
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS guardrails_actions_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          ts TEXT DEFAULT (datetime('now')),
+          type TEXT NOT NULL,                            -- open|close|cancel|modify|override
+          symbol TEXT,
+          strategy TEXT,
+          pnl_dollars REAL,                              -- for close events
+          meta_json TEXT
+        )`).run();
+        await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_actions_ts
+          ON guardrails_actions_log(ts DESC)`).run();
+
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS guardrails_weekly_reviews (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          week_ending TEXT NOT NULL UNIQUE,              -- YYYY-MM-DD (Sunday)
+          submitted_at TEXT DEFAULT (datetime('now')),
+          win_rate_actual REAL,
+          win_rate_expected REAL,
+          trades_skipping_rules INTEGER,
+          biggest_lesson TEXT,
+          focus_next_week TEXT,
+          emotional_avg_score REAL,
+          raw_answers_json TEXT
+        )`).run();
+
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS guardrails_override_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          ts TEXT DEFAULT (datetime('now')),
+          rule TEXT NOT NULL,
+          reason TEXT NOT NULL,                          -- ≥50 chars
+          symbol TEXT,
+          strategy TEXT,
+          contracts INTEGER
+        )`).run();
       };
 
       // GET /api/thetagang/strategies — catálogo de las 9 estrategias seedeadas
@@ -11478,6 +11580,372 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             summary,
             generated_at: new Date().toISOString(),
           }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      // ─── Sprint 22 — Anti-Estupidez Engine: behavioral guardrails ────
+      // ═══════════════════════════════════════════════════════════════════
+      // Helper: build current behavioral state for evalGuardrails
+      const buildGuardrailsState = async () => {
+        await ensureThetaGangTables();
+        const today = new Date().toISOString().slice(0, 10);
+        const now = Date.now();
+
+        // Daily state
+        const stateRow = await env.DB.prepare(
+          `SELECT * FROM guardrails_behavioral_state WHERE date = ?`
+        ).bind(today).first().catch(() => null);
+
+        // NAV from latest nlv_history
+        const navRow = await env.DB.prepare(
+          `SELECT nlv FROM nlv_history ORDER BY fecha DESC LIMIT 1`
+        ).first().catch(() => null);
+        const nav = navRow?.nlv || stateRow?.nav || 1_400_000;
+
+        // Recent actions (last 60min)
+        const { results: recentActions } = await env.DB.prepare(
+          `SELECT ts, type, symbol, pnl_dollars
+           FROM guardrails_actions_log
+           WHERE ts > datetime('now', '-60 minutes')
+           ORDER BY ts DESC`
+        ).all().catch(() => ({ results: [] }));
+
+        // Recent closes for revenge detection
+        const recentCloses = (recentActions || [])
+          .filter(a => a.type === 'close' && a.pnl_dollars != null)
+          .map(a => ({ ts: a.ts, pnl_dollars: Number(a.pnl_dollars), symbol: a.symbol }));
+
+        // Open positions for concentration
+        const { results: openPositions } = await env.DB.prepare(
+          `SELECT ticker as symbol, underlying, market_value, shares
+           FROM positions WHERE shares != 0`
+        ).all().catch(() => ({ results: [] }));
+
+        // Active kill-switches
+        const { results: activeKillSwitches } = await env.DB.prepare(
+          `SELECT rule, reason, expires_at, can_override
+           FROM guardrails_kill_switches
+           WHERE status = 'active' AND (expires_at IS NULL OR expires_at > datetime('now'))`
+        ).all().catch(() => ({ results: [] }));
+
+        // Active cooldowns
+        const { results: activeCooldowns } = await env.DB.prepare(
+          `SELECT type, reason, expires_at
+           FROM guardrails_cooldowns
+           WHERE status = 'active' AND expires_at > datetime('now')`
+        ).all().catch(() => ({ results: [] }));
+
+        // Journal pending close review
+        const pendingJournal = await env.DB.prepare(
+          `SELECT COUNT(*) as n FROM guardrails_trade_journal
+           WHERE closed_at IS NOT NULL AND was_correct IS NULL`
+        ).first().catch(() => ({ n: 0 }));
+
+        // Weekly review state — last Sunday is "required" for Monday opens
+        const dow = new Date(now).getUTCDay();  // 0=Sun
+        let weeklyReviewRequiredBy = null;
+        const lastReview = await env.DB.prepare(
+          `SELECT week_ending FROM guardrails_weekly_reviews ORDER BY week_ending DESC LIMIT 1`
+        ).first().catch(() => null);
+        if (dow > 0) {
+          // Past Sunday calculation
+          const daysBackToSunday = dow;
+          const lastSunday = new Date(now - daysBackToSunday * 86400000).toISOString().slice(0, 10);
+          if (!lastReview || lastReview.week_ending < lastSunday) {
+            weeklyReviewRequiredBy = lastSunday;
+          }
+        }
+
+        // Regime: latest VIX
+        let vix = null, vix3m = null;
+        try {
+          const ivRow = await env.DB.prepare(
+            `SELECT iv_current FROM iv_rank_cache WHERE symbol = 'VIX' ORDER BY date DESC LIMIT 1`
+          ).first().catch(() => null);
+          if (ivRow) vix = ivRow.iv_current;
+        } catch {}
+        if (vix == null) {
+          // Fallback: fetch VIX live via ttQuote
+          try {
+            const q = await ttQuote(env, ['VIX']).catch(() => null);
+            vix = q?.VIX?.last || null;
+          } catch {}
+        }
+
+        // Loss streak: last 5 closes
+        const recentClosed = await env.DB.prepare(
+          `SELECT pnl_dollars FROM guardrails_actions_log
+           WHERE type = 'close' AND pnl_dollars IS NOT NULL
+           ORDER BY ts DESC LIMIT 5`
+        ).all().catch(() => ({ results: [] }));
+        let lossStreak = 0;
+        for (const r of (recentClosed.results || [])) {
+          if (Number(r.pnl_dollars) < 0) lossStreak++; else break;
+        }
+
+        // Earnings calendar (next 60d) from existing earnings table if available
+        const earningsCalendar = {};
+        try {
+          const { results: er } = await env.DB.prepare(
+            `SELECT ticker, earnings_date FROM earnings_calendar
+             WHERE earnings_date >= date('now') AND earnings_date < date('now', '+60 days')
+             ORDER BY earnings_date ASC`
+          ).all();
+          for (const r of (er || [])) {
+            if (r.ticker && r.earnings_date) earningsCalendar[String(r.ticker).toUpperCase()] = r.earnings_date;
+          }
+        } catch { /* table may not exist or be empty */ }
+
+        // Madrid local hour
+        const madridHourStr = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', hour: '2-digit', hour12: false }).format(new Date(now));
+        const localHour = parseInt(madridHourStr, 10);
+
+        return {
+          nav,
+          daily_pnl_dollars: stateRow?.daily_pnl_dollars || 0,
+          daily_pnl_pct: stateRow?.daily_pnl_pct || 0,
+          weekly_opens_count: stateRow?.weekly_opens_count || 0,
+          recent_actions: recentActions || [],
+          recent_closes: recentCloses,
+          open_positions: openPositions || [],
+          loss_streak: lossStreak,
+          weekly_review_done_at: lastReview?.week_ending || null,
+          weekly_review_required_by: weeklyReviewRequiredBy,
+          active_kill_switches: activeKillSwitches || [],
+          active_cooldowns: activeCooldowns || [],
+          regime: { vix, vix3m },
+          earnings_calendar: earningsCalendar,
+          journal_pending_close_count: pendingJournal?.n || 0,
+          local_hour: Number.isFinite(localHour) ? localHour : 15,
+          now_ts: now,
+        };
+      };
+
+      // POST /api/guardrails/check — eval guardrails for a candidate trade
+      // body: { strategy, symbol, contracts, dte, brain_score?, conviction?, thesis?, checklist?, earnings_intent? }
+      if (path === "/api/guardrails/check" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        try {
+          const trade = await request.json().catch(() => ({}));
+          const state = await buildGuardrailsState();
+          const result = Guardrails.evalGuardrails(state, trade);
+          return json({
+            ok: true,
+            ...result,
+            state_summary: {
+              nav: state.nav,
+              daily_pnl_pct: state.daily_pnl_pct,
+              loss_streak: state.loss_streak,
+              vix: state.regime?.vix,
+              local_hour: state.local_hour,
+              journal_pending: state.journal_pending_close_count,
+              active_kill_switches: state.active_kill_switches.length,
+              active_cooldowns: state.active_cooldowns.length,
+            },
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
+      // GET /api/guardrails/dashboard — full behavioral state for UI
+      if (path === "/api/guardrails/dashboard" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        try {
+          await ensureThetaGangTables();
+          const state = await buildGuardrailsState();
+          // Last 7d action stats
+          const { results: stats } = await env.DB.prepare(
+            `SELECT type, COUNT(*) as n
+             FROM guardrails_actions_log
+             WHERE ts > datetime('now', '-7 days')
+             GROUP BY type`
+          ).all().catch(() => ({ results: [] }));
+          // Last 4 weekly reviews
+          const { results: reviews } = await env.DB.prepare(
+            `SELECT week_ending, submitted_at, biggest_lesson FROM guardrails_weekly_reviews
+             ORDER BY week_ending DESC LIMIT 4`
+          ).all().catch(() => ({ results: [] }));
+          // Pending journals
+          const { results: pendingJournals } = await env.DB.prepare(
+            `SELECT trade_ref, symbol, closed_at, close_pnl_dollars
+             FROM guardrails_trade_journal
+             WHERE closed_at IS NOT NULL AND was_correct IS NULL
+             ORDER BY closed_at DESC LIMIT 20`
+          ).all().catch(() => ({ results: [] }));
+          // Recent overrides
+          const { results: overrides } = await env.DB.prepare(
+            `SELECT ts, rule, reason, symbol FROM guardrails_override_log
+             WHERE ts > datetime('now', '-30 days')
+             ORDER BY ts DESC LIMIT 20`
+          ).all().catch(() => ({ results: [] }));
+          return json({
+            ok: true,
+            state,
+            stats_7d: Object.fromEntries((stats || []).map(s => [s.type, s.n])),
+            recent_reviews: reviews || [],
+            pending_journals: pendingJournals || [],
+            recent_overrides: overrides || [],
+            generated_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
+      // POST /api/guardrails/journal/open — record opening of a trade
+      // body: { trade_ref, symbol, strategy, thesis, conviction, checklist, brain_score, emotional_state }
+      if (path === "/api/guardrails/journal/open" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        try {
+          await ensureThetaGangTables();
+          const b = await request.json();
+          if (!b.trade_ref || !b.symbol) return json({ error: 'trade_ref + symbol required' }, corsHeaders, 400);
+          // Validate ritual
+          const ritual = Guardrails.validateRitual(b);
+          if (!ritual.complete) return json({ error: 'RITUAL_INCOMPLETE', missing: ritual.missing }, corsHeaders, 422);
+          const state = await buildGuardrailsState();
+          await env.DB.prepare(
+            `INSERT INTO guardrails_trade_journal (trade_ref, symbol, strategy, opened_at, thesis, conviction, checklist_json, brain_score, regime_at_entry, vix_at_entry, emotional_state_open)
+             VALUES (?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?, ?)`
+          ).bind(
+            b.trade_ref,
+            String(b.symbol).toUpperCase(),
+            b.strategy || null,
+            b.thesis,
+            Number(b.conviction),
+            JSON.stringify(b.checklist || {}),
+            b.brain_score != null ? Number(b.brain_score) : null,
+            state.regime?.regime_label || null,
+            state.regime?.vix || null,
+            b.emotional_state || null,
+          ).run();
+          // Log action
+          await env.DB.prepare(
+            `INSERT INTO guardrails_actions_log (type, symbol, strategy, meta_json) VALUES ('open', ?, ?, ?)`
+          ).bind(String(b.symbol).toUpperCase(), b.strategy || null, JSON.stringify({ trade_ref: b.trade_ref, conviction: b.conviction })).run();
+          return json({ ok: true, trade_ref: b.trade_ref, message: 'Journal opened' }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
+      // POST /api/guardrails/journal/close — record close review
+      // body: { trade_ref, close_pnl_dollars, was_correct, surprise, lesson, emotional_state }
+      if (path === "/api/guardrails/journal/close" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        try {
+          await ensureThetaGangTables();
+          const b = await request.json();
+          if (!b.trade_ref) return json({ error: 'trade_ref required' }, corsHeaders, 400);
+          const result = await env.DB.prepare(
+            `UPDATE guardrails_trade_journal SET
+               closed_at = COALESCE(closed_at, datetime('now')),
+               close_pnl_dollars = ?,
+               was_correct = ?,
+               surprise = ?,
+               lesson = ?,
+               emotional_state_close = ?
+             WHERE trade_ref = ?`
+          ).bind(
+            b.close_pnl_dollars != null ? Number(b.close_pnl_dollars) : null,
+            b.was_correct != null ? (b.was_correct ? 1 : 0) : null,
+            b.surprise || null,
+            b.lesson || null,
+            b.emotional_state || null,
+            b.trade_ref,
+          ).run();
+          // Log action with pnl for tilt/revenge detection
+          await env.DB.prepare(
+            `INSERT INTO guardrails_actions_log (type, symbol, pnl_dollars, meta_json) VALUES ('close', ?, ?, ?)`
+          ).bind(b.symbol || null, b.close_pnl_dollars || null, JSON.stringify({ trade_ref: b.trade_ref })).run();
+          return json({ ok: true, trade_ref: b.trade_ref, rows_updated: result?.meta?.changes || 0 }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
+      // POST /api/guardrails/override — explicit override of a blocked rule with reason
+      // body: { rule, reason (≥50 chars), symbol?, strategy?, contracts? }
+      if (path === "/api/guardrails/override" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        try {
+          await ensureThetaGangTables();
+          const b = await request.json();
+          if (!b.rule) return json({ error: 'rule required' }, corsHeaders, 400);
+          const validation = Guardrails.validateOverrideReason(b.reason);
+          if (!validation.valid) return json({ error: 'INVALID_REASON', detail: validation.reason }, corsHeaders, 422);
+          await env.DB.prepare(
+            `INSERT INTO guardrails_override_log (rule, reason, symbol, strategy, contracts)
+             VALUES (?, ?, ?, ?, ?)`
+          ).bind(b.rule, b.reason.trim(), b.symbol || null, b.strategy || null, b.contracts || null).run();
+          // Bump override_count on active kill_switch matching this rule
+          await env.DB.prepare(
+            `UPDATE guardrails_kill_switches SET override_count = override_count + 1
+             WHERE rule = ? AND status = 'active'`
+          ).bind(b.rule).run();
+          // Log action
+          await env.DB.prepare(
+            `INSERT INTO guardrails_actions_log (type, symbol, strategy, meta_json) VALUES ('override', ?, ?, ?)`
+          ).bind(b.symbol || null, b.strategy || null, JSON.stringify({ rule: b.rule, reason: b.reason.slice(0, 200) })).run();
+          // Telegram notify (security trail)
+          try {
+            await sendTelegram(env, `⚠️ Override usado: ${b.rule}\nSymbol: ${b.symbol || '—'}\nReason: ${b.reason.slice(0, 200)}`, 'WARN');
+          } catch {}
+          return json({ ok: true, message: 'Override registered' }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
+      // POST /api/guardrails/weekly-review — submit Sunday review
+      // body: { week_ending: 'YYYY-MM-DD', win_rate_actual, win_rate_expected, trades_skipping_rules, biggest_lesson, focus_next_week, emotional_avg_score, raw_answers }
+      if (path === "/api/guardrails/weekly-review" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        try {
+          await ensureThetaGangTables();
+          const b = await request.json();
+          const weekEnding = b.week_ending || new Date().toISOString().slice(0, 10);
+          if (!b.biggest_lesson || String(b.biggest_lesson).trim().length < 20) {
+            return json({ error: 'biggest_lesson required ≥20 chars' }, corsHeaders, 422);
+          }
+          await env.DB.prepare(
+            `INSERT OR REPLACE INTO guardrails_weekly_reviews
+               (week_ending, win_rate_actual, win_rate_expected, trades_skipping_rules, biggest_lesson, focus_next_week, emotional_avg_score, raw_answers_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          ).bind(
+            weekEnding,
+            b.win_rate_actual != null ? Number(b.win_rate_actual) : null,
+            b.win_rate_expected != null ? Number(b.win_rate_expected) : null,
+            b.trades_skipping_rules != null ? Number(b.trades_skipping_rules) : null,
+            b.biggest_lesson,
+            b.focus_next_week || null,
+            b.emotional_avg_score != null ? Number(b.emotional_avg_score) : null,
+            JSON.stringify(b.raw_answers || {}),
+          ).run();
+          return json({ ok: true, week_ending: weekEnding }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
+      // POST /api/guardrails/cooldown — manually start a cooldown (debug or user pause)
+      // body: { type, minutes, reason }
+      if (path === "/api/guardrails/cooldown" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        try {
+          await ensureThetaGangTables();
+          const b = await request.json();
+          if (!b.type || !b.minutes) return json({ error: 'type + minutes required' }, corsHeaders, 400);
+          const minutes = Math.min(7 * 24 * 60, Math.max(1, Number(b.minutes)));
+          await env.DB.prepare(
+            `INSERT INTO guardrails_cooldowns (type, expires_at, reason, triggered_by) VALUES (?, datetime('now', '+' || ? || ' minutes'), ?, ?)`
+          ).bind(b.type, minutes, b.reason || 'manual', b.triggered_by || 'user').run();
+          return json({ ok: true, minutes, expires_in_min: minutes }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
+      // POST /api/guardrails/kill-switch/cancel — cancel active kill-switch
+      // body: { rule }
+      if (path === "/api/guardrails/kill-switch/cancel" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        try {
+          await ensureThetaGangTables();
+          const b = await request.json();
+          if (!b.rule) return json({ error: 'rule required' }, corsHeaders, 400);
+          const r = await env.DB.prepare(
+            `UPDATE guardrails_kill_switches SET status = 'cancelled' WHERE rule = ? AND status = 'active'`
+          ).bind(b.rule).run();
+          return json({ ok: true, cancelled: r?.meta?.changes || 0 }, corsHeaders);
         } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
       }
 
@@ -28402,6 +28870,39 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
         console.log(`[audit-cron] nlv snapshot: ${r.status} nlv=${d.nlv ?? '?'} fecha=${d.fecha ?? '?'}`);
       } catch (e) {
         console.error('[audit-cron] nlv snapshot failed:', e.message);
+      }
+
+      // ─── Sprint 22 piggyback: Weekly review reminder (Sundays only) ────
+      // El cron daily 08:00 UTC se ejecuta todos los días. Solo enviamos
+      // recordatorio si es DOMINGO Y aún no hay review submitted esta semana.
+      try {
+        const utcDay = new Date().getUTCDay();  // 0=Sun
+        if (utcDay === 0) {
+          await ensureMigrations(env);
+          // No-op if guardrails tables don't exist yet
+          const lastReview = await env.DB.prepare(
+            `SELECT week_ending FROM guardrails_weekly_reviews ORDER BY week_ending DESC LIMIT 1`
+          ).first().catch(() => null);
+          const today = new Date().toISOString().slice(0, 10);
+          const needsReview = !lastReview || lastReview.week_ending < today;
+          if (needsReview) {
+            const stats = await env.DB.prepare(
+              `SELECT type, COUNT(*) as n, SUM(pnl_dollars) as total_pnl
+               FROM guardrails_actions_log
+               WHERE ts >= datetime('now', '-7 days')
+               GROUP BY type`
+            ).all().catch(() => ({ results: [] }));
+            const opens = stats.results?.find(s => s.type === 'open')?.n || 0;
+            const closes = stats.results?.find(s => s.type === 'close')?.n || 0;
+            const totalPnl = stats.results?.find(s => s.type === 'close')?.total_pnl || 0;
+            const overrides = stats.results?.find(s => s.type === 'override')?.n || 0;
+            const msg = `📝 *Weekly Review pendiente*\n\nEsta semana: ${opens} opens · ${closes} closes · ${totalPnl >= 0 ? '+' : ''}$${Number(totalPnl).toFixed(0)} P&L${overrides > 0 ? ` · ⚠ ${overrides} overrides` : ''}\n\nSin completar antes del lunes 09:00 los nuevos opens estarán bloqueados.\n\nCompleta en 3min:\nhttps://ayr.onto-so.com → Theta Gang → 🛡 Disciplina`;
+            await sendTelegram(env, msg, 'INFO');
+            console.log('[weekly-review] domingo reminder enviado');
+          }
+        }
+      } catch (e) {
+        console.error('[weekly-review] piggyback error:', e.message);
       }
       return;
     }
