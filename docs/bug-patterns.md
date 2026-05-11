@@ -346,13 +346,36 @@ Implementado para evitar regresiones:
   3. TT bridge endpoint `marketdata/iv-rank` directo devuelve 401 con auth actual.
   4. Greeks (delta/gamma/theta/vega) NO se calculan ni devuelven en NINGUNA propuesta de Cartera Ideas.
   5. Yo (Claude) presenté el sistema como "professional" sin verificar la fuente real de los datos.
-- **Fix**: Sprint 20 pending — refactor para usar IB TWS Greeks reales (necesita extender bridge NAS) o fallar honestamente cuando no hay IV real.
+- **Fix**: Sprint 20 (2026-05-11, commit pendiente). Refactor completo:
+  1. `portfolio-ideas-engine.js`: eliminado `iv_for_premium_estimate: 0.25` default. `analyzePosition` exige `iv + iv_source` del caller — si missing, return [].
+  2. Cada idea ahora incluye `iv_used`, `iv_source`, `greeks: {delta, gamma, theta, vega}` (BS-computed).
+  3. `scanPortfolio` devuelve `{ideas, skipped, summary}` con breakdown por iv_source.
+  4. `fetchIvForSymbol(env, symbol)` nuevo helper en worker.js: TT live → D1 cache HV → null. Cache 60s.
+  5. Endpoints `/portfolio-ideas/scan` y `/open-options/with-suggestions` ahora fetch IV por ticker antes de invocar engine.
+  6. `live-execution-engine.buildTradeTicket` devuelve `{error: 'NO_IV'}` si no hay iv real (antes fallback 0.20).
+  7. Confidence penalty -15 cuando `iv_source: hv_proxy` (transparencia matemática).
 - **Prevención META**: 
   - SIEMPRE smoke test al provider real (curl directo) antes de prometer features.
   - SIEMPRE marcar source en UI: `IV: 18.4% (TT real)` vs `IV: 25% (estimated)`.
   - PROHIBIDO inventar fallbacks silenciosos en datos críticos para trading.
   - Si no hay datos reales → FAIL FAST + UI warning, NO inventar.
-- **Archivos**: `api/src/lib/portfolio-ideas-engine.js`, `api/src/worker.js` (varios endpoints).
-- **Commit**: pendiente Sprint 20.
+- **Archivos**: `api/src/lib/portfolio-ideas-engine.js`, `api/src/lib/live-execution-engine.js`, `api/src/worker.js` (fetchIvForSymbol helper + 3 endpoints).
+- **Tests**: 10 nuevos en `tests/regressions/portfolio-ideas-engine.test.js` + `live-execution-engine.test.js` (745 pass).
 - **Lección**: HV (historical vol) ≠ IV (implied vol). Para options siempre usa IV real, no proxy histórico.
+
+### Bug #029 — IV hardcoded fallback en safety-critical paths (Sprint 20 antipattern)
+- **Síntoma**: Engines de options pricing usaban `iv = position.iv_30d || 0.25` o `iv = brainData?.iv_index || 0.20` cuando no había IV disponible. Resultado: 104 ideas en Cartera Ideas con strikes/premiums calculados a partir de un IV genérico que NO refleja la realidad del símbolo (single-name stocks pueden tener IV 15-60%, no 25%).
+- **Causa raíz**: 
+  1. Engine funciones puras sin acceso a fetchers, defaults razonables por developer convenience.
+  2. Callers (endpoints) NO fetcheaban IV, confiaban en defaults del engine.
+  3. UI no exponía `iv_source`, usuario asume "IV = real del símbolo".
+- **Fix Sprint 20**: caller-responsibility pattern — el engine REHÚSA defaults silenciosos. Endpoint usa `fetchIvForSymbol()` que intenta TT live → HV cache → null. Si null, position skipped en summary.skipped con `reason: 'no_iv'`.
+- **Prevención obligatoria**:
+  - **NUNCA** `const x = realData || HARDCODED_FALLBACK` en safety-critical paths (pricing, risk, position sizing).
+  - **SIEMPRE** marcar source: `iv_source: 'tt_real' | 'ib_real' | 'hv_proxy' | 'missing'`.
+  - **SIEMPRE** fail-fast en engine puro — los callers deciden política de fallback.
+  - **SIEMPRE** test que verifica el skip-no-iv path: `analyzePosition({sin iv})` debe retornar [].
+  - **SIEMPRE** UI badge "🟢 real" / "🟡 proxy" / "🔴 missing" para que usuario vea provenance.
+- **Archivos**: aplicado a `portfolio-ideas-engine.js`, `live-execution-engine.js`. Pendiente Sprint 21: extender a `tail-hedge-engine.js`, `risk-engine.js`, `wheel-backtest.js`.
+- **Lección meta**: defaults silenciosos en código safety-critical son tickets de tiempo a una mala decisión. El usuario merece ver fail-fast antes que "104 ideas wrong".
 

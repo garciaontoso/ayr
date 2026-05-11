@@ -1022,6 +1022,82 @@ async function ttIvRank(env, underlying) {
   return ttBridgeFetch(env, `/marketdata/iv-rank/${encodeURIComponent(underlying)}`);
 }
 
+// ─── Sprint 20 — IV source resolver ──────────────────────────────────────────
+// Returns { iv, source, fresh_at, warning? } for a single underlying.
+// Tries: TT bridge live IV → D1 iv_rank_cache (Yahoo HV proxy) → null.
+// IB bridge skipped here: needs dedicated /option-iv endpoint (Sprint 21).
+//
+// Sources (in priority order):
+//   'tt_real'    — real implied vol from Tastytrade (forward-looking)
+//   'hv_proxy'   — Yahoo historical vol × 1.05, ONLY for SPY/IWM/QQQ in cache
+//   'fallback_hv'— HV computed from FMP/Yahoo chart on-the-fly (Sprint 21)
+// Returns null if no source available — caller must NOT invent.
+const _ivResolverCache = new Map();         // symbol → { result, ts }
+const IV_RESOLVER_CACHE_MS = 60_000;        // 60s — avoid hammering during single scan
+
+async function fetchIvForSymbol(env, symbol) {
+  if (!symbol) return null;
+  const sym = String(symbol).toUpperCase();
+  const now = Date.now();
+  const cached = _ivResolverCache.get(sym);
+  if (cached && now - cached.ts < IV_RESOLVER_CACHE_MS) return cached.result;
+
+  let result = null;
+
+  // 1. TT bridge live IV (forward-looking, gold standard)
+  try {
+    const ttResp = await Promise.race([
+      ttIvRank(env, sym),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000)),
+    ]);
+    const iv = ttResp?.iv_index || ttResp?.iv || ttResp?.implied_volatility;
+    if (typeof iv === 'number' && iv > 0 && iv < 5) {
+      // iv from TT may be in % (e.g. 25.5) or decimal (0.255). Normalize to decimal.
+      const ivDec = iv > 1 ? iv / 100 : iv;
+      result = {
+        iv: ivDec,
+        source: 'tt_real',
+        fresh_at: new Date().toISOString(),
+        iv_rank: ttResp?.iv_rank || null,
+      };
+    }
+  } catch { /* fall through */ }
+
+  // 2. D1 iv_rank_cache (HV proxy from Yahoo — backward-looking, ETFs only)
+  if (!result) {
+    try {
+      const row = await env.DB.prepare(
+        `SELECT iv_current, iv_rank, hv_30d, data_source, created_at
+         FROM iv_rank_cache WHERE symbol = ? ORDER BY date DESC LIMIT 1`
+      ).bind(sym).first().catch(() => null);
+      if (row && typeof row.iv_current === 'number' && row.iv_current > 0) {
+        // iv_current stored as % (e.g. 16.45), normalize to decimal
+        const ivDec = row.iv_current > 1 ? row.iv_current / 100 : row.iv_current;
+        result = {
+          iv: ivDec,
+          source: row.data_source === 'yahoo_hv_v1' ? 'hv_proxy' : 'cache',
+          fresh_at: row.created_at,
+          iv_rank: row.iv_rank,
+          warning: 'HV used as IV proxy (backward-looking) — not real implied vol',
+        };
+      }
+    } catch { /* fall through */ }
+  }
+
+  _ivResolverCache.set(sym, { result, ts: now });
+  return result;
+}
+
+// Batch helper — N symbols → Map<symbol, result>. Parallelized via Promise.all.
+async function fetchIvForSymbols(env, symbols) {
+  if (!Array.isArray(symbols) || symbols.length === 0) return new Map();
+  const unique = [...new Set(symbols.filter(Boolean).map(s => String(s).toUpperCase()))];
+  const results = await Promise.all(unique.map(sym => fetchIvForSymbol(env, sym).catch(() => null)));
+  const map = new Map();
+  for (let i = 0; i < unique.length; i++) map.set(unique[i], results[i]);
+  return map;
+}
+
 // Genera URL de autorización OAuth (paso 1 del flow). El callback hace
 // POST al bridge con el code; el bridge intercambia y persiste tokens.
 function ttOAuthInitUrl(env, state) {
@@ -8206,7 +8282,28 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         const unauth = ytRequireToken(request, env);
         if (unauth) return unauth;
         await ensureThetaGangTables();
-        const symbols = ['SPY', 'IWM', 'QQQ'];
+        // Sprint 20: accept custom symbols via body.symbols, body.from_portfolio, or query ?symbols=...
+        // Default = SPY/IWM/QQQ for backward compat with cron.
+        let symbols = ['SPY', 'IWM', 'QQQ'];
+        let body = null;
+        try { body = await request.json(); } catch {}
+        const querySymbols = url.searchParams.get('symbols');
+        if (querySymbols) {
+          symbols = querySymbols.split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+        } else if (Array.isArray(body?.symbols) && body.symbols.length) {
+          symbols = body.symbols.map(s => String(s).trim().toUpperCase()).filter(Boolean);
+        } else if (body?.from_portfolio === true) {
+          // Pull top N positions by market value
+          const limit = Number(body.limit || 50);
+          const { results: posRows } = await env.DB.prepare(
+            `SELECT ticker FROM positions
+             WHERE shares > 0 AND ticker NOT LIKE 'HKG:%' AND ticker NOT LIKE 'BME:%'
+             GROUP BY ticker
+             ORDER BY MAX(ABS(COALESCE(market_value, 0))) DESC LIMIT ?`
+          ).bind(limit).all().catch(() => ({ results: [] }));
+          symbols = (posRows || []).map(r => String(r.ticker).toUpperCase()).filter(Boolean);
+          if (symbols.length === 0) symbols = ['SPY', 'IWM', 'QQQ'];
+        }
         const today = new Date().toISOString().slice(0, 10);
         const results = [];
         for (const sym of symbols) {
@@ -10814,15 +10911,23 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           if (!stratRow) return json({ error: `strategy_id not found: ${b.strategy_id}` }, corsHeaders, 404);
 
           // Fetch live brain data + caps + bridge health
-          let spot = 0, iv = 0.20;
+          // Sprint 20: real IV via fetchIvForSymbol (no 0.20 fallback)
+          let spot = 0;
           try {
             const q = await ttQuote(env, [b.symbol]);
             spot = q?.[b.symbol]?.last || q?.[b.symbol]?.mid || 0;
           } catch {}
-          try {
-            const ivData = await ttIvRank(env, b.symbol);
-            iv = ivData?.iv_index || 0.20;
-          } catch {}
+          const ivInfo = await fetchIvForSymbol(env, b.symbol);
+          if (!ivInfo) {
+            return json({
+              error: 'NO_IV_AVAILABLE',
+              message: `No real IV for ${b.symbol} (TT bridge auth o IB Gateway off, sin HV cache). Sprint 20 NO inventa 0.20 fallback.`,
+              symbol: b.symbol,
+              hint: 'Activa IB Gateway o cachea HV con POST /api/thetagang/iv-rank/refresh',
+            }, corsHeaders, 422);
+          }
+          const iv = ivInfo.iv;
+          const ivSource = ivInfo.source;
           const bridgeHealth = spot > 0;
 
           // Sprint 19 audit fix M2: hoist apiBase + auth para reuso + auth header
@@ -10861,9 +10966,12 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const ticket = LiveExec.buildTradeTicket(
             { ...stratRow, strategy_type: stratRow.strategy_type },
             b.symbol,
-            { spot, iv_index: iv },
+            { spot, iv_index: iv, iv_source: ivSource },
             { contracts, dte: b.dte || stratRow.dte }
           );
+          if (ticket?.error) {
+            return json({ error: ticket.error, reason: ticket.reason, symbol: b.symbol }, corsHeaders, 422);
+          }
 
           // Sprint 19 audit fix H1: max_loss_per_contract dinámico desde spread width real
           // Tomar la diferencia entre strikes del put short y long (BPS) o usar max
@@ -11156,6 +11264,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         const unauth = ytRequireToken(request, env); if (unauth) return unauth;
         try {
           const minConf = Number(url.searchParams.get('min_confidence') || 50);
+          const allowHvProxy = url.searchParams.get('allow_hv_proxy') !== '0';  // default ON, can disable
           // Fetch positions from D1 — schema real: shares + last_price + cost_basis + pnl_abs + market_value
           const { results: posRows } = await env.DB.prepare(
             `SELECT ticker, account, shares, cost_basis, last_price, market_value, pnl_abs, div_ttm
@@ -11182,14 +11291,32 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             byTicker[t].total_cost += ((p.cost_basis || 0) * (p.shares || 0));
             if (p.last_price) byTicker[t].current_price = p.last_price;
           }
-          const positions = Object.values(byTicker).map(p => ({
+          const positionsRaw = Object.values(byTicker).map(p => ({
             ...p,
             avg_cost: p.shares > 0 ? p.total_cost / p.shares : 0,
             pnl_pct: p.total_cost > 0 ? ((p.market_value - p.total_cost) / p.total_cost) * 100 : 0,
           }));
 
+          // Sprint 20: fetch IV per ticker (TT live → HV cache → null)
+          const tickers = positionsRaw.map(p => p.ticker);
+          const ivMap = await fetchIvForSymbols(env, tickers);
+          const positions = positionsRaw.map(p => {
+            const ivInfo = ivMap.get(String(p.ticker).toUpperCase()) || null;
+            if (!ivInfo) return { ...p, iv: null, iv_source: null };
+            if (!allowHvProxy && ivInfo.source === 'hv_proxy') return { ...p, iv: null, iv_source: 'hv_proxy_disabled' };
+            return { ...p, iv: ivInfo.iv, iv_source: ivInfo.source, iv_fresh_at: ivInfo.fresh_at };
+          });
+
           const allIdeas = PortfolioIdeas.scanPortfolio(positions);
           const filtered = allIdeas.filter(i => (i.confidence_score || 0) >= minConf);
+
+          // IV source diagnostics
+          const ivBreakdown = { tt_real: 0, hv_proxy: 0, none: 0 };
+          for (const p of positions) {
+            if (p.iv_source === 'tt_real' || p.iv_source === 'ib_real') ivBreakdown.tt_real++;
+            else if (p.iv_source === 'hv_proxy') ivBreakdown.hv_proxy++;
+            else ivBreakdown.none++;
+          }
 
           return json({
             ok: true,
@@ -11197,8 +11324,14 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             n_ideas_total: allIdeas.length,
             n_ideas_filtered: filtered.length,
             min_confidence: minConf,
+            iv_breakdown: ivBreakdown,
+            skipped: allIdeas.skipped || [],
+            scan_summary: allIdeas.summary || {},
             ideas: filtered.slice(0, 50),  // top 50
             generated_at: new Date().toISOString(),
+            note: ivBreakdown.tt_real === 0
+              ? 'Sin IV real (TT bridge auth o IB Gateway off). Solo ETFs cacheados (HV proxy) producen ideas.'
+              : undefined,
           }, corsHeaders);
         } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
       }
@@ -11266,18 +11399,24 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             }
           }
 
-          // Get unique underlyings to fetch spot prices
+          // Get unique underlyings to fetch spot prices + IV
           const uniqUnderlyings = [...new Set(allOpts.map(o => baseSymbolStrip(o.underlying || o.ticker)).filter(Boolean))];
-          const quotes = uniqUnderlyings.length ? await ttQuote(env, uniqUnderlyings).catch(() => ({})) : {};
+          const [quotes, ivMap] = await Promise.all([
+            uniqUnderlyings.length ? ttQuote(env, uniqUnderlyings).catch(() => ({})) : Promise.resolve({}),
+            fetchIvForSymbols(env, uniqUnderlyings),
+          ]);
 
-          // Analyze each option with suggestion
+          // Analyze each option with suggestion (Sprint 20: real IV passed from caller)
           const enriched = allOpts.map(o => {
             const underlying = baseSymbolStrip(o.underlying || o.ticker);
             const spot = quotes?.[underlying]?.last || quotes?.[underlying]?.mid || o.current_price || 0;
             const dteFromExpiry = o.expiry ? Math.max(0, Math.floor((new Date(o.expiry).getTime() - Date.now()) / 86400000)) : null;
-            const suggestion = spot > 0 ? PortfolioIdeas.analyzeOpenOption({
-              ...o, ticker: underlying, dte: dteFromExpiry,
-            }, spot) : null;
+            const ivInfo = ivMap.get(String(underlying || '').toUpperCase()) || null;
+            const suggestion = spot > 0 ? PortfolioIdeas.analyzeOpenOption(
+              { ...o, ticker: underlying, dte: dteFromExpiry },
+              spot,
+              { iv: ivInfo?.iv || null, iv_source: ivInfo?.source || 'missing' }
+            ) : null;
             return {
               source: o.source,
               account: o.account || '—',
@@ -11291,6 +11430,8 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
               avg_cost: o.avg_cost || o.entry_premium,
               spot,
               market_value: o.market_value,
+              iv_used: ivInfo?.iv || null,
+              iv_source: ivInfo?.source || 'missing',
               suggestion,
             };
           });

@@ -12,6 +12,10 @@
 // 6. WHEEL_INITIATION: stocks dividend que querría poseer → arrancar wheel CSP
 //
 // Pure functions, no DB, no fetch. Compatible Cloudflare Worker.
+//
+// Sprint 20 (2026-05-11): NO fallback IV hardcoded. Every position must carry
+// `iv` AND `iv_source` set by the caller. If missing → idea skipped (returned
+// in `skipped` array with `reason: 'no_iv'`). NEVER invent 25%.
 
 import * as BS from "./black-scholes.js";
 
@@ -45,18 +49,33 @@ export const IDEAS_DEFAULTS = {
 
   // Liquidity / quality
   min_underlying_price: 10,         // skip penny stocks
-  iv_for_premium_estimate: 0.25,    // 25% if no real IV available
   risk_free_rate: 0.045,
+};
+
+// Penalize confidence when IV source is degraded (HV proxy vs real IV).
+const IV_SOURCE_CONFIDENCE_PENALTY = {
+  tt_real: 0,
+  ib_real: 0,
+  hv_proxy: -15,        // significant: HV ≠ IV
+  yahoo_hv_v1: -15,
 };
 
 // ─── analyzePosition(position, opts) ───────────────────────────────────────
 //
 // position: { ticker, shares, avg_cost, current_price, market_value,
-//             pnl_pct, dividend_yield?, iv_30d?, sector?, ... }
+//             pnl_pct, iv, iv_source, dividend_yield?, sector?, ... }
+//
+// REQUIRED FIELDS (Sprint 20): position.iv (decimal, e.g. 0.22) AND
+// position.iv_source (string). If missing, analyzePosition returns [].
+// Caller (worker.js) is responsible for fetching iv per ticker via
+// fetchIvForSymbol() before invoking.
+//
 // opts: IDEAS_DEFAULTS overrides
 //
-// Returns array of ideas: [{ type, ticker, strike, dte, premium_estimate,
-//   capital_required, max_profit, max_loss, rationale, confidence_score }]
+// Returns array of ideas. Every idea includes:
+//   - greeks: { delta, gamma, theta, vega } (BS-computed)
+//   - iv_used: the IV used
+//   - iv_source: provenance ('tt_real'|'ib_real'|'hv_proxy'|...)
 export function analyzePosition(position, opts = {}) {
   const t = { ...IDEAS_DEFAULTS, ...opts };
   const ideas = [];
@@ -67,8 +86,18 @@ export function analyzePosition(position, opts = {}) {
   const avgCost = position.avg_cost || 0;
   const spot = position.current_price || 0;
   const pnlPct = position.pnl_pct || 0;
-  const iv = position.iv_30d || t.iv_for_premium_estimate;
 
+  // Sprint 20: NO fallback IV. Caller must provide iv + iv_source.
+  // Backward compat: legacy `iv_30d` accepted if iv not set (callers pre-Sprint20).
+  const iv = (typeof position.iv === 'number' && position.iv > 0)
+    ? position.iv
+    : (typeof position.iv_30d === 'number' && position.iv_30d > 0)
+      ? position.iv_30d
+      : null;
+  const ivSource = position.iv_source || (position.iv_30d ? 'legacy_iv_30d' : null);
+  const ivPenalty = IV_SOURCE_CONFIDENCE_PENALTY[ivSource] || 0;
+
+  if (iv == null) return ideas;           // FAIL FAST — no idea inventada
   if (spot < t.min_underlying_price) return ideas;
   if (!spot) return ideas;
   // Sprint 18 fix: shares=0 OK (CSP ideas son "no tienes pero podrías comprar a descuento")
@@ -82,6 +111,7 @@ export function analyzePosition(position, opts = {}) {
     const tick = spot > 500 ? 5 : spot > 50 ? 1 : 0.5;
     const callStrike = Math.round((spot + sdMove * 0.85) / tick) * tick;
     const callPrice = BS.bsPrice(spot, callStrike, T, t.risk_free_rate, iv, 'call');
+    const callGreeks = BS.bsGreeks(spot, callStrike, T, t.risk_free_rate, iv, 'call');
     const contractsAvailable = Math.floor(shares / 100);
     const premiumDollars = callPrice * 100 * contractsAvailable;
     const yieldOnPositionPct = (premiumDollars / (spot * 100 * contractsAvailable)) * 100;
@@ -102,8 +132,11 @@ export function analyzePosition(position, opts = {}) {
       max_loss: 'unlimited downside (stock can drop)',  // pero tú ya tienes el stock
       assignment_price: callStrike,
       // Sprint 19 audit fix H4: guard avgCost=0 → Infinity en string
-      rationale: `Tienes ${shares} sh @ $${avgCost.toFixed(2)} (P&L ${pnlPct.toFixed(1)}%). Vender ${contractsAvailable} call ${callStrike}C (~Δ${(0.20 * 100).toFixed(0)}, ${dte}d) genera ~$${Math.round(premiumDollars)} (${yieldOnPositionPct.toFixed(2)}% / ${annualizedYield.toFixed(1)}% anualizado). Si asignan, vendes a $${callStrike}${avgCost > 0 ? ` = ${(((callStrike - avgCost) / avgCost) * 100).toFixed(1)}% gain` : ''}.`,
-      confidence_score: scoreCcIdea(pnlPct, iv, dte, yieldOnPositionPct),
+      rationale: `Tienes ${shares} sh @ $${avgCost.toFixed(2)} (P&L ${pnlPct.toFixed(1)}%). Vender ${contractsAvailable} call ${callStrike}C (~Δ${Math.abs(callGreeks.delta).toFixed(2)}, ${dte}d) genera ~$${Math.round(premiumDollars)} (${yieldOnPositionPct.toFixed(2)}% / ${annualizedYield.toFixed(1)}% anualizado). Si asignan, vendes a $${callStrike}${avgCost > 0 ? ` = ${(((callStrike - avgCost) / avgCost) * 100).toFixed(1)}% gain` : ''}.`,
+      iv_used: Math.round(iv * 10000) / 10000,
+      iv_source: ivSource,
+      greeks: roundGreeks(scaleGreeksShort(callGreeks, contractsAvailable)),
+      confidence_score: clampScore(scoreCcIdea(pnlPct, iv, dte, yieldOnPositionPct) + ivPenalty),
     });
   }
 
@@ -115,6 +148,7 @@ export function analyzePosition(position, opts = {}) {
     const tick = spot > 500 ? 5 : spot > 50 ? 1 : 0.5;
     const putStrike = Math.round((spot * (1 - t.csp_below_spot_pct / 100)) / tick) * tick;
     const putPrice = BS.bsPrice(spot, putStrike, T, t.risk_free_rate, iv, 'put');
+    const putGreeks = BS.bsGreeks(spot, putStrike, T, t.risk_free_rate, iv, 'put');
     const cashRequired = putStrike * 100;
     const yieldOnCashPct = (putPrice * 100 / cashRequired) * 100;
     const annualizedYield = yieldOnCashPct * (365 / dte);
@@ -134,9 +168,12 @@ export function analyzePosition(position, opts = {}) {
       effective_buy_price: Math.round(effectiveBuyPrice * 100) / 100,
       assignment_discount_pct: Math.round(((spot - effectiveBuyPrice) / spot) * 1000) / 10,
       rationale: shares === 0
-        ? `${ticker} a $${spot.toFixed(2)}. Vende CSP ${putStrike}P ${dte}d → genera $${Math.round(putPrice * 100)} (${yieldOnCashPct.toFixed(2)}% / ${annualizedYield.toFixed(1)}% anualizado en cash). Si asignan, compras a effective $${effectiveBuyPrice.toFixed(2)} (${(((spot - effectiveBuyPrice) / spot) * 100).toFixed(1)}% descuento vs spot).`
-        : `Tienes ${shares} sh @ $${avgCost.toFixed(2)} (gain ${pnlPct.toFixed(1)}%). Añade exposure con CSP ${putStrike}P ${dte}d para acumular más a precio mejor.`,
-      confidence_score: scoreCspIdea(spot, putStrike, iv, yieldOnCashPct),
+        ? `${ticker} a $${spot.toFixed(2)}. Vende CSP ${putStrike}P ${dte}d (~Δ${Math.abs(putGreeks.delta).toFixed(2)}) → genera $${Math.round(putPrice * 100)} (${yieldOnCashPct.toFixed(2)}% / ${annualizedYield.toFixed(1)}% anualizado en cash). Si asignan, compras a effective $${effectiveBuyPrice.toFixed(2)} (${(((spot - effectiveBuyPrice) / spot) * 100).toFixed(1)}% descuento vs spot).`
+        : `Tienes ${shares} sh @ $${avgCost.toFixed(2)} (gain ${pnlPct.toFixed(1)}%). Añade exposure con CSP ${putStrike}P ${dte}d (~Δ${Math.abs(putGreeks.delta).toFixed(2)}) para acumular más a precio mejor.`,
+      iv_used: Math.round(iv * 10000) / 10000,
+      iv_source: ivSource,
+      greeks: roundGreeks(scaleGreeksShort(putGreeks, 1)),
+      confidence_score: clampScore(scoreCspIdea(spot, putStrike, iv, yieldOnCashPct) + ivPenalty),
     });
   }
 
@@ -152,10 +189,19 @@ export function analyzePosition(position, opts = {}) {
     if (shortStrike > longStrike) {
       const shortPx = BS.bsPrice(spot, shortStrike, T, t.risk_free_rate, iv, 'put');
       const longPx = BS.bsPrice(spot, longStrike, T, t.risk_free_rate, iv, 'put');
+      const shortG = BS.bsGreeks(spot, shortStrike, T, t.risk_free_rate, iv, 'put');
+      const longG = BS.bsGreeks(spot, longStrike, T, t.risk_free_rate, iv, 'put');
       const credit = shortPx - longPx;
       const width = shortStrike - longStrike;
       const maxLoss = (width - credit) * 100;
       const creditDollars = credit * 100;
+      // Net spread Greeks: short put (-) + long put (+), per 1 contract
+      const netGreeks = {
+        delta: (-shortG.delta + longG.delta) * 100,
+        gamma: (-shortG.gamma + longG.gamma) * 100,
+        theta: (-shortG.theta + longG.theta) * 100,
+        vega:  (-shortG.vega  + longG.vega)  * 100,
+      };
       ideas.push({
         type: 'BPS_COST_REDUCTION',
         ticker,
@@ -168,8 +214,11 @@ export function analyzePosition(position, opts = {}) {
         max_profit: Math.round(creditDollars),
         max_loss: -Math.round(maxLoss),
         cost_basis_reduction_per_share: shares > 0 ? Math.round((creditDollars / shares) * 100) / 100 : 0,
-        rationale: `Estás en pérdida ${pnlPct.toFixed(1)}% en ${ticker} (${shares} sh @ $${avgCost.toFixed(2)}). Vender BPS ${shortStrike}/${longStrike}P 35d genera $${Math.round(creditDollars)} (reduce cost basis ${shares > 0 ? '$' + ((creditDollars / shares).toFixed(2)) + '/sh' : 'income'}).`,
-        confidence_score: scoreBpsIdea(pnlPct, iv, credit, width),
+        rationale: `Estás en pérdida ${pnlPct.toFixed(1)}% en ${ticker} (${shares} sh @ $${avgCost.toFixed(2)}). Vender BPS ${shortStrike}/${longStrike}P 35d (~Δshort ${Math.abs(shortG.delta).toFixed(2)}) genera $${Math.round(creditDollars)} (reduce cost basis ${shares > 0 ? '$' + ((creditDollars / shares).toFixed(2)) + '/sh' : 'income'}).`,
+        iv_used: Math.round(iv * 10000) / 10000,
+        iv_source: ivSource,
+        greeks: roundGreeks(netGreeks),
+        confidence_score: clampScore(scoreBpsIdea(pnlPct, iv, credit, width) + ivPenalty),
       });
     }
   }
@@ -184,10 +233,19 @@ export function analyzePosition(position, opts = {}) {
     const callStrike = Math.round((spot + sdMove * 1.0) / tick) * tick;
     const putPx = BS.bsPrice(spot, putStrike, T, t.risk_free_rate, iv, 'put');
     const callPx = BS.bsPrice(spot, callStrike, T, t.risk_free_rate, iv, 'call');
+    const putG = BS.bsGreeks(spot, putStrike, T, t.risk_free_rate, iv, 'put');
+    const callG = BS.bsGreeks(spot, callStrike, T, t.risk_free_rate, iv, 'call');
     const netCost = putPx - callPx;  // positive = paid, negative = credit
     const contractsAvailable = Math.floor(shares / 100);
     const downsideLimit = (putStrike - spot) * contractsAvailable * 100;
     const upsideLimit = (callStrike - spot) * contractsAvailable * 100;
+    // Net collar Greeks: +long put + short call, scaled by contracts × 100
+    const netGreeks = {
+      delta: (putG.delta - callG.delta) * 100 * contractsAvailable,
+      gamma: (putG.gamma - callG.gamma) * 100 * contractsAvailable,
+      theta: (putG.theta - callG.theta) * 100 * contractsAvailable,
+      vega:  (putG.vega  - callG.vega)  * 100 * contractsAvailable,
+    };
 
     ideas.push({
       type: 'COLLAR_PROTECTION',
@@ -201,19 +259,50 @@ export function analyzePosition(position, opts = {}) {
       downside_protection: Math.round(downsideLimit),
       upside_cap: Math.round(upsideLimit),
       rationale: `Estás +${pnlPct.toFixed(1)}% en ${ticker} (${shares} sh). Collar ${putStrike}P/${callStrike}C 60d ${netCost > 0 ? `cuesta $${Math.round(netCost * 100 * contractsAvailable)}` : `genera $${-Math.round(netCost * 100 * contractsAvailable)} crédito`}. Protege downside hasta $${putStrike} (caps loss en $${Math.round(Math.abs(downsideLimit))}), pero capa upside en $${callStrike}.`,
-      confidence_score: scoreCollarIdea(pnlPct, iv, netCost),
+      iv_used: Math.round(iv * 10000) / 10000,
+      iv_source: ivSource,
+      greeks: roundGreeks(netGreeks),
+      confidence_score: clampScore(scoreCollarIdea(pnlPct, iv, netCost) + ivPenalty),
     });
   }
 
   return ideas;
 }
 
-// ─── analyzeOpenOption(opt, spotPrice, daysHeld) ───────────────────────────
+// ─── Greeks helpers ─────────────────────────────────────────────────────────
+function scaleGreeksShort(greeks, contracts) {
+  // For a SHORT option position, signs flip. Scale by contracts × 100 (multiplier).
+  const mult = 100 * contracts;
+  return {
+    delta: -greeks.delta * mult,
+    gamma: -greeks.gamma * mult,
+    theta: -greeks.theta * mult,  // short = positive theta = good
+    vega:  -greeks.vega  * mult,
+  };
+}
+
+function roundGreeks(g) {
+  return {
+    delta: Math.round(g.delta * 100) / 100,
+    gamma: Math.round(g.gamma * 1000) / 1000,
+    theta: Math.round(g.theta * 100) / 100,
+    vega:  Math.round(g.vega  * 100) / 100,
+  };
+}
+
+function clampScore(s) {
+  return Math.max(0, Math.min(100, s));
+}
+
+// ─── analyzeOpenOption(opt, spotPrice, opts) ───────────────────────────────
 // For OPEN options: detect rolling opportunities, defensive actions, take profit signals
 //
 // opt: { ticker, opt_type, strike, expiry, qty, avg_cost (entry premium), ...}
 // spotPrice: current underlying
-// Returns: { action, urgency, rationale, suggested_strike?, suggested_dte? }
+// opts: { iv, iv_source, risk_free_rate?, ... } — Sprint 20 requires iv passed by caller
+// Returns: { action, urgency, rationale, suggested_strike?, suggested_dte?, greeks?, iv_source? }
+//   If iv missing → returns suggestion with greeks=null + iv_source='missing'.
+//   The decision tree still works (uses distPct + dte, not pnl from BS).
 export function analyzeOpenOption(opt, spotPrice, opts = {}) {
   const t = { ...IDEAS_DEFAULTS, ...opts };
   if (!opt || !spotPrice) return null;
@@ -227,14 +316,33 @@ export function analyzeOpenOption(opt, spotPrice, opts = {}) {
     ? ((spotPrice - opt.strike) / opt.strike) * 100  // positive = OTM (good for short put)
     : ((opt.strike - spotPrice) / opt.strike) * 100;  // positive = OTM (good for short call)
 
-  // Live P&L estimate (simplified — would need real BS pricing for exact)
+  // Live P&L estimate — needs IV. Sprint 20: no hardcoded fallback.
   const T = Math.max(0.001, dte / 365);
-  const iv = t.iv_for_premium_estimate;
-  const livePx = BS.bsPrice(spotPrice, opt.strike, T, t.risk_free_rate, iv, optType);
+  const iv = (typeof opts.iv === 'number' && opts.iv > 0) ? opts.iv : null;
+  const ivSource = opts.iv_source || (iv ? 'caller_default' : 'missing');
+  let livePx = null;
+  let greeks = null;
+  if (iv != null) {
+    livePx = BS.bsPrice(spotPrice, opt.strike, T, t.risk_free_rate, iv, optType);
+    greeks = BS.bsGreeks(spotPrice, opt.strike, T, t.risk_free_rate, iv, optType);
+  }
   const entryPremium = Math.abs(opt.avg_cost || opt.entry_premium || 0);
-  const pnlPct = entryPremium > 0
+  const pnlPct = (livePx != null && entryPremium > 0)
     ? (isShort ? (entryPremium - livePx) / entryPremium * 100 : (livePx - entryPremium) / entryPremium * 100)
     : 0;
+
+  // Common metadata for every action
+  const meta = {
+    iv_used: iv != null ? Math.round(iv * 10000) / 10000 : null,
+    iv_source: ivSource,
+    greeks: greeks ? roundGreeks({
+      delta: greeks.delta * 100 * (isShort ? -1 : 1),
+      gamma: greeks.gamma * 100 * (isShort ? -1 : 1),
+      theta: greeks.theta * 100 * (isShort ? -1 : 1),
+      vega:  greeks.vega  * 100 * (isShort ? -1 : 1),
+    }) : null,
+  };
+  const livePremiumFmt = livePx != null ? Math.round(livePx * 100) / 100 : null;
 
   // Decision tree
   if (isShort && distPct < 2 && distPct > -2) {
@@ -246,38 +354,42 @@ export function analyzeOpenOption(opt, spotPrice, opts = {}) {
       action: 'CONSIDER_ROLL_DEFENSIVE',
       urgency: 'HIGH',
       live_pnl_pct: Math.round(pnlPct),
-      live_premium: Math.round(livePx * 100) / 100,
+      live_premium: livePremiumFmt,
       rationale: `${opt.ticker} ${opt.strike}${opt.opt_type} testeado (spot $${spotPrice.toFixed(2)}, ${distPct.toFixed(1)}% del strike). Considera rolar a strike ${newStrike} con DTE +${t.roll_dte_extend}d.`,
       suggested_strike: newStrike,
       suggested_dte: dte + t.roll_dte_extend,
+      ...meta,
     };
   }
 
-  if (isShort && pnlPct >= 50) {
+  if (isShort && livePx != null && pnlPct >= 50) {
     return {
       action: 'TAKE_PROFIT',
       urgency: 'MEDIUM',
       live_pnl_pct: Math.round(pnlPct),
-      live_premium: Math.round(livePx * 100) / 100,
+      live_premium: livePremiumFmt,
       rationale: `${opt.ticker} ${opt.strike}${opt.opt_type} ya capturó ${pnlPct.toFixed(0)}% del credit. Cerrar libera capital + reduce gamma risk final-DTE.`,
+      ...meta,
     };
   }
 
-  if (isShort && dte <= 7 && Math.abs(pnlPct) < 25) {
+  if (isShort && dte <= 7 && livePx != null && Math.abs(pnlPct) < 25) {
     return {
       action: 'CLOSE_GAMMA_EXIT',
       urgency: 'MEDIUM',
       live_pnl_pct: Math.round(pnlPct),
       rationale: `${opt.ticker} DTE ${dte}d con pnl ${pnlPct.toFixed(0)}%. Gamma risk crece exponencial — mejor cerrar.`,
+      ...meta,
     };
   }
 
-  if (!isShort && pnlPct >= 100) {
+  if (!isShort && livePx != null && pnlPct >= 100) {
     return {
       action: 'TAKE_PROFIT_LONG',
       urgency: 'MEDIUM',
       live_pnl_pct: Math.round(pnlPct),
       rationale: `Long ${opt.ticker} ${opt.strike}${opt.opt_type} +${pnlPct.toFixed(0)}%. Considera cerrar para realizar gain (long opt theta decay continuará).`,
+      ...meta,
     };
   }
 
@@ -285,10 +397,13 @@ export function analyzeOpenOption(opt, spotPrice, opts = {}) {
     action: 'HOLD',
     urgency: 'LOW',
     live_pnl_pct: Math.round(pnlPct),
-    live_premium: Math.round(livePx * 100) / 100,
+    live_premium: livePremiumFmt,
     dte,
     dist_pct: Math.round(distPct * 10) / 10,
-    rationale: `${opt.ticker} ${opt.strike}${opt.opt_type} dentro de zona normal. PnL ${pnlPct.toFixed(0)}%, ${distPct.toFixed(1)}% OTM, DTE ${dte}.`,
+    rationale: iv != null
+      ? `${opt.ticker} ${opt.strike}${opt.opt_type} dentro de zona normal. PnL ${pnlPct.toFixed(0)}%, ${distPct.toFixed(1)}% OTM, DTE ${dte}.`
+      : `${opt.ticker} ${opt.strike}${opt.opt_type}: ${distPct.toFixed(1)}% OTM, DTE ${dte}. Sin IV disponible — solo dist+DTE evaluados.`,
+    ...meta,
   };
 }
 
@@ -337,14 +452,57 @@ function scoreCollarIdea(pnlPct, iv, netCost) {
 
 // ─── scanPortfolio(positions, opts) ───────────────────────────────────────
 //
-// Analyzes ALL positions, returns sorted by confidence_score desc.
+// Sprint 20: Returns { ideas, skipped, summary }. Skipped tracks positions
+// that didn't generate ideas with reason so UI can show transparently.
+//
+// Backward-compat: callers using `scanPortfolio(...)` as Array will still
+// work if they destructure or chain (we keep both shapes via Array-like).
 export function scanPortfolio(positions, opts = {}) {
-  if (!Array.isArray(positions)) return [];
-  const allIdeas = [];
+  const out = { ideas: [], skipped: [], summary: {} };
+  if (!Array.isArray(positions)) return Object.assign([], out);
+
+  let nNoIv = 0, nLowSpot = 0, nNoSpot = 0;
+  const ivSourceCounts = {};
+
   for (const p of positions) {
+    const hasIv = (typeof p.iv === 'number' && p.iv > 0) || (typeof p.iv_30d === 'number' && p.iv_30d > 0);
+    const spot = p.current_price || 0;
+    if (!hasIv) {
+      out.skipped.push({ ticker: p.ticker, reason: 'no_iv', spot });
+      nNoIv++;
+      continue;
+    }
+    if (!spot) {
+      out.skipped.push({ ticker: p.ticker, reason: 'no_spot' });
+      nNoSpot++;
+      continue;
+    }
+    if (spot < (opts.min_underlying_price || IDEAS_DEFAULTS.min_underlying_price)) {
+      out.skipped.push({ ticker: p.ticker, reason: 'spot_below_min', spot });
+      nLowSpot++;
+      continue;
+    }
     const ideas = analyzePosition(p, opts);
-    for (const idea of ideas) allIdeas.push(idea);
+    for (const idea of ideas) {
+      out.ideas.push(idea);
+      const src = idea.iv_source || 'unknown';
+      ivSourceCounts[src] = (ivSourceCounts[src] || 0) + 1;
+    }
   }
-  allIdeas.sort((a, b) => (b.confidence_score || 0) - (a.confidence_score || 0));
-  return allIdeas;
+
+  out.ideas.sort((a, b) => (b.confidence_score || 0) - (a.confidence_score || 0));
+  out.summary = {
+    n_positions: positions.length,
+    n_with_ideas: positions.length - out.skipped.length,
+    n_skipped: out.skipped.length,
+    n_ideas: out.ideas.length,
+    skipped_breakdown: { no_iv: nNoIv, no_spot: nNoSpot, low_spot: nLowSpot },
+    iv_source_distribution: ivSourceCounts,
+  };
+
+  // Backward-compat: return Array of ideas with extras attached
+  const result = out.ideas.slice();
+  result.skipped = out.skipped;
+  result.summary = out.summary;
+  return result;
 }

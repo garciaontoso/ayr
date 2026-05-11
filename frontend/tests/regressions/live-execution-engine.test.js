@@ -124,6 +124,26 @@ describe('Sprint 11 — buildTradeTicket()', () => {
     const ticket = buildTradeTicket(strategy, 'SPY', { spot: 600, iv_index: 0.20 }, { contracts: 1 });
     expect(new Date(ticket.valid_until).getTime()).toBeGreaterThan(Date.now());
   });
+
+  // Sprint 20: NO fallback IV — must error fast
+  it('returns error NO_IV si no se pasa iv ni iv_index', () => {
+    const strategy = { id: 'x', strategy_type: 'BPS' };
+    const ticket = buildTradeTicket(strategy, 'SPY', { spot: 600 }, { contracts: 1 });
+    expect(ticket.error).toBe('NO_IV');
+  });
+
+  it('returns error NO_SPOT si no se pasa spot', () => {
+    const strategy = { id: 'x', strategy_type: 'BPS' };
+    const ticket = buildTradeTicket(strategy, 'SPY', { iv_index: 0.20 }, { contracts: 1 });
+    expect(ticket.error).toBe('NO_SPOT');
+  });
+
+  it('ticket incluye iv_used + iv_source de brainData', () => {
+    const strategy = { id: 'x', strategy_type: 'BPS' };
+    const ticket = buildTradeTicket(strategy, 'SPY', { spot: 600, iv_index: 0.22, iv_source: 'tt_real' }, { contracts: 1 });
+    expect(ticket.iv_used).toBeCloseTo(0.22, 4);
+    expect(ticket.iv_source).toBe('tt_real');
+  });
 });
 
 describe('Sprint 11 — detectNewPositions()', () => {

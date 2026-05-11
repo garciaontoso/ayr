@@ -134,8 +134,17 @@ export function preTradeChecks(trade, state, config = {}, opts = {}) {
 //
 // Builds a complete ticket ready for manual execution in TT app.
 // Returns { ticket: { legs[], expected_credit, max_loss, ...}, instructions }
+//   or { error, reason } if missing data — Sprint 20: NO IV fallback.
 export function buildTradeTicket(strategy, symbol, brainData, params = {}, opts = {}) {
   const t = { ...LIVE_DEFAULTS, ...opts };
+
+  // Sprint 20: fail fast if no real IV (no 0.20 hardcoded fallback)
+  const spot = brainData?.spot || params.spot;
+  const iv = brainData?.iv_index || brainData?.iv || params.iv;
+  const ivSource = brainData?.iv_source || params.iv_source || (iv ? 'caller_unspecified' : null);
+  if (!spot) return { error: 'NO_SPOT', reason: 'brainData.spot or params.spot required' };
+  if (!iv || iv <= 0) return { error: 'NO_IV', reason: 'real IV required (no 0.20 fallback)', symbol };
+
   const ticket = {
     generated_at: new Date().toISOString(),
     valid_until: new Date(Date.now() + t.ticket_validity_minutes * 60000).toISOString(),
@@ -144,11 +153,11 @@ export function buildTradeTicket(strategy, symbol, brainData, params = {}, opts 
     symbol,
     contracts: params.contracts || 1,
     dte: params.dte || strategy.dte || 35,
+    iv_used: Math.round(iv * 10000) / 10000,
+    iv_source: ivSource,
   };
 
   // Strike construction by strategy_type (simplified — real version needs chain data)
-  const spot = brainData?.spot || params.spot;
-  const iv = brainData?.iv_index || params.iv || 0.20;
   const T = ticket.dte / 365;
   const sdMove = spot * iv * Math.sqrt(T);
   const tick = spot > 500 ? 5 : spot > 50 ? 1 : 0.5;
