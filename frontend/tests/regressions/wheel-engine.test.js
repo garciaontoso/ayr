@@ -151,12 +151,30 @@ describe('Wheel — suggestNextAction', () => {
     expect(r.suggested_strike).toBeGreaterThanOrEqual(110 * 1.02 - 1);
   });
 
-  it('Missing market data → wait', () => {
+  it('Missing market data (S=0) → wait', () => {
     const r = suggestNextAction(
       { state: WHEEL_STATES.AWAITING_CSP },
       { S: 0, sigma_iv: 0.2 }
     );
     expect(r.action).toBe('wait');
+  });
+
+  it('Missing IV (sigma_iv absent) → wait with no-IV rationale (bug #029)', () => {
+    const r = suggestNextAction(
+      { state: WHEEL_STATES.AWAITING_CSP },
+      { S: 100 }  // no sigma_iv
+    );
+    expect(r.action).toBe('wait');
+    expect(r.rationale).toMatch(/No IV available/);
+  });
+
+  it('IV = 0 → wait with no-IV rationale (bug #029)', () => {
+    const r = suggestNextAction(
+      { state: WHEEL_STATES.AWAITING_CSP },
+      { S: 100, sigma_iv: 0 }
+    );
+    expect(r.action).toBe('wait');
+    expect(r.rationale).toMatch(/No IV available/);
   });
 
   it('Cycle complete → reset suggestion', () => {

@@ -314,7 +314,13 @@ export function computeWheelStats(cycles) {
 export function suggestNextAction(currentPosition, marketData) {
   const cur = currentPosition || { state: WHEEL_STATES.AWAITING_CSP };
   const S = SAFE_NUM(marketData?.S);
-  const iv = SAFE_NUM(marketData?.sigma_iv, 0.20);
+  // Bug #029: do NOT fall back to a hardcoded IV. Callers must supply real IV
+  // (from TT or IB Gateway). A silent 0.20 default produces wrong strikes/premiums.
+  const ivRaw = marketData?.sigma_iv;
+  if (ivRaw == null || ivRaw <= 0) {
+    return { action: 'wait', rationale: 'No IV available — supply sigma_iv from live data source' };
+  }
+  const iv = SAFE_NUM(ivRaw);
   const r = SAFE_NUM(marketData?.r, BS.DEFAULT_RISK_FREE_RATE);
   const q = SAFE_NUM(marketData?.q, 0);
   const dte = Math.max(7, marketData?.dte || 35);
