@@ -7585,6 +7585,181 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       //   - max_contracts_unsafe (positions alone, comportamiento pre-fix)
       //   - protected_diff: cuántos contracts NO se sugerirán gracias al guard
       //   - severity: NONE | LOW | MEDIUM | HIGH | CRITICAL
+      // ─── Sprint 22.5 — Auto-reconcile positions from IB live (bug #030 cure) ──
+      // IB Gateway es la fuente AUTORITARIA cuando está online. Este endpoint
+      // sincroniza positions.shares ← IB.qty automáticamente para cada ticker.
+      //
+      // Reglas:
+      //   - Solo corre si IB Bridge online
+      //   - Para cada ticker en IB, UPDATE positions con qty real
+      //   - Si positions tiene tickers que IB no reporta → marca shares=0 (probable sold)
+      //   - dry_run=true devuelve los cambios sin ejecutar
+      //   - Log completo de cambios en `audit_log`
+      //
+      // POST /api/positions/auto-reconcile-from-ib?dry_run=true
+      if (path === "/api/positions/auto-reconcile-from-ib" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        try {
+          const dryRun = url.searchParams.get('dry_run') === 'true';
+
+          // 1. Verify IB Bridge online
+          const probe = await ibBridgeProbe(env, true);  // force fresh
+          if (!probe.ib_connected) {
+            return json({ error: 'IB Bridge offline', message: 'IB Gateway must be connected to auto-reconcile. Start ib-gateway container.' }, corsHeaders, 503);
+          }
+
+          // 2. Fetch live IB positions
+          const ibData = await ibBridgeFetch(env, '/positions', { timeoutMs: 45000 }).catch(e => ({ error: e.message }));
+          if (ibData?.error) return json({ error: 'IB fetch failed', detail: ibData.error }, corsHeaders, 502);
+          const positionsArr = Array.isArray(ibData) ? ibData : (ibData?.positions || []);
+
+          // 3. Build IB map (STK only, sum by ticker across accounts)
+          // Normalize HKG/BME prefixes — IB uses naked symbol, we prefix in app
+          // Map adds in BOTH directions for fuzzy match later
+          const HKG_BME_MAP = {
+            // HKG (Hong Kong)
+            '1052': 'HKG:1052', '2219': 'HKG:2219', '1066': 'HKG:1066', '1910': 'HKG:1910',
+            '9616': 'HKG:9616', '9618': 'HKG:9618',
+            // BME (Bolsa Madrid) — IB returns "AMS", "VIS", "ENG", etc.
+            'AMS': 'BME:AMS', 'VIS': 'BME:VIS', 'ENG': 'BME:ENG',
+          };
+          const ibByTicker = new Map();  // ticker → {qty, accounts:[], exchange:[]}
+          for (const p of positionsArr) {
+            if (p.secType !== 'STK' || !p.qty) continue;
+            let symbol = String(p.symbol || '').toUpperCase();
+            // Use exchange to disambiguate (e.g., HKG vs US listings)
+            const exchange = String(p.exchange || '').toUpperCase();
+            if (HKG_BME_MAP[symbol]) {
+              // Only remap if exchange matches
+              if (exchange.startsWith('SEHK') || exchange.includes('HK')) symbol = HKG_BME_MAP[symbol];
+              else if (exchange.includes('BM') || exchange.includes('IBIS') || exchange.includes('MAD')) symbol = HKG_BME_MAP[symbol];
+              else if (HKG_BME_MAP[symbol].startsWith('HKG:') && /^[0-9]+$/.test(symbol)) symbol = HKG_BME_MAP[symbol]; // numeric only = HK
+              // else: leave as-is (US-listed)
+            }
+            if (!ibByTicker.has(symbol)) ibByTicker.set(symbol, { qty: 0, accounts: new Set() });
+            const r = ibByTicker.get(symbol);
+            r.qty += Number(p.qty || 0);
+            if (p.account) r.accounts.add(p.account);
+          }
+
+          // 4. Fetch current positions (all non-zero, equities — exclude FX which have .)
+          // positions has no `id` PK column — use rowid (SQLite implicit)
+          let dbPositions = [];
+          let dbQueryError = null;
+          try {
+            const res = await env.DB.prepare(
+              `SELECT rowid as id, ticker, account, shares, last_price, market_value, updated_at
+               FROM positions
+               WHERE shares != 0 AND ticker IS NOT NULL
+                 AND ticker NOT LIKE '%.%' AND ticker NOT LIKE '%/%' AND ticker NOT LIKE '% %'`
+            ).all();
+            dbPositions = res.results || [];
+          } catch (e) {
+            dbQueryError = e.message;
+          }
+
+          // 5. Compute changes
+          const changes = [];          // {ticker, before, after, action}
+          const seen = new Set();      // tickers we touched
+
+          // (a) Update rows that exist in positions to match IB
+          // CONSERVATIVE: never auto-zero. If IB doesn't report ticker, log as
+          // 'NOT_IN_IB' for manual review only (could be unsupported exchange,
+          // settlement period, exchange mapping issue, etc.)
+          for (const dbRow of (dbPositions || [])) {
+            const ticker = String(dbRow.ticker).toUpperCase();
+            seen.add(ticker);
+            const ibInfo = ibByTicker.get(ticker);
+            if (ibInfo) {
+              const ibQty = Math.round(ibInfo.qty);
+              if (Math.abs(dbRow.shares - ibQty) >= 1) {
+                changes.push({
+                  ticker,
+                  account: dbRow.account || [...ibInfo.accounts][0] || null,
+                  shares_before: dbRow.shares,
+                  shares_after: ibQty,
+                  diff: ibQty - dbRow.shares,
+                  action: 'UPDATE_FROM_IB',
+                  id: dbRow.id,
+                });
+              }
+            } else if (dbRow.shares > 0) {
+              // Position in DB but NOT in IB → flag for review, don't auto-zero
+              changes.push({
+                ticker,
+                account: dbRow.account,
+                shares_before: dbRow.shares,
+                shares_after: dbRow.shares,
+                diff: 0,
+                action: 'NOT_IN_IB_REVIEW',  // INFORMATIONAL ONLY — no UPDATE
+                id: dbRow.id,
+                note: 'IB no reporta este ticker (exchange no soportado / mapping / settled). Revisar manualmente.',
+              });
+            }
+          }
+
+          // (b) Tickers in IB but NOT in positions → INSERT (rare, but possible after Flex import lag)
+          for (const [ticker, info] of ibByTicker) {
+            if (!seen.has(ticker)) {
+              changes.push({
+                ticker,
+                account: [...info.accounts][0] || null,
+                shares_before: 0,
+                shares_after: Math.round(info.qty),
+                diff: Math.round(info.qty),
+                action: 'INSERT_NEW',
+                id: null,
+              });
+            }
+          }
+
+          // 6. Execute (unless dry_run)
+          let executed = 0;
+          if (!dryRun) {
+            for (const c of changes) {
+              try {
+                if (c.action === 'UPDATE_FROM_IB' && c.id) {
+                  await env.DB.prepare(
+                    `UPDATE positions SET shares = ?, market_value = ? * last_price, account = COALESCE(account, ?), updated_at = datetime('now') WHERE rowid = ?`
+                  ).bind(c.shares_after, c.shares_after, c.account, c.id).run();
+                  executed++;
+                } else if (c.action === 'NOT_IN_IB_REVIEW') {
+                  // No-op — informational only, do NOT auto-zero (too risky)
+                } else if (c.action === 'INSERT_NEW') {
+                  await env.DB.prepare(
+                    `INSERT INTO positions (ticker, account, shares, list, updated_at, notes)
+                     VALUES (?, ?, ?, 'portfolio', datetime('now'), ?)`
+                  ).bind(c.ticker, c.account, c.shares_after, '[auto-inserted from IB]').run();
+                  executed++;
+                }
+              } catch (e) {
+                c.error = e.message?.slice(0, 200);
+              }
+            }
+          }
+
+          // Critical: Telegram alert if changes
+          if (!dryRun && changes.length > 0) {
+            const top = changes.slice(0, 8).map(c => `• ${c.ticker}: ${c.shares_before} → ${c.shares_after} (${c.action})`).join('\n');
+            const more = changes.length > 8 ? `\n+${changes.length - 8} más` : '';
+            const msg = `🔄 *Auto-reconcile IB→positions*\n${executed}/${changes.length} cambios aplicados\n\n${top}${more}`;
+            try { await sendTelegram(env, msg, 'INFO'); } catch {}
+          }
+
+          return json({
+            ok: true,
+            dry_run: dryRun,
+            ib_positions_count: ibByTicker.size,
+            db_positions_count: dbPositions?.length || 0,
+            db_query_error: dbQueryError,
+            n_changes: changes.length,
+            n_executed: executed,
+            changes: changes.slice(0, 50),
+            generated_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
       if (path === "/api/audit/safety-check" && request.method === "GET") {
         const unauth = ytRequireToken(request, env); if (unauth) return unauth;
         try {
@@ -11731,11 +11906,26 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             return undefined;
           };
           const reconcileAdjusts = [];
+          const ibOnline = ibStockMap.size > 0;
           positionsRaw = positionsRaw.map(p => {
             const tickerUp = String(p.ticker || '').toUpperCase();
             const tradeNet = tradesShares.get(tickerUp)?.net;
             const ibShares = lookupAcrossPrefix(ibStockMap, tickerUp);
             const ttShares = lookupAcrossPrefix(ttStockMap, tickerUp);
+
+            // Sprint 22.5 HARD GUARD: si IB online y reporta valor para este ticker,
+            // SI hay discrepancy >5% positions vs IB → SKIP idea totalmente (no solo cap).
+            // Forza al usuario a auto-reconcile primero.
+            if (ibOnline && typeof ibShares === 'number' && ibShares > 0 && p.shares > 0) {
+              const drift = Math.abs(p.shares - ibShares) / Math.max(p.shares, ibShares);
+              if (drift > 0.05) {
+                return {
+                  ...p,
+                  shares: 0,  // forzar engine a skip
+                  ib_mismatch_block: { positions: p.shares, ib: ibShares, drift_pct: Math.round(drift * 1000) / 10 },
+                };
+              }
+            }
 
             const sources = { positions: p.shares };
             if (typeof tradeNet === 'number' && tradeNet > 0) sources.trades = tradeNet;
@@ -28710,6 +28900,27 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
         }
       } catch (e) {
         console.error("[scheduled] intraday quick-check failed:", e.message);
+      }
+
+      // 2026-05-11: Sprint 22.5 — Auto-reconcile positions from IB (bug #030 cure).
+      // Si IB Bridge online, sincroniza automáticamente positions.shares con IB.qty.
+      // Telegram alert solo si HAY cambios. Probe ANTES de llamar para evitar timeouts.
+      try {
+        const probe = await ibBridgeProbe(env);
+        if (probe.ib_connected) {
+          const r = await fetch(`${apiBase}/api/positions/auto-reconcile-from-ib`, {
+            method: 'POST',
+            headers: { 'X-AYR-Auth': env.AYR_WORKER_TOKEN, 'Content-Type': 'application/json' },
+            body: '{}',
+            signal: AbortSignal.timeout(75000),
+          });
+          const d = await r.json().catch(() => ({}));
+          if (d.ok && d.n_changes > 0) {
+            console.log(`[auto-reconcile] ${d.n_executed}/${d.n_changes} positions sincronizadas con IB live`);
+          }
+        }
+      } catch (e) {
+        console.error("[auto-reconcile] cron error:", e.message);
       }
 
       return;

@@ -320,6 +320,9 @@ function RunReminderBadge({ onClick }) {
 function IBControlButton() {
   const [state, setState] = useState({ loading: true, running: null, ibConnected: null });
   const [acting, setActing] = useState(false);
+  // Sprint 22.5: auto safety-check on IB connect transition
+  const lastIbConnectedRef = useRef(null);
+  const [safetyToast, setSafetyToast] = useState(null);  // {n_changes, n_clean, severity}
 
   const refresh = useCallback(async () => {
     try {
@@ -341,6 +344,58 @@ function IBControlButton() {
       setState(s => ({ ...s, loading: false }));
     }
   }, []);
+
+  // Sprint 22.5: cuando ibConnected transita false→true, auto-run safety-check.
+  // Notifica si hay discrepancias positions vs IB y ofrece auto-reconcile.
+  useEffect(() => {
+    const ic = state.ibConnected;
+    if (ic === true && lastIbConnectedRef.current === false) {
+      // Transition: just connected. Run check after 5s warmup
+      const t = setTimeout(async () => {
+        try {
+          const r = await fetch(API_URL + '/api/audit/safety-check');
+          const j = await r.json();
+          const s = j?.summary || {};
+          const nCritical = s.n_critical_mismatch || 0;
+          const nProtected = s.n_protected_by_guard || 0;
+          if (nCritical > 0 || nProtected > 0) {
+            setSafetyToast({
+              kind: 'warn',
+              n_protected: nProtected,
+              n_critical: nCritical,
+              total_saved: s.total_contracts_saved_by_guard || 0,
+            });
+            // Auto-trigger reconcile after 2s if critical
+            if (nCritical > 0) {
+              setTimeout(async () => {
+                const rr = await fetch(API_URL + '/api/positions/auto-reconcile-from-ib', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: '{}',
+                });
+                const jr = await rr.json();
+                setSafetyToast({
+                  kind: 'fixed',
+                  n_executed: jr?.n_executed || 0,
+                  n_changes: jr?.n_changes || 0,
+                });
+                setTimeout(() => setSafetyToast(null), 8000);
+              }, 2000);
+            } else {
+              setTimeout(() => setSafetyToast(null), 6000);
+            }
+          } else {
+            setSafetyToast({ kind: 'ok', n_audited: s.n_tickers_audited || 0 });
+            setTimeout(() => setSafetyToast(null), 4000);
+          }
+        } catch (e) {
+          console.error('Auto safety-check failed:', e);
+        }
+      }, 5000);
+      return () => clearTimeout(t);
+    }
+    lastIbConnectedRef.current = ic;
+  }, [state.ibConnected]);
 
   useEffect(() => {
     refresh();
@@ -435,10 +490,32 @@ function IBControlButton() {
     title = 'Procesando...';
   }
   return (
-    <button onClick={handleClick} disabled={acting} title={title}
-      style={{padding:"4px 9px",borderRadius:6,border:`1px solid ${border}`,background:bg,color,fontSize:10,fontWeight:700,cursor:acting?"wait":"pointer",fontFamily:"var(--fm)",whiteSpace:"nowrap",opacity:acting?0.6:1}}>
-      {icon} {label}
-    </button>
+    <>
+      <button onClick={handleClick} disabled={acting} title={title}
+        style={{padding:"4px 9px",borderRadius:6,border:`1px solid ${border}`,background:bg,color,fontSize:10,fontWeight:700,cursor:acting?"wait":"pointer",fontFamily:"var(--fm)",whiteSpace:"nowrap",opacity:acting?0.6:1}}>
+        {icon} {label}
+      </button>
+      {/* Sprint 22.5: toast auto-safety-check on IB connect */}
+      {safetyToast && (
+        <div style={{
+          position:'fixed', top:60, right:16, zIndex:9999,
+          padding:'10px 14px', borderRadius:8, fontSize:12, fontWeight:600,
+          background: safetyToast.kind==='ok' ? 'rgba(48,209,88,.95)' : safetyToast.kind==='fixed' ? 'rgba(96,165,250,.95)' : 'rgba(251,191,36,.95)',
+          color:'#000', boxShadow:'0 4px 12px rgba(0,0,0,.3)',
+          maxWidth:320, lineHeight:1.4,
+        }}>
+          {safetyToast.kind === 'ok' && (
+            <>✅ IB conectado · {safetyToast.n_audited} tickers verificados · todo OK</>
+          )}
+          {safetyToast.kind === 'warn' && (
+            <>⚠ IB conectado · {safetyToast.n_critical} discrepancies CRITICAL · auto-reconcile ejecutándose...</>
+          )}
+          {safetyToast.kind === 'fixed' && (
+            <>🔄 Auto-reconcile: {safetyToast.n_executed}/{safetyToast.n_changes} positions sincronizadas con IB live ✓</>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 
