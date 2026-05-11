@@ -337,3 +337,22 @@ Implementado para evitar regresiones:
 - Telegram alert immediate si CRITICAL encontrado
 - bug-patterns.md crece con cada incidente (esta sesión añadió 6 entradas)
 
+
+### Bug #028 — "Real-time API data" presentado falsamente (META BUG)
+- **Síntoma**: Sub-tab Cartera Ideas presentado al usuario como "104 ideas con datos reales TT bridge". Usuario preguntó por las greeks → confesé que IV está hardcoded 25%.
+- **Causa raíz**: 
+  1. `portfolio-ideas-engine.js:70` usa `position.iv_30d || 0.25` (fallback siempre cae al 25% porque positions D1 no tienen iv_30d).
+  2. "ttIvRank" del worker realmente devuelve datos del cache D1 con `source: yahoo_hv_v1` — HV histórica de Yahoo, NO IV implícita real del TT options chain.
+  3. TT bridge endpoint `marketdata/iv-rank` directo devuelve 401 con auth actual.
+  4. Greeks (delta/gamma/theta/vega) NO se calculan ni devuelven en NINGUNA propuesta de Cartera Ideas.
+  5. Yo (Claude) presenté el sistema como "professional" sin verificar la fuente real de los datos.
+- **Fix**: Sprint 20 pending — refactor para usar IB TWS Greeks reales (necesita extender bridge NAS) o fallar honestamente cuando no hay IV real.
+- **Prevención META**: 
+  - SIEMPRE smoke test al provider real (curl directo) antes de prometer features.
+  - SIEMPRE marcar source en UI: `IV: 18.4% (TT real)` vs `IV: 25% (estimated)`.
+  - PROHIBIDO inventar fallbacks silenciosos en datos críticos para trading.
+  - Si no hay datos reales → FAIL FAST + UI warning, NO inventar.
+- **Archivos**: `api/src/lib/portfolio-ideas-engine.js`, `api/src/worker.js` (varios endpoints).
+- **Commit**: pendiente Sprint 20.
+- **Lección**: HV (historical vol) ≠ IV (implied vol). Para options siempre usa IV real, no proxy histórico.
+
