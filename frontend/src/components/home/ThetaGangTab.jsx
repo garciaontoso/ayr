@@ -2200,6 +2200,8 @@ function PortfolioIdeasSubtab() {
   const [scanSummary, setScanSummary] = useState(null);
   const [warming, setWarming] = useState(false);
   const [warmResult, setWarmResult] = useState(null);
+  // Sprint 22.2: positions vs trades reconcile warning
+  const [reconcileAdjusts, setReconcileAdjusts] = useState([]);
   const abortRef = useRef(null);  // Sprint 19 audit fix M1: AbortController
 
   const refresh = useCallback(async () => {
@@ -2220,6 +2222,7 @@ function PortfolioIdeasSubtab() {
         setIvBreakdown(j.iv_breakdown || null);
         setSkipped(j.skipped || []);
         setScanSummary(j.scan_summary || null);
+        setReconcileAdjusts(j.reconcile_adjusts || []);
       }
     } catch (e) { if (e.name !== 'AbortError') setErr(e.message); }
     setLoading(false);
@@ -2428,6 +2431,29 @@ function PortfolioIdeasSubtab() {
             </div>
           );
         })
+      )}
+
+      {/* Sprint 22.2: Reconcile warning banner — bug #030 UNH 200→100 */}
+      {reconcileAdjusts.length > 0 && (
+        <details style={{ ...CARD, padding: 12, borderColor: '#ef4444', background: 'rgba(239,68,68,.06)' }}>
+          <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#ef4444' }}>
+            🚨 {reconcileAdjusts.length} discrepancias positions vs trades — shares capadas al mínimo seguro
+          </summary>
+          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-secondary)' }}>
+            La tabla <code>positions</code> reporta más shares que los que suman los trades en <code>cost_basis</code>. El sistema USA el mínimo (más conservador) para que NUNCA te sugiera más contratos de los que tienes shares para cubrir. Ejecuta verify completo en <code>/api/audit/positions-trades-reconcile</code>.
+          </div>
+          <div style={{ marginTop: 8, maxHeight: 200, overflowY: 'auto', fontSize: 10 }}>
+            {reconcileAdjusts.slice(0, 30).map((a, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', borderTop: i ? '1px dashed var(--border)' : 'none' }}>
+                <span><b>{a.ticker}</b></span>
+                <span style={{ color: 'var(--text-tertiary)' }}>
+                  positions <b>{a.positions_shares}</b> · trades <b>{a.trades_net_shares}</b> · usado <b style={{ color: '#fbbf24' }}>{a.capped_to}</b> (diff {a.diff > 0 ? '+' : ''}{a.diff})
+                </span>
+              </div>
+            ))}
+            {reconcileAdjusts.length > 30 && <div style={{ color: 'var(--text-tertiary)', marginTop: 4 }}>+{reconcileAdjusts.length - 30} más…</div>}
+          </div>
+        </details>
       )}
 
       {/* Sprint 20: Skipped positions transparency */}

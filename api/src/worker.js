@@ -7546,6 +7546,80 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // los problemas de datos sean VISIBLES sin tener que abrir empresa
       // a empresa.
       // ═══════════════════════════════════════════════════════════════
+      // ─── Sprint 22.2 — Position reconcile vs trades (bug #030 UNH 200→100) ──
+      // For each ticker in positions, compute net shares from cost_basis trades
+      // (filtering OUT options + duplicates via opt_tipo NULL) and compare with
+      // positions.shares. Returns discrepancies with metadata.
+      //
+      // Helper: builds the trade-derived shares per ticker.
+      const computeTradesNetShares = async () => {
+        const { results } = await env.DB.prepare(
+          `SELECT ticker, SUM(shares) as net_shares, COUNT(*) as n_trades
+           FROM cost_basis
+           WHERE (opt_tipo IS NULL OR opt_tipo = '')
+             AND (tipo IS NULL OR tipo NOT IN ('DIVIDENDS','DIV','WTHTAX','WITHTAX'))
+           GROUP BY ticker`
+        ).all().catch(() => ({ results: [] }));
+        const map = new Map();
+        for (const r of (results || [])) {
+          if (r.ticker) map.set(String(r.ticker).toUpperCase(), { net: Number(r.net_shares) || 0, n_trades: Number(r.n_trades) || 0 });
+        }
+        return map;
+      };
+
+      if (path === "/api/audit/positions-trades-reconcile" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        try {
+          // Equities only (excluding options rows)
+          const { results: posRows } = await env.DB.prepare(
+            `SELECT ticker, account, shares, market_value, last_price
+             FROM positions
+             WHERE shares != 0 AND ticker IS NOT NULL
+               AND LENGTH(ticker) <= 12 AND ticker NOT LIKE '% %'`
+          ).all().catch(() => ({ results: [] }));
+
+          // Aggregate positions per ticker
+          const byTicker = new Map();
+          for (const p of (posRows || [])) {
+            const t = String(p.ticker).toUpperCase();
+            if (!byTicker.has(t)) byTicker.set(t, { ticker: t, shares: 0, accounts: new Set(), market_value: 0 });
+            const row = byTicker.get(t);
+            row.shares += (p.shares || 0);
+            row.market_value += (p.market_value || 0);
+            if (p.account) row.accounts.add(p.account);
+          }
+
+          const tradesMap = await computeTradesNetShares();
+
+          const discrepancies = [];
+          for (const [t, row] of byTicker) {
+            const tradeInfo = tradesMap.get(t) || { net: 0, n_trades: 0 };
+            const diff = row.shares - tradeInfo.net;
+            if (Math.abs(diff) >= 1) {
+              discrepancies.push({
+                ticker: t,
+                accounts: [...row.accounts],
+                positions_shares: row.shares,
+                trades_net_shares: tradeInfo.net,
+                trades_n: tradeInfo.n_trades,
+                diff,
+                severity: Math.abs(diff) >= 50 ? 'HIGH' : Math.abs(diff) >= 5 ? 'MEDIUM' : 'LOW',
+              });
+            }
+          }
+          discrepancies.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+
+          return json({
+            ok: true,
+            n_tickers_checked: byTicker.size,
+            n_discrepancies: discrepancies.length,
+            discrepancies,
+            generated_at: new Date().toISOString(),
+            note: 'positions.shares != SUM(cost_basis trades). Diff>0 = positions excess (UNH bug). Diff<0 = trades excess (likely cost_basis duplicates).',
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
       if (path === "/api/audit/portfolio" && request.method === "GET") {
         await ensureMigrations(env);
         // 2026-05-03: el schema de positions varía entre instalaciones. Cogemos
@@ -11421,11 +11495,37 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             byTicker[t].total_cost += ((p.cost_basis || 0) * (p.shares || 0));
             if (p.last_price) byTicker[t].current_price = p.last_price;
           }
-          const positionsRaw = Object.values(byTicker).map(p => ({
+          let positionsRaw = Object.values(byTicker).map(p => ({
             ...p,
             avg_cost: p.shares > 0 ? p.total_cost / p.shares : 0,
             pnl_pct: p.total_cost > 0 ? ((p.market_value - p.total_cost) / p.total_cost) * 100 : 0,
           }));
+
+          // Sprint 22.2: CROSS-CHECK shares vs cost_basis trades (bug #030 UNH).
+          // Para cada ticker, calculamos net shares desde trades. Si discrepancia >=1:
+          //   - Conservador: cap shares a min(positions, trades) → suggested contracts será correcto
+          //   - Flag con `reconcile_warning` que el UI mostrará
+          //   - Si positions=0 o trades=0 → no se ajusta (mantenemos comportamiento original)
+          const tradesShares = await computeTradesNetShares();
+          const reconcileAdjusts = [];
+          positionsRaw = positionsRaw.map(p => {
+            const tickerUp = String(p.ticker || '').toUpperCase();
+            const trade = tradesShares.get(tickerUp);
+            if (!trade || trade.net <= 0 || p.shares <= 0) return p;
+            const diff = p.shares - trade.net;
+            if (Math.abs(diff) >= 1) {
+              const safeShares = Math.min(p.shares, trade.net);
+              reconcileAdjusts.push({
+                ticker: tickerUp,
+                positions_shares: p.shares,
+                trades_net_shares: trade.net,
+                diff,
+                capped_to: safeShares,
+              });
+              return { ...p, shares: safeShares, reconcile_warning: { positions: p.shares, trades: trade.net, used: safeShares, diff } };
+            }
+            return p;
+          });
 
           // Sprint 20: fetch IV per ticker (TT live → HV cache → null)
           const tickers = positionsRaw.map(p => p.ticker);
@@ -11458,6 +11558,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             skipped: allIdeas.skipped || [],
             scan_summary: allIdeas.summary || {},
             ideas: filtered.slice(0, 50),  // top 50
+            reconcile_adjusts: reconcileAdjusts,    // Sprint 22.2: tickers donde shares fueron capadas
             generated_at: new Date().toISOString(),
             note: ivBreakdown.tt_real === 0
               ? 'Sin IV real (TT bridge auth o IB Gateway off). Solo ETFs cacheados (HV proxy) producen ideas.'
@@ -28870,6 +28971,33 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
         console.log(`[audit-cron] nlv snapshot: ${r.status} nlv=${d.nlv ?? '?'} fecha=${d.fecha ?? '?'}`);
       } catch (e) {
         console.error('[audit-cron] nlv snapshot failed:', e.message);
+      }
+
+      // ─── Sprint 22.2 piggyback: positions vs trades reconcile (bug #030) ───
+      // Detecta cualquier ticker donde positions.shares != computed from trades.
+      // Alerta Telegram CRITICAL si discrepancias para que el usuario lo vea YA.
+      try {
+        const apiBase = "https://api.onto-so.com";
+        const rr = await fetch(`${apiBase}/api/audit/positions-trades-reconcile`, {
+          headers: { 'X-AYR-Auth': env.AYR_WORKER_TOKEN },
+          signal: AbortSignal.timeout(30000),
+        });
+        if (rr.ok) {
+          const j = await rr.json().catch(() => ({}));
+          const d = j.discrepancies || [];
+          if (d.length > 0) {
+            const top = d.slice(0, 5).map(x => `• ${x.ticker} (${x.accounts?.[0] || '—'}): positions=${x.positions_shares} vs trades=${x.trades_net_shares} (diff ${x.diff > 0 ? '+' : ''}${x.diff}) [${x.severity}]`).join('\n');
+            const more = d.length > 5 ? `\n+${d.length - 5} más` : '';
+            const msg = `🚨 *Reconcile positions vs trades — ${d.length} discrepancias*\n\n${top}${more}\n\nReview: https://api.onto-so.com/api/audit/positions-trades-reconcile`;
+            await sendTelegram(env, msg, 'CRITICAL');
+            console.log(`[reconcile-cron] ${d.length} discrepancies Telegram CRITICAL enviado`);
+          } else {
+            console.log('[reconcile-cron] OK — no discrepancias positions vs trades');
+          }
+        }
+      } catch (e) {
+        console.error('[reconcile-cron] error:', e.message);
+        await errorBudget(env, 'reconcile_cron_failed', 1);
       }
 
       // ─── Sprint 22 piggyback: Weekly review reminder (Sundays only) ────

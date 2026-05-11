@@ -363,6 +363,30 @@ Implementado para evitar regresiones:
 - **Tests**: 10 nuevos en `tests/regressions/portfolio-ideas-engine.test.js` + `live-execution-engine.test.js` (745 pass).
 - **Lección**: HV (historical vol) ≠ IV (implied vol). Para options siempre usa IV real, no proxy histórico.
 
+### Bug #030 — positions.shares INFLATED vs cost_basis (UNH 200 reportado, real 100)
+- **Síntoma**: Usuario reporta que sistema sugirió "2 contratos de UNH porque tienes 200 acciones" cuando solo tiene 100. Investigación reveló DISCREPANCIAS EN 64 TICKERS (no solo UNH). Patrón: positions.shares ≈ 2× cost_basis trades sum (signo de import duplicado).
+- **Causa raíz**: 
+  1. UNH específico: fila legacy account=NULL con shares=200 nunca actualizada tras migración multi-account v4.3
+  2. Generalizado: cost_basis tiene DUPLICATES (cada trade genera 2 filas — una con opt_tipo="-" + otra con opt_tipo=NULL). Si el cron de positions sync se basaba en SUM(shares) sin dedup, doubled todo.
+  3. Engine analyzePosition confiaba CIEGAMENTE en positions.shares sin cross-check vs trades. No guard estructural.
+- **Cost**: gravísimo en sistema de trading. Sugirió contracts=2 que el usuario habría ejecutado naked (sin shares para cover) → margin call o asignación naked. Trust roto.
+- **Fix Sprint 22.2** (commit pendiente):
+  1. Endpoint `/api/audit/positions-trades-reconcile` — lista 64 discrepancias con severity (HIGH ≥50 shares, MEDIUM ≥5, LOW <5)
+  2. Helper `computeTradesNetShares()` — query canónica deduplicada (filter `opt_tipo IS NULL OR opt_tipo = ''` + excluir DIVIDENDS/WTHTAX)
+  3. Guard en `/api/thetagang/portfolio-ideas/scan` — para cada position cross-check vs trades. Si discrepancia ≥1: cap shares a min(positions, trades) (conservador), flag con `reconcile_warning`, añade a `reconcile_adjusts[]` en response.
+  4. Cron piggyback 08:00 UTC: corre reconcile, Telegram CRITICAL si discrepancies > 0.
+- **Verificación post-fix**: UNH idea contracts pasó de 2 → 1 ✓
+- **Prevención obligatoria**:
+  - NUNCA confiar en positions.shares para suggested contracts sin cross-check trades
+  - **SIEMPRE** cap a min(positions, computed_from_trades) en safety-critical paths
+  - Cron reconcile diario + Telegram alerta automática
+  - UI: mostrar `reconcile_warning` per idea cuando aplicable
+- **Bugs colaterales descubiertos**:
+  - cost_basis tiene DUPLICADOS sistemáticos (rows opt_tipo="-" + opt_tipo=NULL para mismo trade) — Sprint 23 cleanup
+  - positions sync probablemente UPSERT mal en algún punto — investigar bridge/Flex sync logic
+- **Archivos**: `api/src/worker.js` (endpoint + guard + cron piggyback)
+- **Lección meta**: el firewall conductual (Sprint 22) es inútil si la data subyacente está corrupta. La defensa estructural (cross-check entre fuentes) es PREREQUISITO para cualquier sistema que use D1 como fuente de decisiones.
+
 ### Bug #029 — IV hardcoded fallback en safety-critical paths (Sprint 20 antipattern)
 - **Síntoma**: Engines de options pricing usaban `iv = position.iv_30d || 0.25` o `iv = brainData?.iv_index || 0.20` cuando no había IV disponible. Resultado: 104 ideas en Cartera Ideas con strikes/premiums calculados a partir de un IV genérico que NO refleja la realidad del símbolo (single-name stocks pueden tener IV 15-60%, no 25%).
 - **Causa raíz**: 
