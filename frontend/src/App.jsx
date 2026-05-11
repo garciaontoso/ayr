@@ -1082,13 +1082,20 @@ function buildPositionsFromCB() {
     const amt = entry.isIngreso ? Math.abs(entry.amount) : -Math.abs(entry.amount);
     const desc = secretoPrefix + tipoPrefix + (entry.detail||"");
     const catCode = CAT_TO_CODE[entry.cat] || entry.cat;
-    try {
-      await fetch(`${API_URL}/api/gastos`, {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({fecha:entry.date, categoria:catCode, importe:amt, divisa:entry.currency, descripcion:desc})
-      });
-    } catch(e) { console.error(e); }
+    // Bug fix 2026-05-11: chequear response.ok. Antes: try/catch swallowed
+    // errors silently → pending sync loop believed it succeeded → cleared
+    // localStorage without server actually receiving. 4 gastos perdidos.
+    const resp = await fetch(`${API_URL}/api/gastos`, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({fecha:entry.date, categoria:catCode, importe:amt, divisa:entry.currency, descripcion:desc})
+    });
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      const err = new Error(`addGasto failed: HTTP ${resp.status}${text ? ': ' + text.slice(0,200) : ''}`);
+      err.status = resp.status;
+      throw err;  // Rethrow so pending sync loop keeps the item in queue
+    }
     setGastosShowForm(false);
     loadGastos(true);
   }, [loadGastos]);
@@ -1104,6 +1111,59 @@ function buildPositionsFromCB() {
   useEffect(() => {
     if (dataLoaded && gastosLog.length === 0) loadGastos();
   }, [dataLoaded, loadGastos]);
+
+  // ── Sprint 22.8: App-level pending gastos sync ──
+  // Antes: sync solo en GastosTab mount → si user no entra a Gastos, pendings infinitos.
+  // Ahora: on app mount + periódico (every 60s online), intenta vaciar la cola.
+  // Persiste último error en localStorage para que GastosTab lo muestre.
+  useEffect(() => {
+    if (!dataLoaded) return;
+    let cancelled = false;
+    const PENDING_KEY = 'ayr-pending-gastos';
+    const ERROR_KEY = 'ayr-pending-gastos-error';
+
+    const trySyncPending = async () => {
+      if (cancelled) return;
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      let pending = [];
+      try { pending = JSON.parse(localStorage.getItem(PENDING_KEY) || '[]'); } catch {}
+      if (!Array.isArray(pending) || pending.length === 0) {
+        localStorage.removeItem(ERROR_KEY);
+        return;
+      }
+      const remaining = [];
+      const errors = [];
+      for (const entry of pending) {
+        if (cancelled) break;
+        try {
+          await addGasto(entry);
+        } catch (e) {
+          remaining.push(entry);
+          errors.push(`${entry.detail || entry.amount}: ${e.message?.slice(0, 100)}`);
+        }
+      }
+      if (cancelled) return;
+      try {
+        localStorage.setItem(PENDING_KEY, JSON.stringify(remaining));
+        if (errors.length > 0) localStorage.setItem(ERROR_KEY, JSON.stringify({ ts: new Date().toISOString(), errors }));
+        else localStorage.removeItem(ERROR_KEY);
+      } catch {}
+    };
+
+    // Run immediately + every 60s while app is open
+    trySyncPending();
+    const interval = setInterval(trySyncPending, 60_000);
+
+    // Also run when online status flips back to online
+    const onOnline = () => trySyncPending();
+    window.addEventListener('online', onOnline);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener('online', onOnline);
+    };
+  }, [dataLoaded, addGasto]);
   useEffect(() => {
     if ((homeTab === "gastos" || homeTab === "presupuesto") && gastosLog.length === 0) loadGastos();
   }, [homeTab, gastosLog.length, loadGastos]);

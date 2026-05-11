@@ -343,14 +343,83 @@ export default function GastosTab() {
     }
   };
 
+  // Sprint 22.8: Manual retry + last error from localStorage
+  const [retryStatus, setRetryStatus] = useState(null);  // 'syncing' | 'done' | 'error'
+  const [lastSyncError, setLastSyncError] = useState(() => {
+    try {
+      const raw = localStorage.getItem('ayr-pending-gastos-error');
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
+
+  const manualRetry = useCallback(async () => {
+    setRetryStatus('syncing');
+    const errors = [];
+    const remaining = [];
+    for (const entry of pendingGastos) {
+      try {
+        await addGasto(entry);
+      } catch (e) {
+        remaining.push(entry);
+        errors.push(`${entry.detail || entry.amount || '?'}: ${e.message?.slice(0, 100)}`);
+      }
+    }
+    savePending(remaining);
+    if (errors.length > 0) {
+      const errObj = { ts: new Date().toISOString(), errors };
+      try { localStorage.setItem('ayr-pending-gastos-error', JSON.stringify(errObj)); } catch {}
+      setLastSyncError(errObj);
+      setRetryStatus('error');
+    } else {
+      try { localStorage.removeItem('ayr-pending-gastos-error'); } catch {}
+      setLastSyncError(null);
+      setRetryStatus('done');
+    }
+    setTimeout(() => setRetryStatus(null), 4000);
+  }, [pendingGastos, addGasto, savePending]);
+
+  const clearPendingForce = useCallback(() => {
+    if (!window.confirm(`⚠ Borrar ${pendingGastos.length} gastos pendientes SIN sincronizar?\n\nLos datos se perderán. Solo confirma si sabes que ya están en server o son test.`)) return;
+    savePending([]);
+    try { localStorage.removeItem('ayr-pending-gastos-error'); } catch {}
+    setLastSyncError(null);
+  }, [pendingGastos, savePending]);
+
   return (
 <div style={{display:"flex",flexDirection:"column",gap:12}}>
   {/* Offline pending changes banner */}
   {pendingGastos.length > 0 && (
-    <div style={{padding:"8px 14px",background:"rgba(239,68,68,.1)",border:"1px solid rgba(239,68,68,.4)",borderRadius:8,fontSize:11,fontWeight:600,color:"#ef4444",fontFamily:"var(--fm)",display:"flex",alignItems:"center",gap:8}}>
-      <span style={{fontSize:13}}>🔴</span>
-      <span>{pendingGastos.length} cambio{pendingGastos.length!==1?"s":""} pendiente{pendingGastos.length!==1?"s":""} de sincronizar</span>
-      {!isOffline && <span style={{marginLeft:"auto",fontSize:9,color:"var(--text-tertiary)"}}>(sincronizando...)</span>}
+    <div style={{padding:"10px 14px",background:"rgba(239,68,68,.1)",border:"1px solid rgba(239,68,68,.4)",borderRadius:8,fontSize:11,fontWeight:600,color:"#ef4444",fontFamily:"var(--fm)",display:"flex",flexDirection:"column",gap:6}}>
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <span style={{fontSize:13}}>🔴</span>
+        <span>{pendingGastos.length} cambio{pendingGastos.length!==1?"s":""} pendiente{pendingGastos.length!==1?"s":""} de sincronizar</span>
+        <div style={{marginLeft:"auto",display:"flex",gap:6}}>
+          <button
+            onClick={manualRetry}
+            disabled={retryStatus === 'syncing' || isOffline}
+            style={{padding:"4px 10px",fontSize:11,background:"rgba(48,209,88,.15)",color:"#30d158",border:"1px solid rgba(48,209,88,.4)",borderRadius:4,cursor:isOffline?"not-allowed":"pointer",opacity:isOffline?0.5:1,fontFamily:"var(--fm)"}}
+          >
+            {retryStatus === 'syncing' ? '⏳ Sincronizando...' : retryStatus === 'done' ? '✓ Sincronizado' : retryStatus === 'error' ? '✗ Fallo' : '🔄 Reintentar ahora'}
+          </button>
+          <button
+            onClick={clearPendingForce}
+            title="Borra los pendientes sin guardar — solo si sabes lo que haces"
+            style={{padding:"4px 8px",fontSize:11,background:"transparent",color:"var(--text-tertiary)",border:"1px solid var(--border)",borderRadius:4,cursor:"pointer",fontFamily:"var(--fm)"}}
+          >
+            🗑 Borrar
+          </button>
+        </div>
+      </div>
+      {lastSyncError && (
+        <details style={{marginTop:4,fontSize:10,color:"var(--text-secondary)",fontWeight:400}}>
+          <summary style={{cursor:"pointer",color:"#fbbf24"}}>⚠ Último intento falló ({new Date(lastSyncError.ts).toLocaleTimeString()}) — ver detalles</summary>
+          <ul style={{marginTop:6,paddingLeft:20}}>
+            {lastSyncError.errors?.slice(0, 5).map((err, i) => (
+              <li key={i} style={{marginBottom:2,fontFamily:"var(--fm)",color:"var(--text-secondary)"}}>{err}</li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   )}
 
