@@ -659,10 +659,21 @@ function buildPositionsFromCB() {
     // Try shared storage first
     if (storageAvailable()) {
       try {
-        const result = await window.storage.get(`cb:v2:${ticker.toUpperCase()}`, true);
+        const result = await window.storage.get(`cb:v3:${ticker.toUpperCase()}`, true);
         if (result?.value) {
           const stored = JSON.parse(result.value);
-          if (stored.length > 0) txns = stored;
+          // Sprint 23.2 defense: validate cache integrity. If ANY 'option' type
+          // row lacks optType/optStrike/optExpiry, the cache is stale (pre-Sprint 23
+          // import). Invalidate + force API refetch. Prevents the LULU bug returning.
+          const hasStaleOption = stored.some(t =>
+            t.type === 'option' && !t.optType && !t.optExpiry
+          );
+          if (hasStaleOption) {
+            console.warn(`[cost-basis] cache stale for ${ticker} (option rows missing optType/expiry). Invalidating.`);
+            try { await window.storage.delete(`cb:v3:${ticker.toUpperCase()}`, true); } catch {}
+          } else if (stored.length > 0) {
+            txns = stored;
+          }
         }
       } catch(e) {}
     }
@@ -670,7 +681,7 @@ function buildPositionsFromCB() {
     if (!txns.length) {
       txns = CB_EXPANDED[ticker.toUpperCase()] || CB_EXPANDED[ticker] || [];
       if (txns.length > 0 && storageAvailable()) {
-        try { await window.storage.set(`cb:v2:${ticker.toUpperCase()}`, JSON.stringify(txns), true); } catch(e) {}
+        try { await window.storage.set(`cb:v3:${ticker.toUpperCase()}`, JSON.stringify(txns), true); } catch(e) {}
       }
     }
     // Fallback to API (cost_basis table in D1)
@@ -696,7 +707,7 @@ function buildPositionsFromCB() {
             // CB loaded from API
             // Cache in storage
             if (storageAvailable()) {
-              try { await window.storage.set(`cb:v2:${ticker.toUpperCase()}`, JSON.stringify(txns), true); } catch(e) {}
+              try { await window.storage.set(`cb:v3:${ticker.toUpperCase()}`, JSON.stringify(txns), true); } catch(e) {}
             }
           }
         }
@@ -705,7 +716,7 @@ function buildPositionsFromCB() {
     // Auto-fix data errors
     const { txns: cleaned, fixed } = sanitizeTransactions(txns);
     if (fixed && storageAvailable()) {
-      try { await window.storage.set(`cb:v2:${ticker.toUpperCase()}`, JSON.stringify(cleaned), true); } catch(e) {}
+      try { await window.storage.set(`cb:v3:${ticker.toUpperCase()}`, JSON.stringify(cleaned), true); } catch(e) {}
     }
     return cleaned;
   }, []);
@@ -714,7 +725,7 @@ function buildPositionsFromCB() {
   const saveTransactions = useCallback(async (ticker, txns) => {
     if (!storageAvailable() || !ticker) return;
     try {
-      await window.storage.set(`cb:v2:${ticker.toUpperCase()}`, JSON.stringify(txns), true);
+      await window.storage.set(`cb:v3:${ticker.toUpperCase()}`, JSON.stringify(txns), true);
     } catch(e) { console.warn("CB save error:", e); }
   }, []);
 
