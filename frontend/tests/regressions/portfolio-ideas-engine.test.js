@@ -118,6 +118,35 @@ describe('Sprint 18 — analyzePosition()', () => {
     const ccProxy = proxy.find(i => i.type === 'COVERED_CALL');
     expect(ccReal.confidence_score).toBeGreaterThan(ccProxy.confidence_score);
   });
+
+  // Sprint 22.1: pct_otm per strike for UX clarity
+  it('cada idea expone spot + pct_otm por strike', () => {
+    // CC + CSP (gain >= 0 so both fire)
+    const ccIdeas = analyzePosition(withIv({ ticker: 'KO', shares: 200, avg_cost: 60, current_price: 65, pnl_pct: 8 }));
+    const cc = ccIdeas.find(i => i.type === 'COVERED_CALL');
+    expect(cc.spot).toBeCloseTo(65, 1);
+    expect(cc.strike_pct_otm).toBeGreaterThan(0);    // strike above spot
+    expect(cc.strike).toBeGreaterThan(cc.spot);
+
+    const csp = ccIdeas.find(i => i.type === 'CASH_SECURED_PUT');
+    expect(csp.spot).toBeCloseTo(65, 1);
+    expect(csp.strike_pct_otm).toBeGreaterThan(0);   // pct shown as positive % below
+    expect(csp.strike).toBeLessThan(csp.spot);
+
+    // BPS (need loss)
+    const bpsIdeas = analyzePosition(withIv({ ticker: 'JNJ', shares: 100, avg_cost: 170, current_price: 150, pnl_pct: -11.8 }));
+    const bps = bpsIdeas.find(i => i.type === 'BPS_COST_REDUCTION');
+    expect(bps.spot).toBeCloseTo(150, 1);
+    expect(bps.short_strike_pct_otm).toBeGreaterThan(0);
+    expect(bps.long_strike_pct_otm).toBeGreaterThan(bps.short_strike_pct_otm);  // long further OTM
+
+    // Collar (need big gain)
+    const collarIdeas = analyzePosition(withIv({ ticker: 'NVDA', shares: 100, avg_cost: 100, current_price: 150, pnl_pct: 50 }));
+    const collar = collarIdeas.find(i => i.type === 'COLLAR_PROTECTION');
+    expect(collar.spot).toBeCloseTo(150, 1);
+    expect(collar.put_strike_pct_otm).toBeGreaterThan(0);
+    expect(collar.call_strike_pct_otm).toBeGreaterThan(0);
+  });
 });
 
 describe('Sprint 18 — analyzeOpenOption()', () => {

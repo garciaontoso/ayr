@@ -117,11 +117,14 @@ export function analyzePosition(position, opts = {}) {
     const yieldOnPositionPct = (premiumDollars / (spot * 100 * contractsAvailable)) * 100;
     const annualizedYield = yieldOnPositionPct * (365 / dte);
 
+    const ccPctAbove = ((callStrike - spot) / spot) * 100;
     ideas.push({
       type: 'COVERED_CALL',
       ticker,
       contracts: contractsAvailable,
       strike: callStrike,
+      strike_pct_otm: Math.round(ccPctAbove * 10) / 10,    // + = above spot
+      spot: Math.round(spot * 100) / 100,
       dte,
       premium_estimate: Math.round(premiumDollars),
       premium_per_share: Math.round(callPrice * 100) / 100,
@@ -154,11 +157,14 @@ export function analyzePosition(position, opts = {}) {
     const annualizedYield = yieldOnCashPct * (365 / dte);
     const effectiveBuyPrice = putStrike - putPrice;
 
+    const cspPctBelow = ((spot - putStrike) / spot) * 100;
     ideas.push({
       type: 'CASH_SECURED_PUT',
       ticker,
       contracts: 1,
       strike: putStrike,
+      strike_pct_otm: Math.round(cspPctBelow * 10) / 10,   // + = below spot
+      spot: Math.round(spot * 100) / 100,
       dte,
       premium_estimate: Math.round(putPrice * 100),
       premium_per_share: Math.round(putPrice * 100) / 100,
@@ -202,12 +208,17 @@ export function analyzePosition(position, opts = {}) {
         theta: (-shortG.theta + longG.theta) * 100,
         vega:  (-shortG.vega  + longG.vega)  * 100,
       };
+      const shortPctBelow = ((spot - shortStrike) / spot) * 100;
+      const longPctBelow = ((spot - longStrike) / spot) * 100;
       ideas.push({
         type: 'BPS_COST_REDUCTION',
         ticker,
         contracts: 1,
         short_strike: shortStrike,
         long_strike: longStrike,
+        short_strike_pct_otm: Math.round(shortPctBelow * 10) / 10,
+        long_strike_pct_otm: Math.round(longPctBelow * 10) / 10,
+        spot: Math.round(spot * 100) / 100,
         dte,
         premium_estimate: Math.round(creditDollars),
         capital_required: Math.round(maxLoss),
@@ -247,12 +258,17 @@ export function analyzePosition(position, opts = {}) {
       vega:  (putG.vega  - callG.vega)  * 100 * contractsAvailable,
     };
 
+    const collarPutPctBelow = ((spot - putStrike) / spot) * 100;
+    const collarCallPctAbove = ((callStrike - spot) / spot) * 100;
     ideas.push({
       type: 'COLLAR_PROTECTION',
       ticker,
       contracts: contractsAvailable,
       put_strike: putStrike,
       call_strike: callStrike,
+      put_strike_pct_otm: Math.round(collarPutPctBelow * 10) / 10,   // below spot
+      call_strike_pct_otm: Math.round(collarCallPctAbove * 10) / 10, // above spot
+      spot: Math.round(spot * 100) / 100,
       dte,
       premium_estimate: -Math.round(netCost * 100 * contractsAvailable),
       capital_required: Math.max(0, Math.round(netCost * 100 * contractsAvailable)),

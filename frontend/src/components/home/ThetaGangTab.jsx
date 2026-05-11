@@ -2356,9 +2356,37 @@ function PortfolioIdeasSubtab() {
               {/* Stats grid */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 8, fontSize: 11 }}>
                 {idea.contracts != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Contracts:</span> <b>{idea.contracts}</b></div>}
-                {idea.strike != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Strike:</span> <b>${idea.strike}</b></div>}
-                {idea.short_strike != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Strikes:</span> <b>{idea.short_strike}/{idea.long_strike}</b></div>}
-                {idea.put_strike != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Put/Call:</span> <b>{idea.put_strike}/{idea.call_strike}</b></div>}
+                {idea.spot != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Spot:</span> <b>${idea.spot}</b></div>}
+                {idea.strike != null && (
+                  <div>
+                    <span style={{ color: 'var(--text-tertiary)' }}>Strike:</span> <b>${idea.strike}</b>
+                    {idea.strike_pct_otm != null && (
+                      <span style={{ color: idea.type === 'COVERED_CALL' ? '#fbbf24' : '#30d158', fontSize: 10, marginLeft: 4 }}>
+                        ({idea.strike_pct_otm}% {idea.type === 'COVERED_CALL' ? 'above' : 'below'})
+                      </span>
+                    )}
+                  </div>
+                )}
+                {idea.short_strike != null && (
+                  <div>
+                    <span style={{ color: 'var(--text-tertiary)' }}>Short/Long:</span> <b>{idea.short_strike}/{idea.long_strike}</b>
+                    {idea.short_strike_pct_otm != null && (
+                      <span style={{ color: '#30d158', fontSize: 10, marginLeft: 4 }}>
+                        ({idea.short_strike_pct_otm}% / {idea.long_strike_pct_otm}% below)
+                      </span>
+                    )}
+                  </div>
+                )}
+                {idea.put_strike != null && (
+                  <div>
+                    <span style={{ color: 'var(--text-tertiary)' }}>Put/Call:</span> <b>{idea.put_strike}/{idea.call_strike}</b>
+                    {idea.put_strike_pct_otm != null && (
+                      <span style={{ fontSize: 10, marginLeft: 4 }}>
+                        (<span style={{ color: '#30d158' }}>{idea.put_strike_pct_otm}%↓</span> / <span style={{ color: '#fbbf24' }}>{idea.call_strike_pct_otm}%↑</span>)
+                      </span>
+                    )}
+                  </div>
+                )}
                 {idea.dte != null && <div><span style={{ color: 'var(--text-tertiary)' }}>DTE:</span> <b>{idea.dte}d</b></div>}
                 {idea.premium_estimate != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Premium:</span> <b style={{ color: idea.premium_estimate > 0 ? '#30d158' : '#ef4444' }}>{fmtMoney(idea.premium_estimate)}</b></div>}
                 {idea.capital_required != null && <div><span style={{ color: 'var(--text-tertiary)' }}>Capital:</span> <b>{fmtMoney(idea.capital_required)}</b></div>}
