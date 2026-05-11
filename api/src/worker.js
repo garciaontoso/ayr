@@ -12269,26 +12269,77 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             const spot = quotes?.[underlying]?.last || quotes?.[underlying]?.mid || o.current_price || 0;
             const dteFromExpiry = o.expiry ? Math.max(0, Math.floor((new Date(o.expiry).getTime() - Date.now()) / 86400000)) : null;
             const ivInfo = ivMap.get(String(underlying || '').toUpperCase()) || null;
+            const iv = ivInfo?.iv || null;
+            const qty = o.qty || o.quantity || 0;
+            const absQty = Math.abs(qty);
+            const strike = o.strike || 0;
+            const avgCost = o.avg_cost || o.entry_premium || null;
+            const optType = (o.opt_type === 'P' || o.opt_type === 'put') ? 'put' : 'call';
+            const isShort = qty < 0;
+
             const suggestion = spot > 0 ? PortfolioIdeas.analyzeOpenOption(
               { ...o, ticker: underlying, dte: dteFromExpiry },
               spot,
-              { iv: ivInfo?.iv || null, iv_source: ivInfo?.source || 'missing' }
+              { iv, iv_source: ivInfo?.source || 'missing' }
             ) : null;
+
+            // ── Sprint 22.8: per-position enrichment ──────────────────────
+            // 1. capital_at_risk
+            let capital_at_risk = 0;
+            if (isShort && optType === 'put') {
+              capital_at_risk = strike * 100 * absQty;
+            } else if (isShort && optType === 'call') {
+              capital_at_risk = 0; // covered (could be unbounded naked — treated as 0 here)
+            } else {
+              // long option: max loss = premium paid
+              capital_at_risk = avgCost != null ? Math.abs(avgCost) * 100 * absQty : 0;
+            }
+
+            // 2. dist_to_strike_pct + OTM/ITM tag
+            let dist_to_strike_pct = null;
+            let moneyness = null;
+            if (spot > 0 && strike > 0) {
+              dist_to_strike_pct = Math.round(Math.abs(strike - spot) / spot * 10000) / 100;
+              if (optType === 'put') {
+                moneyness = spot >= strike ? 'OTM' : 'ITM';
+              } else {
+                moneyness = spot <= strike ? 'OTM' : 'ITM';
+              }
+            }
+
+            // 3. pnl_mark_to_market_dollars — requires IV + avg_cost
+            let pnl_mark_to_market_dollars = null;
+            if (iv != null && avgCost != null && spot > 0 && strike > 0 && dteFromExpiry != null) {
+              const T = Math.max(0.001, dteFromExpiry / 365);
+              const livePx = BS.bsPrice(spot, strike, T, 0.045, iv, optType);
+              if (livePx != null && !isNaN(livePx)) {
+                const entryPremium = Math.abs(avgCost);
+                pnl_mark_to_market_dollars = Math.round(
+                  (isShort ? (entryPremium - livePx) : (livePx - entryPremium)) * 100 * absQty * 100
+                ) / 100;
+              }
+            }
+
             return {
               source: o.source,
               account: o.account || '—',
               underlying,
               symbol: o.symbol || `${underlying} ${o.expiry || ''} ${o.strike || ''}${o.opt_type || ''}`,
               opt_type: o.opt_type,
-              strike: o.strike,
+              strike,
               expiry: o.expiry,
               dte: dteFromExpiry,
-              qty: o.qty || o.quantity,
-              avg_cost: o.avg_cost || o.entry_premium,
+              qty,
+              avg_cost: avgCost,
               spot,
               market_value: o.market_value,
-              iv_used: ivInfo?.iv || null,
+              iv_used: iv,
               iv_source: ivInfo?.source || 'missing',
+              // Sprint 22.8 enrichment
+              capital_at_risk,
+              dist_to_strike_pct,
+              moneyness,
+              pnl_mark_to_market_dollars,
               suggestion,
             };
           });
@@ -12301,10 +12352,25 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             low: enriched.filter(e => e.suggestion?.urgency === 'LOW').length,
           };
 
+          // Sprint 22.8: portfolio-level aggregate metrics
+          const portfolio_metrics = {
+            total_theta_per_day: Math.round(
+              enriched.reduce((acc, e) => acc + (e.suggestion?.greeks?.theta || 0) * Math.abs(e.qty || 0), 0) * 100
+            ) / 100,
+            total_capital_at_risk: enriched.reduce((acc, e) => acc + (e.capital_at_risk || 0), 0),
+            total_pnl_mtm: Math.round(
+              enriched.reduce((acc, e) => acc + (e.pnl_mark_to_market_dollars || 0), 0) * 100
+            ) / 100,
+            n_high_urgency: summary.critical,
+            n_medium_urgency: summary.medium,
+            n_low_urgency: summary.low,
+          };
+
           return json({
             ok: true,
             options: enriched,
             summary,
+            portfolio_metrics,
             generated_at: new Date().toISOString(),
           }, corsHeaders);
         } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
