@@ -22,6 +22,7 @@ import * as AutoPaper from "./lib/auto-paper-engine.js";
 import * as PortfolioIdeas from "./lib/portfolio-ideas-engine.js";
 import * as LiveExec from "./lib/live-execution-engine.js";
 import * as Guardrails from "./lib/guardrails-engine.js";
+import * as ReconcileHeur from "./lib/reconcile-heuristics.js";
 import * as ThetaAudit from "./lib/audit-engine.js";
 import { FMP_MAP, toFMP, fromFMP, FMP_REVERSE, fmpQuote, fmpRiskMetrics, fmpSpyCloses, fmpSpark, FCF_PAYOUT_CARVEOUT, CURRENCY_MAP } from "./lib/fmp.js";
 
@@ -7585,6 +7586,186 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       //   - max_contracts_unsafe (positions alone, comportamiento pre-fix)
       //   - protected_diff: cuántos contracts NO se sugerirán gracias al guard
       //   - severity: NONE | LOW | MEDIUM | HIGH | CRITICAL
+      // ─── Sprint 22.6 — Reconcile cost_basis vs IB with corporate action heuristics ──
+      // Detecta discrepancias positions vs IB y categoriza CAUSA probable:
+      //   STOCK_SPLIT, REVERSE_SPLIT, DRIP, OPTION_ASSIGNMENT, SYMBOL_CHANGE,
+      //   COST_BASIS_DUPLICATE, TRANSFER_IN/OUT, UNKNOWN
+      //
+      // GET /api/audit/cost-basis-vs-ib
+      if (path === "/api/audit/cost-basis-vs-ib" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        try {
+          // 1. IB live shares (autoritativo)
+          const probe = await ibBridgeProbe(env, false);
+          if (!probe.ib_connected) {
+            return json({ error: 'IB Bridge offline', message: 'Need IB Gateway online for reconcile vs IB.' }, corsHeaders, 503);
+          }
+          const ibData = await ibBridgeFetch(env, '/positions', { timeoutMs: 45000 }).catch(e => ({ error: e.message }));
+          if (ibData?.error) return json({ error: 'IB fetch failed', detail: ibData.error }, corsHeaders, 502);
+          const positionsArr = Array.isArray(ibData) ? ibData : (ibData?.positions || []);
+
+          const HKG_BME_MAP = {
+            '1052': 'HKG:1052', '2219': 'HKG:2219', '1066': 'HKG:1066', '1910': 'HKG:1910',
+            '9616': 'HKG:9616', '9618': 'HKG:9618',
+            'AMS': 'BME:AMS', 'VIS': 'BME:VIS', 'ENG': 'BME:ENG',
+          };
+          const ibMap = {};
+          for (const p of positionsArr) {
+            if (p.secType !== 'STK' || !p.qty) continue;
+            let symbol = String(p.symbol || '').toUpperCase();
+            const exchange = String(p.exchange || '').toUpperCase();
+            if (HKG_BME_MAP[symbol]) {
+              if (exchange.startsWith('SEHK') || exchange.includes('HK')) symbol = HKG_BME_MAP[symbol];
+              else if (exchange.includes('BM') || exchange.includes('MAD')) symbol = HKG_BME_MAP[symbol];
+              else if (HKG_BME_MAP[symbol].startsWith('HKG:') && /^[0-9]+$/.test(symbol)) symbol = HKG_BME_MAP[symbol];
+            }
+            ibMap[symbol] = (ibMap[symbol] || 0) + Number(p.qty);
+          }
+
+          // 2. cost_basis trades net per ticker (deduplicated query)
+          const tradesShares = await computeTradesNetShares();
+          const tradesMap = {};
+          for (const [t, info] of tradesShares) tradesMap[t] = info.net;
+
+          // 3. Context: detect recent option activity per ticker (last 60 days)
+          const { results: recentOpts } = await env.DB.prepare(
+            `SELECT DISTINCT ticker FROM cost_basis
+             WHERE opt_tipo IN ('P','C','PUT','CALL') AND fecha > date('now','-60 days')`
+          ).all().catch(() => ({ results: [] }));
+          const recentOptionTickers = new Set((recentOpts || []).map(r => String(r.ticker).toUpperCase()));
+
+          // 4. Context: detect dividend history per ticker
+          const { results: divTickers } = await env.DB.prepare(
+            `SELECT DISTINCT ticker FROM dividendos WHERE fecha > date('now','-365 days')`
+          ).all().catch(() => ({ results: [] }));
+          const dividendTickers = new Set((divTickers || []).map(r => String(r.ticker).toUpperCase()));
+
+          // 5. Classify with heuristics (per ticker)
+          const allTickers = new Set([...Object.keys(ibMap), ...Object.keys(tradesMap)]);
+          const allClassified = ReconcileHeur.classifyAll(ibMap, tradesMap, {
+            allTickers,
+          });
+
+          // Re-classify with per-ticker context for accuracy
+          const results = allClassified.map(r => {
+            const reclassified = ReconcileHeur.classifyDiscrepancy(r.ib_qty, r.trades_qty, {
+              ticker: r.ticker,
+              allTickers,
+              recentOptionAssignment: recentOptionTickers.has(r.ticker),
+              hasDividendHistory: dividendTickers.has(r.ticker),
+            });
+            return {
+              ticker: r.ticker,
+              ib_qty: r.ib_qty,
+              trades_qty: r.trades_qty,
+              diff: r.diff,
+              ...reclassified,
+              context: {
+                recent_option_activity: recentOptionTickers.has(r.ticker),
+                has_dividend_history: dividendTickers.has(r.ticker),
+              },
+            };
+          });
+
+          // 6. Summary by cause
+          const byCause = {};
+          for (const r of results) {
+            byCause[r.cause] = (byCause[r.cause] || 0) + 1;
+          }
+
+          return json({
+            ok: true,
+            n_discrepancies: results.length,
+            by_cause: byCause,
+            results: results.slice(0, 100),
+            ib_total_tickers: Object.keys(ibMap).length,
+            trades_total_tickers: Object.keys(tradesMap).length,
+            generated_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
+      // POST /api/audit/cost-basis/apply-correction
+      // Body: { ticker, action, shares, date?, note?, cost_per_share?, ib_qty?, trades_qty? }
+      // action: 'INSERT_CORPORATE_ACTION' | 'DELETE_DUPLICATES' | 'MARK_TRANSFERRED_OUT' | 'CONFIRM_SYMBOL_CHANGE'
+      // suggested_data: { type } where type is e.g. 'drip_reinvest', 'stock_split_2_to_1', etc.
+      if (path === "/api/audit/cost-basis/apply-correction" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        try {
+          const b = await request.json();
+          if (!b.ticker || !b.action) return json({ error: 'ticker + action required' }, corsHeaders, 400);
+          const ticker = String(b.ticker).toUpperCase();
+          const today = new Date().toISOString().slice(0, 10);
+          const fecha = b.date || today;
+          const result = { action: b.action, ticker, executed: false };
+
+          if (b.action === 'INSERT_CORPORATE_ACTION') {
+            // Insert a corrective row in cost_basis representing the corporate action
+            const shares = Number(b.shares);
+            if (!Number.isFinite(shares) || shares === 0) return json({ error: 'shares required' }, corsHeaders, 400);
+            const costPerShare = Number(b.cost_per_share || 0);
+            const totalCost = -Math.abs(shares * costPerShare);  // negative = paid
+            const note = b.note || `[corporate action: ${b.type || 'unknown'}]`;
+            await env.DB.prepare(
+              `INSERT INTO cost_basis (ticker, fecha, tipo, shares, precio, coste, opt_tipo, opt_status, account, created_at)
+               VALUES (?, ?, 'CORPORATE_ACTION', ?, ?, ?, NULL, NULL, ?, datetime('now'))`
+            ).bind(ticker, fecha, shares, costPerShare, totalCost, b.account || null).run();
+            result.executed = true;
+            result.message = `Inserted CORPORATE_ACTION row: ${shares} shares ${costPerShare > 0 ? `@ $${costPerShare}` : '(free)'}`;
+          }
+          else if (b.action === 'DELETE_DUPLICATES') {
+            // Delete the "opt_tipo='-'" duplicate rows for this ticker
+            // (matches the canonical dup pattern detected by COST_BASIS_DUPLICATE)
+            const beforeRes = await env.DB.prepare(
+              `SELECT COUNT(*) as n FROM cost_basis WHERE ticker = ? AND opt_tipo = '-'`
+            ).bind(ticker).first().catch(() => ({ n: 0 }));
+            const beforeN = beforeRes?.n || 0;
+            await env.DB.prepare(
+              `DELETE FROM cost_basis WHERE ticker = ? AND opt_tipo = '-' AND tipo = 'EQUITY'`
+            ).bind(ticker).run();
+            result.executed = true;
+            result.deleted_count = beforeN;
+            result.message = `Deleted ${beforeN} duplicate rows (opt_tipo='-') for ${ticker}`;
+          }
+          else if (b.action === 'MARK_TRANSFERRED_OUT') {
+            // Add a row that zeros out the position (SELL ALL representation)
+            const shares = -Math.abs(Number(b.shares));
+            await env.DB.prepare(
+              `INSERT INTO cost_basis (ticker, fecha, tipo, shares, precio, coste, account, created_at)
+               VALUES (?, ?, 'TRANSFER_OUT', ?, 0, 0, ?, datetime('now'))`
+            ).bind(ticker, fecha, shares, b.account || null).run();
+            result.executed = true;
+            result.message = `Inserted TRANSFER_OUT row: ${shares} shares`;
+          }
+          else if (b.action === 'CONFIRM_SYMBOL_CHANGE') {
+            // Update all cost_basis rows from old ticker to new ticker
+            const newTicker = String(b.new_ticker || '').toUpperCase();
+            if (!newTicker) return json({ error: 'new_ticker required for symbol change' }, corsHeaders, 400);
+            const r = await env.DB.prepare(
+              `UPDATE cost_basis SET ticker = ? WHERE ticker = ?`
+            ).bind(newTicker, ticker).run();
+            result.executed = true;
+            result.rows_updated = r?.meta?.changes || 0;
+            result.message = `Renamed ${result.rows_updated} cost_basis rows from ${ticker} to ${newTicker}`;
+          }
+          else {
+            return json({ error: `Unknown action: ${b.action}` }, corsHeaders, 400);
+          }
+
+          // Audit log permanent
+          await env.DB.prepare(
+            `INSERT INTO agent_memory (key, value, updated_at)
+             VALUES (?, ?, datetime('now'))
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`
+          ).bind(
+            `reconcile_correction_${Date.now()}_${ticker}`,
+            JSON.stringify({ ...b, result, applied_at: new Date().toISOString() }),
+          ).run().catch(() => {});
+
+          return json({ ok: true, ...result }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
       // ─── Sprint 22.5 — Auto-reconcile positions from IB live (bug #030 cure) ──
       // IB Gateway es la fuente AUTORITARIA cuando está online. Este endpoint
       // sincroniza positions.shares ← IB.qty automáticamente para cada ticker.

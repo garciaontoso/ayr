@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useId } from 'react';
 import { API_URL } from '../../constants/index.js';
 import DisciplinaSubtab from '../guardrails/DisciplinaSubtab.jsx';
+import ReconcileSubtab from '../guardrails/ReconcileSubtab.jsx';
 import PreTradeRitualModal from '../guardrails/PreTradeRitualModal.jsx';
 
 // ─── 🤡 Theta Gang Tab ──────────────────────────────────────────────────────
@@ -33,6 +34,7 @@ const SUB_TABS = [
   { id: 'risk',       lbl: '🏗️ Risk' },
   { id: 'pnl',        lbl: '📈 P&L' },
   { id: 'disciplina', lbl: '🛡 Disciplina' },
+  { id: 'reconcile',  lbl: '🔍 Reconcile' },
 ];
 
 // Sprint 6+7 — multi-leg strategies catalog (frontend mirror of buildLegs())
@@ -2666,6 +2668,7 @@ export default function ThetaGangTab() {
       case 'risk':       return <RiskSubtab />;
       case 'pnl':        return <PnLSubtab />;
       case 'disciplina': return <DisciplinaSubtab />;
+      case 'reconcile':  return <ReconcileSubtab />;
       default:           return null;
     }
   };
