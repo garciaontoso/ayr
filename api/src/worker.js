@@ -7567,6 +7567,172 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return map;
       };
 
+      // ─── Sprint 22.3 — Safety check: PRUEBA de que el guard previene el bug UNH ──
+      // Para cada ticker en la cartera, devuelve TODAS las fuentes y muestra qué
+      // contracts MAX se sugeriría con/sin guard. Tu garantía de "no vuelve a pasar".
+      //
+      // Fuentes consideradas:
+      //   - positions.shares (suma multi-account)
+      //   - cost_basis trades net (deduplicado)
+      //   - IB Bridge live (si IB Gateway connected)
+      //   - TT Bridge live (si configurado)
+      //
+      // Por ticker reporta:
+      //   - shares_*: valor por fuente
+      //   - max_disagreement: max - min entre fuentes
+      //   - consensus_shares: min de las fuentes disponibles (conservador)
+      //   - max_contracts_safe: floor(consensus / 100)
+      //   - max_contracts_unsafe (positions alone, comportamiento pre-fix)
+      //   - protected_diff: cuántos contracts NO se sugerirán gracias al guard
+      //   - severity: NONE | LOW | MEDIUM | HIGH | CRITICAL
+      if (path === "/api/audit/safety-check" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        try {
+          // 1. Positions aggregated per ticker
+          const { results: posRows } = await env.DB.prepare(
+            `SELECT ticker, shares FROM positions
+             WHERE shares > 0 AND ticker IS NOT NULL
+               AND LENGTH(ticker) <= 12 AND ticker NOT LIKE '% %'`
+          ).all().catch(() => ({ results: [] }));
+          const posMap = new Map();
+          for (const p of (posRows || [])) {
+            const t = String(p.ticker).toUpperCase();
+            posMap.set(t, (posMap.get(t) || 0) + (p.shares || 0));
+          }
+
+          // 2. Trades aggregated per ticker (deduplicated query)
+          const tradesMap = await computeTradesNetShares();
+
+          // 3. IB Bridge positions (if connected)
+          let ibMap = new Map();
+          let ibAvailable = false;
+          try {
+            const probe = await ibBridgeProbe(env);
+            if (probe.ib_connected) {
+              const ibData = await ibBridgeFetch(env, '/positions', { timeoutMs: 8000 }).catch(() => null);
+              for (const p of (ibData?.positions || [])) {
+                if (p.contract_type === 'STK' || !p.contract_type) {
+                  const t = String(p.symbol || p.ticker || '').toUpperCase();
+                  if (t) ibMap.set(t, (ibMap.get(t) || 0) + (p.position || p.shares || 0));
+                }
+              }
+              ibAvailable = ibMap.size > 0;
+            }
+          } catch { /* IB offline */ }
+
+          // 4. TT Bridge positions (if configured)
+          let ttMap = new Map();
+          let ttAvailable = false;
+          try {
+            const ttAccts = await ttBridgeFetch(env, '/marketdata/accounts').catch(() => null);
+            const accts = ttAccts?.accounts || [];
+            for (const acct of accts) {
+              const pr = await ttBridgeFetch(env, `/marketdata/positions/${encodeURIComponent(acct.account_number)}`).catch(() => null);
+              for (const p of (pr?.positions || [])) {
+                if ((p.instrument_type || '').toLowerCase() === 'equity' || (!p.is_option && !p.instrument_type?.includes('Option'))) {
+                  const t = String(p.symbol || '').toUpperCase();
+                  if (t && p.quantity != null) ttMap.set(t, (ttMap.get(t) || 0) + Number(p.quantity || 0));
+                }
+              }
+            }
+            ttAvailable = ttMap.size > 0;
+          } catch { /* TT auth fail */ }
+
+          // 5. Union of all tickers
+          const allTickers = new Set([...posMap.keys(), ...tradesMap.keys(), ...ibMap.keys(), ...ttMap.keys()]);
+
+          const rows = [];
+          let nProtected = 0;        // tickers where guard cap saved contracts
+          let nClean = 0;             // all sources agree
+          let nCriticalMismatch = 0;  // sources disagree heavily
+          let totalContractsSaved = 0;
+
+          for (const ticker of allTickers) {
+            const shares_pos = posMap.get(ticker) || 0;
+            const shares_trades = (tradesMap.get(ticker)?.net) || 0;
+            const shares_ib = ibAvailable ? (ibMap.get(ticker) || 0) : null;
+            const shares_tt = ttAvailable ? (ttMap.get(ticker) || 0) : null;
+
+            // Available sources (>0 or available)
+            const sources = [shares_pos, shares_trades];
+            if (shares_ib != null) sources.push(shares_ib);
+            if (shares_tt != null) sources.push(shares_tt);
+            const validSources = sources.filter(v => typeof v === 'number');
+            if (validSources.length === 0) continue;
+
+            const minS = Math.min(...validSources);
+            const maxS = Math.max(...validSources);
+            const disagreement = maxS - minS;
+            const disagreementPct = maxS > 0 ? (disagreement / maxS) * 100 : 0;
+
+            // Conservative consensus = MIN (existing guard logic)
+            const consensus = minS;
+            const max_contracts_safe = Math.floor(consensus / 100);
+            // Without guard, system would use positions.shares
+            const max_contracts_unsafe = Math.floor(shares_pos / 100);
+            const protected_diff = Math.max(0, max_contracts_unsafe - max_contracts_safe);
+
+            let severity = 'NONE';
+            if (disagreement >= 1 && disagreement < 5) severity = 'LOW';
+            else if (disagreement >= 5 && disagreement < 50) severity = 'MEDIUM';
+            else if (disagreement >= 50 && disagreement < 500) severity = 'HIGH';
+            else if (disagreement >= 500) severity = 'CRITICAL';
+
+            if (disagreement === 0) nClean++;
+            if (protected_diff > 0) {
+              nProtected++;
+              totalContractsSaved += protected_diff;
+            }
+            if (severity === 'CRITICAL') nCriticalMismatch++;
+
+            rows.push({
+              ticker,
+              shares: {
+                positions: shares_pos,
+                trades: shares_trades,
+                ib: shares_ib,
+                tt: shares_tt,
+              },
+              max_disagreement: disagreement,
+              max_disagreement_pct: Math.round(disagreementPct * 10) / 10,
+              consensus_shares: consensus,
+              max_contracts_safe,
+              max_contracts_unsafe,
+              protected_diff,
+              severity,
+              note: shares_pos > consensus ? `positions inflated by ${shares_pos - consensus} shares — guard protege ${protected_diff} contracts` : (shares_pos < consensus ? `positions menor, otras fuentes mayores (probable trade history sin ajustar)` : 'all sources agree'),
+            });
+          }
+
+          rows.sort((a, b) => b.protected_diff - a.protected_diff || b.max_disagreement - a.max_disagreement);
+
+          // Summary
+          const summary = {
+            n_tickers_audited: rows.length,
+            n_clean: nClean,
+            n_protected_by_guard: nProtected,
+            n_critical_mismatch: nCriticalMismatch,
+            total_contracts_saved_by_guard: totalContractsSaved,
+            sources_available: {
+              positions: posMap.size,
+              trades: tradesMap.size,
+              ib_bridge: ibAvailable ? ibMap.size : null,
+              tt_bridge: ttAvailable ? ttMap.size : null,
+            },
+            ib_connected: ibAvailable,
+            tt_connected: ttAvailable,
+          };
+
+          return json({
+            ok: true,
+            summary,
+            rows: rows.slice(0, 200),
+            note: 'Cada ticker: si positions > consensus, el guard de portfolio-ideas/scan ya capa contracts a min(fuentes). protected_diff = contracts que el guard previene sugerir incorrectamente.',
+            generated_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
       if (path === "/api/audit/positions-trades-reconcile" && request.method === "GET") {
         const unauth = ytRequireToken(request, env); if (unauth) return unauth;
         try {
@@ -11501,30 +11667,72 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             pnl_pct: p.total_cost > 0 ? ((p.market_value - p.total_cost) / p.total_cost) * 100 : 0,
           }));
 
-          // Sprint 22.2: CROSS-CHECK shares vs cost_basis trades (bug #030 UNH).
-          // Para cada ticker, calculamos net shares desde trades. Si discrepancia >=1:
-          //   - Conservador: cap shares a min(positions, trades) → suggested contracts será correcto
-          //   - Flag con `reconcile_warning` que el UI mostrará
-          //   - Si positions=0 o trades=0 → no se ajusta (mantenemos comportamiento original)
+          // Sprint 22.2 + 22.3: MULTI-SOURCE CROSS-CHECK shares (bug #030 UNH).
+          // Para cada ticker, considera: positions, cost_basis trades, IB Bridge live, TT Bridge live.
+          // Usa MIN de las fuentes disponibles → más conservador (nunca sugiere más de lo que tienes).
+          //   - Flag con `reconcile_warning` y `shares_sources` per idea para auditoría
+          //   - Si solo hay 1 fuente, usa esa (no hay cross-check posible)
           const tradesShares = await computeTradesNetShares();
+          // IB Bridge equities (optional 3rd source)
+          let ibStockMap = new Map();
+          try {
+            const probe = await ibBridgeProbe(env);
+            if (probe.ib_connected) {
+              const ibData = await ibBridgeFetch(env, '/positions', { timeoutMs: 6000 }).catch(() => null);
+              for (const p of (ibData?.positions || [])) {
+                if (p.contract_type === 'STK' || !p.contract_type) {
+                  const t = String(p.symbol || p.ticker || '').toUpperCase();
+                  if (t) ibStockMap.set(t, (ibStockMap.get(t) || 0) + (p.position || p.shares || 0));
+                }
+              }
+            }
+          } catch { /* IB offline */ }
+          // TT Bridge equities (optional 4th source)
+          let ttStockMap = new Map();
+          try {
+            const ttAccts = await ttBridgeFetch(env, '/marketdata/accounts').catch(() => null);
+            for (const acct of (ttAccts?.accounts || [])) {
+              const pr = await ttBridgeFetch(env, `/marketdata/positions/${encodeURIComponent(acct.account_number)}`).catch(() => null);
+              for (const p of (pr?.positions || [])) {
+                if ((p.instrument_type || '').toLowerCase() === 'equity' || (!p.is_option && !p.instrument_type?.includes('Option'))) {
+                  const t = String(p.symbol || '').toUpperCase();
+                  if (t && p.quantity != null) ttStockMap.set(t, (ttStockMap.get(t) || 0) + Number(p.quantity || 0));
+                }
+              }
+            }
+          } catch { /* TT auth fail */ }
+
           const reconcileAdjusts = [];
           positionsRaw = positionsRaw.map(p => {
             const tickerUp = String(p.ticker || '').toUpperCase();
-            const trade = tradesShares.get(tickerUp);
-            if (!trade || trade.net <= 0 || p.shares <= 0) return p;
-            const diff = p.shares - trade.net;
-            if (Math.abs(diff) >= 1) {
-              const safeShares = Math.min(p.shares, trade.net);
+            const tradeNet = tradesShares.get(tickerUp)?.net;
+            const ibShares = ibStockMap.get(tickerUp);
+            const ttShares = ttStockMap.get(tickerUp);
+
+            const sources = { positions: p.shares };
+            if (typeof tradeNet === 'number' && tradeNet > 0) sources.trades = tradeNet;
+            if (typeof ibShares === 'number' && ibShares > 0) sources.ib = ibShares;
+            if (typeof ttShares === 'number' && ttShares > 0) sources.tt = ttShares;
+
+            const vals = Object.values(sources).filter(v => typeof v === 'number' && v > 0);
+            if (vals.length <= 1) return { ...p, shares_sources: sources };
+
+            const minVal = Math.min(...vals);
+            const maxVal = Math.max(...vals);
+            const diff = p.shares - minVal;
+            if (Math.abs(maxVal - minVal) >= 1 && p.shares > minVal) {
               reconcileAdjusts.push({
                 ticker: tickerUp,
                 positions_shares: p.shares,
-                trades_net_shares: trade.net,
+                trades_net_shares: tradeNet ?? null,
+                ib_shares: ibShares ?? null,
+                tt_shares: ttShares ?? null,
                 diff,
-                capped_to: safeShares,
+                capped_to: minVal,
               });
-              return { ...p, shares: safeShares, reconcile_warning: { positions: p.shares, trades: trade.net, used: safeShares, diff } };
+              return { ...p, shares: minVal, shares_sources: sources, reconcile_warning: { sources, used: minVal, diff } };
             }
-            return p;
+            return { ...p, shares_sources: sources };
           });
 
           // Sprint 20: fetch IV per ticker (TT live → HV cache → null)
