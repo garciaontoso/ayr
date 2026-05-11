@@ -187,8 +187,29 @@ Permanentes en `/data/flex-csvs/` — multi4 yearly 2021-2026 cubren 4 cuentas.
 
 ## Deploy commands
 - Frontend: `cd frontend && npm run build && npx wrangler pages deploy dist --project-name=ayr --branch=production --commit-dirty=true`
-- Worker: `cd api && npx wrangler deploy`
+- Worker: **`cd api && npm run deploy`** (NOT `npx wrangler deploy` direct — bypasses guard)
 - ALWAYS deploy both if worker.js changed
+
+### 🛡 Pre-deploy guard (Sprint 23.1 — bug recovery)
+Después del incidente 2026-05-11 (agente deployó worker.js Sprint 5 desde
+worktree wrong, perdió 4k líneas momentáneamente), el deploy ahora valida:
+1. cwd contiene `wrangler.toml` (estamos en api/)
+2. Branch en whitelist (main o claude/*)
+3. worker.js ≥30000 líneas (smell de regression)
+4. worker.js contiene marker semantic `auto-reconcile-from-ib` (verifica
+   que es código Sprint 22.5+, no Sprint 5 stub)
+5. Warning si hay cambios sin commitear
+
+Si guard falla → `npm run deploy` ABORTA antes de wrangler.
+Override de emergencia: `npm run deploy:unsafe` o `ALLOW_UNSAFE_DEPLOY=1`.
+
+### ⚠️ Regla para AGENTES sub-spawn
+SIEMPRE pasar worktree path ABSOLUTO en el prompt + usar `npm run deploy`:
+```
+cd /Users/ricardogarciaontoso/IA/AyR/.claude/worktrees/<branch>/api && npm run deploy
+```
+NO usar `cd api && wrangler deploy` que es relative al cwd del agente y
+puede ejecutar en worktree wrong.
 
 ## URLs
 - **Production**: https://ayr.onto-so.com

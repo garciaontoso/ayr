@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "bash scripts/pre-deploy-guard.sh && wrangler deploy",
+    "deploy:unsafe": "ALLOW_UNSAFE_DEPLOY=1 wrangler deploy",
     "db:create": "wrangler d1 create aar-finanzas",
     "db:schema": "wrangler d1 execute aar-finanzas --file=./schema.sql --remote",
     "db:seed": "node seed.js",
