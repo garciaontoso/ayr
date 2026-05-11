@@ -12204,24 +12204,43 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             }
           } catch {}
 
-          // Sprint 19 audit fix C3: IB bridge tiene endpoint propio en worker (NO ttBridgeFetch).
-          // Antes: ttBridgeFetch routeaba al TT bridge → 404. Ahora self-fetch al worker IB endpoint.
+          // Sprint 22.7: IB bridge direct fetch + correct field names.
+          // Bridge returns array of {symbol, secType, strike, right, expiry, qty, account}.
+          // Antes: campos wrong (contract_type vs secType) → IB options invisible.
           try {
-            const apiBase = "https://aar-api.garciaontoso.workers.dev";
-            const ibRespRaw = await fetch(`${apiBase}/api/ib-bridge/positions`, {
-              headers: { 'X-AYR-Auth': env.AYR_WORKER_TOKEN },
-            }).catch(() => null);
-            if (ibRespRaw?.ok) {
-              const ibResp = await ibRespRaw.json().catch(() => null);
-              if (ibResp?.positions) {
-                for (const p of ibResp.positions) {
-                  if (p.contract_type === 'OPT' || p.is_option) {
-                    allOpts.push({ ...p, source: 'IB' });
-                  }
+            const probe = await ibBridgeProbe(env);
+            if (probe.ib_connected) {
+              const ibData = await ibBridgeFetch(env, '/positions', { timeoutMs: 45000 }).catch(() => null);
+              const ibArr = Array.isArray(ibData) ? ibData : (ibData?.positions || []);
+              for (const p of ibArr) {
+                if (p.secType === 'OPT' || p.strike) {
+                  // Normalize IB fields to common shape used by engine
+                  // IB returns expiry as YYYYMMDD (e.g. "20260529") — convert to YYYY-MM-DD
+                  const expiryRaw = String(p.expiry || '');
+                  const expiryFmt = expiryRaw.length === 8
+                    ? `${expiryRaw.slice(0,4)}-${expiryRaw.slice(4,6)}-${expiryRaw.slice(6,8)}`
+                    : expiryRaw;
+                  allOpts.push({
+                    source: 'IB',
+                    account: p.account,
+                    symbol: p.localSymbol || `${p.symbol} ${expiryFmt} ${p.strike}${p.right}`,
+                    underlying: p.symbol,
+                    ticker: p.symbol,
+                    opt_type: p.right,                       // 'C' or 'P'
+                    strike: Number(p.strike),
+                    expiry: expiryFmt,
+                    qty: Number(p.qty),
+                    avg_cost: Number(p.avg_cost) || null,
+                    market_value: null,
+                    multiplier: p.multiplier || 100,
+                    conId: p.conId,
+                  });
                 }
               }
             }
-          } catch {}
+          } catch (e) {
+            console.error('[open-options] IB fetch error:', e.message);
+          }
 
           // Source 3: D1 positions table (fallback for legacy)
           if (allOpts.length === 0) {
