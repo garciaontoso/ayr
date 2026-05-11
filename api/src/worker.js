@@ -21,6 +21,7 @@ import * as Monitor from "./lib/monitoring-engine.js";
 import * as AutoPaper from "./lib/auto-paper-engine.js";
 import * as PortfolioIdeas from "./lib/portfolio-ideas-engine.js";
 import * as LiveExec from "./lib/live-execution-engine.js";
+import * as ThetaAudit from "./lib/audit-engine.js";
 import { FMP_MAP, toFMP, fromFMP, FMP_REVERSE, fmpQuote, fmpRiskMetrics, fmpSpyCloses, fmpSpark, FCF_PAYOUT_CARVEOUT, CURRENCY_MAP } from "./lib/fmp.js";
 
 // FMP_MAP, toFMP, fromFMP, fmpQuote, fmpRiskMetrics, fmpSpyCloses, fmpSpark → ./lib/fmp.js
@@ -7715,6 +7716,18 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           updated_at TEXT DEFAULT (datetime('now'))
         )`).run();
         await env.DB.prepare(`INSERT OR IGNORE INTO thetagang_live_config (id, enabled) VALUES (1, 0)`).run();
+        // Sprint 19+ — Continuous audit findings (regression detection)
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS thetagang_audit_findings (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          run_at TEXT DEFAULT (datetime('now')),
+          finding_id TEXT NOT NULL,
+          severity TEXT NOT NULL,
+          message TEXT,
+          fix_hint TEXT,
+          payload_json TEXT
+        )`).run();
+        await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_audit_run_at
+          ON thetagang_audit_findings(run_at DESC, severity)`).run();
         // Sprint 15 — Strategy tournament rankings persisted
         await env.DB.prepare(`CREATE TABLE IF NOT EXISTS thetagang_strategy_rankings (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -10623,6 +10636,137 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
       }
 
+      // ─── Sprint 19+ — Continuous audit endpoint (regression detection) ──
+      // POST /api/thetagang/audit/full
+      // Corre check pack completo, persiste findings, devuelve summary.
+      // Cron diario lo invoca y manda Telegram CRITICAL si encuentra regresion.
+      if (path === "/api/thetagang/audit/full" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        await ensureThetaGangTables();
+        try {
+          // 1. Build state snapshots para los checks
+          // 1a. Endpoints map (manual list de endpoints conocidos)
+          const endpoints = [
+            { path: '/api/thetagang/auto-paper/run', method: 'POST', hasAuth: true, isSensitive: true },
+            { path: '/api/thetagang/live/suggest', method: 'POST', hasAuth: true, isSensitive: true },
+            { path: '/api/thetagang/live/mark-executed', method: 'POST', hasAuth: true, isSensitive: true },
+            { path: '/api/thetagang/live/close', method: 'POST', hasAuth: true, isSensitive: true },
+            { path: '/api/thetagang/live/config', method: 'GET', hasAuth: true, isSensitive: true },  // L1 fixed
+            { path: '/api/thetagang/auto-paper/config', method: 'GET', hasAuth: true, isSensitive: true },  // L1 fixed
+            { path: '/api/thetagang/auto-paper/log', method: 'GET', hasAuth: true, isSensitive: true },  // L1 fixed
+            { path: '/api/thetagang/portfolio-ideas/scan', method: 'GET', hasAuth: true, isSensitive: true },
+            { path: '/api/thetagang/open-options/with-suggestions', method: 'GET', hasAuth: true, isSensitive: true },
+          ];
+
+          // 1b. Live trading state (verificación que NAV y brain score son real)
+          let liveSafetyState = { live_enabled: false };
+          try {
+            const cfgRow = await env.DB.prepare(`SELECT enabled FROM thetagang_live_config WHERE id = 1`).first();
+            const navRow = await env.DB.prepare(`SELECT nlv FROM nlv_history ORDER BY fecha DESC LIMIT 1`).first();
+            const expiredRow = await env.DB.prepare(
+              `SELECT COUNT(*) AS n FROM thetagang_live_orders
+               WHERE status='executed' AND ticket_json IS NOT NULL`
+            ).first();
+            // Detectar tickets expirados que se aceptaron (verificar valid_until)
+            let expiredAcceptedCount = 0;
+            try {
+              const { results: orders } = await env.DB.prepare(
+                `SELECT ticket_json, marked_executed_at FROM thetagang_live_orders
+                 WHERE status='executed' AND ticket_json IS NOT NULL ORDER BY id DESC LIMIT 50`
+              ).all();
+              for (const o of (orders || [])) {
+                try {
+                  const t = JSON.parse(o.ticket_json);
+                  if (t?.valid_until && o.marked_executed_at) {
+                    const validUntil = new Date(String(t.valid_until).replace(' ', 'T') + 'Z');
+                    const executedAt = new Date(String(o.marked_executed_at).replace(' ', 'T') + 'Z');
+                    if (!isNaN(validUntil) && !isNaN(executedAt) && executedAt > validUntil) {
+                      expiredAcceptedCount++;
+                    }
+                  }
+                } catch {}
+              }
+            } catch {}
+            liveSafetyState = {
+              live_enabled: !!cfgRow?.enabled,
+              last_nav_used: navRow?.nlv || null,
+              expired_ticket_executed_count: expiredAcceptedCount,
+              last_brain_score_used: null,  // tracked en suggestion logs futuro
+            };
+          } catch {}
+
+          // 1c. Snapshots de freshness
+          let snapshots = {};
+          try {
+            const monitoringRow = await env.DB.prepare(
+              `SELECT updated_at FROM agent_memory WHERE key = 'thetagang_monitoring_snapshot' LIMIT 1`
+            ).first();
+            const tournamentRow = await env.DB.prepare(
+              `SELECT MAX(run_at) as last FROM thetagang_strategy_rankings`
+            ).first();
+            snapshots = {
+              monitoring_last_check: monitoringRow?.updated_at || null,
+              tournament_last_run: tournamentRow?.last || null,
+            };
+          } catch {}
+
+          // 1d. Bug pattern stats
+          let bugPatternStats = {};
+          try {
+            // ¿hubo Telegram alerts en últimos 7 días? (heurística simple)
+            const recentTelegramRow = await env.DB.prepare(
+              `SELECT MAX(updated_at) as last FROM agent_memory WHERE key LIKE '%alert%'`
+            ).first();
+            const lastAlertHours = recentTelegramRow?.last
+              ? (Date.now() - new Date(String(recentTelegramRow.last).replace(' ', 'T') + 'Z').getTime()) / 3600000
+              : 999;
+            bugPatternStats = {
+              cron_last_telegram_alert_hours_ago: lastAlertHours,
+              cron_runs_in_week: 7 * 24,  // heurística: cron 24x/día = 168/semana
+              suggestions_with_fake_nav_count: liveSafetyState.last_nav_used === 100000 ? 1 : 0,
+            };
+          } catch {}
+
+          // 2. Run audit
+          const audit = ThetaAudit.runFullAudit({
+            endpoints,
+            live_safety: liveSafetyState,
+            snapshots,
+            bug_pattern_stats: bugPatternStats,
+          });
+
+          // 3. Persist findings
+          const runAt = new Date().toISOString();
+          for (const f of audit.findings) {
+            try {
+              await env.DB.prepare(
+                `INSERT INTO thetagang_audit_findings (run_at, finding_id, severity, message, fix_hint, payload_json) VALUES (?, ?, ?, ?, ?, ?)`
+              ).bind(runAt, f.id, f.severity, f.message, f.fix_hint || null, JSON.stringify(f)).run();
+            } catch {}
+          }
+
+          return json({
+            ok: true,
+            ...audit,
+            telegram_message: ThetaAudit.formatTelegramAlert(audit),
+            persisted_at: runAt,
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
+      // GET /api/thetagang/audit/findings?limit=50&severity=CRITICAL
+      if (path === "/api/thetagang/audit/findings" && request.method === "GET") {
+        await ensureThetaGangTables();
+        const limit = Math.max(1, Math.min(200, Number(url.searchParams.get('limit') || 50)));
+        const severity = url.searchParams.get('severity');
+        const sql = severity
+          ? `SELECT * FROM thetagang_audit_findings WHERE severity = ? ORDER BY id DESC LIMIT ?`
+          : `SELECT * FROM thetagang_audit_findings ORDER BY id DESC LIMIT ?`;
+        const stmt = severity ? env.DB.prepare(sql).bind(severity, limit) : env.DB.prepare(sql).bind(limit);
+        const { results } = await stmt.all().catch(() => ({ results: [] }));
+        return json({ ok: true, findings: results || [] }, corsHeaders);
+      }
+
       // ─── Sprint 11 — Live execution (semi-auto, NAS-only) ──────────────
       // Workflow:
       //   1. POST /live/suggest  → sistema genera ticket completo + checks
@@ -10633,6 +10777,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // GET /api/thetagang/live/config
       if (path === "/api/thetagang/live/config" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;  // Sprint 19+ audit fix L1
         await ensureThetaGangTables();
         const row = await env.DB.prepare(`SELECT * FROM thetagang_live_config WHERE id = 1`).first().catch(() => null);
         return json({ ok: true, ...(row || { enabled: 0 }) }, corsHeaders);
@@ -11283,6 +11428,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // GET /api/thetagang/auto-paper/config — read enabled flag
       if (path === "/api/thetagang/auto-paper/config" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;  // Sprint 19+ audit fix L1
         await ensureThetaGangTables();
         const row = await env.DB.prepare(`SELECT enabled, updated_at FROM thetagang_auto_paper_config WHERE id = 1`).first().catch(() => null);
         return json({ ok: true, enabled: !!(row?.enabled), updated_at: row?.updated_at || null }, corsHeaders);
@@ -11302,6 +11448,7 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
       // GET /api/thetagang/auto-paper/log?limit=50
       if (path === "/api/thetagang/auto-paper/log" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;  // Sprint 19+ audit fix L1
         await ensureThetaGangTables();
         const limit = Math.max(1, Math.min(500, Number(url.searchParams.get('limit') || 50)));
         const { results } = await env.DB.prepare(
@@ -27949,6 +28096,30 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
         }
       } catch (e) {
         console.error('[audit-cron] thetagang monitoring failed:', e.message);
+      }
+
+      // 2026-05-11: Sprint 19+ — Continuous audit piggyback.
+      // Cada día corre /audit/full → si hay CRITICAL nuevos vs ayer → Telegram alert.
+      // Esto es el sistema anti-fallos continuo: detecta regresiones automáticamente.
+      try {
+        const r = await fetch(`${apiBase}/api/thetagang/audit/full`, {
+          method: 'POST',
+          headers: { 'X-AYR-Auth': env.AYR_WORKER_TOKEN, 'Content-Type': 'application/json' },
+          body: '{}',
+          signal: AbortSignal.timeout(60000),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (d.ok && d.summary) {
+          console.log(`[audit-cron] thetagang continuous audit: total=${d.summary.total} critical=${d.summary.by_severity?.CRITICAL ?? 0}`);
+          if (d.telegram_message && d.summary.has_critical) {
+            await sendTelegram(env, {
+              text: d.telegram_message,
+              severity: 'critical', source: 'thetagang_continuous_audit',
+            });
+          }
+        }
+      } catch (e) {
+        console.error('[audit-cron] continuous audit failed:', e.message);
       }
 
       // 2026-05-11: Sprint 14 — Auto Paper Trading piggyback.

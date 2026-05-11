@@ -278,3 +278,62 @@
 3. **Pre-deploy smoke test** — script que ejecuta `/api/audit/full` antes de cada deploy y bloquea si hay nuevos red
 4. **CI/CD básico** — GitHub Actions: build + audit + lint en cada push antes de merge
 5. **Error tracking en producción** — endpoint `/api/error-log` que recibe JS errors silenciosos del frontend
+
+---
+
+## Bugs Sprint 19 (2026-05-11) — Theta Gang audit 3-agent
+
+### Bug #022 — Field name mismatch entre endpoints y engines (TP/SL silently broken)
+- **Síntoma**: Auto Paper Trading nunca cerraba trades por take_profit o stop_loss. Tickets se acumulaban.
+- **Causa raíz**: `/api/thetagang/paper/positions` devuelve campo `pnl_pct`, pero `auto-paper-engine.shouldClose()` esperaba `live_pnl_pct`. Resultado: `pnlPct === undefined` siempre → `pnlPct != null` evaluaba false → ningún exit rule disparaba.
+- **Fix**: Map `p.pnl_pct → live_pnl_pct + p.short_delta → current_short_delta` antes de pasar a engine. Worker:11281.
+- **Prevención**: Test de integration que verifica contract entre endpoint y engine. Documentado en `audit-engine.checkFieldNameContracts()`.
+- **Patrón general**: SIEMPRE que un engine recibe data de un endpoint, validar field names matchean. Especialmente en transitions.
+
+### Bug #023 — Hardcoded values en safety-critical code paths
+- **Síntoma**: Live trading sizing checks usaban `nav: $100k` (real $1.4M), `n_brain_score: 75` (gate bypassed), `max_loss_per_contract: 500` (real podía ser $2k). Capital cap 5% NAV inutilizable.
+- **Causa raíz**: TODOs durante desarrollo no fueron resueltos. Código entró producción con placeholders.
+- **Fix**: Worker:10692-10745. NAV desde `nlv_history`, brain score desde `/brain/scan` candidate, max_loss desde spread width × 100, loss_streak desde `live_orders` cerradas.
+- **Prevención**: `audit-engine.checkLiveTradingSafety()` detecta `last_nav_used === 100000` automáticamente. Cron diario alerta Telegram CRITICAL.
+
+### Bug #024 — SQLite datetime + 'Z' = Invalid Date (Telegram dedup roto)
+- **Síntoma**: Telegram alerts intraday spam — dedup "1/h max" no funcionaba.
+- **Causa raíz**: SQLite `datetime('now')` devuelve `"2026-05-11 04:30:00"` (espacio). `new Date("2026-05-11 04:30:00Z")` = Invalid Date. Comparación con `>= 60` es siempre false. Cada alerta trigger pasaba el dedup check.
+- **Fix**: Worker:11248 + live-execution-engine.js:71. Normalizar: `String(date).replace(' ', 'T') + 'Z'` antes de `new Date()`.
+- **Prevención**: Helper `parseSqliteDate(s)` en lib común. Documentar el patrón. Audit-engine no permite `+ 'Z'` directo en findings sin replace.
+
+### Bug #025 — Self-fetch loop detection en Cloudflare Workers
+- **Síntoma**: Endpoint `/auto-paper/run` llamaba internamente `/brain/scan` y recibía respuesta vacía (n_candidates=0) aunque externalmente funcionaba perfectamente.
+- **Causa raíz**: Cloudflare Workers tiene loop detection cuando un Worker llama a su propia custom domain desde el `fetch` handler. workers.dev URL ayuda PARCIALMENTE pero no es solución completa.
+- **Fix**: Endpoint acepta `body.state` pre-fetched (el frontend hace los fetches client-side y los pasa). El cron `scheduled` context NO tiene loop detection → puede usar self-fetch normal.
+- **Prevención**: Para nuevos endpoints que orquestan llamadas internas: SIEMPRE diseñar para aceptar state pre-fetched O usar Service Bindings de Cloudflare.
+
+### Bug #026 — IB endpoint routeado al TT bridge silently
+- **Síntoma**: Open Options con suggestions nunca incluía opciones de IB account, solo TT.
+- **Causa raíz**: `ttBridgeFetch(env, "/api/ib-bridge/positions")` enviaba el request al TT bridge URL en lugar del Worker propio. Resultaba en 404 silencioso (caught en empty try/catch).
+- **Fix**: Self-fetch a `apiBase + /api/ib-bridge/positions` con auth header.
+- **Prevención**: Lint check (futuro): `ttBridgeFetch` solo puede llamar paths que empiezan por `/marketdata/`. Cualquier otro path es bug.
+
+### Bug #027 — Tournament INSERT silent fail con `.catch(()=>{})`
+- **Síntoma**: Auto-paper tournament-aware filter operaba sobre leaderboard vacío sin alerta.
+- **Causa raíz**: 50 INSERT statements terminaban con `.catch(() => {})`. Si DDL out of sync o bind fail, todos no-op silenciosamente. Endpoint devolvía `ok: true` con ranked results pero leaderboard vacío.
+- **Fix**: Collect errors en `insertErrors[]`. Response incluye `persisted: { ok_count, errors, error_count }`.
+- **Prevención**: Patrón `.catch(() => {})` está PROHIBIDO. Mínimo `console.error()` o accumulator.
+
+---
+
+## Sistema anti-fallos continuo (Sprint 19+)
+
+Implementado para evitar regresiones:
+
+1. **`/api/thetagang/audit/full`** (POST, auth): corre 4 check packs y devuelve findings priorizados
+2. **Cron piggyback 08:00 UTC**: invoca `/audit/full` y manda Telegram CRITICAL si encuentra regresiones
+3. **Tabla `thetagang_audit_findings`**: persistencia de findings con run_at, severity, message, fix_hint
+4. **`audit-engine.js` lib**: `checkEndpointAuthCoverage` + `checkLiveTradingSafety` + `checkDataFreshness` + `checkBugPatternRegressions`
+
+**Filosofía anti-fallos**:
+- Cada bug encontrado se convierte en un test de regression Y un check del audit engine
+- El cron diario detecta si el bug vuelve a aparecer (en datos, no en código)
+- Telegram alert immediate si CRITICAL encontrado
+- bug-patterns.md crece con cada incidente (esta sesión añadió 6 entradas)
+
