@@ -1166,68 +1166,260 @@ function PaperSubtab() {
 }
 
 // ─── ⚡ Live — implementación real (Sprint cleanup) ─────────────────────────
+// ─── ⚡ Live — Sprint 11 (semi-auto, NAS-only) ──────────────────────────────
+// Workflow:
+//   1. Form sugerir → ticket completo + checks pre-trade
+//   2. Ejecutas manual en TT app (1 click copy strikes)
+//   3. Click "Marcar como ejecutado" → registra fill real
+//   4. Tabla orders muestra historial + estado
+//
+// Cuando estés cómodo: extender bridge NAS para auto-submit (~50L Python).
 function LiveSubtab() {
+  const [config, setConfig] = useState(null);
+  const [orders, setOrders] = useState([]);
+  const [strategies, setStrategies] = useState([]);
   const [caps, setCaps] = useState(null);
-  const [monitoring, setMonitoring] = useState(null);
+  const [form, setForm] = useState({ strategy_id: '', symbol: 'SPY', contracts: 1, dte: 35 });
+  const [suggestion, setSuggestion] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [executeForm, setExecuteForm] = useState({ fill_credit: '', fill_account: '', notes: '' });
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [c, m] = await Promise.all([
+      const [cfg, o, st, c] = await Promise.all([
+        fetch(`${API_URL}/api/thetagang/live/config`).then(r => r.json()).catch(() => null),
+        fetch(`${API_URL}/api/thetagang/live/orders?limit=20`).then(r => r.json()).catch(() => null),
+        fetch(`${API_URL}/api/thetagang/strategies`).then(r => r.json()).catch(() => null),
         fetch(`${API_URL}/api/thetagang/risk/caps-status`).then(r => r.json()).catch(() => null),
-        fetch(`${API_URL}/api/thetagang/monitoring/last`).then(r => r.json()).catch(() => null),
       ]);
-      setCaps(c); setMonitoring(m);
+      setConfig(cfg);
+      setOrders(o?.orders || []);
+      setStrategies(st?.strategies || []);
+      setCaps(c);
     } catch {}
     setLoading(false);
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
 
-  const card = CARD;  // Sprint 15 audit fix L1: hoisted module-level
+  const toggleEnabled = async () => {
+    setBusy(true);
+    try {
+      const r = await fetch(`${API_URL}/api/thetagang/live/config`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !config?.enabled, first_month_until: config?.first_month_until || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10) }),
+      });
+      if (r.ok) { await refresh(); }
+    } catch {} setBusy(false);
+  };
+
+  const generateSuggestion = async () => {
+    if (!form.strategy_id || !form.symbol) return;
+    setBusy(true); setSuggestion(null);
+    try {
+      const r = await fetch(`${API_URL}/api/thetagang/live/suggest`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      const j = await r.json();
+      setSuggestion(j);
+    } catch (e) { setSuggestion({ error: e.message }); }
+    setBusy(false);
+  };
+
+  const markExecuted = async () => {
+    if (!suggestion?.ticket) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${API_URL}/api/thetagang/live/mark-executed`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticket: suggestion.ticket,
+          strategy_id: suggestion.ticket.strategy_id,
+          symbol: suggestion.ticket.symbol,
+          contracts: suggestion.ticket.contracts,
+          fill_credit: parseFloat(executeForm.fill_credit) || null,
+          fill_account: executeForm.fill_account || null,
+          notes: executeForm.notes || null,
+        }),
+      });
+      if (r.ok) {
+        setSuggestion(null);
+        setExecuteForm({ fill_credit: '', fill_account: '', notes: '' });
+        await refresh();
+      }
+    } catch {} setBusy(false);
+  };
+
+  const closeOrder = async (id) => {
+    const pnl = window.prompt('P&L final ($, positivo o negativo):');
+    if (pnl == null) return;
+    const reason = window.prompt('Razón cierre (TP / SL / manual / etc):') || 'manual';
+    setBusy(true);
+    try {
+      await fetch(`${API_URL}/api/thetagang/live/close`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, close_pnl: parseFloat(pnl), close_reason: reason }),
+      });
+      await refresh();
+    } catch {} setBusy(false);
+  };
+
   if (loading) return <div style={{ padding: 20, color: 'var(--text-tertiary)' }}>Cargando estado live…</div>;
+
+  const enabled = !!config?.enabled;
+  const firstMonthActive = config?.first_month_until && new Date(config.first_month_until) > new Date();
+  const openOrders = orders.filter(o => o.status === 'executed' && !o.closed_at);
+  const closedOrders = orders.filter(o => o.closed_at);
 
   return (
     <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ ...card, background: caps?.allowed ? 'rgba(48,209,88,.05)' : 'rgba(239,68,68,.05)', borderColor: caps?.allowed ? 'rgba(48,209,88,.4)' : 'rgba(239,68,68,.4)' }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--gold, #fbbf24)', marginBottom: 6 }}>SPRINT 11 — AUTO-EXECUTION (no live aún)</div>
-        <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
-          Auto-execution real money está <b>pendiente Sprint 11</b>: requiere VPS US East (~$4.50/mes Hetzner), migración TT bridge desde NAS España, pre-trade risk check + atomic submit. <br />
-          <b>Mientras tanto</b>: usa <b>📝 Paper</b> para validar (4-8 sem), <b>🏗️ Risk</b> verifica caps en tiempo real, <b>🦎 Multi-leg</b> + <b>🎡 Wheel</b> + <b>🛡️ Tail Hedge</b> para diseñar trades, ejecuta manualmente en Tastytrade.
-        </div>
-      </div>
-
-      <div style={card}>
-        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>🚦 Pre-trade gate (Sprint 11 lo usará automáticamente)</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 10, background: caps?.allowed ? 'rgba(48,209,88,.08)' : 'rgba(239,68,68,.08)', borderRadius: 4 }}>
-          <div style={{ fontSize: 22 }}>{caps?.allowed ? '🟢' : '🔴'}</div>
+      {/* Header status + toggle */}
+      <div style={{ ...CARD, borderColor: enabled ? 'rgba(48,209,88,.4)' : 'var(--border)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: caps?.allowed ? '#30d158' : '#ef4444' }}>
-              {caps?.allowed ? 'TRADES PERMITIDOS' : 'TRADES BLOQUEADOS'}
-            </div>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>⚡ Live Trading {enabled ? '🟢 ENABLED' : '⚫ DISABLED'}</div>
             <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-              VIX {fmtN(caps?.state_snapshot?.vix, 1)} · Concurrent {caps?.state_snapshot?.n_concurrent_positions} · DD {fmtPct(caps?.state_snapshot?.drawdown_pct)} · Streak {caps?.state_snapshot?.recent_loss_streak || 0}
+              {firstMonthActive ? `🛡️ FIRST MONTH MODE — max 1 contract/trade hasta ${config.first_month_until}` : 'Production mode'}
             </div>
           </div>
+          <button onClick={toggleEnabled} disabled={busy} style={{ padding: '6px 14px', fontSize: 11, background: enabled ? '#ef4444' : 'var(--gold, #fbbf24)', color: enabled ? '#fff' : '#000', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 700 }}>
+            {enabled ? 'Desactivar' : 'Activar Live'}
+          </button>
         </div>
-        {(caps?.blocked_by || []).length > 0 && (
-          <div style={{ marginTop: 8, padding: 8, background: 'rgba(239,68,68,.06)', borderRadius: 4, fontSize: 11 }}>
-            {caps.blocked_by.map((b, i) => <div key={i} style={{ color: '#ef4444' }}>⛔ {b}</div>)}
-          </div>
-        )}
       </div>
 
-      <div style={card}>
-        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>🔔 Último monitoring check</div>
-        {!monitoring?.snapshot ? (
-          <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Sin snapshot todavía. El cron diario 08:00 UTC lo persistirá.</div>
-        ) : (
-          <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-            Último: <b>{monitoring.last_check}</b><br />
-            Caps {monitoring.snapshot.caps_status?.allowed ? '🟢' : '🔴'} · {monitoring.snapshot.open_hedges?.length || 0} hedges abiertos
+      {/* Pre-trade gate */}
+      <div style={CARD}>
+        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>🚦 Pre-trade gate</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ fontSize: 22 }}>{caps?.allowed ? '🟢' : '🔴'}</div>
+          <div style={{ fontSize: 11 }}>
+            VIX {fmtN(caps?.state_snapshot?.vix, 1)} · Concurrent {caps?.state_snapshot?.n_concurrent_positions} · DD {fmtPct(caps?.state_snapshot?.drawdown_pct)} · Streak {caps?.state_snapshot?.recent_loss_streak || 0}
+          </div>
+        </div>
+      </div>
+
+      {/* Suggest form */}
+      <div style={CARD}>
+        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>💡 Generar trade ticket</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, marginBottom: 10 }}>
+          <select value={form.strategy_id} onChange={e => setForm({ ...form, strategy_id: e.target.value })} style={{ padding: 6, fontSize: 12, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }}>
+            <option value="">Strategy...</option>
+            {strategies.slice(0, 30).map(s => <option key={s.id} value={s.id}>{s.id}</option>)}
+          </select>
+          <select value={form.symbol} onChange={e => setForm({ ...form, symbol: e.target.value })} style={{ padding: 6, fontSize: 12, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }}>
+            <option>SPY</option><option>QQQ</option><option>IWM</option>
+          </select>
+          <input type="number" value={form.contracts} onChange={e => setForm({ ...form, contracts: Number(e.target.value) })} placeholder="Contracts" min={1} style={{ padding: 6, fontSize: 12, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} />
+          <input type="number" value={form.dte} onChange={e => setForm({ ...form, dte: Number(e.target.value) })} placeholder="DTE" min={1} style={{ padding: 6, fontSize: 12, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} />
+          <button onClick={generateSuggestion} disabled={busy || !form.strategy_id} style={{ padding: 6, fontSize: 12, background: 'var(--gold, #fbbf24)', color: '#000', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 700 }}>{busy ? '...' : '▶ Generar'}</button>
+        </div>
+
+        {suggestion?.ticket && (
+          <div style={{ padding: 12, background: 'var(--bg-primary)', borderRadius: 4, border: '1px solid ' + (suggestion.checks?.allowed ? '#30d158' : '#ef4444') }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>{suggestion.ticket.strategy_display} · {suggestion.ticket.symbol}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>
+              Pre-trade: {suggestion.checks?.allowed ? '🟢 PERMITIDO' : '🔴 BLOQUEADO'}
+              {suggestion.checks?.in_first_month && <span style={{ marginLeft: 8, color: 'var(--gold, #fbbf24)' }}>· FIRST MONTH</span>}
+            </div>
+            {(suggestion.checks?.blocked_by || []).length > 0 && (
+              <div style={{ padding: 6, background: 'rgba(239,68,68,.08)', borderRadius: 4, fontSize: 11, marginBottom: 8 }}>
+                {suggestion.checks.blocked_by.map((b, i) => <div key={i} style={{ color: '#ef4444' }}>⛔ {b}</div>)}
+              </div>
+            )}
+            {(suggestion.checks?.warnings || []).length > 0 && (
+              <div style={{ padding: 6, background: 'rgba(251,191,36,.08)', borderRadius: 4, fontSize: 11, marginBottom: 8 }}>
+                {suggestion.checks.warnings.map((w, i) => <div key={i} style={{ color: '#fbbf24' }}>⚠ {w}</div>)}
+              </div>
+            )}
+            <div style={{ fontSize: 11, marginBottom: 8 }}>
+              <b>Legs:</b>
+              {suggestion.ticket.legs?.map((l, i) => (
+                <div key={i} style={{ marginLeft: 12, color: l.action === 'sell' ? '#ef4444' : '#30d158' }}>
+                  {l.action.toUpperCase()} {l.qty}× {l.type.toUpperCase()} @ ${l.strike}
+                </div>
+              ))}
+            </div>
+            <details style={{ marginBottom: 8 }}>
+              <summary style={{ fontSize: 11, cursor: 'pointer', color: 'var(--text-tertiary)' }}>📋 Instrucciones manuales (click)</summary>
+              <ol style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.6, marginTop: 6 }}>
+                {suggestion.ticket.instructions?.map((step, i) => <li key={i}>{step.replace(/^\d+\.\s*/, '')}</li>)}
+              </ol>
+            </details>
+            <div style={{ marginTop: 10, padding: 10, background: 'var(--bg-secondary)', borderRadius: 4 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6 }}>Después de ejecutar manualmente en TT:</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 6, marginBottom: 6 }}>
+                <input type="number" value={executeForm.fill_credit} onChange={e => setExecuteForm({ ...executeForm, fill_credit: e.target.value })} placeholder="Fill credit $" step="0.01" style={{ padding: 6, fontSize: 11, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} />
+                <input type="text" value={executeForm.fill_account} onChange={e => setExecuteForm({ ...executeForm, fill_account: e.target.value })} placeholder="Account" style={{ padding: 6, fontSize: 11, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} />
+                <input type="text" value={executeForm.notes} onChange={e => setExecuteForm({ ...executeForm, notes: e.target.value })} placeholder="Notes" style={{ padding: 6, fontSize: 11, background: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: 4 }} />
+                <button onClick={markExecuted} disabled={busy || !suggestion.checks?.allowed} style={{ padding: 6, fontSize: 11, background: '#30d158', color: '#000', border: 'none', borderRadius: 4, cursor: 'pointer', fontWeight: 700 }}>✓ Marcar ejecutado</button>
+              </div>
+            </div>
           </div>
         )}
-        <button onClick={refresh} style={{ marginTop: 10, padding: '4px 10px', fontSize: 11, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', borderRadius: 4, cursor: 'pointer' }}>↻ Refresh</button>
+        {suggestion?.error && <div style={{ padding: 10, background: 'rgba(239,68,68,.1)', borderRadius: 4, color: '#ef4444', fontSize: 11 }}>⚠ {suggestion.error}</div>}
+      </div>
+
+      {/* Open live orders */}
+      {openOrders.length > 0 && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>📂 Live orders abiertos ({openOrders.length})</div>
+          <div style={{ ...CARD, padding: 0, overflowX: 'auto' }}>
+            <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+              <thead><tr style={{ background: 'var(--bg-primary)', textAlign: 'left' }}>
+                <th style={{ padding: 6 }}>ID</th><th>Strategy</th><th>Symbol</th><th>Qty</th><th>Credit</th><th>Account</th><th>Opened</th><th>Action</th>
+              </tr></thead>
+              <tbody>
+                {openOrders.map(o => (
+                  <tr key={o.id} style={{ borderTop: '1px solid var(--border)' }}>
+                    <td style={{ padding: 6 }}>#{o.id}</td>
+                    <td>{o.strategy_id}</td>
+                    <td>{o.symbol}</td>
+                    <td>{o.contracts}</td>
+                    <td>{fmtMoney(o.fill_credit)}</td>
+                    <td style={{ fontSize: 10 }}>{o.fill_account || '—'}</td>
+                    <td style={{ fontSize: 10 }}>{o.marked_executed_at?.slice(0, 16) || '—'}</td>
+                    <td><button onClick={() => closeOrder(o.id)} disabled={busy} style={{ padding: '2px 8px', fontSize: 10, background: 'transparent', color: '#fbbf24', border: '1px solid #fbbf24', borderRadius: 3, cursor: 'pointer' }}>Cerrar</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Closed orders historial */}
+      {closedOrders.length > 0 && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>📊 Histórico ({closedOrders.length})</div>
+          <div style={{ ...CARD, padding: 0, overflowX: 'auto', maxHeight: 240, overflowY: 'auto' }}>
+            <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+              <thead><tr style={{ background: 'var(--bg-primary)', textAlign: 'left' }}>
+                <th style={{ padding: 6 }}>Strategy</th><th>Sym</th><th>Qty</th><th>Credit</th><th>P&L</th><th>Reason</th><th>Closed</th>
+              </tr></thead>
+              <tbody>
+                {closedOrders.map(o => (
+                  <tr key={o.id} style={{ borderTop: '1px solid var(--border)' }}>
+                    <td style={{ padding: 6 }}>{o.strategy_id}</td>
+                    <td>{o.symbol}</td>
+                    <td>{o.contracts}</td>
+                    <td>{fmtMoney(o.fill_credit)}</td>
+                    <td style={{ color: (o.close_pnl || 0) >= 0 ? '#30d158' : '#ef4444', fontWeight: 600 }}>{fmtMoney(o.close_pnl)}</td>
+                    <td style={{ fontSize: 10 }}>{o.close_reason}</td>
+                    <td style={{ fontSize: 10 }}>{o.closed_at?.slice(0, 10)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Info banner */}
+      <div style={{ padding: 10, background: 'rgba(96,165,250,.06)', border: '1px solid rgba(96,165,250,.2)', borderRadius: 6, fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+        💡 <b>Modo semi-auto NAS-only</b>: el sistema sugiere el ticket completo + valida pre-trade. Tú ejecutas manual en TT app (1 click copy strikes). Cuando esté listo, click "Marcar ejecutado". Sistema trackea P&L + sugiere exit. Para auto-submit total: extender bridge NAS con endpoints write (~50L Python).
       </div>
     </div>
   );

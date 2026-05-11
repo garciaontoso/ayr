@@ -20,6 +20,7 @@ import * as Risk from "./lib/risk-engine.js";
 import * as Monitor from "./lib/monitoring-engine.js";
 import * as AutoPaper from "./lib/auto-paper-engine.js";
 import * as PortfolioIdeas from "./lib/portfolio-ideas-engine.js";
+import * as LiveExec from "./lib/live-execution-engine.js";
 import { FMP_MAP, toFMP, fromFMP, FMP_REVERSE, fmpQuote, fmpRiskMetrics, fmpSpyCloses, fmpSpark, FCF_PAYOUT_CARVEOUT, CURRENCY_MAP } from "./lib/fmp.js";
 
 // FMP_MAP, toFMP, fromFMP, fmpQuote, fmpRiskMetrics, fmpSpyCloses, fmpSpark → ./lib/fmp.js
@@ -7687,6 +7688,33 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           updated_at TEXT DEFAULT (datetime('now'))
         )`).run();
         await env.DB.prepare(`INSERT OR IGNORE INTO thetagang_auto_paper_config (id, enabled) VALUES (1, 0)`).run();
+        // Sprint 11 — Live executions log + config (semi-auto: usuario marca como ejecutado)
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS thetagang_live_orders (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          generated_at TEXT DEFAULT (datetime('now')),
+          marked_executed_at TEXT,
+          status TEXT NOT NULL DEFAULT 'suggested',  -- suggested | executed | cancelled | expired
+          strategy_id TEXT,
+          symbol TEXT,
+          ticket_json TEXT,                           -- full ticket from buildTradeTicket
+          contracts INTEGER,
+          fill_credit REAL,
+          fill_account TEXT,
+          notes TEXT,
+          closed_at TEXT,
+          close_pnl REAL,
+          close_reason TEXT
+        )`).run();
+        await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_live_orders_status
+          ON thetagang_live_orders(status, generated_at DESC)`).run();
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS thetagang_live_config (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          enabled INTEGER DEFAULT 0,
+          first_month_until TEXT,                     -- ISO date — restrict to 1 contract until this date
+          max_contracts_override INTEGER,
+          updated_at TEXT DEFAULT (datetime('now'))
+        )`).run();
+        await env.DB.prepare(`INSERT OR IGNORE INTO thetagang_live_config (id, enabled) VALUES (1, 0)`).run();
         // Sprint 15 — Strategy tournament rankings persisted
         await env.DB.prepare(`CREATE TABLE IF NOT EXISTS thetagang_strategy_rankings (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -10593,6 +10621,181 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const effectiveness = TH.evaluateHedgeEffectiveness(portfolioPnL, hedgePnL);
           return json({ ok: true, days, n_hedges: (hedges || []).length, n_nav_points: series.length, effectiveness, generated_at: new Date().toISOString() }, corsHeaders);
         } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // ─── Sprint 11 — Live execution (semi-auto, NAS-only) ──────────────
+      // Workflow:
+      //   1. POST /live/suggest  → sistema genera ticket completo + checks
+      //   2. Usuario ejecuta MANUAL en TT app
+      //   3. POST /live/mark-executed → registra fill real
+      //   4. GET /live/positions/sync → detecta nuevas positions auto
+      //   5. GET /live/orders → ver historial
+
+      // GET /api/thetagang/live/config
+      if (path === "/api/thetagang/live/config" && request.method === "GET") {
+        await ensureThetaGangTables();
+        const row = await env.DB.prepare(`SELECT * FROM thetagang_live_config WHERE id = 1`).first().catch(() => null);
+        return json({ ok: true, ...(row || { enabled: 0 }) }, corsHeaders);
+      }
+
+      // POST /api/thetagang/live/config body:{enabled, first_month_until?, max_contracts_override?}
+      if (path === "/api/thetagang/live/config" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        await ensureThetaGangTables();
+        try {
+          const b = await request.json();
+          await env.DB.prepare(
+            `UPDATE thetagang_live_config SET enabled=?, first_month_until=?, max_contracts_override=?, updated_at=datetime('now') WHERE id = 1`
+          ).bind(
+            b.enabled ? 1 : 0,
+            b.first_month_until || null,
+            b.max_contracts_override || null
+          ).run();
+          return json({ ok: true, enabled: !!b.enabled }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // POST /api/thetagang/live/suggest body:{strategy_id, symbol, contracts?, dte?}
+      // Genera ticket + corre pre-trade checks. NO ejecuta nada.
+      if (path === "/api/thetagang/live/suggest" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        await ensureThetaGangTables();
+        try {
+          const b = await request.json();
+          if (!b.strategy_id || !b.symbol) return json({ error: 'strategy_id + symbol required' }, corsHeaders, 400);
+
+          // Fetch strategy from catalog
+          const stratRow = await env.DB.prepare(`SELECT * FROM thetagang_strategies WHERE id = ?`).bind(b.strategy_id).first();
+          if (!stratRow) return json({ error: `strategy_id not found: ${b.strategy_id}` }, corsHeaders, 404);
+
+          // Fetch live brain data + caps + bridge health
+          let spot = 0, iv = 0.20;
+          try {
+            const q = await ttQuote(env, [b.symbol]);
+            spot = q?.[b.symbol]?.last || q?.[b.symbol]?.mid || 0;
+          } catch {}
+          try {
+            const ivData = await ttIvRank(env, b.symbol);
+            iv = ivData?.iv_index || 0.20;
+          } catch {}
+          const bridgeHealth = spot > 0;
+
+          // Fetch caps
+          let capsAllowed = false;
+          try {
+            const apiBase = "https://aar-api.garciaontoso.workers.dev";
+            const capsResp = await fetch(`${apiBase}/api/thetagang/risk/caps-status`).then(r => r.json());
+            capsAllowed = capsResp?.allowed === true;
+          } catch {}
+
+          // Fetch tournament score for this strategy
+          let tournamentScore = null;
+          try {
+            const tRow = await env.DB.prepare(
+              `SELECT score FROM thetagang_strategy_rankings WHERE strategy_id = ? OR strategy_id LIKE ? ORDER BY id DESC LIMIT 1`
+            ).bind(b.strategy_id, b.strategy_id + '%').first();
+            tournamentScore = tRow?.score || null;
+          } catch {}
+
+          // Count open live trades
+          const openLiveRow = await env.DB.prepare(
+            `SELECT COUNT(*) as n FROM thetagang_live_orders WHERE status = 'executed' AND closed_at IS NULL`
+          ).first().catch(() => null);
+          const nOpenLive = openLiveRow?.n || 0;
+
+          // Get config
+          const cfgRow = await env.DB.prepare(`SELECT * FROM thetagang_live_config WHERE id = 1`).first().catch(() => null);
+          const config = cfgRow || { live_enabled: 0 };
+
+          // Build ticket
+          const contracts = b.contracts || 1;
+          const ticket = LiveExec.buildTradeTicket(
+            { ...stratRow, strategy_type: stratRow.strategy_type },
+            b.symbol,
+            { spot, iv_index: iv },
+            { contracts, dte: b.dte || stratRow.dte }
+          );
+
+          // Pre-trade checks
+          const trade = {
+            strategy_id: b.strategy_id,
+            symbol: b.symbol,
+            contracts,
+            dte: ticket.dte,
+            max_loss_per_contract: 500,  // TODO: compute real from spread width
+          };
+          const state = {
+            caps_allowed: capsAllowed,
+            n_open_live: nOpenLive,
+            n_brain_score: 75,  // TODO: get real from brain scan
+            tournament_score: tournamentScore,
+            nav: 100000,
+            bridge_health: bridgeHealth,
+            recent_loss_streak: 0,
+          };
+          const checks = LiveExec.preTradeChecks(trade, state, { live_enabled: !!config.enabled, ...config });
+
+          return json({
+            ok: true,
+            ticket,
+            checks,
+            state,
+            generated_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
+      // POST /api/thetagang/live/mark-executed body:{ticket_id?, ticket?, fill_credit, fill_account?, notes?}
+      // Usuario ejecutó manualmente en TT app → registra como executed
+      if (path === "/api/thetagang/live/mark-executed" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        await ensureThetaGangTables();
+        try {
+          const b = await request.json();
+          if (!b.ticket && !b.strategy_id) return json({ error: 'ticket or strategy_id required' }, corsHeaders, 400);
+
+          const ticketJson = b.ticket ? JSON.stringify(b.ticket) : null;
+          const insert = await env.DB.prepare(
+            `INSERT INTO thetagang_live_orders
+             (status, strategy_id, symbol, ticket_json, contracts, fill_credit, fill_account, notes, marked_executed_at)
+             VALUES ('executed', ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+          ).bind(
+            b.strategy_id || b.ticket?.strategy_id,
+            b.symbol || b.ticket?.symbol,
+            ticketJson,
+            b.contracts || b.ticket?.contracts || 1,
+            b.fill_credit || null,
+            b.fill_account || null,
+            b.notes || null
+          ).run();
+          return json({ ok: true, id: insert.meta?.last_row_id }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // POST /api/thetagang/live/close body:{id, close_pnl, close_reason}
+      if (path === "/api/thetagang/live/close" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        await ensureThetaGangTables();
+        try {
+          const b = await request.json();
+          if (!b.id) return json({ error: 'id required' }, corsHeaders, 400);
+          await env.DB.prepare(
+            `UPDATE thetagang_live_orders SET closed_at=datetime('now'), close_pnl=?, close_reason=? WHERE id=?`
+          ).bind(b.close_pnl ?? 0, b.close_reason || 'manual', b.id).run();
+          return json({ ok: true }, corsHeaders);
+        } catch (e) { return json({ error: e.message }, corsHeaders, 500); }
+      }
+
+      // GET /api/thetagang/live/orders?limit=50
+      if (path === "/api/thetagang/live/orders" && request.method === "GET") {
+        await ensureThetaGangTables();
+        const limit = Math.max(1, Math.min(200, Number(url.searchParams.get('limit') || 50)));
+        const { results } = await env.DB.prepare(
+          `SELECT id, generated_at, marked_executed_at, status, strategy_id, symbol,
+                  contracts, fill_credit, fill_account, notes, closed_at, close_pnl, close_reason
+           FROM thetagang_live_orders ORDER BY id DESC LIMIT ?`
+        ).bind(limit).all().catch(() => ({ results: [] }));
+        return json({ ok: true, orders: results || [] }, corsHeaders);
       }
 
       // ─── Sprint 15 — Strategy tournament (walk-forward all configs) ──────

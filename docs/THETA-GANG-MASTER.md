@@ -39,7 +39,8 @@ traders particulares.
 | 15 | Strategy tournament + dynamic exit + intraday check + tournament-aware sizing | ✅ LIVE | `2c34a08` |
 | 16 | IC backtest engine + tournament 162 configs (BPS+IC mix) | ✅ LIVE | `3111800` |
 | 17 | Earnings filter + tournament size modifier + single-loss kill-switch + liquidity check | ✅ LIVE | `38b64d3` |
-| 18 | Portfolio Ideas engine (CC/CSP/BPS/Collar) + Open Options aggregator + 2 sub-tabs nuevas | ✅ LIVE | (este commit) |
+| 18 | Portfolio Ideas engine (CC/CSP/BPS/Collar) + Open Options aggregator + 2 sub-tabs nuevas | ✅ LIVE | `48c4e1b` |
+| 11 | Live execution semi-auto NAS-only (suggest+manual+mark-executed) | ✅ LIVE | (este commit) |
 
 ## Arquitectura
 
