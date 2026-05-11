@@ -7767,6 +7767,78 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       }
 
       // ─── Sprint 22.5 — Auto-reconcile positions from IB live (bug #030 cure) ──
+      // ─── Sprint 23 — Cleanup cost_basis duplicate rows (bug #030 follow-up) ──
+      // cost_basis tiene ~10k filas duplicadas: cada trade tiene 2 rows, una con
+      // opt_tipo='-' y otra con opt_tipo=NULL. Causa raíz del UNH bug 200=2×100.
+      //
+      // Esta endpoint:
+      //   - Body: { dry_run: true|false } (default true)
+      //   - Borra SOLO rows con opt_tipo='-' AND tipo='EQUITY' (la dup)
+      //   - Mantiene la row canonical opt_tipo=NULL
+      //   - Audit log permanente
+      //   - Telegram alert al ejecutar real
+      //
+      // POST /api/audit/cost-basis/cleanup-all-duplicates
+      if (path === "/api/audit/cost-basis/cleanup-all-duplicates" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env); if (unauth) return unauth;
+        try {
+          const body = await request.json().catch(() => ({}));
+          const dryRun = body.dry_run !== false;  // default true (safe)
+
+          // Count + preview
+          const countRow = await env.DB.prepare(
+            `SELECT COUNT(*) as n FROM cost_basis WHERE opt_tipo = '-' AND tipo = 'EQUITY'`
+          ).first().catch(() => ({ n: 0 }));
+          const totalDups = countRow?.n || 0;
+
+          // Top tickers affected
+          const { results: byTicker } = await env.DB.prepare(
+            `SELECT ticker, COUNT(*) as n FROM cost_basis
+             WHERE opt_tipo = '-' AND tipo = 'EQUITY'
+             GROUP BY ticker ORDER BY n DESC LIMIT 20`
+          ).all().catch(() => ({ results: [] }));
+
+          // Sample 20 rows
+          const { results: sample } = await env.DB.prepare(
+            `SELECT rowid, ticker, fecha, shares, precio, account
+             FROM cost_basis WHERE opt_tipo = '-' AND tipo = 'EQUITY'
+             ORDER BY rowid DESC LIMIT 20`
+          ).all().catch(() => ({ results: [] }));
+
+          let deleted = 0;
+          if (!dryRun && totalDups > 0) {
+            const res = await env.DB.prepare(
+              `DELETE FROM cost_basis WHERE opt_tipo = '-' AND tipo = 'EQUITY'`
+            ).run();
+            deleted = res?.meta?.changes || 0;
+            // Audit log
+            await env.DB.prepare(
+              `INSERT INTO agent_memory (key, value, updated_at)
+               VALUES (?, ?, datetime('now'))
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`
+            ).bind(
+              `costbasis_cleanup_dups_${Date.now()}`,
+              JSON.stringify({ deleted, by_ticker: byTicker || [], executed_at: new Date().toISOString() }),
+            ).run().catch(() => {});
+            // Telegram alert
+            try {
+              await sendTelegram(env, `🧹 *cost_basis cleanup-duplicates*\nBorradas ${deleted} filas opt_tipo='-' (duplicates).\nTop tickers: ${(byTicker||[]).slice(0,5).map(b => `${b.ticker}(${b.n})`).join(', ')}`, 'INFO');
+            } catch {}
+          }
+
+          return json({
+            ok: true,
+            dry_run: dryRun,
+            total_duplicates_found: totalDups,
+            deleted,
+            top_affected_tickers: byTicker || [],
+            sample_rows: sample || [],
+            note: dryRun ? 'DRY-RUN — re-llamar con {"dry_run": false} para ejecutar' : `${deleted} filas eliminadas (canonical opt_tipo=NULL preservadas).`,
+            generated_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) { return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500); }
+      }
+
       // IB Gateway es la fuente AUTORITARIA cuando está online. Este endpoint
       // sincroniza positions.shares ← IB.qty automáticamente para cada ticker.
       //
