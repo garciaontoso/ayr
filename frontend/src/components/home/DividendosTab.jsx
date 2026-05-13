@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, lazy, Suspense } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol } from '../../utils/formatters';
 import { API_URL } from '../../constants/index.js';
@@ -10,6 +10,8 @@ import { useNetLiquidationValue } from '../../hooks/useNetLiquidationValue.js';
 import { useMonthlyExpenses } from '../../hooks/useMonthlyExpenses.js';
 import { useDraggableOrder } from '../../hooks/useDraggableOrder.js';
 import { useFreshness } from '../../hooks/useFreshness.js';
+// 2026-05-13: sub-tab "Divis: Aporta o Aparta" — filtro Lowell Miller (8 criterios + FCF donut)
+const AportaApartaTab = lazy(() => import('./AportaApartaTab'));
 
 /* Charts removed — integrated inline in dashboard */
 /* ═══════════════════════════════════════════════════════════════
@@ -659,7 +661,7 @@ export default function DividendosTab() {
 
   {/* Sub-tab toggle + Bruto/Neto switch */}
   <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-    {[{id:"dashboard",lbl:"📊 Dashboard"},{id:"ranking",lbl:"🏆 Ranking"},{id:"proyeccion",lbl:"🔭 Proyección"},{id:"calendario",lbl:"📅 Calendario"}].map(t=>(
+    {[{id:"dashboard",lbl:"📊 Dashboard"},{id:"ranking",lbl:"🏆 Ranking"},{id:"proyeccion",lbl:"🔭 Proyección"},{id:"calendario",lbl:"📅 Calendario"},{id:"aporta-aparta",lbl:"⚖️ Divis: Aporta o Aparta"}].map(t=>(
       <button key={t.id} onClick={()=>setSection(t.id)} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${section===t.id?"var(--gold)":"transparent"}`,background:section===t.id?"var(--gold-dim)":"transparent",color:section===t.id?"var(--gold)":"var(--text-tertiary)",fontSize:11,fontWeight:section===t.id?700:500,cursor:"pointer",fontFamily:"var(--fb)",transition:"all .15s"}}>{t.lbl}</button>
     ))}
     <div style={{marginLeft:"auto"}} />
@@ -670,6 +672,13 @@ export default function DividendosTab() {
       {isNeto?"NETO":"BRUTO"}
     </button>
   </div>
+
+  {/* "Divis: Aporta o Aparta" — filtro Lowell Miller 8 criterios + FCF donut (2026-05-13) */}
+  {section === "aporta-aparta" && (
+    <Suspense fallback={<InlineLoading message="Cargando filtro Lowell Miller..." />}>
+      <AportaApartaTab />
+    </Suspense>
+  )}
 
   {/* Proyección Section — Forward 12 months */}
   {section === "proyeccion" && (() => {

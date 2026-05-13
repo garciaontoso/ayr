@@ -250,6 +250,23 @@
 - **Archivos**: `api/sync-flex.sh`, `api/src/worker.js` `/api/ib-flex-sync`.
 - **Commit**: 2026-05-10
 
+### Bug #021 — REGRESIÓN PWA gastos: `POST /api/gastos` re-añadió `ytRequireToken`, pendientes atascados en IndexedDB
+- **Síntoma**: Usuario reporta "varios gastos por sincronizar" en la PWA del iPhone. Los gastos quedan en IndexedDB `pending` store, badge rojo muestra contador, `syncPending()` falla silenciosamente.
+- **Causa raíz**: La PWA `frontend/public/gastos.html` no incluye el monkey-patch de auth de `main.jsx`, manda `POST /api/gastos` solo con `Content-Type: application/json`. El endpoint tenía `ytRequireToken` que respondía 401. `syncPending()` solo borra de IndexedDB si `resp.ok` — los gastos se acumulan indefinidamente. **Es exactamente el mismo bug fixed en 2026-05-05**: alguien re-añadió la línea de auth en algún commit posterior pese a que el comentario seguía diciendo "auth removed for POST".
+- **Fix aplicado 2026-05-13**: cambiado a bypass por CORS allowlist, mismo patrón que `DELETE /api/gastos/:id`:
+  ```js
+  { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
+  ```
+  Origin permitido (`ayr.onto-so.com`, `*.pages.dev`) → no requiere token. Origin externo → 401. Esto cierra la regresión definitivamente porque ahora el código real protege contra futuras regresiones de copy-paste — cualquier intento de añadir auth a futuro tendría que decidir activamente quitar el bypass CORS.
+- **Validación**: `POST` con `Origin: https://ayr.onto-so.com` → 200; sin Origin → 401.
+- **Acción usuario**: abrir la PWA del iPhone con conexión, `syncPending()` se ejecuta on-load y on-online → los pendientes se vacían automáticamente.
+- **Prevención**:
+  - Test E2E que simule POST sin token desde Origin permitido (debe ser 200).
+  - Comentario explícito en código: "NO añadir ytRequireToken sin bypass CORS — rompe la PWA del iPhone (Bug #021)".
+  - Considerar test Vitest sobre `POST /api/gastos` que falle si auth se vuelve a añadir sin bypass.
+- **Archivos**: `api/src/worker.js` ~10345-10363.
+- **Worker version**: d7dd56f0-b847-4c2d-81f9-207f78a3b2f3
+
 ---
 
 ## 📊 Estadísticas hoy 2026-05-03
