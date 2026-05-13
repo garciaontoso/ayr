@@ -173,9 +173,9 @@ const CRITERIA_EXPLAIN = {
   },
 };
 
-// ── Donut chart SVG inline ──────────────────────────────────────────
-function FcfDonut({ alloc, size = 200 }) {
-  if (!alloc) return <div style={{ color: 'var(--text-tertiary)', fontSize: 12, padding: 20 }}>Sin datos FCF</div>;
+// ── Donut chart SVG inline (% del FCF) ──────────────────────────────
+function FcfDonut({ alloc, size = 180 }) {
+  if (!alloc) return null;
   const segments = [
     { key: 'dividends',    pct: alloc.dividends || 0 },
     { key: 'buybacks',     pct: alloc.buybacks || 0 },
@@ -204,8 +204,11 @@ function FcfDonut({ alloc, size = 200 }) {
   }
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
-      <svg width={size} height={size} style={{ flexShrink: 0 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+      <div style={{ fontSize: 9, color: 'var(--text-tertiary)', letterSpacing: 1, fontWeight: 700, fontFamily: 'var(--fm)' }}>
+        % DEL FREE CASH FLOW
+      </div>
+      <svg width={size} height={size}>
         {segments.map((s) => {
           const sweep = (s.pct / total) * 360;
           const path = arc(cumDeg, sweep);
@@ -214,25 +217,96 @@ function FcfDonut({ alloc, size = 200 }) {
             stroke="var(--bg)" strokeWidth="2" />;
         })}
         <text x={cx} y={cy - 4} textAnchor="middle" fontSize="11" fill="var(--text-tertiary)"
-          style={{ fontFamily: 'var(--fm)', fontWeight: 600 }}>FCF</text>
+          style={{ fontFamily: 'var(--fm)', fontWeight: 600 }}>OCF</text>
         <text x={cx} y={cy + 14} textAnchor="middle" fontSize="14" fill="var(--gold)"
           style={{ fontFamily: 'var(--fm)', fontWeight: 700 }}>
           {alloc.ocf_usd ? `$${(alloc.ocf_usd/1e9).toFixed(1)}B` : ''}
         </text>
       </svg>
-      <div style={{ flex: 1, minWidth: 200, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, width: '100%' }}>
         {segments.map(s => (
-          <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
-            <div style={{ width: 14, height: 14, borderRadius: 4, background: FCF_COLORS[s.key].fill, flexShrink: 0 }} />
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
-                {FCF_COLORS[s.key].label} <span style={{ color: FCF_COLORS[s.key].fill, fontFamily: 'var(--fm)' }}>{s.pct.toFixed(1)}%</span>
-              </div>
-              <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{FCF_COLORS[s.key].help}</div>
-            </div>
+          <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ width: 10, height: 10, borderRadius: 3, background: FCF_COLORS[s.key].fill, flexShrink: 0 }} />
+            <span style={{ flex: 1, color: 'var(--text-primary)', fontWeight: 600 }}>{FCF_COLORS[s.key].label}</span>
+            <span style={{ color: FCF_COLORS[s.key].fill, fontFamily: 'var(--fm)', fontWeight: 700 }}>{s.pct.toFixed(1)}%</span>
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ── Bar chart horizontal ($ absolutos del FCF) ──────────────────────
+function FcfBars({ alloc }) {
+  if (!alloc) return null;
+  const ocf = alloc.ocf_usd || 0;
+  const segments = [
+    { key: 'dividends',    pct: alloc.dividends || 0 },
+    { key: 'buybacks',     pct: alloc.buybacks || 0 },
+    { key: 'debt_paydown', pct: alloc.debt_paydown || 0 },
+    { key: 'capex',        pct: alloc.capex || 0 },
+    { key: 'retained',     pct: alloc.retained || 0 },
+  ].filter(s => s.pct > 0.1);
+
+  const maxPct = Math.max(...segments.map(s => s.pct), 1);
+
+  function fmtUsd(v) {
+    if (v >= 1e9) return `$${(v/1e9).toFixed(2)}B`;
+    if (v >= 1e6) return `$${(v/1e6).toFixed(0)}M`;
+    return `$${(v/1e3).toFixed(0)}K`;
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, minWidth: 280 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+        <div style={{ fontSize: 9, color: 'var(--text-tertiary)', letterSpacing: 1, fontWeight: 700, fontFamily: 'var(--fm)' }}>
+          $ ABSOLUTOS POR BUCKET
+        </div>
+        <div style={{ fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'var(--fm)' }}>
+          OCF total: <span style={{ color: 'var(--gold)', fontWeight: 700 }}>{fmtUsd(ocf)}</span>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {segments.map(s => {
+          const usd = (s.pct / 100) * ocf;
+          const widthPct = (s.pct / maxPct) * 100;
+          const color = FCF_COLORS[s.key].fill;
+          return (
+            <div key={s.key} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 11 }}>
+                <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{FCF_COLORS[s.key].label}</span>
+                <span style={{ color, fontFamily: 'var(--fm)', fontWeight: 700, fontSize: 12 }}>{fmtUsd(usd)}</span>
+              </div>
+              <div style={{
+                height: 10, background: 'rgba(255,255,255,.04)',
+                borderRadius: 5, overflow: 'hidden', position: 'relative',
+                border: '1px solid var(--border)',
+              }}>
+                <div style={{
+                  width: `${widthPct}%`, height: '100%',
+                  background: `linear-gradient(90deg, ${color}aa, ${color})`,
+                  borderRadius: 4, transition: 'width .4s',
+                }} />
+              </div>
+              <div style={{ fontSize: 9, color: 'var(--text-tertiary)', lineHeight: 1.3 }}>
+                {FCF_COLORS[s.key].help}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Wrapper que pone donut + barras lado a lado ─────────────────────
+function FcfAllocViz({ alloc }) {
+  if (!alloc) return <div style={{ color: 'var(--text-tertiary)', fontSize: 12, padding: 20 }}>Sin datos FCF</div>;
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 24, flexWrap: 'wrap' }}>
+      <FcfDonut alloc={alloc} />
+      <FcfBars alloc={alloc} />
     </div>
   );
 }
@@ -343,12 +417,12 @@ function EmpresaCard({ data, expanded, onToggle }) {
             </div>
           </div>
 
-          {/* FCF Donut */}
+          {/* FCF Allocation — donut + barras */}
           <div style={{ marginTop: 18 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--gold)', letterSpacing: 1, marginBottom: 10, fontFamily: 'var(--fm)' }}>
-              ¿EN QUÉ SE VA EL CASH? (último año)
+              ¿EN QUÉ SE VA EL FREE CASH FLOW? (último año)
             </div>
-            <FcfDonut alloc={data.fcf_alloc} />
+            <FcfAllocViz alloc={data.fcf_alloc} />
           </div>
         </div>
       )}
