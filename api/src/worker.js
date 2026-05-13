@@ -10327,8 +10327,9 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // fundamentales no cambian intra-día.
       // ═══════════════════════════════════════════════════════════════════
       if (path === "/api/dividendos/aporta-o-aparta" && request.method === "GET") {
-        const CACHE_KEY = "divs_aporta_aparta_v1";
-        const CACHE_PER_TICKER_PREFIX = "divs_ap_t_v1:";
+        // v2: 11 criterios agrupados (añadidos PER, P/B, FCF growth YoY del cap 5 libro)
+        const CACHE_KEY = "divs_aporta_aparta_v2";
+        const CACHE_PER_TICKER_PREFIX = "divs_ap_t_v2:";
         const force = url.searchParams.get("force") === "1";
         const tickersParam = (url.searchParams.get("tickers") || "").trim();
         // Locales — el FMP_BASE/FMP_KEY globales se declaran más adelante en el archivo (TDZ).
@@ -10439,11 +10440,20 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             const ps = pickNum(rt, "priceToSalesRatioTTM", "priceToSalesRatio") ?? pickNum(km, "priceToSalesRatioTTM");
             const payout = pickNum(rt, "dividendPayoutRatioTTM", "payoutRatioTTM", "payoutRatio");
             const debtEquity = pickNum(rt, "debtToEquityRatioTTM", "debtToEquityRatio", "debtEquityRatio") ?? pickNum(km, "debtToEquityRatioTTM");
+            // 2026-05-13 v2: añadidos PER, P/B, cash-growth para completar los criterios
+            // del cap 5 del libro de Lowell Miller ("Las medidas de valoración tradicionales
+            // que pueden ser útiles son: P/V<1.5, PER<media, P/B<mercado, liquidez>año anterior...").
+            const per = pickNum(rt, "priceToEarningsRatioTTM", "peRatioTTM", "priceEarningsRatioTTM", "priceEarningsRatio") ?? pickNum(km, "priceEarningsRatioTTM");
+            const pb = pickNum(rt, "priceToBookRatioTTM", "pbRatioTTM", "priceBookValueRatioTTM", "priceToBookRatio") ?? pickNum(km, "priceToBookRatioTTM");
 
             // 5y growth — usar fields fiveY*PerShare que son CAGR real, no TTM
             const div5y = pickNum(gr, "fiveYDividendperShareGrowthPerShare", "dividendsPerShareGrowth", "dividendsperShareGrowth");
             const eps5y = pickNum(gr, "fiveYNetIncomeGrowthPerShare", "fiveYBottomLineNetIncomeGrowthPerShare", "epsgrowth");
             const rev5y = pickNum(gr, "fiveYRevenueGrowthPerShare", "revenueGrowth");
+            // Cash growth YoY: usar freeCashFlowGrowth (year-over-year) — proxy de "liquidez
+            // creciente" del libro, ya que cash en balance puede variar por buybacks/divs/etc
+            // mientras que FCF growth refleja salud operativa real.
+            const fcfGrowthYoY = pickNum(gr, "freeCashFlowGrowth", "operatingCashFlowGrowth");
 
             // FCF data from cash flow statement
             const fcf = pickNum(cfLatest, "freeCashFlow");
@@ -10481,60 +10491,79 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             const isReit = isReitOrUtility(p);
             const payoutThreshold = isReit ? 0.95 : 0.60;
 
+            // 11 criterios agrupados en 4 categorías del libro de Lowell Miller:
+            //   🏛 CALIDAD (cap 4): deuda, FCF, estabilidad beneficios, insiders
+            //   💰 DIVIDENDO (cap 4): yield, growth divs, payout
+            //   🔍 VALORACIÓN (cap 5): P/S, PER, P/B
+            //   📈 CRECIMIENTO (cap 5): FCF growth YoY (proxy de "liquidez creciente")
             const criteria = [
-              { id: 1, label: "Precio/Ventas < 1.5",
-                value: ps, fmt: v => v != null ? v.toFixed(2) : "—",
-                pass: ps != null && ps < 1.5,
-                target: "< 1.5", weight: 1 },
-              { id: 2, label: "Yield ≥ 2%",
-                value: yield_pct != null ? yield_pct * 100 : null, fmt: v => v != null ? v.toFixed(2) + "%" : "—",
-                pass: yield_pct != null && yield_pct >= 0.02,
-                target: "≥ 2%", weight: 1 },
-              { id: 3, label: "Crecimiento divs ≥ 4%",
-                value: div5y != null ? div5y * 100 : null, fmt: v => v != null ? v.toFixed(1) + "%" : "—",
-                pass: div5y != null && div5y >= 0.04,
-                target: "≥ 4% anual", weight: 1 },
-              { id: 4, label: "Crecimiento beneficios ≥ 5%",
-                value: eps5y != null ? eps5y * 100 : null, fmt: v => v != null ? v.toFixed(1) + "%" : "—",
-                pass: eps5y != null && eps5y >= 0.05,
-                target: "≥ 5% anual", weight: 1 },
-              { id: 5, label: isReit ? "Payout < 95% (REIT/Utility)" : "Payout < 60%",
-                value: payout != null ? payout * 100 : null, fmt: v => v != null ? v.toFixed(0) + "%" : "—",
-                pass: payout != null && payout < payoutThreshold && payout > 0,
-                target: isReit ? "< 95%" : "< 60%", weight: 1 },
-              { id: 6, label: "Debt/Equity < 1.0",
-                value: debtEquity, fmt: v => v != null ? v.toFixed(2) : "—",
+              // ── 🏛 CALIDAD ─────────────────────────────────────────────
+              { id: 1, group: "calidad", label: "Deuda baja (D/E < 1.0)",
+                value: debtEquity, target: "< 1.0",
                 pass: debtEquity != null && debtEquity < 1.0 && debtEquity >= 0,
-                target: "< 1.0", weight: 1 },
-              { id: 7, label: "FCF cubre divs ≥ 1.5x",
-                value: fcfCoverage, fmt: v => v != null ? v.toFixed(1) + "x" : "—",
+                weight: 1 },
+              { id: 2, group: "calidad", label: "FCF cubre dividendos ≥ 1.5x",
+                value: fcfCoverage, target: "≥ 1.5x",
                 pass: fcfCoverage != null && fcfCoverage >= 1.5,
-                target: "≥ 1.5x", weight: 1 },
-              { id: 8, label: "Insider ownership ≥ 15%",
-                value: insider_pct != null ? insider_pct * 100 : null, fmt: v => v != null ? v.toFixed(1) + "%" : "—",
+                weight: 1 },
+              { id: 3, group: "calidad", label: "Crecimiento beneficios 5y ≥ 5%",
+                value: eps5y != null ? eps5y * 100 : null, target: "≥ 5% anual",
+                pass: eps5y != null && eps5y >= 0.05,
+                weight: 1 },
+              { id: 4, group: "calidad", label: "Insider ownership ≥ 15%",
+                value: insider_pct != null ? insider_pct * 100 : null, target: "≥ 15%",
                 pass: insider_pct != null && insider_pct >= 0.15,
-                target: "≥ 15%",
-                // Si insider data no disponible, peso 0 (informativo, no penaliza).
-                // Si hay dato, peso 0.5 — el libro mismo dice que este criterio
-                // sólo funciona bien en small caps (<$300M); en large caps casi
-                // ninguna cumple 15%, así que es desempate, no eliminador.
                 weight: insider_pct != null ? 0.5 : 0,
                 info_only: insider_pct == null },
+              // ── 💰 DIVIDENDO ───────────────────────────────────────────
+              { id: 5, group: "dividendo", label: "Rentabilidad por dividendo ≥ 2%",
+                value: yield_pct != null ? yield_pct * 100 : null, target: "≥ 2%",
+                pass: yield_pct != null && yield_pct >= 0.02,
+                weight: 1 },
+              { id: 6, group: "dividendo", label: "Crecimiento dividendos 5y ≥ 4%",
+                value: div5y != null ? div5y * 100 : null, target: "≥ 4% anual",
+                pass: div5y != null && div5y >= 0.04,
+                weight: 1 },
+              { id: 7, group: "dividendo", label: isReit ? "Payout < 95% (REIT/Utility)" : "Payout < 60%",
+                value: payout != null ? payout * 100 : null,
+                target: isReit ? "< 95%" : "< 60%",
+                pass: payout != null && payout < payoutThreshold && payout > 0,
+                weight: 1 },
+              // ── 🔍 VALORACIÓN ──────────────────────────────────────────
+              { id: 8, group: "valoracion", label: "Precio/Ventas < 1.5",
+                value: ps, target: "< 1.5",
+                pass: ps != null && ps < 1.5,
+                weight: 1 },
+              { id: 9, group: "valoracion", label: "PER < 20",
+                value: per, target: "< 20 (proxy media histórica SP500 ~16-18x)",
+                pass: per != null && per > 0 && per < 20,
+                weight: 1 },
+              { id: 10, group: "valoracion", label: "Precio/Valor contable < 3",
+                value: pb, target: "< 3 (proxy media mercado)",
+                pass: pb != null && pb > 0 && pb < 3,
+                weight: 1 },
+              // ── 📈 CRECIMIENTO ─────────────────────────────────────────
+              { id: 11, group: "crecimiento", label: "FCF creciente YoY",
+                value: fcfGrowthYoY != null ? fcfGrowthYoY * 100 : null,
+                target: "> 0% (liquidez creciente)",
+                pass: fcfGrowthYoY != null && fcfGrowthYoY > 0,
+                weight: 1 },
             ];
 
             // Score: cuenta como "evaluables" sólo los criterios con weight > 0
             const evaluable = criteria.filter(c => c.weight > 0);
             const passCount = evaluable.filter(c => c.pass).length;
-            const totalCount = evaluable.length;  // típicamente 7 u 8
+            const totalCount = evaluable.length;  // típicamente 10 u 11
             const totalWeight = evaluable.reduce((s, c) => s + c.weight, 0);
             const passWeight = evaluable.filter(c => c.pass).reduce((s, c) => s + c.weight, 0);
             const scorePct = totalWeight > 0 ? Math.round(passWeight / totalWeight * 100) : 0;
 
-            // Veredicto ajustado al número evaluable (no siempre es 8)
+            // Veredicto: APORTA ≥70%, VIGILAR 45-70%, APARTA <45%.
+            // (Es muy difícil cumplir 11/11 — incluso las mejores caen en 8-9. Por eso 70%.)
             let verdict;
             const passRatio = totalCount > 0 ? passCount / totalCount : 0;
-            if (passRatio >= 0.75) verdict = "APORTA";       // ≥ 6/8 o ≥ 5/7
-            else if (passRatio >= 0.50) verdict = "VIGILAR"; // ≥ 4/8 o ≥ 4/7
+            if (passRatio >= 0.70) verdict = "APORTA";
+            else if (passRatio >= 0.45) verdict = "VIGILAR";
             else verdict = "APARTA";
 
             return {
@@ -10546,8 +10575,9 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
               score_pct: scorePct, verdict,
               fcf_alloc: fcfAlloc,
               raw: {
-                yield: yield_pct, ps, payout, debt_equity: debtEquity,
+                yield: yield_pct, ps, per, pb, payout, debt_equity: debtEquity,
                 div_growth_5y: div5y, eps_growth_5y: eps5y, rev_growth_5y: rev5y,
+                fcf_growth_yoy: fcfGrowthYoY,
                 fcf, divs_paid: divsPaid, ocf, fcf_coverage: fcfCoverage,
                 insider_pct,
               },
