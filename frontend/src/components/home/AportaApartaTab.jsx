@@ -73,92 +73,103 @@ const CRITERIA_EXPLAIN = {
     title: 'Deuda baja (Debt/Equity < 1.0)',
     plain: 'La empresa debe menos de lo que vale en libros — idealmente nada.',
     why:
-      'Una empresa sin deuda no se ve obligada a vender activos ni cortar dividendos cuando llega una recesión. Al revés: puede comprar competidores ahogados por sus préstamos. Las empresas con deuda alta son frágiles — al primer susto, los bancos suben tipos o piden colateral, y el dividendo es lo primero que se recorta.',
+      'Imagina dos empresas que pagan el mismo dividendo del 4%. La primera no tiene deuda; la segunda debe el doble de su patrimonio. Cuando llega una recesión (y llegan), los bancos de la segunda empresa suben tipos, piden colateral, y exigen reembolsos. Lo PRIMERO que se recorta para pagar a los bancos es el dividendo. La primera empresa, en cambio, puede aprovechar la crisis para comprar a la segunda barata. Miller insiste: las "empresas fáciles de mantener" son las que duermes tranquilo poseyendo durante un crash del 40% — y eso solo lo consigues con balance sólido.',
     quote: 'cap. 4: "Cuanto menor sea la deuda, mejor, incluso si la deuda es 0. Es sustancialmente más cómodo ser propietario de un negocio sin deudas que de una empresa comprometida con los bancos."',
-    threshold: 'D/E < 1.0 (idealmente < 0.5, mejor aún cerca de 0)',
+    threshold: 'D/E < 1.0 (ideal < 0.5, perfecto cerca de 0)',
+    ejemplo: 'JNJ tiene D/E = 0.22 (poco más que su patrimonio en deuda). KO tiene D/E = 1.30 (debe 30% más de lo que vale en libros) — esa es la diferencia entre "duermes tranquilo" y "rezas si suben tipos".',
   },
   2: {
     title: 'FCF cubre dividendos ≥ 1.5x',
-    plain: 'El cash que genera la empresa después de invertir cubre el dividendo con un margen del 50%.',
+    plain: 'El cash que genera la empresa cubre el dividendo con un margen del 50%.',
     why:
-      'Si el FCF apenas cubre el dividendo (1.0x), cualquier mes malo lo pone en riesgo. Con 1.5x hay colchón para inversión + subir el dividendo año tras año. Por debajo de 1.0x el dividendo está pagado con caja antigua, deuda o emitiendo acciones — insostenible.',
+      'Si el FCF apenas cubre el dividendo (1.0x), cualquier mes malo lo pone en riesgo. Con 1.5x hay colchón para tres cosas a la vez: pagar el dividendo, subirlo año tras año, Y reinvertir en crecer. Por debajo de 1.0x significa que el dividendo se está pagando con caja antigua, deuda nueva, o emitiendo acciones nuevas (lo cual diluye al accionista). Insostenible. Este es uno de los indicadores más certeros para anticipar un recorte de dividendo: cuando FCF coverage cae bajo 1.0x dos años seguidos, el recorte suele venir en el tercero.',
     quote: 'cap. 4: "El flujo de caja debe ser lo suficientemente amplio como para financiar tanto los dividendos como la inversión necesaria para mantener la actividad y desarrollo de la compañía."',
     threshold: 'FCF / Dividendos pagados ≥ 1.5x',
+    ejemplo: 'UNH genera $30B FCF y paga $7B en dividendos = 4.3x coverage (sobradísimo). KO genera $9.5B FCF y paga $8B = 1.2x (muy ajustado: el siguiente mal trimestre presiona).',
   },
   3: {
     title: 'Crecimiento beneficios 5y ≥ 5% anual',
     plain: 'Los beneficios suben de forma constante (al menos 5% al año durante los últimos 5 años).',
     why:
-      'Los dividendos se pagan con beneficios. Si los beneficios están estancados o cayendo, los dividendos crecientes son una ilusión temporal — el payout sube hasta que ya no se puede subir más y empiezan los recortes. Miller pide 5-10% mínimo y CONSTANTE: no vale que el último año fuera 15% si los anteriores 5 fueron negativos.',
+      'Los dividendos se pagan con beneficios. Si los beneficios están estancados o cayendo, los dividendos crecientes son una ilusión temporal: la empresa sube el payout cada año hasta que ya no se puede subir más, y entonces empiezan los recortes. Miller pide 5-10% mínimo y CONSTANTE — el énfasis es en CONSTANTE. No vale que el último año fuera +15% si los anteriores fueron 4 años seguidos negativos: eso es rebote técnico, no calidad. Una empresa que sube beneficios un 5% año tras año durante 5 años es un negocio mejor que una que hace +25% un año y -10% al siguiente.',
     quote: 'cap. 4: "El crecimiento anual de los beneficios debe ser constante, y debe estar en el rango del 5%-10%, como mínimo."',
-    threshold: '5y CAGR de net income ≥ +5% (idealmente 5-10%)',
+    threshold: '5y CAGR de net income ≥ +5% (ideal 5-10%, no parabólico)',
+    ejemplo: 'PG sube beneficios ~7-8% anual de forma muy regular (predecible). PYPL ha tenido +40% un año y -25% el siguiente: esa volatilidad SE PAGA en dividendos inestables.',
   },
   4: {
     title: 'Insider ownership ≥ 15%',
     plain: 'Los directivos tienen una parte importante de su propia empresa.',
     why:
-      'Cuando los directivos tienen "skin in the game" sus decisiones se alinean con los accionistas. No hay incentivo de hacer un gran ROI a corto destruyendo la empresa a largo. Miller reconoce que en empresas muy grandes este criterio es difícil de cumplir, por eso lo marca como secundario (peso 0.5 y "informativo" si no hay dato).',
+      'Cuando los directivos tienen "skin in the game" — su patrimonio personal está en las acciones — sus decisiones se alinean con las del accionista a largo plazo. No hay incentivo de inflar el ROI de un trimestre destruyendo la empresa a 5 años. Miller reconoce que en empresas MUY grandes (>$100B cap) este criterio es difícil de cumplir porque la dilución por años de stock options hace que ni los fundadores conserven 15%. Por eso lo marca como criterio SECUNDARIO (peso 0.5 si hay dato, informativo si no). Funciona mejor en small/mid caps donde los fundadores aún tienen control significativo.',
     quote: 'cap. 5: "Favorecerá a las empresas en las que las personas con información privilegiada posean al menos el 15% de las acciones, y cuanto más, mejor."',
     threshold: '≥ 15% — funciona mejor en small caps (<$300M)',
+    ejemplo: 'Berkshire Hathaway: Buffett poseía ~30% al inicio. Apple ahora: insider ownership ~0.1% (CEO recibe stock pero no lo retiene). El primero es modelo Miller; el segundo, modelo Wall Street estándar.',
   },
   // 💰 DIVIDENDO
   5: {
     title: 'Rentabilidad por dividendo ≥ 2%',
     plain: 'La empresa paga al menos un 2% anual en dividendos al precio actual.',
     why:
-      'Miller propone carteras al 3-5% de yield. Por debajo del 2% el dividendo es decorativo — no aporta como income real ni protege contra la inflación. Pero ojo con yields muy altos (>8%): suelen ser trampa o riesgo de recorte inminente. El punto dulce es 2-6%.',
+      'Miller propone construir carteras con un yield medio del 3-5%. Por debajo del 2% el dividendo es decorativo — no aporta como income real ni protege contra la inflación. Pero atención: yields MUY altos (>8%) suelen ser trampa. Por dos razones: o el precio cayó tanto que el yield está inflado y el mercado anticipa recorte (típico en bancos pre-2008, AT&T 2022), o el negocio es estructuralmente débil (BDCs, mortgage REITs). El punto dulce está en 2-6%: alto suficiente para income real, no tanto para indicar problemas. Yield al precio de compra es lo que importa: si compras O.com al 5% y ellos suben divs al 4% anual, en 10 años tu yield-on-cost será del 7.4%.',
     quote: 'cap. 4: "Alta rentabilidad por dividendo + crecimiento del dividendo + alta calidad = Mejor Inversión. El SP500 ronda 1,6%; raramente consideraríamos tener una cartera con un rendimiento tan bajo."',
-    threshold: '≥ 2% (idealmente 3-5%)',
+    threshold: '≥ 2% (ideal 3-5%, evitar >8%)',
+    ejemplo: 'Si el SP500 paga 1.6% y la inflación es 3%, comprar el SP500 te EMPOBRECE en términos reales. Una cartera al 4% con divs creciendo 7% te DUPLICA poder adquisitivo en una década.',
   },
   6: {
     title: 'Crecimiento dividendos 5y ≥ 4% anual',
     plain: 'El dividendo crece al menos un 4% al año (sólo así supera la inflación).',
     why:
-      'Un dividendo que no crece es un dividendo que cae en términos reales. La inflación histórica USA es ~4%, así que cualquier crecimiento por debajo de eso te deja en negativo año tras año. Miller aspira al 10% para construir su "máquina de capitalización compuesta": yield 4% × growth 10% = retorno total ~14% sin que el múltiplo se expanda.',
+      'Un dividendo que no crece es un dividendo que cae en términos reales. La inflación USA histórica es ~4%, así que cualquier crecimiento por debajo de eso te deja en negativo año tras año. Miller aspira al 10% para construir su "máquina de capitalización compuesta": yield inicial 4% × growth 10% = retorno total ~14% anual sin que el múltiplo se expanda ni un punto. Pero CUIDADO con el crecimiento DECRECIENTE: si una empresa subió divs 15% hace 5 años, 12% hace 4, 10% hace 3, 8% hace 2 y 6% el último año, NO está creciendo al 10% (la media histórica) — está en clara desaceleración camino al estancamiento. La trayectoria importa tanto como el número.',
     quote: 'cap. 4: "Necesitamos una tasa de crecimiento de los dividendos al menos superior a la inflación. Una tasa mínima debería ser de alrededor el 4%."',
-    threshold: '5y CAGR de DPS ≥ 4% (idealmente 7-10%)',
+    threshold: '5y CAGR de DPS ≥ 4% (ideal 7-10% y constante)',
+    ejemplo: 'PG ha subido el dividendo 67 años seguidos a ~6% anual (Dividend King). VZ ha mantenido divs casi planos en 10 años: tienes "yield 7%" pero pierdes 3%/año contra la inflación.',
   },
   7: {
     title: 'Payout ratio < 60% (REITs/Utilities < 95%)',
     plain: 'La empresa reparte menos del 60% de sus beneficios — el resto lo reinvierte.',
     why:
-      'Un payout bajo significa que queda margen para subir el dividendo aunque los beneficios bajen un año, Y queda cash para reinvertir en crecer. Por encima del 60% la empresa se acerca al límite — cualquier bache obliga a recortar. Excepción: REITs y utilities, donde por estructura legal/operativa el payout es más alto (hasta 90-95%).',
+      'Un payout bajo significa dos cosas valiosas a la vez: (1) queda margen para SUBIR el dividendo incluso aunque los beneficios bajen un año puntual, y (2) queda cash para reinvertir en crecer (R&D, adquisiciones, capex). Por encima del 60% la empresa se acerca al límite: cualquier bache la obliga a recortar. Excepción importante: REITs y utilities. Los REITs deben repartir por LEY ≥90% de su beneficio para mantener su estatus fiscal especial; las utilities tradicionalmente operan con payouts 70-85% porque son negocios estables y regulados. En esos casos, < 95% sigue siendo señal de salud.',
     quote: 'cap. 4: "El ratio pay-out debe ser inferior al 60% en casi todos los valores, excepto en empresas de suministros y servicios públicos y acciones de inversión inmobiliaria. Cuanto más bajo sea el ratio, mejor."',
     threshold: '< 60% (REIT/Utility: < 95%)',
+    ejemplo: 'JNJ paga 60% de payout = aún tiene espacio. KO al 80% está al límite. O al 200% (REIT) sigue OK porque por ley reparten todo. PEP al 88% es preocupante para un consumer staples.',
   },
   // 🔍 VALORACIÓN
   8: {
     title: 'Precio/Ventas < 1.5',
     plain: 'Por cada dólar de ventas pagas menos de 1,50$ por la acción.',
     why:
-      'O\'Shaughnessy en "What Works on Wall Street" probó este factor sobre la base de datos S&P Compustat desde 1952. Las 50 acciones con menor P/S casi cuadruplicaron el rendimiento del universo total. Y las 50 con mayor P/S (típicas growth stocks) batieron incluso a los bonos del Tesoro a la baja. Es probablemente el ratio de valoración más predictivo del libro.',
+      'James O\'Shaughnessy publicó en "What Works on Wall Street" (1996) el estudio cuantitativo más exhaustivo sobre factores de valoración. Probó decenas de ratios sobre la base S&P Compustat desde 1952. Resultado: las 50 acciones con MENOR P/S casi cuadruplicaron el rendimiento del universo total. Y las 50 con MAYOR P/S (típicas growth stocks de moda) rindieron PEOR que los bonos del Tesoro. Por qué funciona: las ventas son más difíciles de manipular contablemente que el beneficio (no se puede inflar fácilmente). Y una empresa con ventas altas + margen bajo siempre puede mejorar el margen; al revés es muy difícil. Es el ratio de valoración más predictivo del libro.',
     quote: 'cap. 5: "O\'Shaughnessy y otros han descubierto que este ratio es uno de los factores fundamentales más útiles, basado en un riguroso estudio cuantitativo. Una inversión en las cincuenta acciones con la relación precio/ventas más baja casi cuadruplicó el rendimiento de todo el universo estudiado."',
     threshold: 'P/S < 1.5 (cuanto más bajo, mejor)',
+    ejemplo: 'UNH P/S = 0.80 (ganga relativa). KO P/S = 7.0 (pagas 7$ por cada $1 de venta). JNJ P/S = 5.6 (premium). Los growth stocks tipo TSLA: 10-15x.',
   },
   9: {
     title: 'PER < 20',
     plain: 'Pagas menos de 20$ por cada dólar de beneficios anuales (≈ 20 años de payback).',
     why:
-      'El PER medio histórico del SP500 ronda 16-18x. Por encima de 20x estás pagando "premium" que solo se justifica si la empresa crece más rápido que la media. Miller recomienda comprar con PER inferior a la media del mercado Y al inverso del tipo de interés de los bonos (si los bonos rinden 5%, el "PER equivalente" del bono es 20 — la acción debería estar más barata para compensar el riesgo).',
+      'El PER medio histórico del SP500 desde 1880 ronda 16x. Por encima de 20x estás pagando "premium" que sólo se justifica si la empresa crece más rápido que la media (>10% anual de forma sostenida). Miller añade un test inteligente: compara el PER con el INVERSO del tipo de interés de los bonos. Si los bonos del Tesoro 10y rinden 5%, su "PER equivalente" es 20 (1/0.05). La acción debería estar más barata para compensar el riesgo extra. Cuando los bonos rinden 3% (PER 33), las acciones pueden permitirse PERs más altos. Cuando los bonos rinden 7% (PER 14), las acciones también deberían tener PER inferior a 14 para ser atractivas.',
     quote: 'cap. 5: "Relación precio/beneficio inferior a la media y al inverso del tipo de interés de los bonos."',
-    threshold: 'PER < 20 (idealmente < 15)',
+    threshold: 'PER < 20 (ideal < 15, ajustar según tipos de interés)',
+    ejemplo: 'JNJ PER ~15 (razonable). UNH PER ~12 (barata por temas regulatorios temporales). KO PER ~26 (cara, paga premium por marca). NVDA PER ~50 (sólo justificable si crecimiento >25% sostenido — apuesta agresiva).',
   },
   10: {
     title: 'Precio/Valor contable < 3',
     plain: 'Pagas menos de 3 veces lo que la empresa vale "en libros" (activos − pasivos).',
     why:
-      'P/B bajo indica que la empresa cotiza cerca de su valor "tangible" — los activos físicos, inventario, cash, etc. Por debajo de 1.0x es ganga clásica (Graham), pero hoy raramente se ven en empresas de calidad. La media del SP500 ronda 3-4x, así que < 3 es un buen indicador de que no estás pagando "aire". Excepción: empresas asset-light (software, marcas puras) tienen P/B alto naturalmente.',
+      'P/B bajo indica que la empresa cotiza cerca de su valor TANGIBLE — activos físicos, inventario, cash. Si P/B < 1.0, en teoría podrías comprar la empresa entera, liquidar todos sus activos, y ganar dinero (Graham, "deep value"). Eso era posible en los 30-50; hoy raramente se ve en empresas de calidad. La media del SP500 actual ronda 3-4x, así que < 3 indica que no estás pagando demasiado "aire" (goodwill, marca, expectativas). Excepción importante: empresas asset-light (software puro, marcas como Visa, consultoras como McKinsey) tienen P/B naturalmente alto porque su "valor" real está en intangibles que no aparecen en libros. Para esas empresas hay que mirar otros ratios.',
     quote: 'cap. 5: "Relación precio/valor contable inferior al del mercado, cuanto más bajo mejor."',
     threshold: 'P/B < 3 (proxy de "inferior al mercado")',
+    ejemplo: 'BRK P/B ~1.5 (Buffett compra barato). Bancos típicos P/B ~1.0 (negocio asset-heavy). KO P/B ~10 (pagas por la marca, no por la planta). MSFT P/B ~12 (software puro).',
   },
   // 📈 CRECIMIENTO
   11: {
     title: 'FCF creciente YoY',
     plain: 'El flujo de caja libre este año fue mayor que el año pasado.',
     why:
-      'El libro pide "liquidez total superior al del año anterior" — una empresa cuyo cash crece año tras año tiene capacidad creciente para subir dividendos, recomprar acciones o amortizar deuda. Si el FCF cae año tras año, el dividendo está en cuenta atrás. Usamos FCF growth (no cash absoluto en balance) porque éste último puede variar por buybacks/divs/M&A sin reflejar la salud operativa.',
+      'Miller pide "liquidez total superior al del año anterior" — una empresa cuyo cash crece año tras año tiene capacidad creciente para subir dividendos, recomprar acciones, amortizar deuda o hacer adquisiciones inteligentes. Si el FCF cae año tras año, el dividendo está en cuenta atrás (es matemáticamente cuestión de tiempo). Usamos FCF growth en lugar de cash absoluto en balance porque el cash en balance puede variar bruscamente por buybacks, dividendos extra o adquisiciones — sin reflejar la salud operativa real. El FCF growth filtra ese ruido: nos dice si el motor de cash de la empresa está acelerando o frenando, año a año.',
     quote: 'cap. 5: "Buscar empresas con liquidez total superior al del año anterior."',
     threshold: 'FCF YoY > 0% (cualquier crecimiento positivo)',
+    ejemplo: 'KHC FCF growth +30% YoY (mejorando). MMM FCF growth -20% YoY 3 años seguidos (motor parado). VZ FCF estable cerca de cero (negocio maduro saturado).',
   },
 };
 
@@ -391,15 +402,22 @@ function GuidePanel({ collapsed, onToggle }) {
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 14, lineHeight: 1.5, fontStyle: 'italic' }}>
                   {cfg.intro}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 12 }}>
+                <div style={{
+                  display: 'grid',
+                  // Grid responsivo pero forzando filas de 2-4 columnas exactas.
+                  // CALIDAD (4) → 4 cols ; DIVIDENDO/VALORACIÓN (3) → 3 cols ; CRECIMIENTO (1) → 1 col.
+                  gridTemplateColumns: `repeat(${Math.min(ids.length, 4)}, 1fr)`,
+                  gap: 12,
+                }}>
                   {ids.map(id => {
                     const c = CRITERIA_EXPLAIN[id];
                     return (
                       <div key={id} style={{
                         background: 'var(--card)', border: '1px solid var(--border)',
                         borderRadius: 10, padding: 14,
+                        display: 'flex', flexDirection: 'column', gap: 8,
                       }}>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                           <span style={{
                             width: 24, height: 24, borderRadius: '50%',
                             background: cfg.color + '22', color: cfg.color,
@@ -408,22 +426,33 @@ function GuidePanel({ collapsed, onToggle }) {
                           }}>{id}</span>
                           <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3 }}>{c.title}</span>
                         </div>
-                        <div style={{ fontSize: 11.5, color: 'var(--text-primary)', lineHeight: 1.55, marginBottom: 8, fontWeight: 500 }}>
+                        <div style={{ fontSize: 11.5, color: 'var(--text-primary)', lineHeight: 1.55, fontWeight: 500 }}>
                           <span style={{ color: cfg.color, fontWeight: 700 }}>En cristiano:</span> {c.plain}
                         </div>
-                        <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55, marginBottom: 8 }}>
+                        <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
                           <span style={{ color: 'var(--text-tertiary)', fontWeight: 700, textTransform: 'uppercase', fontSize: 9, letterSpacing: 1 }}>Por qué importa: </span>
                           {c.why}
                         </div>
+                        {c.ejemplo && (
+                          <div style={{
+                            fontSize: 10.5, color: 'var(--text-secondary)', lineHeight: 1.55,
+                            background: cfg.color + '08', borderRadius: 6, padding: '8px 10px',
+                            border: `1px dashed ${cfg.color}33`,
+                          }}>
+                            <span style={{ fontSize: 12, marginRight: 6 }}>💡</span>
+                            <strong style={{ color: cfg.color }}>Ejemplo:</strong> {c.ejemplo}
+                          </div>
+                        )}
                         <div style={{
                           fontSize: 10, color: 'var(--text-tertiary)', fontStyle: 'italic',
-                          borderLeft: `2px solid ${cfg.color}55`, paddingLeft: 8, marginBottom: 8, lineHeight: 1.5,
+                          borderLeft: `2px solid ${cfg.color}55`, paddingLeft: 8, lineHeight: 1.5,
                         }}>
                           {c.quote}
                         </div>
                         <div style={{
                           fontSize: 10, color: cfg.color, fontFamily: 'var(--fm)', fontWeight: 700,
-                          padding: '4px 8px', background: cfg.color + '11', borderRadius: 5, display: 'inline-block',
+                          padding: '4px 8px', background: cfg.color + '11', borderRadius: 5,
+                          alignSelf: 'flex-start', marginTop: 'auto',
                         }}>
                           🎯 {c.threshold}
                         </div>
