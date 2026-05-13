@@ -1132,6 +1132,27 @@ function buildPositionsFromCB() {
     let cancelled = false;
     const PENDING_KEY = 'ayr-pending-gastos';
     const ERROR_KEY = 'ayr-pending-gastos-error';
+    // Sprint 23.3: cross-tab mutex via localStorage flag. Previene que múltiples
+    // tabs OR el mismo tab corriendo App-level + GastosTab + manualRetry + onOnline
+    // posteen el mismo pending. Pattern detectado: 3 dups con created_at idénticos
+    // al segundo. Server-side dedup también protege como defense final.
+    const LOCK_KEY = 'ayr-pending-gastos-syncing';
+
+    const acquireLock = () => {
+      try {
+        const existing = localStorage.getItem(LOCK_KEY);
+        if (existing) {
+          const ts = parseInt(existing, 10);
+          // Stale lock: >30s old (otra tab crasheó o muy lenta)
+          if (Date.now() - ts < 30_000) return false;
+        }
+        localStorage.setItem(LOCK_KEY, String(Date.now()));
+        return true;
+      } catch { return true; }  // graceful: if storage breaks, proceed
+    };
+    const releaseLock = () => {
+      try { localStorage.removeItem(LOCK_KEY); } catch {}
+    };
 
     const trySyncPending = async () => {
       if (cancelled) return;
@@ -1142,23 +1163,29 @@ function buildPositionsFromCB() {
         localStorage.removeItem(ERROR_KEY);
         return;
       }
-      const remaining = [];
-      const errors = [];
-      for (const entry of pending) {
-        if (cancelled) break;
-        try {
-          await addGasto(entry);
-        } catch (e) {
-          remaining.push(entry);
-          errors.push(`${entry.detail || entry.amount}: ${e.message?.slice(0, 100)}`);
-        }
-      }
-      if (cancelled) return;
+      // Lock: solo 1 sync corre a la vez en TODOS los lugares (App + GastosTab + retry + onOnline)
+      if (!acquireLock()) return;
       try {
-        localStorage.setItem(PENDING_KEY, JSON.stringify(remaining));
-        if (errors.length > 0) localStorage.setItem(ERROR_KEY, JSON.stringify({ ts: new Date().toISOString(), errors }));
-        else localStorage.removeItem(ERROR_KEY);
-      } catch {}
+        const remaining = [];
+        const errors = [];
+        for (const entry of pending) {
+          if (cancelled) break;
+          try {
+            await addGasto(entry);
+          } catch (e) {
+            remaining.push(entry);
+            errors.push(`${entry.detail || entry.amount}: ${e.message?.slice(0, 100)}`);
+          }
+        }
+        if (cancelled) return;
+        try {
+          localStorage.setItem(PENDING_KEY, JSON.stringify(remaining));
+          if (errors.length > 0) localStorage.setItem(ERROR_KEY, JSON.stringify({ ts: new Date().toISOString(), errors }));
+          else localStorage.removeItem(ERROR_KEY);
+        } catch {}
+      } finally {
+        releaseLock();
+      }
     };
 
     // Run immediately + every 60s while app is open

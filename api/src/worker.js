@@ -14233,6 +14233,21 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         const amt = -Math.abs(parseFloat(body.importe) || 0);
         // Auto-detect lugar_tag from description
         const autoLugar = detectLugarTag(body.descripcion || "", body.divisa || "EUR");
+        // Sprint 23.3 dedup: si existe row idéntica creada en últimos 5min,
+        // devolver 200 sin re-insertar. Previene duplicates por race conditions
+        // entre App-level sync + GastosTab sync + manual retry + 'online' event.
+        // Pattern detectado: 3 lugares posteando el mismo pending item en <1s.
+        const dup = await env.DB.prepare(
+          `SELECT rowid as id FROM gastos
+           WHERE fecha = ? AND ABS(importe - ?) < 0.01
+             AND COALESCE(descripcion, '') = COALESCE(?, '')
+             AND categoria = ?
+             AND created_at >= datetime('now', '-5 minutes')
+           LIMIT 1`
+        ).bind(body.fecha, amt, body.descripcion || '', body.categoria).first().catch(() => null);
+        if (dup) {
+          return json({ success: true, duplicate_skipped: true, existing_id: dup.id, lugar_tag: autoLugar }, corsHeaders);
+        }
         await env.DB.prepare(
           `INSERT INTO gastos (fecha, categoria, importe, divisa, descripcion, lugar_tag, china_obligatorio)
            VALUES (?, ?, ?, ?, ?, ?, ?)`
