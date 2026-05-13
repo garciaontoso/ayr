@@ -10327,9 +10327,10 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // fundamentales no cambian intra-día.
       // ═══════════════════════════════════════════════════════════════════
       if (path === "/api/dividendos/aporta-o-aparta" && request.method === "GET") {
-        // v2: 11 criterios agrupados (añadidos PER, P/B, FCF growth YoY del cap 5 libro)
-        const CACHE_KEY = "divs_aporta_aparta_v2";
-        const CACHE_PER_TICKER_PREFIX = "divs_ap_t_v2:";
+        // v4: insider_pct via freeFloat (shares-float endpoint) — FMP no expone
+        // insider ownership directo, esta es la mejor proxy disponible.
+        const CACHE_KEY = "divs_aporta_aparta_v4";
+        const CACHE_PER_TICKER_PREFIX = "divs_ap_t_v4:";
         const force = url.searchParams.get("force") === "1";
         const tickersParam = (url.searchParams.get("tickers") || "").trim();
         // Locales — el FMP_BASE/FMP_KEY globales se declaran más adelante en el archivo (TDZ).
@@ -10402,19 +10403,22 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         async function analyzeOne(ticker) {
           const fmpSym = toFMP(ticker.toUpperCase());
           try {
-            // 4 calls — reducido de 7 para no agotar subrequest limit del worker
-            // (50 en free, 1000 en paid). Eliminados: key-metrics-ttm (data redundante
-            // con ratios-ttm), income-statement (no se usa en cálculo final),
-            // key-metrics annual (insider_pct casi siempre null en FMP).
+            // 5 FMP calls — `shares-float` permite calcular concentración ownership
+            // (proxy de insider + institutional grandes = 100% - freeFloat).
+            // 2026-05-13 v4: FMP NO expone insider_pct directamente en ningún endpoint
+            // Ultimate (probado: profile, key-metrics, v3/key-metrics, v4/shares_float
+            // todos 403 o sin el campo). Lo único disponible es freeFloat (% en público
+            // general). Su inverso es nuestra mejor aproximación.
             const urls = [
               `${FMP_BASE}/profile?symbol=${fmpSym}&apikey=${FMP_KEY}`,
               `${FMP_BASE}/ratios-ttm?symbol=${fmpSym}&apikey=${FMP_KEY}`,
               `${FMP_BASE}/cash-flow-statement?symbol=${fmpSym}&period=annual&limit=2&apikey=${FMP_KEY}`,
               `${FMP_BASE}/financial-growth?symbol=${fmpSym}&period=annual&limit=1&apikey=${FMP_KEY}`,
+              `${FMP_BASE}/shares-float?symbol=${fmpSym}&apikey=${FMP_KEY}`,
             ];
-            // SECUENCIAL: FMP rate-limits paralelas. 7 calls × 3 tickers paralelos = 21
-            // concurrentes y FMP bloquea. Secuencial dentro de cada ticker mantiene
-            // concurrencia = batchSize (e.g. 2) en vez de batchSize × 7.
+            // SECUENCIAL: FMP rate-limits paralelas. 5 calls × 2 tickers paralelos = 10
+            // concurrentes manejables. Secuencial dentro de cada ticker mantiene baja
+            // concurrencia hacia FMP (clave para no chocar con rate-limit).
             const responses = [];
             for (const u of urls) {
               try {
@@ -10422,9 +10426,16 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
                 responses.push(r.ok ? await r.json() : null);
               } catch { responses.push(null); }
             }
-            const [profile, ratiosTtm, cashFlow, growth] = responses;
-            // Variables placeholder eliminadas — no se usan tras simplificación 4 calls
-            const kmTtm = null, kmAnnual = null;
+            const [profile, ratiosTtm, cashFlow, growth, sharesFloat] = responses;
+            const kmTtm = null;
+            const kmAnnual = null;
+            // sharesFloat shape: [{freeFloat: 99.86, floatShares: ..., outstandingShares: ...}]
+            const sf = Array.isArray(sharesFloat) && sharesFloat.length ? sharesFloat[0] : sharesFloat;
+            const freeFloat = pickNum(sf, "freeFloat");  // 0-100 (NO ratio)
+            // Concentración ownership (insider + institutional grandes) ≈ 100 - freeFloat
+            // Lo guardamos como ratio 0-1 para consistencia con yields/payouts.
+            const concentration_pct = freeFloat != null ? (100 - freeFloat) / 100 : null;
+
 
             const p = Array.isArray(profile) ? profile[0] : profile;
             const km = Array.isArray(kmTtm) ? kmTtm[0] : kmTtm;
@@ -10484,8 +10495,9 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             // FCF coverage of dividends (criterio #7)
             const fcfCoverage = (fcf && divsPaid > 0) ? fcf / divsPaid : (fcf > 0 && divsPaid === 0 ? 99 : null);
 
-            // Insider ownership — kmAnnual o estimación
-            const insider_pct = pickNum(kmAnn, "insiderOwnership") ?? null;
+            // Insider ownership real — FMP no lo expone. Usamos concentración ownership
+            // (insider + inst grandes = 100% - freeFloat) como proxy aproximado.
+            const insider_pct = concentration_pct;
 
             // Aplicar 8 criterios
             const isReit = isReitOrUtility(p);
@@ -10510,11 +10522,13 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
                 value: eps5y != null ? eps5y * 100 : null, target: "≥ 5% anual",
                 pass: eps5y != null && eps5y >= 0.05,
                 weight: 1 },
-              { id: 4, group: "calidad", label: "Insider ownership ≥ 15%",
-                value: insider_pct != null ? insider_pct * 100 : null, target: "≥ 15%",
+              { id: 4, group: "calidad", label: "Concentración ownership ≥ 15%",
+                value: insider_pct != null ? insider_pct * 100 : null, target: "≥ 15% (insider + inst.)",
                 pass: insider_pct != null && insider_pct >= 0.15,
+                // Peso 0.5 (peso reducido, no es "insider puro" sino proxy via freeFloat)
                 weight: insider_pct != null ? 0.5 : 0,
-                info_only: insider_pct == null },
+                info_only: insider_pct == null,
+                proxy_note: "Proxy via (100% - freeFloat). Incluye insider + institutional grandes." },
               // ── 💰 DIVIDENDO ───────────────────────────────────────────
               { id: 5, group: "dividendo", label: "Rentabilidad por dividendo ≥ 2%",
                 value: yield_pct != null ? yield_pct * 100 : null, target: "≥ 2%",

@@ -97,13 +97,13 @@ const CRITERIA_EXPLAIN = {
     ejemplo: 'PG sube beneficios ~7-8% anual de forma muy regular (predecible). PYPL ha tenido +40% un año y -25% el siguiente: esa volatilidad SE PAGA en dividendos inestables.',
   },
   4: {
-    title: 'Insider ownership ≥ 15%',
-    plain: 'Los directivos tienen una parte importante de su propia empresa.',
+    title: 'Concentración ownership ≥ 15%',
+    plain: 'Al menos un 15% del capital está en manos concentradas (insiders + institucionales grandes), no disperso entre miles de pequeños.',
     why:
-      'Cuando los directivos tienen "skin in the game" — su patrimonio personal está en las acciones — sus decisiones se alinean con las del accionista a largo plazo. No hay incentivo de inflar el ROI de un trimestre destruyendo la empresa a 5 años. Miller reconoce que en empresas MUY grandes (>$100B cap) este criterio es difícil de cumplir porque la dilución por años de stock options hace que ni los fundadores conserven 15%. Por eso lo marca como criterio SECUNDARIO (peso 0.5 si hay dato, informativo si no). Funciona mejor en small/mid caps donde los fundadores aún tienen control significativo.',
+      'Miller pide específicamente que los DIRECTIVOS tengan al menos 15% de la empresa — para que sus decisiones se alineen con accionistas a largo. FMP Ultimate no expone ese dato exacto en ningún endpoint (probado: profile, key-metrics, v3, v4 — todos vacíos o 403). Lo que SÍ tenemos es el "free float" (% del capital cotizando libremente en mercado público). Su inverso = "concentración ownership" — capital retenido por insiders + institucionales grandes (Vanguard, BlackRock, Berkshire, etc). Es proxy aproximado: no distingue insider puro de institucional, pero detecta el caso opuesto al que Miller advierte (ownership 100% disperso = nadie con incentivo de pelear por la empresa). Peso reducido (0.5) por ser proxy y no funcionar bien en mega caps.',
     quote: 'cap. 5: "Favorecerá a las empresas en las que las personas con información privilegiada posean al menos el 15% de las acciones, y cuanto más, mejor."',
-    threshold: '≥ 15% — funciona mejor en small caps (<$300M)',
-    ejemplo: 'Berkshire Hathaway: Buffett poseía ~30% al inicio. Apple ahora: insider ownership ~0.1% (CEO recibe stock pero no lo retiene). El primero es modelo Miller; el segundo, modelo Wall Street estándar.',
+    threshold: '≥ 15% — proxy via (100% − freeFloat)',
+    ejemplo: 'JNJ: 0.14% (mega cap totalmente dispersa, sin holders concentrados). KO: 9.97% (porque Berkshire tiene ~9%). RICK (small cap fundador-led): 13.6% (casi llega al umbral). Lo ideal Miller son founders-led tipo BRK, donde concentración + insider real es >25%.',
   },
   // 💰 DIVIDENDO
   5: {
