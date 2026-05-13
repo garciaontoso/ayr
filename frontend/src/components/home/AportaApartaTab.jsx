@@ -427,10 +427,9 @@ function GuidePanel({ collapsed, onToggle }) {
                           <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.3 }}>{c.title}</span>
                         </div>
                         <div style={{ fontSize: 11.5, color: 'var(--text-primary)', lineHeight: 1.55, fontWeight: 500 }}>
-                          <span style={{ color: cfg.color, fontWeight: 700 }}>En cristiano:</span> {c.plain}
+                          {c.plain}
                         </div>
                         <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                          <span style={{ color: 'var(--text-tertiary)', fontWeight: 700, textTransform: 'uppercase', fontSize: 9, letterSpacing: 1 }}>Por qué importa: </span>
                           {c.why}
                         </div>
                         {c.ejemplo && (
