@@ -328,95 +328,112 @@ function HistoricalTable({ years, labels, fin, comp, fmpExtra }) {
   };
 
   // ── Format helpers ──
-  const fmtMoney = (val) => val == null ? '—' : (Math.abs(val) >= 1e9 ? `$${(val/1e9).toFixed(1)}B` : Math.abs(val) >= 1e6 ? `$${(val/1e6).toFixed(0)}M` : `$${val.toFixed(0)}`);
-  const fmtPct = (val) => val == null ? '—' : `${val.toFixed(1)}%`;
+  // IMPORTANTE: revenue, netIncome, ocf, fcf, sharesOut YA están en MILLONES (M)
+  // en el objeto fin/comp. fmtMoneyM espera valor en M y formatea $B/$M.
+  // gm, om, roe, roic, nm, etc. son RATIOS 0-1 (no %), fmtPctRatio multiplica ×100.
+  const fmtMoneyM = (val) => val == null ? '—' : (Math.abs(val) >= 1000 ? `$${(val/1000).toFixed(2)}B` : Math.abs(val) >= 1 ? `$${val.toFixed(0)}M` : `$${(val*1000).toFixed(0)}K`);
+  const fmtPctAlready = (val) => val == null ? '—' : `${val.toFixed(1)}%`;  // value already %
+  const fmtPctRatio = (val) => val == null ? '—' : `${(val * 100).toFixed(1)}%`;  // ratio 0-1 → %
   const fmtX = (val) => val == null ? '—' : `${val.toFixed(2)}x`;
   const fmtUsd = (val) => val == null ? '—' : `$${val.toFixed(2)}`;
   const fmtRatio = (val) => val == null ? '—' : val.toFixed(2);
+  const fmtShares = (val) => val == null ? '—' : `${val.toFixed(0)} M`;  // sharesOut already in M
 
   // Color helpers (semáforo por threshold)
+  // ATENCIÓN: gm/om/roe/roic son ratios 0-1, payoutRatio ya es %, yield es %
   const clr = {
     yld: v => v == null ? 'var(--text-tertiary)' : v >= 4 ? 'var(--green)' : v >= 2 ? 'var(--gold)' : 'var(--text-secondary)',
     payout: v => v == null ? 'var(--text-tertiary)' : v < 60 ? 'var(--green)' : v < 90 ? 'var(--gold)' : 'var(--red)',
     de: v => v == null ? 'var(--text-tertiary)' : v < 1 ? 'var(--green)' : v < 2 ? 'var(--gold)' : 'var(--red)',
     fcfCov: v => v == null ? 'var(--text-tertiary)' : v >= 1.5 ? 'var(--green)' : v >= 1 ? 'var(--gold)' : 'var(--red)',
-    roe: v => v == null ? 'var(--text-tertiary)' : v >= 15 ? 'var(--green)' : v >= 10 ? 'var(--gold)' : 'var(--text-secondary)',
-    roic: v => v == null ? 'var(--text-tertiary)' : v >= 10 ? 'var(--green)' : v >= 5 ? 'var(--gold)' : 'var(--text-secondary)',
+    roe: v => v == null ? 'var(--text-tertiary)' : v >= 0.15 ? 'var(--green)' : v >= 0.10 ? 'var(--gold)' : 'var(--text-secondary)',
+    roic: v => v == null ? 'var(--text-tertiary)' : v >= 0.10 ? 'var(--green)' : v >= 0.05 ? 'var(--gold)' : 'var(--text-secondary)',
+    margin: v => v == null ? 'var(--text-tertiary)' : v >= 0.20 ? 'var(--green)' : v >= 0.10 ? 'var(--gold)' : 'var(--text-secondary)',
     pe: v => v == null ? 'var(--text-tertiary)' : v < 20 ? 'var(--green)' : v < 30 ? 'var(--gold)' : 'var(--red)',
     pos: v => v == null ? 'var(--text-tertiary)' : v >= 0 ? 'var(--green)' : 'var(--red)',
     none: () => 'var(--text-primary)',
   };
 
   // ── Group definitions: each group has rows + charts ──
+  // Field name conventions:
+  //   fin[y].revenue/netIncome/ocf/eps/dps/sharesOut/totalDebt/cash/equity/capex → already in M (millones)
+  //   comp[y].fcf/netDebt/ebitda/ev → in M
+  //   comp[y].gm/om/nm/roe/roic/fcfm/cfm → RATIO 0-1 (use fmtPctRatio o multiply ×100)
+  //   comp[y].de/d2fcf/eve/pb → unitless ratios (no transform)
   const GROUPS = [
     {
       title: '📈 CRECIMIENTO',
       color: '#fb923c',
       rows: [
-        { label: 'Ventas (Revenue)', get: y => v(y, 'fin', 'revenue'), fmt: fmtMoney, color: clr.none, cagr: true },
-        { label: 'Ventas YoY %', get: (y, i) => i > 0 ? yoy(y, years[i-1], 'fin', 'revenue') : null, fmt: fmtPct, color: clr.pos },
+        { label: 'Ventas (Revenue)', get: y => v(y, 'fin', 'revenue'), fmt: fmtMoneyM, color: clr.none, cagr: true },
+        { label: 'Ventas YoY %', get: (y, i) => i > 0 ? yoy(y, years[i-1], 'fin', 'revenue') : null, fmt: fmtPctAlready, color: clr.pos },
         { label: 'EPS', get: y => v(y, 'fin', 'eps'), fmt: fmtUsd, color: clr.none, cagr: true },
-        { label: 'EPS YoY %', get: (y, i) => i > 0 ? yoy(y, years[i-1], 'fin', 'eps') : null, fmt: fmtPct, color: clr.pos },
-        { label: 'Net Income', get: y => v(y, 'fin', 'netIncome'), fmt: fmtMoney, color: clr.none, cagr: true },
+        { label: 'EPS YoY %', get: (y, i) => i > 0 ? yoy(y, years[i-1], 'fin', 'eps') : null, fmt: fmtPctAlready, color: clr.pos },
+        { label: 'Net Income', get: y => v(y, 'fin', 'netIncome'), fmt: fmtMoneyM, color: clr.none, cagr: true },
       ],
       charts: [
-        { label: 'Ventas (Revenue)', get: y => v(y, 'fin', 'revenue'), color: '#64d2ff', fmt: v => v >= 1e9 ? `$${(v/1e9).toFixed(1)}B` : `$${(v/1e6).toFixed(0)}M` },
-        { label: 'EPS', get: y => v(y, 'fin', 'eps'), color: '#bf5af2', fmt: v => `$${v.toFixed(2)}` },
-        { label: 'Net Income', get: y => v(y, 'fin', 'netIncome'), color: '#34d399', fmt: v => v >= 1e9 ? `$${(v/1e9).toFixed(1)}B` : `$${(v/1e6).toFixed(0)}M` },
+        { label: 'Ventas (Revenue)', get: y => v(y, 'fin', 'revenue'), color: '#64d2ff', fmt: fmtMoneyM },
+        { label: 'EPS', get: y => v(y, 'fin', 'eps'), color: '#bf5af2', fmt: fmtUsd },
+        { label: 'Net Income', get: y => v(y, 'fin', 'netIncome'), color: '#34d399', fmt: fmtMoneyM },
       ],
     },
     {
       title: '💵 CASH FLOW',
       color: '#34d399',
       rows: [
-        { label: 'OCF (Operating CF)', get: y => v(y, 'fin', 'ocf'), fmt: fmtMoney, color: clr.none, cagr: true },
-        { label: 'Capex (= OCF − FCF)', get: capex, fmt: fmtMoney, color: clr.none },
-        { label: 'FCF (Free Cash Flow)', get: y => v(y, 'comp', 'fcf'), fmt: fmtMoney, color: clr.none, cagr: true },
-        { label: 'FCF YoY %', get: (y, i) => i > 0 ? yoy(y, years[i-1], 'comp', 'fcf') : null, fmt: fmtPct, color: clr.pos },
-        { label: 'FCF/Ventas %', get: y => { const f = v(y,'comp','fcf'); const r = v(y,'fin','revenue'); return f && r ? (f/r)*100 : null; }, fmt: fmtPct, color: clr.none },
+        { label: 'OCF (Operating CF)', get: y => v(y, 'fin', 'ocf'), fmt: fmtMoneyM, color: clr.none, cagr: true },
+        { label: 'Capex', get: y => v(y, 'fin', 'capex'), fmt: fmtMoneyM, color: clr.none },
+        { label: 'FCF (Free Cash Flow)', get: y => v(y, 'comp', 'fcf'), fmt: fmtMoneyM, color: clr.none, cagr: true },
+        { label: 'FCF YoY %', get: (y, i) => i > 0 ? yoy(y, years[i-1], 'comp', 'fcf') : null, fmt: fmtPctAlready, color: clr.pos },
+        { label: 'FCF/Ventas %', get: y => v(y, 'comp', 'fcfm'), fmt: fmtPctRatio, color: clr.margin },
       ],
       charts: [
-        { label: 'OCF', get: y => v(y, 'fin', 'ocf'), color: '#34d399', fmt: v => v >= 1e9 ? `$${(v/1e9).toFixed(1)}B` : `$${(v/1e6).toFixed(0)}M` },
-        { label: 'FCF', get: y => v(y, 'comp', 'fcf'), color: '#22c55e', fmt: v => v >= 1e9 ? `$${(v/1e9).toFixed(1)}B` : `$${(v/1e6).toFixed(0)}M` },
-        { label: 'Capex', get: capex, color: '#d4af37', fmt: v => v >= 1e9 ? `$${(v/1e9).toFixed(1)}B` : `$${(v/1e6).toFixed(0)}M` },
+        { label: 'OCF', get: y => v(y, 'fin', 'ocf'), color: '#34d399', fmt: fmtMoneyM },
+        { label: 'FCF', get: y => v(y, 'comp', 'fcf'), color: '#22c55e', fmt: fmtMoneyM },
+        { label: 'Capex', get: y => v(y, 'fin', 'capex'), color: '#d4af37', fmt: fmtMoneyM },
       ],
     },
     {
       title: '📊 MÁRGENES',
       color: '#34d399',
       rows: [
-        { label: 'Margen Bruto %', get: y => v(y, 'comp', 'gm'), fmt: fmtPct, color: clr.none },
-        { label: 'Margen Operativo %', get: y => v(y, 'comp', 'om'), fmt: fmtPct, color: clr.none },
+        { label: 'Margen Bruto %', get: y => v(y, 'comp', 'gm'), fmt: fmtPctRatio, color: clr.margin },
+        { label: 'Margen Operativo %', get: y => v(y, 'comp', 'om'), fmt: fmtPctRatio, color: clr.margin },
+        { label: 'Margen Neto %', get: y => v(y, 'comp', 'nm'), fmt: fmtPctRatio, color: clr.margin },
       ],
       charts: [
-        { label: 'Margen Bruto %', get: y => v(y, 'comp', 'gm'), color: '#34d399', fmt: v => `${v.toFixed(1)}%` },
-        { label: 'Margen Operativo %', get: y => v(y, 'comp', 'om'), color: '#22c55e', fmt: v => `${v.toFixed(1)}%` },
+        { label: 'Margen Bruto %', get: y => v(y, 'comp', 'gm'), color: '#34d399', fmt: fmtPctRatio },
+        { label: 'Margen Operativo %', get: y => v(y, 'comp', 'om'), color: '#22c55e', fmt: fmtPctRatio },
+        { label: 'Margen Neto %', get: y => v(y, 'comp', 'nm'), color: '#10b981', fmt: fmtPctRatio },
       ],
     },
     {
       title: '🎯 RETURNS',
       color: '#c8a44e',
       rows: [
-        { label: 'ROE %', get: y => v(y, 'comp', 'roe'), fmt: fmtPct, color: clr.roe },
-        { label: 'ROIC %', get: y => v(y, 'comp', 'roic'), fmt: fmtPct, color: clr.roic },
+        { label: 'ROE %', get: y => v(y, 'comp', 'roe'), fmt: fmtPctRatio, color: clr.roe },
+        { label: 'ROIC %', get: y => v(y, 'comp', 'roic'), fmt: fmtPctRatio, color: clr.roic },
       ],
       charts: [
-        { label: 'ROE %', get: y => v(y, 'comp', 'roe'), color: '#c8a44e', fmt: v => `${v.toFixed(1)}%` },
-        { label: 'ROIC %', get: y => v(y, 'comp', 'roic'), color: '#d4af37', fmt: v => `${v.toFixed(1)}%` },
+        { label: 'ROE %', get: y => v(y, 'comp', 'roe'), color: '#c8a44e', fmt: fmtPctRatio },
+        { label: 'ROIC %', get: y => v(y, 'comp', 'roic'), color: '#d4af37', fmt: fmtPctRatio },
       ],
     },
     {
       title: '🏛 BALANCE',
       color: '#a78bfa',
       rows: [
-        { label: 'D/Equity', get: y => v(y, 'comp', 'de'), fmt: fmtRatio, color: clr.de },
+        { label: 'Deuda Total', get: y => v(y, 'fin', 'totalDebt'), fmt: fmtMoneyM, color: clr.none },
+        { label: 'Cash', get: y => v(y, 'fin', 'cash'), fmt: fmtMoneyM, color: clr.none },
+        { label: 'Equity (Patrimonio)', get: y => v(y, 'fin', 'equity'), fmt: fmtMoneyM, color: clr.none, cagr: true },
+        { label: 'D/Equity', get: y => { const d = v(y,'fin','totalDebt'); const e = v(y,'fin','equity'); return e > 0 ? d/e : null; }, fmt: fmtRatio, color: clr.de },
         { label: 'Deuda/FCF', get: y => v(y, 'comp', 'd2fcf'), fmt: fmtX, color: clr.de },
         { label: 'EV/EBITDA', get: y => v(y, 'comp', 'eve'), fmt: fmtX, color: clr.none },
       ],
       charts: [
-        { label: 'D/Equity', get: y => v(y, 'comp', 'de'), color: '#a78bfa', fmt: v => v.toFixed(2) },
-        { label: 'Deuda/FCF', get: y => v(y, 'comp', 'd2fcf'), color: '#8b5cf6', fmt: v => `${v.toFixed(1)}x` },
-        { label: 'EV/EBITDA', get: y => v(y, 'comp', 'eve'), color: '#5b9bd5', fmt: v => `${v.toFixed(1)}x` },
+        { label: 'Deuda Total', get: y => v(y, 'fin', 'totalDebt'), color: '#ef4444', fmt: fmtMoneyM },
+        { label: 'Equity', get: y => v(y, 'fin', 'equity'), color: '#a78bfa', fmt: fmtMoneyM },
+        { label: 'EV/EBITDA', get: y => v(y, 'comp', 'eve'), color: '#5b9bd5', fmt: fmtX },
       ],
     },
     {
@@ -424,26 +441,30 @@ function HistoricalTable({ years, labels, fin, comp, fmpExtra }) {
       color: '#22c55e',
       rows: [
         { label: 'DPS (Div/Acción)', get: y => v(y, 'fin', 'dps'), fmt: fmtUsd, color: clr.none, cagr: true },
-        { label: 'DPS YoY %', get: (y, i) => i > 0 ? yoy(y, years[i-1], 'fin', 'dps') : null, fmt: fmtPct, color: clr.pos },
-        { label: 'Yield %', get: yieldOnEOY, fmt: fmtPct, color: clr.yld },
-        { label: 'Payout (DPS/EPS) %', get: payoutRatio, fmt: fmtPct, color: clr.payout },
+        { label: 'DPS YoY %', get: (y, i) => i > 0 ? yoy(y, years[i-1], 'fin', 'dps') : null, fmt: fmtPctAlready, color: clr.pos },
+        { label: 'Payout (DPS/EPS) %', get: payoutRatio, fmt: fmtPctAlready, color: clr.payout },
         { label: 'FCF cubre Div', get: fcfCoverage, fmt: fmtX, color: clr.fcfCov },
+        { label: 'Dividendos pagados', get: y => v(y, 'fin', 'dividendsPaid'), fmt: fmtMoneyM, color: clr.none },
       ],
       charts: [
-        { label: 'DPS', get: y => v(y, 'fin', 'dps'), color: '#ff9f0a', fmt: v => `$${v.toFixed(2)}` },
-        { label: 'Yield %', get: yieldOnEOY, color: '#22c55e', fmt: v => `${v.toFixed(2)}%` },
-        { label: 'Payout %', get: payoutRatio, color: '#d4af37', fmt: v => `${v.toFixed(0)}%` },
-        { label: 'FCF/Div coverage', get: fcfCoverage, color: '#34d399', fmt: v => `${v.toFixed(1)}x` },
+        { label: 'DPS', get: y => v(y, 'fin', 'dps'), color: '#ff9f0a', fmt: fmtUsd },
+        { label: 'Payout %', get: payoutRatio, color: '#d4af37', fmt: fmtPctAlready },
+        { label: 'FCF/Div coverage', get: fcfCoverage, color: '#34d399', fmt: fmtX },
       ],
     },
     {
-      title: '🪙 ACCIONES',
+      title: '🪙 ACCIONES & ALLOCATION',
       color: '#64d2ff',
       rows: [
-        { label: 'Shares Out (M)', get: y => { const s = v(y, 'fin', 'sharesOutstanding'); return s ? s / 1e6 : null; }, fmt: v => v == null ? '—' : v.toFixed(0)+' M', color: clr.none },
+        { label: 'Shares Out (M)', get: y => v(y, 'fin', 'sharesOut'), fmt: fmtShares, color: clr.none },
+        { label: 'Buybacks (recompras)', get: y => v(y, 'fin', 'buybacks'), fmt: fmtMoneyM, color: clr.none },
+        { label: 'Debt Repayment', get: y => v(y, 'fin', 'debtRepayment'), fmt: fmtMoneyM, color: clr.none },
+        { label: 'Adquisiciones (M&A)', get: y => v(y, 'fin', 'acquisitions'), fmt: fmtMoneyM, color: clr.none },
       ],
       charts: [
-        { label: 'Shares Outstanding (M)', get: y => { const s = v(y, 'fin', 'sharesOutstanding'); return s ? s / 1e6 : null; }, color: '#64d2ff', fmt: v => `${v.toFixed(0)} M` },
+        { label: 'Shares Outstanding (M)', get: y => v(y, 'fin', 'sharesOut'), color: '#64d2ff', fmt: fmtShares },
+        { label: 'Buybacks $', get: y => v(y, 'fin', 'buybacks'), color: '#60a5fa', fmt: fmtMoneyM },
+        { label: 'Debt Repayment', get: y => v(y, 'fin', 'debtRepayment'), color: '#a78bfa', fmt: fmtMoneyM },
       ],
     },
   ];
