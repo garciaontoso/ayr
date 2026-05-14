@@ -21,6 +21,7 @@ const CostBasisView = lazy(() => import('./components/views/CostBasisView'));
 
 // ─── Lazy-loaded analysis tabs ───
 const DashTab = lazy(() => import('./components/analysis/DashTab'));
+const CockpitTab = lazy(() => import('./components/analysis/CockpitTab'));
 const ChartTab = lazy(() => import('./components/analysis/ChartTab'));
 const ClaudeTab = lazy(() => import('./components/analysis/ClaudeTab'));
 const VeredictoExpertoTab = lazy(() => import('./components/analysis/VeredictoExpertoTab'));
@@ -2107,6 +2108,7 @@ function buildPositionsFromCB() {
     tesis:() => <TesisTab />,
     directiva:() => <DirectivaTab />,
     "cost-basis":() => <CostBasisView />,
+    cockpit:() => <CockpitTab />,
   };
 
 

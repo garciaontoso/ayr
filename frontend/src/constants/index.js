@@ -60,6 +60,7 @@ export const DEFAULT_WHT_NET = 0.90;
 
 export const TABS = [
   {id:"dash",lbl:"Resumen",ico:"◈"},
+  {id:"cockpit",lbl:"Cockpit",ico:"🎯"},
   {id:"cost-basis",lbl:"Cost Basis",ico:"📋"},
   {id:"tesis",lbl:"Tesis",ico:"📝"},
   {id:"directiva",lbl:"Directiva",ico:"👥"},
