@@ -14161,6 +14161,427 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return json(results, corsHeaders);
       }
 
+      // ═══════════════════════════════════════════════════════════════════
+      // GET /api/dividendos/aporta-o-aparta
+      //
+      // "Divis: Aporta o Aparta" — filtro de criterios del libro de Lowell
+      // Miller "La Mejor Inversión: Crea riqueza con dividendos crecientes"
+      // (2026-05-13 — request del usuario).
+      //
+      // Aplica 8 criterios cuantitativos a cada posición US ≥100 shares y
+      // calcula breakdown del Free Cash Flow para gráfico donut.
+      //
+      // Criterios del libro (citas en español):
+      //  1. Precio/Ventas < 1.5      (cap 5: "Las acciones con menor P/S
+      //                                 casi cuadruplican rendimiento")
+      //  2. Yield ≥ 2%                (cap 4: "alta rentabilidad por
+      //                                 dividendo" — vs SP500 ~1.6%)
+      //  3. Crecimiento divs 5y ≥ 4% (cap 4: "tasa mínima debería ser
+      //                                 alrededor del 4% — superar inflación")
+      //  4. Crecimiento beneficios 5y ≥ 5%
+      //                              (cap 4: "el crecimiento anual de los
+      //                                 beneficios debe ser constante, y
+      //                                 debe estar en el rango del 5-10%")
+      //  5. Payout ratio < 60%       ("inferior al 60% en casi todos los
+      //                                 valores, excepto utilities y REITs")
+      //  6. Debt/Equity < 1.0        ("cuanto menor sea la deuda, mejor")
+      //  7. FCF cubre divs ≥ 1.5x    ("flujo de caja amplio para financiar
+      //                                 dividendos + inversión")
+      //  8. Insider ownership ≥ 15%  ("favorecerá a empresas donde insiders
+      //                                 posean al menos el 15%")
+      //
+      // Veredicto:
+      //   APORTA   → ≥6/8 criterios pass
+      //   VIGILAR  → 4-5/8 pass
+      //   APARTA   → <4/8 pass
+      //
+      // FCF allocation breakdown (para donut chart):
+      //   - Dividendos pagados
+      //   - Recompra de acciones (buybacks)
+      //   - Amortización de deuda (debt repayment)
+      //   - Capex (capital expenditures)
+      //   - Cash retenido / otros (resto)
+      //
+      // Cache 24h en analytics_cache porque FMP rate-limited y los
+      // fundamentales no cambian intra-día.
+      // ═══════════════════════════════════════════════════════════════════
+      if (path === "/api/dividendos/aporta-o-aparta" && request.method === "GET") {
+        // v4: insider_pct via freeFloat (shares-float endpoint) — FMP no expone
+        // insider ownership directo, esta es la mejor proxy disponible.
+        const CACHE_KEY = "divs_aporta_aparta_v4";
+        const CACHE_PER_TICKER_PREFIX = "divs_ap_t_v4:";
+        const force = url.searchParams.get("force") === "1";
+        const tickersParam = (url.searchParams.get("tickers") || "").trim();
+        // Locales — el FMP_BASE/FMP_KEY globales se declaran más adelante en el archivo (TDZ).
+        const FMP_BASE = "https://financialmodelingprep.com/stable";
+        const FMP_KEY = env.FMP_KEY;
+        if (!FMP_KEY) return json({ error: "FMP_KEY not configured" }, corsHeaders, 500);
+
+        // Check cache (sólo si el cache existente tiene datos de buena calidad)
+        if (!force && !tickersParam) {
+          try {
+            const cached = await env.DB.prepare(
+              "SELECT data, updated_at FROM analytics_cache WHERE key = ?"
+            ).bind(CACHE_KEY).first();
+            if (cached && cached.data) {
+              const updatedAt = new Date(cached.updated_at + "Z").getTime();
+              const ageMs = Date.now() - updatedAt;
+              const parsed = JSON.parse(cached.data);
+              // Sólo devolver cache si era de buena calidad. Si era parcial,
+              // forzar refresh para aprovechar per-ticker cache nuevo.
+              if (ageMs < 24 * 3600 * 1000 && parsed.data_quality_ok !== false) {
+                return json({ ...parsed, cached: true, cache_age_h: Math.round(ageMs/3600000*10)/10 }, corsHeaders);
+              }
+            }
+          } catch {}
+        }
+        // Si force=1, invalidar cache global viejo para que el próximo no-force
+        // pueda probar resultados frescos.
+        if (force && !tickersParam) {
+          try { await env.DB.prepare("DELETE FROM analytics_cache WHERE key = ?").bind(CACHE_KEY).run(); } catch {}
+        }
+
+        // Cuáles tickers analizar: parámetro o todos US ≥100 sh
+        let tickers;
+        if (tickersParam) {
+          tickers = tickersParam.split(",").map(t => t.trim()).filter(Boolean);
+        } else {
+          const { results: posResults } = await env.DB.prepare(
+            `SELECT ticker, SUM(shares) as total_shares
+             FROM positions
+             WHERE shares >= 100 AND ticker NOT LIKE '%:%' AND ticker NOT LIKE '%.%'
+             GROUP BY ticker
+             HAVING total_shares >= 100
+             ORDER BY total_shares DESC
+             LIMIT 60`
+          ).all();
+          tickers = (posResults || []).map(r => r.ticker);
+        }
+
+        if (!tickers.length) return json({ ok: true, n: 0, tickers: [], results: [] }, corsHeaders);
+
+        // Helper: extract numeric field with multiple FMP schema fallbacks
+        function pickNum(obj, ...keys) {
+          if (!obj) return null;
+          for (const k of keys) {
+            const v = obj[k];
+            if (v !== undefined && v !== null && Number.isFinite(Number(v))) return Number(v);
+          }
+          return null;
+        }
+
+        // REIT/Utility sector detection (relaxes payout criterion)
+        function isReitOrUtility(profile) {
+          const sector = (profile?.sector || "").toLowerCase();
+          const industry = (profile?.industry || "").toLowerCase();
+          return sector.includes("real estate") || sector.includes("utilities") ||
+                 industry.includes("reit") || industry.includes("utilit");
+        }
+
+        // Fetch all data for one ticker, returning {ticker, criteria, fcf_alloc}
+        async function analyzeOne(ticker) {
+          const fmpSym = toFMP(ticker.toUpperCase());
+          try {
+            // 5 FMP calls — `shares-float` permite calcular concentración ownership
+            // (proxy de insider + institutional grandes = 100% - freeFloat).
+            // 2026-05-13 v4: FMP NO expone insider_pct directamente en ningún endpoint
+            // Ultimate (probado: profile, key-metrics, v3/key-metrics, v4/shares_float
+            // todos 403 o sin el campo). Lo único disponible es freeFloat (% en público
+            // general). Su inverso es nuestra mejor aproximación.
+            const urls = [
+              `${FMP_BASE}/profile?symbol=${fmpSym}&apikey=${FMP_KEY}`,
+              `${FMP_BASE}/ratios-ttm?symbol=${fmpSym}&apikey=${FMP_KEY}`,
+              `${FMP_BASE}/cash-flow-statement?symbol=${fmpSym}&period=annual&limit=2&apikey=${FMP_KEY}`,
+              `${FMP_BASE}/financial-growth?symbol=${fmpSym}&period=annual&limit=1&apikey=${FMP_KEY}`,
+              `${FMP_BASE}/shares-float?symbol=${fmpSym}&apikey=${FMP_KEY}`,
+            ];
+            // SECUENCIAL: FMP rate-limits paralelas. 5 calls × 2 tickers paralelos = 10
+            // concurrentes manejables. Secuencial dentro de cada ticker mantiene baja
+            // concurrencia hacia FMP (clave para no chocar con rate-limit).
+            const responses = [];
+            for (const u of urls) {
+              try {
+                const r = await fetch(u);
+                responses.push(r.ok ? await r.json() : null);
+              } catch { responses.push(null); }
+            }
+            const [profile, ratiosTtm, cashFlow, growth, sharesFloat] = responses;
+            const kmTtm = null;
+            const kmAnnual = null;
+            // sharesFloat shape: [{freeFloat: 99.86, floatShares: ..., outstandingShares: ...}]
+            const sf = Array.isArray(sharesFloat) && sharesFloat.length ? sharesFloat[0] : sharesFloat;
+            const freeFloat = pickNum(sf, "freeFloat");  // 0-100 (NO ratio)
+            // Concentración ownership (insider + institutional grandes) ≈ 100 - freeFloat
+            // Lo guardamos como ratio 0-1 para consistencia con yields/payouts.
+            const concentration_pct = freeFloat != null ? (100 - freeFloat) / 100 : null;
+
+
+            const p = Array.isArray(profile) ? profile[0] : profile;
+            const km = Array.isArray(kmTtm) ? kmTtm[0] : kmTtm;
+            const rt = Array.isArray(ratiosTtm) ? ratiosTtm[0] : ratiosTtm;
+            const incLatest = null;  // income-statement eliminada (no usada en cálculo final)
+            const cfLatest = Array.isArray(cashFlow) && cashFlow.length ? cashFlow[0] : null;
+            const gr = Array.isArray(growth) && growth.length ? growth[0] : null;
+            const kmAnn = Array.isArray(kmAnnual) && kmAnnual.length ? kmAnnual[0] : null;
+
+            // Metrics extraction — campos FMP verificados 2026-05-13 con debug endpoint
+            const price = pickNum(p, "price");
+            const yield_pct = pickNum(rt, "dividendYieldTTM", "dividendYield");
+            const ps = pickNum(rt, "priceToSalesRatioTTM", "priceToSalesRatio") ?? pickNum(km, "priceToSalesRatioTTM");
+            const payout = pickNum(rt, "dividendPayoutRatioTTM", "payoutRatioTTM", "payoutRatio");
+            const debtEquity = pickNum(rt, "debtToEquityRatioTTM", "debtToEquityRatio", "debtEquityRatio") ?? pickNum(km, "debtToEquityRatioTTM");
+            // 2026-05-13 v2: añadidos PER, P/B, cash-growth para completar los criterios
+            // del cap 5 del libro de Lowell Miller ("Las medidas de valoración tradicionales
+            // que pueden ser útiles son: P/V<1.5, PER<media, P/B<mercado, liquidez>año anterior...").
+            const per = pickNum(rt, "priceToEarningsRatioTTM", "peRatioTTM", "priceEarningsRatioTTM", "priceEarningsRatio") ?? pickNum(km, "priceEarningsRatioTTM");
+            const pb = pickNum(rt, "priceToBookRatioTTM", "pbRatioTTM", "priceBookValueRatioTTM", "priceToBookRatio") ?? pickNum(km, "priceToBookRatioTTM");
+
+            // 5y growth — usar fields fiveY*PerShare que son CAGR real, no TTM
+            const div5y = pickNum(gr, "fiveYDividendperShareGrowthPerShare", "dividendsPerShareGrowth", "dividendsperShareGrowth");
+            const eps5y = pickNum(gr, "fiveYNetIncomeGrowthPerShare", "fiveYBottomLineNetIncomeGrowthPerShare", "epsgrowth");
+            const rev5y = pickNum(gr, "fiveYRevenueGrowthPerShare", "revenueGrowth");
+            // Cash growth YoY: usar freeCashFlowGrowth (year-over-year) — proxy de "liquidez
+            // creciente" del libro, ya que cash en balance puede variar por buybacks/divs/etc
+            // mientras que FCF growth refleja salud operativa real.
+            const fcfGrowthYoY = pickNum(gr, "freeCashFlowGrowth", "operatingCashFlowGrowth");
+
+            // FCF data from cash flow statement
+            const fcf = pickNum(cfLatest, "freeCashFlow");
+            const divsPaid = Math.abs(pickNum(cfLatest, "commonDividendsPaid", "dividendsPaid") ?? 0);
+            const buybacks = Math.abs(pickNum(cfLatest, "commonStockRepurchased") ?? 0);
+            const debtRepay = pickNum(cfLatest, "netDebtIssuance", "debtRepayment") ?? 0;
+            // debtRepay positive = issued debt (received cash); negative = repaid (used cash)
+            // Para gráfico queremos % usado en pagar deuda → si netDebtIssuance es negativo, ese módulo = repayment
+            const debtPaydown = debtRepay < 0 ? Math.abs(debtRepay) : 0;
+            const capex = Math.abs(pickNum(cfLatest, "capitalExpenditure") ?? 0);
+            const ocf = pickNum(cfLatest, "operatingCashFlow", "netCashProvidedByOperatingActivities") ?? 0;
+
+            // FCF allocation as % of OCF (operating cash flow) for clearer denominator
+            // (OCF cubre todo: capex + divs + buybacks + debt). Si usamos FCF puro algunas
+            // categorías se solapan (capex ya está restado de FCF).
+            const denom = Math.max(ocf, divsPaid + buybacks + debtPaydown + capex);
+            const fcfAlloc = denom > 0 ? {
+              dividends:   Math.round(divsPaid / denom * 1000) / 10,
+              buybacks:    Math.round(buybacks / denom * 1000) / 10,
+              debt_paydown:Math.round(debtPaydown / denom * 1000) / 10,
+              capex:       Math.round(capex / denom * 1000) / 10,
+              retained:    Math.max(0, Math.round((denom - divsPaid - buybacks - debtPaydown - capex) / denom * 1000) / 10),
+              denom_usd:   denom,
+              ocf_usd:     ocf,
+              fcf_usd:     fcf,
+            } : null;
+
+            // FCF coverage of dividends (criterio #7)
+            const fcfCoverage = (fcf && divsPaid > 0) ? fcf / divsPaid : (fcf > 0 && divsPaid === 0 ? 99 : null);
+
+            // Insider ownership real — FMP no lo expone. Usamos concentración ownership
+            // (insider + inst grandes = 100% - freeFloat) como proxy aproximado.
+            const insider_pct = concentration_pct;
+
+            // Aplicar 8 criterios
+            const isReit = isReitOrUtility(p);
+            const payoutThreshold = isReit ? 0.95 : 0.60;
+
+            // 11 criterios agrupados en 4 categorías del libro de Lowell Miller:
+            //   🏛 CALIDAD (cap 4): deuda, FCF, estabilidad beneficios, insiders
+            //   💰 DIVIDENDO (cap 4): yield, growth divs, payout
+            //   🔍 VALORACIÓN (cap 5): P/S, PER, P/B
+            //   📈 CRECIMIENTO (cap 5): FCF growth YoY (proxy de "liquidez creciente")
+            const criteria = [
+              // ── 🏛 CALIDAD ─────────────────────────────────────────────
+              { id: 1, group: "calidad", label: "Deuda baja (D/E < 1.0)",
+                value: debtEquity, target: "< 1.0",
+                pass: debtEquity != null && debtEquity < 1.0 && debtEquity >= 0,
+                weight: 1 },
+              { id: 2, group: "calidad", label: "FCF cubre dividendos ≥ 1.5x",
+                value: fcfCoverage, target: "≥ 1.5x",
+                pass: fcfCoverage != null && fcfCoverage >= 1.5,
+                weight: 1 },
+              { id: 3, group: "calidad", label: "Crecimiento beneficios 5y ≥ 5%",
+                value: eps5y != null ? eps5y * 100 : null, target: "≥ 5% anual",
+                pass: eps5y != null && eps5y >= 0.05,
+                weight: 1 },
+              { id: 4, group: "calidad", label: "Concentración ownership ≥ 15%",
+                value: insider_pct != null ? insider_pct * 100 : null, target: "≥ 15% (insider + inst.)",
+                pass: insider_pct != null && insider_pct >= 0.15,
+                // Peso 0.5 (peso reducido, no es "insider puro" sino proxy via freeFloat)
+                weight: insider_pct != null ? 0.5 : 0,
+                info_only: insider_pct == null,
+                proxy_note: "Proxy via (100% - freeFloat). Incluye insider + institutional grandes." },
+              // ── 💰 DIVIDENDO ───────────────────────────────────────────
+              { id: 5, group: "dividendo", label: "Rentabilidad por dividendo ≥ 2%",
+                value: yield_pct != null ? yield_pct * 100 : null, target: "≥ 2%",
+                pass: yield_pct != null && yield_pct >= 0.02,
+                weight: 1 },
+              { id: 6, group: "dividendo", label: "Crecimiento dividendos 5y ≥ 4%",
+                value: div5y != null ? div5y * 100 : null, target: "≥ 4% anual",
+                pass: div5y != null && div5y >= 0.04,
+                weight: 1 },
+              { id: 7, group: "dividendo", label: isReit ? "Payout < 95% (REIT/Utility)" : "Payout < 60%",
+                value: payout != null ? payout * 100 : null,
+                target: isReit ? "< 95%" : "< 60%",
+                pass: payout != null && payout < payoutThreshold && payout > 0,
+                weight: 1 },
+              // ── 🔍 VALORACIÓN ──────────────────────────────────────────
+              { id: 8, group: "valoracion", label: "Precio/Ventas < 1.5",
+                value: ps, target: "< 1.5",
+                pass: ps != null && ps < 1.5,
+                weight: 1 },
+              { id: 9, group: "valoracion", label: "PER < 20",
+                value: per, target: "< 20 (proxy media histórica SP500 ~16-18x)",
+                pass: per != null && per > 0 && per < 20,
+                weight: 1 },
+              { id: 10, group: "valoracion", label: "Precio/Valor contable < 3",
+                value: pb, target: "< 3 (proxy media mercado)",
+                pass: pb != null && pb > 0 && pb < 3,
+                weight: 1 },
+              // ── 📈 CRECIMIENTO ─────────────────────────────────────────
+              { id: 11, group: "crecimiento", label: "FCF creciente YoY",
+                value: fcfGrowthYoY != null ? fcfGrowthYoY * 100 : null,
+                target: "> 0% (liquidez creciente)",
+                pass: fcfGrowthYoY != null && fcfGrowthYoY > 0,
+                weight: 1 },
+            ];
+
+            // Score: cuenta como "evaluables" sólo los criterios con weight > 0
+            const evaluable = criteria.filter(c => c.weight > 0);
+            const passCount = evaluable.filter(c => c.pass).length;
+            const totalCount = evaluable.length;  // típicamente 10 u 11
+            const totalWeight = evaluable.reduce((s, c) => s + c.weight, 0);
+            const passWeight = evaluable.filter(c => c.pass).reduce((s, c) => s + c.weight, 0);
+            const scorePct = totalWeight > 0 ? Math.round(passWeight / totalWeight * 100) : 0;
+
+            // Veredicto: APORTA ≥70%, VIGILAR 45-70%, APARTA <45%.
+            // (Es muy difícil cumplir 11/11 — incluso las mejores caen en 8-9. Por eso 70%.)
+            let verdict;
+            const passRatio = totalCount > 0 ? passCount / totalCount : 0;
+            if (passRatio >= 0.70) verdict = "APORTA";
+            else if (passRatio >= 0.45) verdict = "VIGILAR";
+            else verdict = "APARTA";
+
+            return {
+              ticker, name: p?.companyName || p?.name || ticker,
+              sector: p?.sector || null, industry: p?.industry || null,
+              is_reit_or_utility: isReit,
+              price, currency: p?.currency || "USD",
+              criteria, pass_count: passCount, total: totalCount,
+              score_pct: scorePct, verdict,
+              fcf_alloc: fcfAlloc,
+              raw: {
+                yield: yield_pct, ps, per, pb, payout, debt_equity: debtEquity,
+                div_growth_5y: div5y, eps_growth_5y: eps5y, rev_growth_5y: rev5y,
+                fcf_growth_yoy: fcfGrowthYoY,
+                fcf, divs_paid: divsPaid, ocf, fcf_coverage: fcfCoverage,
+                insider_pct,
+              },
+            };
+          } catch (e) {
+            return { ticker, error: e.message?.slice(0, 200) || "fetch error" };
+          }
+        }
+
+        // Per-ticker cache (24h por ticker individual) — resuelve rate-limit FMP
+        // de forma robusta: cada ticker se queda cacheado individualmente, y un
+        // scan masivo sólo re-pega a FMP para los expirados/nuevos. Evita que un
+        // rate-limit a mitad de scan rompa los datos buenos de todos los demás.
+        // forceAll=1 invalida también el per-ticker cache (para refresh completo).
+        // force=1 (default) solo invalida el cache global agregado.
+        const forceAll = url.searchParams.get("forceAll") === "1";
+        async function getCachedOrFetch(ticker) {
+          if (!forceAll) {
+            try {
+              const cached = await env.DB.prepare(
+                "SELECT data, updated_at FROM analytics_cache WHERE key = ?"
+              ).bind(CACHE_PER_TICKER_PREFIX + ticker).first();
+              if (cached && cached.data) {
+                const updatedAt = new Date(cached.updated_at + "Z").getTime();
+                if (Date.now() - updatedAt < 24 * 3600 * 1000) {
+                  const parsed = JSON.parse(cached.data);
+                  const nullCount = (parsed.criteria || []).filter(c => c.value == null).length;
+                  // Sólo aceptar cache si los datos tienen sentido (no era rate-limit)
+                  if (parsed.error || nullCount < 6) return { ...parsed, _from_cache: true };
+                }
+              }
+            } catch {}
+          }
+          const fresh = await analyzeOne(ticker);
+          // Guardar en cache si los datos son válidos (no rate-limit)
+          if (!fresh.error) {
+            const nullCount = (fresh.criteria || []).filter(c => c.value == null).length;
+            if (nullCount < 6) {
+              try {
+                await env.DB.prepare(
+                  `INSERT INTO analytics_cache (key, data, updated_at)
+                   VALUES (?, ?, datetime('now'))
+                   ON CONFLICT(key) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
+                ).bind(CACHE_PER_TICKER_PREFIX + ticker, JSON.stringify(fresh)).run();
+              } catch {}
+            }
+          }
+          return fresh;
+        }
+
+        // Procesar en batches de 2 + sleep. Calls FMP son ahora secuenciales
+        // dentro de cada ticker, así que concurrencia FMP real = batchSize.
+        const results = [];
+        const BATCH_SIZE = 2;
+        for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
+          const batch = tickers.slice(i, i + BATCH_SIZE);
+          const batchResults = await Promise.all(batch.map(getCachedOrFetch));
+          results.push(...batchResults);
+          const someFresh = batchResults.some(r => !r._from_cache);
+          if (someFresh && i + BATCH_SIZE < tickers.length) {
+            await new Promise(r => setTimeout(r, 200));
+          }
+        }
+
+        // Ordenar: APORTA > VIGILAR > APARTA, dentro de cada uno por score
+        const verdictOrder = { APORTA: 0, VIGILAR: 1, APARTA: 2 };
+        results.sort((a, b) => {
+          const va = verdictOrder[a.verdict] ?? 9;
+          const vb = verdictOrder[b.verdict] ?? 9;
+          if (va !== vb) return va - vb;
+          return (b.score_pct || 0) - (a.score_pct || 0);
+        });
+
+        const payload = {
+          ok: true,
+          n: results.length,
+          summary: {
+            aporta: results.filter(r => r.verdict === "APORTA").length,
+            vigilar: results.filter(r => r.verdict === "VIGILAR").length,
+            aparta: results.filter(r => r.verdict === "APARTA").length,
+            errors: results.filter(r => r.error).length,
+          },
+          generated_at: new Date().toISOString(),
+          source: "Lowell Miller — La Mejor Inversión: Crea riqueza con dividendos crecientes",
+          results,
+        };
+
+        // Cache (solo si fue scan completo Y los datos parecen válidos).
+        // Si <50% tickers tienen al menos 3 criterios con value real → rate-limited, no cachear.
+        const wellPopulated = results.filter(r => {
+          if (r.error || !r.criteria) return false;
+          const nonNull = r.criteria.filter(c => c.value != null).length;
+          return nonNull >= 3;
+        }).length;
+        const dataQualityOk = wellPopulated >= results.length * 0.5;
+
+        if (!tickersParam && dataQualityOk) {
+          try {
+            await env.DB.prepare(
+              `INSERT INTO analytics_cache (key, data, updated_at)
+               VALUES (?, ?, datetime('now'))
+               ON CONFLICT(key) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
+            ).bind(CACHE_KEY, JSON.stringify(payload)).run();
+          } catch {}
+        }
+        payload.data_quality_ok = dataQualityOk;
+        payload.well_populated = wellPopulated;
+
+        return json(payload, corsHeaders);
+      }
+
       // POST /api/dividendos — añadir dividendo (con dedup)
       if (path === "/api/dividendos" && request.method === "POST") {
         const unauth = ytRequireToken(request, env);
@@ -14219,11 +14640,13 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // 2026-05-05: auth removed for POST. PWAs instaladas pre-2026-05-01 no tienen
       // el monkey-patch de auth en main.jsx y se quedaban con gastos colgados en localStorage
       // sin poder sincronizar (issue reportado: 5 gastos del usuario + 5 de su mujer atascados).
-      // Trade-off: alguien que conozca la URL puede insertar gastos spam, pero son
-      // recuperables con DELETE individual y CORS sigue protegiendo de ataques browser-based.
+      // 2026-05-13: regresión detectada — alguien re-añadió ytRequireToken aquí y la PWA
+      // volvió a acumular pendientes (usuario reportó "varios gastos por sincronizar").
+      // Fix: bypass por CORS allowlist (mismo patrón que DELETE línea ~10687):
+      // origins permitidos no necesitan token, externos sí. Así protegemos contra spam
+      // de curl/scripts sin romper la PWA del iPhone.
       if (path === "/api/gastos" && request.method === "POST") {
-        const unauth = ytRequireToken(request, env);
-        if (unauth) return unauth;
+        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
         const body = await parseBody(request);
         const fechaErr = validateFecha(body.fecha);
         if (fechaErr) return validationError(fechaErr, corsHeaders);

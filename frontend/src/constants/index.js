@@ -157,7 +157,7 @@ export const HOME_TAB_GROUPS = [
     // Componentes preservados pero des-ruteados; orphans queda como tool.
     tabs: [
       {id:"pnl",lbl:"P&L",ico:"💰"},                     // dashboard unificado de income
-      {id:"dividendos",lbl:"Dividendos",ico:"💰"},        // tab clásica con histórico/calendario completo
+      {id:"dividendos",lbl:"Dividendos",ico:"💰"},        // tab clásica con histórico/calendario completo + sub-tab "Aporta o Aparta" (Lowell Miller)
       {id:"income",lbl:"Income Lab",ico:"🥦"},            // CC + lab tools
       {id:"opt-optimizer",lbl:"Optimizer",ico:"⚡"},      // find new trades
       {id:"scanner",lbl:"Scanner",ico:"🔍"},
