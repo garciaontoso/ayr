@@ -536,7 +536,7 @@ function HistoricalTable({ years, labels, fin, comp, fmpExtra }) {
                         const vals = last5.map(y => row.get(y)).filter(x => x != null && x > 0);
                         if (vals.length < 2) return '—';
                         const c = ((Math.pow(vals[vals.length-1] / vals[0], 1 / (vals.length - 1)) - 1) * 100);
-                        return <span style={{ color: clr.pos(c) }}>{fmtPct(c)}</span>;
+                        return <span style={{ color: clr.pos(c) }}>{fmtPctAlready(c)}</span>;
                       })() : '—'}
                     </td>
                     <td style={{ ...tdStyle, textAlign: 'right', color: 'var(--text-secondary)' }}>
@@ -544,7 +544,7 @@ function HistoricalTable({ years, labels, fin, comp, fmpExtra }) {
                         const vals = years.map(y => row.get(y)).filter(x => x != null && x > 0);
                         if (vals.length < 2) return '—';
                         const c = ((Math.pow(vals[vals.length-1] / vals[0], 1 / (vals.length - 1)) - 1) * 100);
-                        return <span style={{ color: clr.pos(c) }}>{fmtPct(c)}</span>;
+                        return <span style={{ color: clr.pos(c) }}>{fmtPctAlready(c)}</span>;
                       })() : '—'}
                     </td>
                   </tr>
