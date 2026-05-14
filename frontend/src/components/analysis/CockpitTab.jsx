@@ -53,7 +53,7 @@ function clrScore(v, max = 11) {
 }
 
 export default function CockpitTab() {
-  const { cfg, fin, comp, fmpExtra } = useAnalysis();
+  const { cfg, fin, comp, fmpExtra, CHART_YEARS, chartLabels } = useAnalysis();
   const [aportaData, setAportaData] = useState(null);
   const [aportaLoading, setAportaLoading] = useState(false);
 
@@ -250,6 +250,9 @@ export default function CockpitTab() {
         </div>
       )}
 
+      {/* Tabla histórica 10 años — TODO lo que se mira por año */}
+      <HistoricalTable years={CHART_YEARS || []} labels={chartLabels || []} fin={fin || {}} comp={comp || {}} fmpExtra={fmpExtra || {}} />
+
       {/* Footer hint */}
       <div style={{
         padding: 10,
@@ -264,3 +267,231 @@ export default function CockpitTab() {
     </div>
   );
 }
+
+// ─── HistoricalTable — 10y × 30+ métricas ──────────────────────────────────
+// Cada fila es una métrica organizada en grupos. Cada columna es un año.
+// 2 cols extras al final: CAGR 5y + CAGR 10y donde aplica.
+// Color semáforo para metrics con threshold conocido (yield, payout, D/E, etc.).
+function HistoricalTable({ years, labels, fin, comp, fmpExtra }) {
+  if (!years || years.length === 0) return null;
+
+  // Helper: get year value with fallbacks across fin/comp
+  const v = (y, src, key) => {
+    const o = (src === 'fin' ? fin[y] : comp[y]) || {};
+    return o[key];
+  };
+
+  // YoY growth helper
+  const yoy = (y, prev, src, key) => {
+    const cur = v(y, src, key);
+    const old = v(prev, src, key);
+    if (cur == null || old == null || old === 0) return null;
+    return ((cur - old) / Math.abs(old)) * 100;
+  };
+
+  // CAGR helper over N years (from first non-null to last non-null in subset)
+  const cagr = (ys, src, key) => {
+    const vals = ys.map(y => v(y, src, key)).filter(x => x != null && x > 0);
+    if (vals.length < 2) return null;
+    const a = vals[0], b = vals[vals.length - 1];
+    return ((Math.pow(b / a, 1 / (vals.length - 1)) - 1) * 100);
+  };
+
+  // Computed per-year metrics (not directly in fin/comp)
+  const yieldOnEOY = (y) => {
+    const dps = v(y, 'fin', 'dps');
+    // Sin precio EOY histórico — usar comp.divYield si existe, sino skip
+    const dy = v(y, 'comp', 'divYield');
+    return dy != null ? dy : null;
+  };
+  const payoutRatio = (y) => {
+    const dps = v(y, 'fin', 'dps');
+    const eps = v(y, 'fin', 'eps');
+    if (!dps || !eps || eps <= 0) return null;
+    return (dps / eps) * 100;
+  };
+  const fcfCoverage = (y) => {
+    const fcf = v(y, 'comp', 'fcf');
+    const dps = v(y, 'fin', 'dps');
+    const shares = fmpExtra?.sharesOutstanding;
+    if (!fcf || !dps || !shares) return null;
+    const divPaid = dps * shares;
+    return divPaid > 0 ? fcf / divPaid : null;
+  };
+  const capex = (y) => {
+    const ocf = v(y, 'fin', 'ocf');
+    const fcf = v(y, 'comp', 'fcf');
+    if (ocf == null || fcf == null) return null;
+    return ocf - fcf;  // capex = OCF - FCF
+  };
+
+  // ── Format helpers ──
+  const fmtMoney = (val) => val == null ? '—' : (Math.abs(val) >= 1e9 ? `$${(val/1e9).toFixed(1)}B` : Math.abs(val) >= 1e6 ? `$${(val/1e6).toFixed(0)}M` : `$${val.toFixed(0)}`);
+  const fmtPct = (val) => val == null ? '—' : `${val.toFixed(1)}%`;
+  const fmtX = (val) => val == null ? '—' : `${val.toFixed(2)}x`;
+  const fmtUsd = (val) => val == null ? '—' : `$${val.toFixed(2)}`;
+  const fmtRatio = (val) => val == null ? '—' : val.toFixed(2);
+
+  // Color helpers (semáforo por threshold)
+  const clr = {
+    yld: v => v == null ? 'var(--text-tertiary)' : v >= 4 ? 'var(--green)' : v >= 2 ? 'var(--gold)' : 'var(--text-secondary)',
+    payout: v => v == null ? 'var(--text-tertiary)' : v < 60 ? 'var(--green)' : v < 90 ? 'var(--gold)' : 'var(--red)',
+    de: v => v == null ? 'var(--text-tertiary)' : v < 1 ? 'var(--green)' : v < 2 ? 'var(--gold)' : 'var(--red)',
+    fcfCov: v => v == null ? 'var(--text-tertiary)' : v >= 1.5 ? 'var(--green)' : v >= 1 ? 'var(--gold)' : 'var(--red)',
+    roe: v => v == null ? 'var(--text-tertiary)' : v >= 15 ? 'var(--green)' : v >= 10 ? 'var(--gold)' : 'var(--text-secondary)',
+    roic: v => v == null ? 'var(--text-tertiary)' : v >= 10 ? 'var(--green)' : v >= 5 ? 'var(--gold)' : 'var(--text-secondary)',
+    pe: v => v == null ? 'var(--text-tertiary)' : v < 20 ? 'var(--green)' : v < 30 ? 'var(--gold)' : 'var(--red)',
+    pos: v => v == null ? 'var(--text-tertiary)' : v >= 0 ? 'var(--green)' : 'var(--red)',
+    none: () => 'var(--text-primary)',
+  };
+
+  // ── Row definitions ──
+  // Each row: { group, label, get(y), fmt, color(value), showCagr5, showCagr10 }
+  const rows = [
+    // ── Ventas / Top line ──
+    { group: '📈 CRECIMIENTO', label: 'Ventas (Revenue)', get: y => v(y, 'fin', 'revenue'), fmt: fmtMoney, color: clr.none, cagr: true },
+    { label: 'Ventas YoY %', get: (y, i) => i > 0 ? yoy(y, years[i-1], 'fin', 'revenue') : null, fmt: fmtPct, color: clr.pos },
+    { label: 'EPS', get: y => v(y, 'fin', 'eps'), fmt: fmtUsd, color: clr.none, cagr: true },
+    { label: 'EPS YoY %', get: (y, i) => i > 0 ? yoy(y, years[i-1], 'fin', 'eps') : null, fmt: fmtPct, color: clr.pos },
+    { label: 'Net Income', get: y => v(y, 'fin', 'netIncome'), fmt: fmtMoney, color: clr.none, cagr: true },
+
+    // ── Cash flow ──
+    { group: '💵 CASH FLOW', label: 'OCF (Operating CF)', get: y => v(y, 'fin', 'ocf'), fmt: fmtMoney, color: clr.none, cagr: true },
+    { label: 'Capex (= OCF − FCF)', get: capex, fmt: fmtMoney, color: clr.none },
+    { label: 'FCF (Free Cash Flow)', get: y => v(y, 'comp', 'fcf'), fmt: fmtMoney, color: clr.none, cagr: true },
+    { label: 'FCF YoY %', get: (y, i) => i > 0 ? yoy(y, years[i-1], 'comp', 'fcf') : null, fmt: fmtPct, color: clr.pos },
+    { label: 'FCF/Ventas %', get: y => { const f = v(y,'comp','fcf'); const r = v(y,'fin','revenue'); return f && r ? (f/r)*100 : null; }, fmt: fmtPct, color: clr.none },
+
+    // ── Márgenes ──
+    { group: '📊 MÁRGENES', label: 'Margen Bruto %', get: y => v(y, 'comp', 'gm'), fmt: fmtPct, color: clr.none, cagr: false },
+    { label: 'Margen Operativo %', get: y => v(y, 'comp', 'om'), fmt: fmtPct, color: clr.none },
+
+    // ── Returns ──
+    { group: '🎯 RETURNS', label: 'ROE %', get: y => v(y, 'comp', 'roe'), fmt: fmtPct, color: clr.roe },
+    { label: 'ROIC %', get: y => v(y, 'comp', 'roic'), fmt: fmtPct, color: clr.roic },
+
+    // ── Balance / Deuda ──
+    { group: '🏛 BALANCE', label: 'D/Equity', get: y => v(y, 'comp', 'de'), fmt: fmtRatio, color: clr.de },
+    { label: 'Deuda/FCF', get: y => v(y, 'comp', 'd2fcf'), fmt: fmtX, color: clr.de },
+    { label: 'EV/EBITDA', get: y => v(y, 'comp', 'eve'), fmt: fmtX, color: clr.none },
+
+    // ── Dividendo ──
+    { group: '💰 DIVIDENDO', label: 'DPS (Div/Acción)', get: y => v(y, 'fin', 'dps'), fmt: fmtUsd, color: clr.none, cagr: true },
+    { label: 'DPS YoY %', get: (y, i) => i > 0 ? yoy(y, years[i-1], 'fin', 'dps') : null, fmt: fmtPct, color: clr.pos },
+    { label: 'Yield %', get: yieldOnEOY, fmt: fmtPct, color: clr.yld },
+    { label: 'Payout (DPS/EPS) %', get: payoutRatio, fmt: fmtPct, color: clr.payout },
+    { label: 'FCF cubre Div', get: fcfCoverage, fmt: fmtX, color: clr.fcfCov },
+
+    // ── Shares ──
+    { group: '🪙 ACCIONES', label: 'Shares Out (M)', get: y => { const s = v(y, 'fin', 'sharesOutstanding'); return s ? s / 1e6 : null; }, fmt: v => v == null ? '—' : v.toFixed(0)+' M', color: clr.none },
+  ];
+
+  // ── Render ──
+  return (
+    <div style={{
+      background: 'var(--card)',
+      border: '1px solid var(--border)',
+      borderRadius: 14,
+      padding: 16,
+    }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, color: 'var(--gold)', marginBottom: 12, fontFamily: 'var(--fm)' }}>
+        📅 HISTÓRICO {years.length} AÑOS — TODO LO QUE GORKA MIRA
+      </div>
+
+      <div style={{ overflowX: 'auto', maxHeight: '70vh', overflowY: 'auto' }}>
+        <table style={{ borderCollapse: 'collapse', fontSize: 11, fontFamily: 'var(--fm)', minWidth: '100%' }}>
+          <thead style={{ position: 'sticky', top: 0, background: 'var(--card)', zIndex: 2 }}>
+            <tr>
+              <th style={{ ...thStyle, position: 'sticky', left: 0, background: 'var(--card)', zIndex: 3, textAlign: 'left', minWidth: 170 }}>Métrica</th>
+              {years.map((y, i) => (
+                <th key={y} style={{ ...thStyle, textAlign: 'right', minWidth: 65, color: i === years.length - 1 ? 'var(--gold)' : 'var(--text-tertiary)' }}>
+                  {labels[i] || y}
+                </th>
+              ))}
+              <th style={{ ...thStyle, textAlign: 'right', minWidth: 60, color: 'var(--green)', borderLeft: '1px dashed var(--border)' }}>CAGR 5y</th>
+              <th style={{ ...thStyle, textAlign: 'right', minWidth: 60, color: 'var(--green)' }}>CAGR 10y</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, ri) => (
+              <>
+                {row.group && (
+                  <tr key={`g-${ri}`}>
+                    <td colSpan={years.length + 3} style={{
+                      padding: '10px 8px 4px 0',
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: 1,
+                      color: 'var(--gold)',
+                      textTransform: 'uppercase',
+                      borderTop: ri > 0 ? '1px solid var(--border)' : 'none',
+                    }}>{row.group}</td>
+                  </tr>
+                )}
+                <tr key={ri}>
+                  <td style={{
+                    ...tdStyle,
+                    position: 'sticky',
+                    left: 0,
+                    background: 'var(--card)',
+                    zIndex: 1,
+                    fontWeight: 600,
+                    color: 'var(--text-secondary)',
+                    textAlign: 'left',
+                  }}>{row.label}</td>
+                  {years.map((y, i) => {
+                    const val = row.get(y, i);
+                    return (
+                      <td key={y} style={{ ...tdStyle, textAlign: 'right', color: row.color ? row.color(val) : 'var(--text-primary)' }}>
+                        {row.fmt(val)}
+                      </td>
+                    );
+                  })}
+                  <td style={{ ...tdStyle, textAlign: 'right', borderLeft: '1px dashed var(--border)', color: 'var(--text-secondary)' }}>
+                    {row.cagr && row.get.length === 1 ? (() => {
+                      const last5 = years.slice(-5);
+                      // Use raw getters that produce series via `get(y)`
+                      const vals = last5.map(y => row.get(y)).filter(x => x != null && x > 0);
+                      if (vals.length < 2) return '—';
+                      const c = ((Math.pow(vals[vals.length-1] / vals[0], 1 / (vals.length - 1)) - 1) * 100);
+                      return <span style={{ color: clr.pos(c) }}>{fmtPct(c)}</span>;
+                    })() : '—'}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: 'right', color: 'var(--text-secondary)' }}>
+                    {row.cagr && row.get.length === 1 ? (() => {
+                      const vals = years.map(y => row.get(y)).filter(x => x != null && x > 0);
+                      if (vals.length < 2) return '—';
+                      const c = ((Math.pow(vals[vals.length-1] / vals[0], 1 / (vals.length - 1)) - 1) * 100);
+                      return <span style={{ color: clr.pos(c) }}>{fmtPct(c)}</span>;
+                    })() : '—'}
+                  </td>
+                </tr>
+              </>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{ marginTop: 10, fontSize: 10, color: 'var(--text-tertiary)' }}>
+        Color semáforo: 🟢 cumple threshold Lowell Miller / 🟡 marginal / 🔴 fuera de rango. CAGR calculado del primer al último año con dato no-nulo en la ventana.
+      </div>
+    </div>
+  );
+}
+
+const thStyle = {
+  padding: '8px 6px',
+  fontSize: 10,
+  fontWeight: 700,
+  letterSpacing: 0.5,
+  color: 'var(--text-tertiary)',
+  textTransform: 'uppercase',
+  borderBottom: '1px solid var(--border)',
+};
+
+const tdStyle = {
+  padding: '5px 6px',
+  fontSize: 11,
+  borderBottom: '1px solid var(--row-border, rgba(255,255,255,.04))',
+  whiteSpace: 'nowrap',
+};
