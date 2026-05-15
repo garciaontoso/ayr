@@ -11078,22 +11078,27 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const importe = -Math.abs(amount);
           const divisa = (currency || 'EUR').toUpperCase().slice(0, 3);
 
-          // Check duplicate
-          const dup = await env.DB.prepare(
-            `SELECT id FROM gastos WHERE fecha = ? AND categoria = ? AND ABS(importe - ?) < 0.01 AND divisa = ? LIMIT 1`
-          ).bind(fecha, categoria, importe, divisa).first();
-          if (dup) { duplicates++; continue; }
-
           // China detection from wallet or note
           const isChina = (wallet && wallet.toLowerCase().includes('china')) ||
                           (note && note.toLowerCase().includes('china'));
           const descripcion = isChina ? `{china} ${note || categoryName}` : (note || categoryName);
           const autoLugar = isChina ? 'china' : detectLugarTag(descripcion, divisa);
 
-          await env.DB.prepare(
-            `INSERT INTO gastos (fecha, categoria, importe, divisa, descripcion, lugar_tag, china_obligatorio) VALUES (?, ?, ?, ?, ?, ?, ?)`
-          ).bind(fecha, categoria, importe, divisa, descripcion, autoLugar, autoLugar === 'china' ? 1 : 0).run();
-          imported++;
+          // FINGERPRINT-BASED DEDUP (2026-05-15):
+          // SHA-256 hash sobre fecha + descripcion + importe + divisa + wallet.
+          // Más robusto que el dedup anterior por composite key (fecha+cat+importe+divisa)
+          // que daba falsos positivos en transacciones legítimas (2 cafés mismo día, etc).
+          // UNIQUE INDEX en gastos.fingerprint → INSERT OR IGNORE es atomic y rápido.
+          const fpInput = `${fecha}|${(note || categoryName || '').trim().toLowerCase()}|${Math.round(importe * 100)}|${divisa}|${(wallet || '').trim().toLowerCase()}`;
+          const fpBytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(fpInput));
+          const fingerprint = Array.from(new Uint8Array(fpBytes)).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 32);
+
+          const r = await env.DB.prepare(
+            `INSERT OR IGNORE INTO gastos (fecha, categoria, importe, divisa, descripcion, lugar_tag, china_obligatorio, fingerprint)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          ).bind(fecha, categoria, importe, divisa, descripcion, autoLugar, autoLugar === 'china' ? 1 : 0, fingerprint).run();
+          if (r?.meta?.changes > 0) imported++;
+          else duplicates++;
           if (samples.length < 5) samples.push({ fecha, categoria, importe, divisa, descripcion: descripcion.slice(0, 60) });
         }
 
