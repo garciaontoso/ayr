@@ -11380,11 +11380,12 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           ).all();
 
           // 2. Dividendos históricos por ticker (lifetime, en USD)
+          // BUG FIX 2026-05-15: EUR doble-FX. fx_eur ya es EUR/USD rate, NO multiplicar
+          // adicionalmente por 1.08. Solo aplicar 1.08 si fx_eur es null/0 (fallback).
           const { results: divsByTicker } = await env.DB.prepare(
-            `SELECT ticker, SUM(neto * COALESCE(fx_eur, 1)) as total_divs_eur,
-                    SUM(neto) as total_divs_native,
+            `SELECT ticker, SUM(neto) as total_divs_native,
                     SUM(CASE WHEN divisa='USD' THEN neto
-                              WHEN divisa='EUR' THEN neto * COALESCE(fx_eur, 1) * 1.08
+                              WHEN divisa='EUR' THEN neto * COALESCE(NULLIF(fx_eur, 0), 1.08)
                               WHEN divisa='GBP' THEN neto * 1.29
                               WHEN divisa='HKD' THEN neto * 0.128
                               WHEN divisa='CAD' THEN neto * 0.73
@@ -13942,8 +13943,19 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
           const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616","9988":"HKG:9988","1066":"HKG:1066","1999":"HKG:1999","2168":"HKG:2168","2678":"HKG:2678","3690":"HKG:3690","700":"HKG:0700","939":"HKG:0939","1":"HKG:0001","2102":"HKG:2102","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA","VISe":"BME:VIS","IAGe":"BME:IAG","AIRd":"AIR","BAYNd":"BAYN","HEN3d":"HEN3"};
 
-          let refreshed = 0, fixed_phantoms = 0, skipped_no_price = 0;
+          // BATCH OPTIMIZATION 2026-05-15: pre-fetch all positions en 1 query, batch UPDATEs.
+          // Antes: 90 positions × (1 SELECT + 1 UPDATE) = 180 D1 round-trips (9+ seg, risk timeout).
+          // Ahora: 1 SELECT + 1 batch UPDATE (~50 stmts/batch).
+          const { results: existingPositions } = await env.DB.prepare(
+            `SELECT ticker, avg_price, fx, currency, notes, shares FROM positions WHERE shares > 0 AND (list IS NULL OR list != 'historial')`
+          ).all().catch(() => ({ results: [] }));
+          const existingMap = new Map((existingPositions || []).map(r => [r.ticker, r]));
+
+          let refreshed = 0, fixed_phantoms = 0, skipped_no_price = 0, skipped_not_in_d1 = 0;
           const updated = [];
+          const updateStmts = [];
+          const today = new Date().toISOString().slice(0,10);
+
           for (const p of bridgePositions) {
             const sym = (p.ticker || p.symbol || p.localSymbol || "").trim();
             if (!sym) continue;
@@ -13951,33 +13963,42 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             const lastPrice = Number(p.market_price || p.last_price || p.marketPrice || 0);
             if (!lastPrice || lastPrice <= 0) { skipped_no_price++; continue; }
             const shares = Number(p.qty || p.position || p.shares || 0);
-            const marketValue = Number(p.market_value || (shares * lastPrice));
-            // Fetch existing row first to check avg_price status
-            const existing = await env.DB.prepare(
-              `SELECT avg_price, fx, currency, notes FROM positions WHERE ticker = ?`
-            ).bind(ticker).first().catch(() => null);
-            if (!existing) continue; // sólo refrescamos, no creamos rows nuevas aquí
+            const marketValueNative = Number(p.market_value || (shares * lastPrice));
+
+            const existing = existingMap.get(ticker);
+            if (!existing) { skipped_not_in_d1++; continue; }
+
             const isPhantom = !existing.avg_price || existing.avg_price <= 0;
             const newAvg = isPhantom ? lastPrice : existing.avg_price;
-            const fx = existing.fx || 1;
-            const usdValue = (existing.currency === 'USD' || !existing.currency) ? marketValue : marketValue * fx;
+            // FX correcto: bridge devuelve market_value en moneda local (HKD para HKG, etc.)
+            // Para usd_value: si currency USD → directo, si no → multiplicar por fx (que es local→USD)
+            const ccy = existing.currency || 'USD';
+            const fxLocalToUsd = (ccy === 'USD') ? 1 : (existing.fx && existing.fx > 0 ? existing.fx : 1);
+            const usdValue = marketValueNative * fxLocalToUsd;
             const notes = isPhantom
-              ? `Auto-refresh ${new Date().toISOString().slice(0,10)}: bridge ${lastPrice}, avg_price assumed flat (no cost basis)`
-              : existing.notes;
-            await env.DB.prepare(
+              ? `Auto-refresh ${today}: bridge price=${lastPrice} ${ccy}, avg_price assumed flat (no cost basis)`
+              : null; // null = no cambiar notes
+
+            updateStmts.push(env.DB.prepare(
               `UPDATE positions SET last_price=?, avg_price=?, market_value=?, usd_value=?,
                                       notes=COALESCE(?, notes), updated_at=datetime('now')
                WHERE ticker = ?`
-            ).bind(lastPrice, newAvg, marketValue, usdValue, notes, ticker).run();
+            ).bind(lastPrice, newAvg, marketValueNative, usdValue, notes, ticker));
             refreshed++;
             if (isPhantom) fixed_phantoms++;
             updated.push({ ticker, last_price: lastPrice, was_phantom: isPhantom });
+          }
+
+          // Batch en chunks de 50 para no romper limit D1
+          for (let i = 0; i < updateStmts.length; i += 50) {
+            await env.DB.batch(updateStmts.slice(i, i + 50)).catch(() => []);
           }
           return json({
             ok: true,
             refreshed,
             fixed_phantoms,
             skipped_no_price,
+            skipped_not_in_d1,
             bridge_positions_total: bridgePositions.length,
             updated: updated.slice(0, 20),
           }, corsHeaders);
@@ -15144,8 +15165,8 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           });
           const importResult = await importResp.json();
 
-          // Step 4: Also sync dividends to cost_basis
-          await fetch(`https://api.onto-so.com/api/costbasis/sync-dividends`, { method: "POST" });
+          // Step 4: sync-dividends DEPRECATED 2026-05-02 (no-op, /api/costbasis hace JOIN al servir).
+          // Removed unnecessary self-fetch (2026-05-15 audit).
 
           return json({ ...importResult, flex_ref: refCode, source: "cloud-sync" }, corsHeaders);
         } catch (e) {

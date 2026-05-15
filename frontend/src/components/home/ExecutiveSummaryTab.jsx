@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { API_URL } from '../../constants';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { API_URL, _CURRENT_YEAR } from '../../constants';
 import { _sf } from '../../utils/formatters';
 
 const fmtUSD = (n) => n == null ? '—' : (n < 0 ? '-$' : '$') + _sf(Math.abs(n), n < 1000 ? 2 : 0);
@@ -74,23 +74,30 @@ export default function ExecutiveSummaryTab() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const abortRef = useRef(null);
 
   const fetchData = useCallback(async () => {
+    if (abortRef.current) abortRef.current.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(`${API_URL}/api/dashboard/executive`);
+      const r = await fetch(`${API_URL}/api/dashboard/executive`, { signal: ctrl.signal });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const json = await r.json();
-      setData(json);
+      if (!ctrl.signal.aborted) setData(json);
     } catch (e) {
-      setError(e.message);
+      if (e.name !== 'AbortError' && !ctrl.signal.aborted) setError(e.message);
     } finally {
-      setLoading(false);
+      if (!ctrl.signal.aborted) setLoading(false);
     }
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    fetchData();
+    return () => { if (abortRef.current) abortRef.current.abort(); };
+  }, [fetchData]);
 
   if (loading && !data) {
     return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-secondary)' }}>Cargando Resumen Ejecutivo...</div>;
@@ -106,17 +113,20 @@ export default function ExecutiveSummaryTab() {
   const byCurrency = data?.by_currency || [];
   const dataSource = data?.data_source || {};
 
-  // Stats para coloring tabla
-  const maxRent = Math.max(...tableRows.map(r => r.rent_usd_pct || 0));
-  const minRent = Math.min(...tableRows.map(r => r.rent_usd_pct || 0));
-  const maxPnl = Math.max(...tableRows.map(r => r.pnl_usd || 0));
-  const minPnl = Math.min(...tableRows.map(r => r.pnl_usd || 0));
-  const maxDiv = Math.max(...tableRows.map(r => r.div_usd || 0));
-  const maxYoc = Math.max(...tableRows.map(r => r.yoc_pct || 0));
-  const maxAmort = Math.max(...tableRows.map(r => r.amort_pct || 0));
+  // Stats para coloring tabla — guard con 0 default para evitar Math.max(...[])=-Infinity
+  const rents = tableRows.map(r => r.rent_usd_pct || 0);
+  const pnls = tableRows.map(r => r.pnl_usd || 0);
+  const maxRent = rents.length ? Math.max(...rents) : 0;
+  const minRent = rents.length ? Math.min(...rents) : 0;
+  const maxPnl = pnls.length ? Math.max(...pnls) : 0;
+  const minPnl = pnls.length ? Math.min(...pnls) : 0;
+  const maxDiv = tableRows.length ? Math.max(0, ...tableRows.map(r => r.div_usd || 0)) : 0;
+  const maxYoc = tableRows.length ? Math.max(0, ...tableRows.map(r => r.yoc_pct || 0)) : 0;
+  const maxAmort = tableRows.length ? Math.max(0, ...tableRows.map(r => r.amort_pct || 0)) : 0;
+  const maxValor = tableRows.length ? Math.max(0, ...tableRows.map(r => r.valor_usd || 0)) : 1;
 
   // Para barras de mejor/peor mes
-  const maxMonth = Math.max(...divsByMonth.map(m => m.total_usd || 0), 1);
+  const maxMonth = divsByMonth.length ? Math.max(1, ...divsByMonth.map(m => m.total_usd || 0)) : 1;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -128,9 +138,9 @@ export default function ExecutiveSummaryTab() {
             📊 Resumen Ejecutivo
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
-            KPIs · Ranking automático · Estacionalidad dividendos · Tabla semáforo · {kpis.num_posiciones_clean || kpis.num_posiciones} posiciones limpias
-            {kpis.num_posiciones - (kpis.num_posiciones_clean || 0) > 0 && (
-              <span style={{ color: 'var(--gold)' }}> · {kpis.num_posiciones - kpis.num_posiciones_clean} outliers filtrados del ranking</span>
+            KPIs · Ranking automático · Estacionalidad dividendos · Tabla semáforo · {kpis.num_posiciones_clean || kpis.num_posiciones || 0} posiciones limpias
+            {(kpis.num_posiciones || 0) - (kpis.num_posiciones_clean || 0) > 0 && (
+              <span style={{ color: 'var(--gold)' }}> · {(kpis.num_posiciones || 0) - (kpis.num_posiciones_clean || 0)} outliers filtrados del ranking</span>
             )}
           </div>
         </div>
@@ -144,7 +154,7 @@ export default function ExecutiveSummaryTab() {
               ● BRIDGE OFF — D1 AGG
             </span>
           )}
-          <button onClick={fetchData} disabled={loading} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-alt)', color: 'var(--text-primary)', cursor: loading ? 'wait' : 'pointer', fontSize: 12 }}>
+          <button onClick={fetchData} disabled={loading} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--subtle-bg)', color: 'var(--text-primary)', cursor: loading ? 'wait' : 'pointer', fontSize: 12 }}>
             {loading ? '...' : '↻ Refrescar'}
           </button>
         </div>
@@ -178,7 +188,7 @@ export default function ExecutiveSummaryTab() {
         <BigKpi icon="💰" label="Total Invertido (actual)" value={fmtUSD(kpis.total_invertido_usd)} subtitle="cost basis posiciones activas" />
         <BigKpi icon="💸" label="Yield Actual" value={fmtPctAbs(kpis.yield_actual_pct)} subtitle={`$${_sf(kpis.dividendos_12m_usd, 0)} divs 12m`} />
         <BigKpi icon="🌱" label="Yield on Cost" value={fmtPctAbs(kpis.yield_on_cost_pct)} subtitle="divs 12m / cost basis" color={kpis.yield_on_cost_pct > 4 ? 'var(--green)' : 'var(--gold)'} />
-        <BigKpi icon="📅" label="Divs YTD 2026" value={fmtUSD(kpis.dividendos_2026_usd)} subtitle={`Media: $${_sf(kpis.dividendos_12m_media, 0)}/mes`} />
+        <BigKpi icon="📅" label={`Divs YTD ${_CURRENT_YEAR}`} value={fmtUSD(kpis.dividendos_2026_usd)} subtitle={`Media: $${_sf(kpis.dividendos_12m_media, 0)}/mes`} />
         <BigKpi icon="🏠" label="Amortiz. Inversión" value={fmtPctAbs(kpis.amortizacion_inversion_pct)} subtitle="Divs / Coste base" color={kpis.amortizacion_inversion_pct > 10 ? 'var(--green)' : 'var(--text-primary)'} />
       </div>
 
@@ -291,7 +301,7 @@ export default function ExecutiveSummaryTab() {
                     </div>
                     {r.sector && <div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>{r.sector}</div>}
                   </td>
-                  <td style={{ padding: '7px 6px', textAlign: 'right', fontFamily: 'var(--fm)', fontWeight: 700, background: cellBg(r.valor_usd, 0, Math.max(...tableRows.map(x => x.valor_usd))) }}>
+                  <td style={{ padding: '7px 6px', textAlign: 'right', fontFamily: 'var(--fm)', fontWeight: 700, background: cellBg(r.valor_usd, 0, maxValor) }}>
                     {fmtUSD(r.valor_usd)}
                   </td>
                   <td style={{ padding: '7px 6px', textAlign: 'right', fontFamily: 'var(--fm)', color: 'var(--text-secondary)' }}>

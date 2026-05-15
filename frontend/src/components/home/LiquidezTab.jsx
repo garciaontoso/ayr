@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { API_URL } from '../../constants';
 import { _sf } from '../../utils/formatters';
 
@@ -65,27 +65,36 @@ export default function LiquidezTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastFetch, setLastFetch] = useState(null);
+  const abortRef = useRef(null);
 
   const fetchData = useCallback(async () => {
+    if (abortRef.current) abortRef.current.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(`${API_URL}/api/liquidez/snapshot`);
+      const r = await fetch(`${API_URL}/api/liquidez/snapshot`, { signal: ctrl.signal });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const json = await r.json();
-      setData(json);
-      setLastFetch(new Date());
+      if (!ctrl.signal.aborted) {
+        setData(json);
+        setLastFetch(new Date());
+      }
     } catch (e) {
-      setError(e.message);
+      if (e.name !== 'AbortError' && !ctrl.signal.aborted) setError(e.message);
     } finally {
-      setLoading(false);
+      if (!ctrl.signal.aborted) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, 30000); // refresh cada 30s
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (abortRef.current) abortRef.current.abort();
+    };
   }, [fetchData]);
 
   if (loading && !data) {
@@ -139,7 +148,7 @@ export default function LiquidezTab() {
               {lastFetch.toLocaleTimeString()}
             </span>
           )}
-          <button onClick={fetchData} disabled={loading} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-alt)', color: 'var(--text-primary)', cursor: loading ? 'wait' : 'pointer', fontSize: 12 }}>
+          <button onClick={fetchData} disabled={loading} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--subtle-bg)', color: 'var(--text-primary)', cursor: loading ? 'wait' : 'pointer', fontSize: 12 }}>
             {loading ? '...' : '↻ Refrescar'}
           </button>
         </div>
@@ -213,7 +222,7 @@ export default function LiquidezTab() {
                 <div key={c.currency} style={{ display: 'grid', gridTemplateColumns: '48px 80px 1fr 120px 80px', gap: 12, alignItems: 'center', padding: '10px 12px', background: 'var(--row-alt)', borderRadius: 8 }}>
                   <div style={{ fontSize: 22, textAlign: 'center' }}>{CURRENCY_FLAGS[c.currency] || '🏳️'}</div>
                   <div style={{ fontWeight: 700, fontSize: 14, fontFamily: 'var(--fm)' }}>{c.currency}</div>
-                  <div style={{ position: 'relative', height: 16, background: 'var(--card-alt)', borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{ position: 'relative', height: 16, background: 'var(--subtle-bg)', borderRadius: 4, overflow: 'hidden' }}>
                     <div style={{
                       position: 'absolute',
                       left: 0, top: 0, bottom: 0,
@@ -319,7 +328,7 @@ export default function LiquidezTab() {
             </div>
           )}
           {data?.cash_warning && (
-            <div style={{ color: 'var(--gold)' }}>⚠ Cash data stale. Ejecuta <code style={{ background: 'var(--card-alt)', padding: '2px 6px', borderRadius: 4 }}>bash api/sync-flex.sh</code> o espera al cron 08:30.</div>
+            <div style={{ color: 'var(--gold)' }}>⚠ Cash data stale. Ejecuta <code style={{ background: 'var(--subtle-bg)', padding: '2px 6px', borderRadius: 4 }}>bash api/sync-flex.sh</code> o espera al cron 08:30.</div>
           )}
         </div>
       </div>
