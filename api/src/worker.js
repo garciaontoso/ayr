@@ -27357,66 +27357,126 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
       for (const c of chunks) { merged.set(c, off); off += c.length; }
       const rawText = new TextDecoder('utf-8', { fatal: false }).decode(merged);
 
-      // Find CSV attachment in multipart email.
-      // Simple parser: find Content-Disposition: attachment with filename ending .csv
-      // and extract base64 body until boundary.
-      let csvContent = null;
-      const csvMatch = rawText.match(/Content-Disposition: attachment;[^\n]*filename[^\n]*\.csv[\s\S]*?\r?\n\r?\n([\s\S]*?)(?:\r?\n--|\r?\n\.--)/i);
-      if (csvMatch) {
-        const body = csvMatch[1].trim();
-        // Detect if base64 encoded
-        const cteMatch = rawText.match(/Content-Transfer-Encoding:\s*base64[\s\S]{0,500}?filename[^\n]*\.csv/i);
-        if (cteMatch || /^[A-Za-z0-9+/=\r\n]+$/.test(body.slice(0, 200))) {
-          // Decode base64
+      // Find ALL CSV attachments in multipart email.
+      // Spendee envía MÚLTIPLES CSVs por email (uno por wallet/cuenta).
+      // Hay que iterar sobre TODAS las parts con filename .csv.
+      //
+      // Extract MIME boundary from Content-Type header del email principal
+      const boundaryMatch = rawText.match(/Content-Type:\s*multipart\/[^;]*;\s*boundary=["']?([^"'\r\n;]+)["']?/i);
+      const boundary = boundaryMatch ? boundaryMatch[1].trim() : null;
+
+      const attachments = [];
+
+      if (boundary) {
+        // Split por boundary
+        const parts = rawText.split(`--${boundary}`);
+        for (const part of parts) {
+          // Solo parts que sean attachment con filename .csv
+          const dispMatch = part.match(/Content-Disposition:\s*attachment[^\n]*filename[^\n]*\.csv/i);
+          if (!dispMatch) continue;
+          const filenameMatch = part.match(/filename\*?=(?:UTF-8''|)["']?([^"'\r\n;]+\.csv)["']?/i);
+          const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : 'attachment.csv';
+          // Body después de los headers (doble newline)
+          const bodyMatch = part.match(/\r?\n\r?\n([\s\S]+)$/);
+          if (!bodyMatch) continue;
+          let body = bodyMatch[1].trim();
+          // Strip trailing closing boundary marker if present
+          body = body.replace(/\r?\n--\s*$/, '').trim();
+          // Detect Content-Transfer-Encoding
+          const cteMatch = part.match(/Content-Transfer-Encoding:\s*(\w+)/i);
+          const cte = cteMatch ? cteMatch[1].toLowerCase() : 'base64';
+          let csvText = '';
+          if (cte === 'base64') {
+            try {
+              const cleaned = body.replace(/[\r\n\s]/g, '');
+              const binary = atob(cleaned);
+              const bytes = Uint8Array.from(binary, ch => ch.charCodeAt(0));
+              csvText = new TextDecoder('utf-8').decode(bytes);
+            } catch (e) {
+              console.error(`[email] base64 decode failed for ${filename}: ${e.message}`);
+              csvText = body;
+            }
+          } else if (cte === 'quoted-printable') {
+            // Basic quoted-printable decode
+            csvText = body.replace(/=\r?\n/g, '').replace(/=([0-9A-F]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
+          } else {
+            csvText = body;
+          }
+          if (csvText && csvText.length > 20) {
+            attachments.push({ filename, csv: csvText });
+          }
+        }
+      } else {
+        // Fallback: single attachment without proper boundary (raro pero por si acaso)
+        const csvMatch = rawText.match(/Content-Disposition:\s*attachment[^\n]*filename[^\n]*\.csv[\s\S]*?\r?\n\r?\n([\s\S]*?)(?:\r?\n--|\r?\n\.--)/i);
+        if (csvMatch) {
           try {
-            const cleaned = body.replace(/[\r\n\s]/g, '');
+            const cleaned = csvMatch[1].trim().replace(/[\r\n\s]/g, '');
             const binary = atob(cleaned);
             const bytes = Uint8Array.from(binary, ch => ch.charCodeAt(0));
-            csvContent = new TextDecoder('utf-8').decode(bytes);
-          } catch (e) {
-            csvContent = body; // fallback raw
-          }
-        } else {
-          csvContent = body;
+            attachments.push({ filename: 'attachment.csv', csv: new TextDecoder('utf-8').decode(bytes) });
+          } catch {}
         }
       }
 
-      if (!csvContent) {
-        console.log('[email] no CSV attachment found');
-        // Telegram alert al user
+      console.log(`[email] found ${attachments.length} CSV attachment(s)`);
+
+      if (attachments.length === 0) {
         try {
           await sendTelegram(env, {
-            text: `📧 Email Spendee recibido pero **sin CSV adjunto**.\nSubject: ${subject.slice(0, 100)}\nFrom: ${from}\nVerifica que exportaste como CSV.`,
+            text: `📧 Email Spendee recibido pero *sin CSVs adjuntos*.\nSubject: ${subject.slice(0, 100)}\nFrom: ${from}\nBoundary detectado: ${boundary ? 'sí' : 'no'}\nVerifica que exportaste como CSV (no PDF/Excel).`,
             severity: 'warn', source: 'email_spendee',
           });
         } catch {}
         return;
       }
 
-      // Call internal endpoint
-      const r = await fetch('https://api.onto-so.com/api/gastos/import-spendee', {
-        method: 'POST',
-        headers: {
-          'X-AYR-Auth': env.AYR_WORKER_TOKEN || '',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ csv: csvContent }),
-      });
-      const result = await r.json().catch(() => ({}));
-      console.log(`[email] import result: ${JSON.stringify(result)}`);
+      // Procesar cada attachment llamando al endpoint
+      const results = [];
+      let totalImported = 0, totalDuplicates = 0, totalSkipped = 0, totalIngresos = 0;
+      for (const att of attachments) {
+        try {
+          const r = await fetch('https://api.onto-so.com/api/gastos/import-spendee', {
+            method: 'POST',
+            headers: { 'X-AYR-Auth': env.AYR_WORKER_TOKEN || '', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ csv: att.csv }),
+          });
+          const result = await r.json().catch(() => ({ error: 'parse_fail' }));
+          results.push({ filename: att.filename, ...result });
+          totalImported += result.imported || 0;
+          totalDuplicates += result.duplicates || 0;
+          totalSkipped += result.skipped || 0;
+          totalIngresos += result.ingresos_ignorados || 0;
+        } catch (e) {
+          results.push({ filename: att.filename, error: e.message });
+        }
+      }
 
-      // Telegram alert
+      console.log(`[email] processed ${attachments.length} attachments: imported=${totalImported}`);
+
+      // Telegram consolidado con desglose por archivo
       try {
+        const breakdown = results.map(r => {
+          if (r.error) return `· ❌ ${r.filename}: ${r.error}`;
+          const parts = [];
+          if (r.imported > 0) parts.push(`+${r.imported}`);
+          if (r.duplicates > 0) parts.push(`${r.duplicates}↺`);
+          if (r.ingresos_ignorados > 0) parts.push(`${r.ingresos_ignorados}💰`);
+          return `· ${r.filename}: ${parts.join(' ') || '0 nuevos'}`;
+        }).join('\n');
         await sendTelegram(env, {
           text: [
-            `📧 *Spendee CSV procesado*`,
+            `📧 *Spendee CSVs procesados* (${attachments.length} archivos)`,
             ``,
-            `✓ ${result.imported || 0} gastos nuevos importados`,
-            `↺ ${result.duplicates || 0} duplicados (ya existían)`,
-            `⏭ ${result.skipped || 0} skipped (transferencias/header)`,
-            result.ingresos_ignorados ? `💰 ${result.ingresos_ignorados} ingresos ignorados` : '',
+            `✓ *${totalImported}* gastos nuevos`,
+            `↺ ${totalDuplicates} ya existían`,
+            `⏭ ${totalSkipped} skipped (transfers/header)`,
+            totalIngresos > 0 ? `💰 ${totalIngresos} ingresos ignorados` : '',
             ``,
-            `Ver en: https://ayr.onto-so.com → Gastos`,
+            `*Desglose por wallet:*`,
+            breakdown,
+            ``,
+            `Ver: https://ayr.onto-so.com → Gastos`,
           ].filter(Boolean).join('\n'),
           severity: 'info', source: 'email_spendee',
         });
