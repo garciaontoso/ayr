@@ -1,8 +1,10 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useHome } from '../../context/HomeContext';
 import { _sf, fDol as _fDol } from '../../utils/formatters';
 import { CURRENCIES, API_URL } from '../../constants/index.js';
 import { EmptyState, InlineLoading } from '../ui/EmptyState.jsx';
+
+const BankConnectModal = lazy(() => import('./BankConnectModal.jsx'));
 
 const PENDING_KEY = 'ayr-pending-gastos';
 
@@ -159,6 +161,7 @@ export default function GastosTab() {
   const csvRef = useRef(null);
   const [csvToast, setCsvToast] = useState(null);
   const [csvLoading, setCsvLoading] = useState(false);
+  const [showBankConnect, setShowBankConnect] = useState(false);
   const [presuItems, setPresuItems] = useState([]);
   const [linkingGasto, setLinkingGasto] = useState(null); // gasto id being linked
 
@@ -504,8 +507,17 @@ export default function GastosTab() {
           <button onClick={()=>csvRef.current?.click()} disabled={csvLoading} style={{padding:"7px 14px",borderRadius:7,border:"1px solid var(--gold)",background:"var(--gold-dim)",color:"var(--gold)",fontSize:11,fontWeight:600,cursor:csvLoading?"wait":"pointer",fontFamily:"var(--fm)",opacity:csvLoading?.5:1}}>
             {csvLoading?"Importando...":"📥 Importar CSV"}
           </button>
+          <button onClick={()=>setShowBankConnect(true)} style={{padding:"7px 14px",borderRadius:7,border:"1px solid var(--blue, #60a5fa)",background:"rgba(96,165,250,.1)",color:"var(--blue, #60a5fa)",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"var(--fm)"}}>
+            🏦 Conectar Banco
+          </button>
         </div>
       </div>
+
+      {showBankConnect && (
+        <Suspense fallback={null}>
+          <BankConnectModal onClose={()=>setShowBankConnect(false)}/>
+        </Suspense>
+      )}
 
 
 

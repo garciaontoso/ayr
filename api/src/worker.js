@@ -10928,6 +10928,319 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return json({ imported, skipped, duplicates }, corsHeaders);
       }
 
+      // ═══════════════════════════════════════════════════════════════════════
+      // GoCardless Bank Account Data API integration (2026-05-15)
+      //
+      // Open Banking via GoCardless aggregator. Permite sync diario automático
+      // de transacciones bancarias (Revolut, Bankinter, CbNK, etc.) sin API
+      // propia del banco. Consent OAuth-bancario válido 90 días, renovable.
+      //
+      // Setup (usuario):
+      //   1. Crear cuenta en bankaccountdata.gocardless.com
+      //   2. wrangler secret put GOCARDLESS_SECRET_ID
+      //   3. wrangler secret put GOCARDLESS_SECRET_KEY
+      //
+      // Endpoints:
+      //   GET  /api/gocardless/banks?country=ES   — lista bancos disponibles
+      //   POST /api/gocardless/init-consent       — crea requisition + link OAuth
+      //   GET  /api/gocardless/callback           — callback tras autorizar
+      //   GET  /api/gocardless/consents           — lista consents activos
+      //   POST /api/gocardless/sync               — sync transactions a gastos
+      //   DELETE /api/gocardless/consent/:id      — revoca consent
+      // ═══════════════════════════════════════════════════════════════════════
+
+      // Helper: obtener access token (cacheado en agent_memory por 24h)
+      async function gcGetToken(env) {
+        if (!env.GOCARDLESS_SECRET_ID || !env.GOCARDLESS_SECRET_KEY) {
+          throw new Error("GOCARDLESS_SECRET_ID/KEY not configured");
+        }
+        // Check cached token
+        try {
+          const cached = await env.DB.prepare(
+            `SELECT value FROM agent_memory WHERE key = 'gocardless_access_token' LIMIT 1`
+          ).first();
+          if (cached?.value) {
+            const parsed = JSON.parse(cached.value);
+            if (parsed.expires_at && new Date(parsed.expires_at).getTime() > Date.now() + 60000) {
+              return parsed.access;
+            }
+          }
+        } catch {}
+        // Get new token
+        const r = await fetch("https://bankaccountdata.gocardless.com/api/v2/token/new/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify({
+            secret_id: env.GOCARDLESS_SECRET_ID,
+            secret_key: env.GOCARDLESS_SECRET_KEY,
+          }),
+        });
+        if (!r.ok) {
+          const t = await r.text();
+          throw new Error(`gocardless token failed: HTTP ${r.status} ${t.slice(0, 200)}`);
+        }
+        const data = await r.json();
+        const expiresAt = new Date(Date.now() + (data.access_expires || 86400) * 1000).toISOString();
+        try {
+          await env.DB.prepare(
+            `INSERT INTO agent_memory (key, value, updated_at) VALUES ('gocardless_access_token', ?, datetime('now'))
+             ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')`
+          ).bind(JSON.stringify({ access: data.access, refresh: data.refresh, expires_at: expiresAt })).run();
+        } catch {}
+        return data.access;
+      }
+
+      // GET /api/gocardless/banks?country=ES  — lista bancos disponibles
+      if (path === "/api/gocardless/banks" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          const country = (url.searchParams.get("country") || "ES").toUpperCase();
+          const token = await gcGetToken(env);
+          const r = await fetch(`https://bankaccountdata.gocardless.com/api/v2/institutions/?country=${country}`, {
+            headers: { "Authorization": `Bearer ${token}`, "Accept": "application/json" },
+          });
+          if (!r.ok) {
+            const t = await r.text();
+            return json({ error: `gocardless institutions failed: ${r.status}`, detail: t.slice(0, 300) }, corsHeaders, r.status);
+          }
+          const institutions = await r.json();
+          // Return slim version: id, name, bic, transaction_total_days, logo
+          return json({
+            country,
+            count: institutions.length,
+            banks: institutions.map(i => ({
+              id: i.id, name: i.name, bic: i.bic, transaction_total_days: i.transaction_total_days,
+              logo: i.logo, countries: i.countries,
+            })).sort((a, b) => a.name.localeCompare(b.name)),
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // POST /api/gocardless/init-consent  body: {institution_id, redirect_uri?, max_historical_days?, label?}
+      // Crea EUA + Requisition. Devuelve link OAuth para abrir.
+      if (path === "/api/gocardless/init-consent" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          const body = await parseBody(request);
+          if (!body.institution_id) return json({ error: "institution_id required" }, corsHeaders, 400);
+          const token = await gcGetToken(env);
+          const maxHist = Number(body.max_historical_days) || 180;
+          const validDays = Number(body.access_valid_for_days) || 90;
+          const redirect = body.redirect_uri || "https://ayr.onto-so.com/?gocardless_callback=1";
+
+          // 1. Create End User Agreement
+          const eua = await fetch("https://bankaccountdata.gocardless.com/api/v2/agreements/enduser/", {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json", "Accept": "application/json" },
+            body: JSON.stringify({
+              institution_id: body.institution_id,
+              max_historical_days: maxHist,
+              access_valid_for_days: validDays,
+              access_scope: ["balances", "details", "transactions"],
+            }),
+          });
+          if (!eua.ok) {
+            const t = await eua.text();
+            return json({ error: `EUA failed: ${eua.status}`, detail: t.slice(0, 300) }, corsHeaders, eua.status);
+          }
+          const euaData = await eua.json();
+
+          // 2. Create Requisition
+          const reference = `ayr_${body.institution_id}_${Date.now()}`;
+          const req = await fetch("https://bankaccountdata.gocardless.com/api/v2/requisitions/", {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json", "Accept": "application/json" },
+            body: JSON.stringify({
+              redirect, institution_id: body.institution_id,
+              reference, agreement: euaData.id, user_language: "ES",
+            }),
+          });
+          if (!req.ok) {
+            const t = await req.text();
+            return json({ error: `Requisition failed: ${req.status}`, detail: t.slice(0, 300) }, corsHeaders, req.status);
+          }
+          const reqData = await req.json();
+
+          // 3. Save pending consent in D1
+          const expiresAt = new Date(Date.now() + validDays * 86400000).toISOString();
+          await env.DB.prepare(
+            `INSERT INTO gocardless_consents (requisition_id, institution_id, institution_name, bank_label, status, max_historical_days, access_valid_for_days, expires_at)
+             VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)`
+          ).bind(reqData.id, body.institution_id, body.institution_id, body.label || null, maxHist, validDays, expiresAt).run();
+
+          return json({
+            ok: true,
+            requisition_id: reqData.id,
+            link: reqData.link,  // URL para que el usuario abra y autorice
+            agreement_id: euaData.id,
+            expires_at: expiresAt,
+            message: "Abre el link en el navegador para autorizar el acceso al banco. Tras autorizar volverás a A&R automáticamente.",
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/gocardless/callback?ref=<requisition_id>  — tras OAuth del banco
+      // Marca consent como linked, pulla accounts.
+      if (path === "/api/gocardless/callback" && request.method === "GET") {
+        try {
+          const reqId = url.searchParams.get("ref") || url.searchParams.get("requisition_id");
+          if (!reqId) return json({ error: "ref query param required" }, corsHeaders, 400);
+          const token = await gcGetToken(env);
+          const r = await fetch(`https://bankaccountdata.gocardless.com/api/v2/requisitions/${reqId}/`, {
+            headers: { "Authorization": `Bearer ${token}`, "Accept": "application/json" },
+          });
+          if (!r.ok) {
+            const t = await r.text();
+            return json({ error: `requisition fetch failed: ${r.status}`, detail: t.slice(0, 300) }, corsHeaders, r.status);
+          }
+          const reqData = await r.json();
+          const accounts = reqData.accounts || [];
+          // Update D1
+          await env.DB.prepare(
+            `UPDATE gocardless_consents SET status = ?, accounts_json = ?, institution_name = COALESCE(institution_name, ?)
+             WHERE requisition_id = ?`
+          ).bind(reqData.status || "LINKED", JSON.stringify(accounts), reqData.institution_id || null, reqId).run();
+          return json({ ok: true, requisition_id: reqId, status: reqData.status, accounts, count: accounts.length }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/gocardless/consents  — lista todos los consents en D1
+      if (path === "/api/gocardless/consents" && request.method === "GET") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          const { results } = await env.DB.prepare(
+            `SELECT * FROM gocardless_consents ORDER BY created_at DESC`
+          ).all();
+          // Parse accounts_json
+          const consents = (results || []).map(r => ({
+            ...r, accounts: r.accounts_json ? JSON.parse(r.accounts_json) : [],
+            days_until_expiry: r.expires_at ? Math.floor((new Date(r.expires_at).getTime() - Date.now()) / 86400000) : null,
+          }));
+          return json({ consents, count: consents.length }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // POST /api/gocardless/sync  body: {requisition_id?, days_back?}
+      // Pulla transactions de TODAS las cuentas (o de una requisición específica)
+      // e inserta en gocardless_transactions + opcionalmente en gastos.
+      if (path === "/api/gocardless/sync" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          const body = await parseBody(request).catch(() => ({}));
+          const targetReqId = body.requisition_id || null;
+          const daysBack = Number(body.days_back) || 30;
+          const dateFrom = new Date(Date.now() - daysBack * 86400000).toISOString().slice(0, 10);
+          const dateTo = new Date().toISOString().slice(0, 10);
+
+          const token = await gcGetToken(env);
+          const whereClause = targetReqId
+            ? "WHERE requisition_id = ? AND status = 'LINKED'"
+            : "WHERE status = 'LINKED'";
+          const stmt = targetReqId
+            ? env.DB.prepare(`SELECT * FROM gocardless_consents ${whereClause}`).bind(targetReqId)
+            : env.DB.prepare(`SELECT * FROM gocardless_consents ${whereClause}`);
+          const { results: consents } = await stmt.all();
+          if (!consents?.length) {
+            return json({ error: "No linked consents found", inserted: 0 }, corsHeaders);
+          }
+
+          let totalInserted = 0, totalSkipped = 0, totalFailed = 0;
+          const detail = [];
+
+          for (const consent of consents) {
+            const accounts = consent.accounts_json ? JSON.parse(consent.accounts_json) : [];
+            for (const accountId of accounts) {
+              try {
+                const tr = await fetch(
+                  `https://bankaccountdata.gocardless.com/api/v2/accounts/${accountId}/transactions/?date_from=${dateFrom}&date_to=${dateTo}`,
+                  { headers: { "Authorization": `Bearer ${token}`, "Accept": "application/json" } }
+                );
+                if (!tr.ok) { totalFailed++; detail.push({ account_id: accountId, error: `HTTP ${tr.status}` }); continue; }
+                const trData = await tr.json();
+                const booked = trData?.transactions?.booked || [];
+                let inserted = 0, skipped = 0;
+                const insertStmts = [];
+                for (const tx of booked) {
+                  const txId = tx.transactionId || tx.internalTransactionId || `${accountId}_${tx.bookingDate}_${tx.transactionAmount?.amount}_${(tx.remittanceInformationUnstructured || '').slice(0,20)}`;
+                  if (!txId) { skipped++; continue; }
+                  const amount = parseFloat(tx.transactionAmount?.amount || 0);
+                  const currency = tx.transactionAmount?.currency || "EUR";
+                  insertStmts.push(env.DB.prepare(
+                    `INSERT OR IGNORE INTO gocardless_transactions (transaction_id, account_id, requisition_id, booking_date, value_date, amount, currency, creditor_name, debtor_name, remittance_info, transaction_type, raw_json)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                  ).bind(
+                    txId, accountId, consent.requisition_id,
+                    tx.bookingDate || null, tx.valueDate || null,
+                    amount, currency,
+                    tx.creditorName || null, tx.debtorName || null,
+                    tx.remittanceInformationUnstructured || (Array.isArray(tx.remittanceInformationUnstructuredArray) ? tx.remittanceInformationUnstructuredArray.join(' ') : null),
+                    tx.bankTransactionCode || null,
+                    JSON.stringify(tx).slice(0, 4000)
+                  ));
+                }
+                // Batch insert
+                for (let i = 0; i < insertStmts.length; i += 50) {
+                  const res = await env.DB.batch(insertStmts.slice(i, i + 50)).catch(() => []);
+                  for (const r of res) if (r?.meta?.changes > 0) inserted++;
+                }
+                totalInserted += inserted;
+                totalSkipped += (booked.length - inserted);
+                detail.push({ account_id: accountId, fetched: booked.length, inserted });
+              } catch (e) {
+                totalFailed++;
+                detail.push({ account_id: accountId, error: e.message });
+              }
+            }
+            // Update last_sync
+            await env.DB.prepare(
+              `UPDATE gocardless_consents SET last_sync_at = datetime('now'), last_sync_count = ? WHERE requisition_id = ?`
+            ).bind(totalInserted, consent.requisition_id).run();
+          }
+
+          return json({
+            ok: true,
+            consents_processed: consents.length,
+            inserted: totalInserted,
+            skipped: totalSkipped,
+            failed: totalFailed,
+            date_range: { from: dateFrom, to: dateTo },
+            detail,
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // DELETE /api/gocardless/consent/:id  — revoca consent en GoCardless + D1
+      if (path.startsWith("/api/gocardless/consent/") && request.method === "DELETE") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          const reqId = decodeURIComponent(path.split("/api/gocardless/consent/")[1]);
+          const token = await gcGetToken(env);
+          await fetch(`https://bankaccountdata.gocardless.com/api/v2/requisitions/${reqId}/`, {
+            method: "DELETE",
+            headers: { "Authorization": `Bearer ${token}` },
+          }).catch(() => {});
+          await env.DB.prepare(`UPDATE gocardless_consents SET status = 'REVOKED' WHERE requisition_id = ?`).bind(reqId).run();
+          return json({ ok: true, requisition_id: reqId, status: "REVOKED" }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
       // GET /api/ingresos
       if (path === "/api/ingresos" && request.method === "GET") {
         const { results } = await env.DB.prepare(
