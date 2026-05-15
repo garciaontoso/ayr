@@ -10929,6 +10929,182 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       }
 
       // ═══════════════════════════════════════════════════════════════════════
+      // POST /api/gastos/import-spendee
+      //
+      // Parser específico para CSV exportado por Spendee (la app de tracking
+      // que consolida los 3 bancos del usuario: Revolut + Bankinter + CbNK).
+      // El usuario hace export desde Spendee → llega a iCloud → forward a
+      // gastos@ayr.onto-so.com → Email Worker extract CSV → llama aquí.
+      //
+      // Formato Spendee típico (header detection robusta):
+      //   Date,Wallet,Type,Category,Amount,Currency,Note,Labels (variable)
+      //
+      // Categorías auto-mapeadas Spendee → A&R: Food→COM, Groceries→SUP,
+      // Transport→TRA, Health→HEA, Clothing→ROP, etc.
+      // ═══════════════════════════════════════════════════════════════════════
+      if (path === "/api/gastos/import-spendee" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        const body = await parseBody(request);
+        const csvText = body.csv;
+        if (!csvText) return json({ error: "Missing csv field" }, corsHeaders, 400);
+
+        // CATEGORY_MAP: Spendee uses English category names by default
+        const SPENDEE_CATEGORY_MAP = {
+          // Food & dining
+          'food & drinks': 'COM', 'food and drinks': 'COM', 'restaurants': 'COM',
+          'dining': 'COM', 'cafe': 'COM', 'bars': 'COM', 'fast food': 'COM',
+          'comida': 'COM', 'comidas': 'COM', 'restaurante': 'COM',
+          'groceries': 'SUP', 'supermarket': 'SUP', 'supermercado': 'SUP',
+          // Transport
+          'transport': 'TRA', 'transportation': 'TRA', 'transporte': 'TRA',
+          'taxi': 'TRA', 'uber': 'TRA', 'cabify': 'TRA', 'parking': 'TRA',
+          'fuel': 'TRA', 'gasoline': 'TRA', 'gas': 'TRA', 'gasolina': 'TRA',
+          'public transport': 'TRA', 'train': 'TRA', 'flight': 'TRA',
+          // Health
+          'health': 'HEA', 'healthcare': 'HEA', 'medical': 'HEA', 'pharmacy': 'HEA',
+          'doctor': 'HEA', 'salud': 'HEA', 'farmacia': 'HEA',
+          // Clothing
+          'clothing': 'ROP', 'fashion': 'ROP', 'ropa': 'ROP', 'shoes': 'ROP',
+          // Subscriptions
+          'subscriptions': 'SUB', 'streaming': 'SUB', 'apps': 'SUB',
+          'suscripciones': 'SUB', 'subscripciones': 'SUB',
+          // Caprichos
+          'entertainment': 'CAP', 'leisure': 'CAP', 'fun': 'CAP', 'caprichos': 'CAP',
+          'shopping': 'CAP',
+          // Sports
+          'sports': 'DEP', 'fitness': 'DEP', 'gym': 'DEP', 'deportes': 'DEP',
+          'hobby': 'DEP', 'hobbies': 'DEP',
+          // Utilities
+          'utilities': 'UTI', 'bills': 'UTI', 'electricity': 'UTI', 'water': 'UTI',
+          'internet': 'UTI', 'phone': 'UTI', 'facturas': 'UTI',
+          // Education
+          'education': 'EDU', 'courses': 'EDU', 'books': 'EDU', 'educacion': 'EDU',
+          // Gifts
+          'gifts': 'REG', 'gift': 'REG', 'regalos': 'REG', 'regalo': 'REG',
+        };
+
+        // Skip patterns — exclude transfers, income, etc.
+        const SKIP_KEYWORDS = [
+          'transfer', 'transferencia', 'exchanged', 'to interactive', 'to fondo',
+          'to revolut', 'from revolut', 'top up', 'recarga',
+        ];
+
+        // Parse CSV with quoted fields support
+        function parseCSVLine(line) {
+          const fields = [];
+          let current = "", inQuotes = false;
+          for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (ch === '"') {
+              if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+              else { inQuotes = !inQuotes; }
+              continue;
+            }
+            if ((ch === ',' || ch === ';') && !inQuotes) { fields.push(current.trim()); current = ""; continue; }
+            current += ch;
+          }
+          fields.push(current.trim());
+          return fields;
+        }
+
+        const lines = csvText.split(/\r?\n/).filter(l => l.trim());
+        if (lines.length < 2) return json({ error: "CSV vacío o sin filas" }, corsHeaders, 400);
+
+        // Auto-detect column indices from header (Spendee varies versions)
+        const headerFields = parseCSVLine(lines[0]).map(h => h.toLowerCase().trim());
+        const colIdx = {
+          date: headerFields.findIndex(h => /date|fecha/.test(h)),
+          wallet: headerFields.findIndex(h => /wallet|account|cuenta/.test(h)),
+          category: headerFields.findIndex(h => /category|categor/.test(h)),
+          amount: headerFields.findIndex(h => /amount|importe/.test(h)),
+          currency: headerFields.findIndex(h => /currency|divisa|moneda/.test(h)),
+          note: headerFields.findIndex(h => /note|descripcion|description|memo/.test(h)),
+          type: headerFields.findIndex(h => /^type$|tipo$/.test(h)),
+          labels: headerFields.findIndex(h => /label|etiqueta/.test(h)),
+        };
+        // Critical columns required
+        if (colIdx.date < 0 || colIdx.amount < 0) {
+          return json({
+            error: "CSV no parece de Spendee: faltan columnas Date/Amount.",
+            header_detected: headerFields,
+          }, corsHeaders, 400);
+        }
+
+        let imported = 0, skipped = 0, duplicates = 0, ingresos = 0;
+        const samples = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          const fields = parseCSVLine(lines[i]);
+          if (fields.length < 3) { skipped++; continue; }
+
+          const dateRaw = fields[colIdx.date] || '';
+          const wallet = colIdx.wallet >= 0 ? fields[colIdx.wallet] : '';
+          const categoryName = colIdx.category >= 0 ? fields[colIdx.category] : '';
+          const amountStr = fields[colIdx.amount] || '';
+          const currency = colIdx.currency >= 0 ? fields[colIdx.currency] : 'EUR';
+          const note = colIdx.note >= 0 ? fields[colIdx.note] : '';
+          const type = colIdx.type >= 0 ? fields[colIdx.type].toLowerCase() : '';
+
+          // Parse amount (Spendee uses comma or dot)
+          const amount = parseFloat(amountStr.replace(/[€$£]/g, '').replace(',', '.').trim());
+          if (isNaN(amount) || amount === 0) { skipped++; continue; }
+
+          // Skip income (positive amounts or explicit 'income' type)
+          if (amount > 0 || type === 'income' || type === 'ingreso') { ingresos++; continue; }
+
+          // Skip transfers
+          const checkText = `${note} ${categoryName}`.toLowerCase();
+          if (SKIP_KEYWORDS.some(k => checkText.includes(k))) { skipped++; continue; }
+
+          // Map category
+          const categoryLower = (categoryName || '').toLowerCase().trim();
+          let categoria = SPENDEE_CATEGORY_MAP[categoryLower] || 'OTH';
+          // Apply learned rules — override if better match
+          try {
+            const rule = await applyGastoRules(env, note || categoryName);
+            if (rule && rule.categoria) categoria = rule.categoria;
+          } catch {}
+
+          // Parse date (Spendee uses YYYY-MM-DD or DD/MM/YYYY)
+          let fecha = dateRaw.substring(0, 10);
+          if (/^\d{2}\/\d{2}\/\d{4}/.test(fecha)) {
+            const [d, m, y] = fecha.split('/');
+            fecha = `${y}-${m}-${d}`;
+          }
+          if (!/^\d{4}-\d{2}-\d{2}/.test(fecha)) { skipped++; continue; }
+
+          // Store as negative (convention)
+          const importe = -Math.abs(amount);
+          const divisa = (currency || 'EUR').toUpperCase().slice(0, 3);
+
+          // Check duplicate
+          const dup = await env.DB.prepare(
+            `SELECT id FROM gastos WHERE fecha = ? AND categoria = ? AND ABS(importe - ?) < 0.01 AND divisa = ? LIMIT 1`
+          ).bind(fecha, categoria, importe, divisa).first();
+          if (dup) { duplicates++; continue; }
+
+          // China detection from wallet or note
+          const isChina = (wallet && wallet.toLowerCase().includes('china')) ||
+                          (note && note.toLowerCase().includes('china'));
+          const descripcion = isChina ? `{china} ${note || categoryName}` : (note || categoryName);
+          const autoLugar = isChina ? 'china' : detectLugarTag(descripcion, divisa);
+
+          await env.DB.prepare(
+            `INSERT INTO gastos (fecha, categoria, importe, divisa, descripcion, lugar_tag, china_obligatorio) VALUES (?, ?, ?, ?, ?, ?, ?)`
+          ).bind(fecha, categoria, importe, divisa, descripcion, autoLugar, autoLugar === 'china' ? 1 : 0).run();
+          imported++;
+          if (samples.length < 5) samples.push({ fecha, categoria, importe, divisa, descripcion: descripcion.slice(0, 60) });
+        }
+
+        return json({
+          imported, skipped, duplicates, ingresos_ignorados: ingresos,
+          total_lines: lines.length - 1, samples,
+          source: 'spendee',
+        }, corsHeaders);
+      }
+
+      // ═══════════════════════════════════════════════════════════════════════
       // GoCardless Bank Account Data API integration (2026-05-15)
       //
       // Open Banking via GoCardless aggregator. Permite sync diario automático
@@ -27133,6 +27309,127 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
     // Si por error se reactiva otro cron (Oracle/agentes), no se ejecuta.
     console.log("[scheduled] KILL-SWITCH activo para crons LLM — no se ejecuta nada");
     return;
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Email Worker handler (2026-05-15)
+  //
+  // Recibe emails dirigidos a gastos@ayr.onto-so.com (Cloudflare Email Routing).
+  // Detecta sender = info@spendee.com (con allowlist), extrae el CSV adjunto,
+  // y lo importa al endpoint /api/gastos/import-spendee.
+  //
+  // Setup en CF Dashboard:
+  //   1. Email → Email Routing → Routing rules
+  //   2. Custom address: gastos@ayr.onto-so.com → Send to worker (aar-api)
+  //   3. MX records auto-añadidos por CF
+  //
+  // Setup user:
+  //   - iCloud Mail → Rules → If from info@spendee.com → Forward to gastos@ayr.onto-so.com
+  //   - O bien: configurar Spendee para que envíe export a esa address directamente
+  // ═══════════════════════════════════════════════════════════════════════
+  async email(message, env, ctx) {
+    try {
+      const from = message.from || '';
+      const subject = message.headers.get('subject') || '';
+      console.log(`[email] received from=${from} subject="${subject.slice(0,80)}"`);
+
+      // Allowlist sender — protege de spam/spoofing
+      const ALLOWED_SENDERS = ['spendee.com', 'noreply@spendee.com', 'info@spendee.com'];
+      const isAllowed = ALLOWED_SENDERS.some(s => from.toLowerCase().includes(s));
+      if (!isAllowed) {
+        console.log(`[email] rejected: sender ${from} not in allowlist`);
+        message.setReject('Sender not authorized');
+        return;
+      }
+
+      // Read full raw email (RFC822) to extract attachments
+      const rawStream = message.raw;
+      const chunks = [];
+      const reader = rawStream.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+      const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+      const merged = new Uint8Array(totalLen);
+      let off = 0;
+      for (const c of chunks) { merged.set(c, off); off += c.length; }
+      const rawText = new TextDecoder('utf-8', { fatal: false }).decode(merged);
+
+      // Find CSV attachment in multipart email.
+      // Simple parser: find Content-Disposition: attachment with filename ending .csv
+      // and extract base64 body until boundary.
+      let csvContent = null;
+      const csvMatch = rawText.match(/Content-Disposition: attachment;[^\n]*filename[^\n]*\.csv[\s\S]*?\r?\n\r?\n([\s\S]*?)(?:\r?\n--|\r?\n\.--)/i);
+      if (csvMatch) {
+        const body = csvMatch[1].trim();
+        // Detect if base64 encoded
+        const cteMatch = rawText.match(/Content-Transfer-Encoding:\s*base64[\s\S]{0,500}?filename[^\n]*\.csv/i);
+        if (cteMatch || /^[A-Za-z0-9+/=\r\n]+$/.test(body.slice(0, 200))) {
+          // Decode base64
+          try {
+            const cleaned = body.replace(/[\r\n\s]/g, '');
+            const binary = atob(cleaned);
+            const bytes = Uint8Array.from(binary, ch => ch.charCodeAt(0));
+            csvContent = new TextDecoder('utf-8').decode(bytes);
+          } catch (e) {
+            csvContent = body; // fallback raw
+          }
+        } else {
+          csvContent = body;
+        }
+      }
+
+      if (!csvContent) {
+        console.log('[email] no CSV attachment found');
+        // Telegram alert al user
+        try {
+          await sendTelegram(env, {
+            text: `📧 Email Spendee recibido pero **sin CSV adjunto**.\nSubject: ${subject.slice(0, 100)}\nFrom: ${from}\nVerifica que exportaste como CSV.`,
+            severity: 'warn', source: 'email_spendee',
+          });
+        } catch {}
+        return;
+      }
+
+      // Call internal endpoint
+      const r = await fetch('https://api.onto-so.com/api/gastos/import-spendee', {
+        method: 'POST',
+        headers: {
+          'X-AYR-Auth': env.AYR_WORKER_TOKEN || '',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ csv: csvContent }),
+      });
+      const result = await r.json().catch(() => ({}));
+      console.log(`[email] import result: ${JSON.stringify(result)}`);
+
+      // Telegram alert
+      try {
+        await sendTelegram(env, {
+          text: [
+            `📧 *Spendee CSV procesado*`,
+            ``,
+            `✓ ${result.imported || 0} gastos nuevos importados`,
+            `↺ ${result.duplicates || 0} duplicados (ya existían)`,
+            `⏭ ${result.skipped || 0} skipped (transferencias/header)`,
+            result.ingresos_ignorados ? `💰 ${result.ingresos_ignorados} ingresos ignorados` : '',
+            ``,
+            `Ver en: https://ayr.onto-so.com → Gastos`,
+          ].filter(Boolean).join('\n'),
+          severity: 'info', source: 'email_spendee',
+        });
+      } catch {}
+    } catch (e) {
+      console.error('[email] error:', e.message, e.stack?.slice(0, 300));
+      try {
+        await sendTelegram(env, {
+          text: `📧 Error procesando email Spendee: ${e.message?.slice(0, 200)}`,
+          severity: 'warn', source: 'email_spendee',
+        });
+      } catch {}
+    }
   },
 };
 
