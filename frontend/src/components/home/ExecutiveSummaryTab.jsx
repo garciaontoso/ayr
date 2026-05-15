@@ -160,7 +160,7 @@ export default function ExecutiveSummaryTab() {
 
       {/* Zona 1a: KPIs principales — Wealth Gain Total (lo que importa) */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <BigKpi icon="💼" label="Valor Cartera (LIVE)" value={fmtUSD(kpis.valor_cartera_usd)} subtitle={`${fmtNum(kpis.num_posiciones)} posiciones · NLV bridge`} size="large" />
+        <BigKpi icon="💼" label="Valor Cartera (positions)" value={fmtUSD(kpis.valor_cartera_usd)} subtitle={dataSource.bridge_nlv_usd ? `Bridge LIVE: ${fmtUSD(dataSource.bridge_nlv_usd)}` : `${fmtNum(kpis.num_posiciones)} positions`} size="large" />
         <BigKpi icon="🏆" label="Wealth Gain Total" value={fmtUSD(kpis.wealth_gain_total_usd)} subtitle={`${fmtPct(kpis.wealth_gain_pct)} · realized + unrealized + divs`} color={colorPnl(kpis.wealth_gain_total_usd)} size="large" />
         <BigKpi icon="💵" label="Income Lifetime" value={fmtUSD(kpis.total_income_lifetime_usd)} subtitle="realizados + divs + opciones" color="var(--green)" size="large" />
       </div>

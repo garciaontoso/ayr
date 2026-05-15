@@ -11426,25 +11426,29 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
                                         pnlRealizedLifetime.stocks_realized;
           } catch (e) { /* fallback zeros */ }
 
-          // 6. KPIs totales agregados
-          // SOURCE OF TRUTH: bridge NLV si disponible (positions D1 tiene phantoms inflando)
-          const totalValorPositions = positions.reduce((s, p) => s + (p.usd_value || 0), 0);
-          const totalValorUsd = nlvBridge != null ? nlvBridge : totalValorPositions;
-          const phantomDelta = totalValorPositions - totalValorUsd; // diff que el usuario debería conocer
-
-          // Total invertido — current cost basis post-FIFO. NO usar p.total_invested (no
-          // descuenta ventas). Solo aplicar fx cuando currency != USD (algunas positions USD
-          // tienen fx≠1 incorrectamente, lo cual inflaba el agregado).
+          // 6. KPIs totales agregados — CONSISTENT SOURCE para PnL.
+          // Importante: valor y invertido DEBEN venir de la misma fuente (positions agregado).
+          // Bridge NLV se reporta separado como "reality check" pero NO se mezcla con
+          // positions.invertido (eso causaría el bug del -$1M falso PnL).
           const ccyToUsdFx = (ccy, fx) => {
             if (!ccy || ccy === 'USD') return 1;
             return fx && fx > 0 ? fx : 1;
           };
+
+          // VALOR — suma positions.usd_value (mismo source que invertido)
+          const totalValorPositions = positions.reduce((s, p) => s + (p.usd_value || 0), 0);
+          const totalValorUsd = totalValorPositions; // canonical para PnL math
+          // Bridge NLV es dato separado para detectar phantoms
+          const phantomDelta = totalValorPositions - (nlvBridge != null ? nlvBridge : totalValorPositions);
+
+          // INVERTIDO — cost basis actual post-FIFO de positions activas
           const totalInvertidoUsd = positions.reduce((s, p) => {
             const fxUsd = ccyToUsdFx(p.currency, p.fx);
             const invested = (p.shares || 0) * (p.avg_price || 0) * fxUsd;
             return s + (Number.isFinite(invested) && invested > 0 ? invested : 0);
           }, 0);
 
+          // PnL unrealized = valor positions - invertido positions (consistente)
           const totalPnlUsd = totalValorUsd - totalInvertidoUsd;
           const rentabilidadAcumulada = totalInvertidoUsd > 0 ? (totalPnlUsd / totalInvertidoUsd) * 100 : 0;
 
