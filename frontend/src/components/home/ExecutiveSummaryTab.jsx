@@ -104,6 +104,7 @@ export default function ExecutiveSummaryTab() {
   const tableRows = data?.table_rows || [];
   const divsByMonth = data?.divs_by_month || [];
   const byCurrency = data?.by_currency || [];
+  const dataSource = data?.data_source || {};
 
   // Stats para coloring tabla
   const maxRent = Math.max(...tableRows.map(r => r.rent_usd_pct || 0));
@@ -127,13 +128,35 @@ export default function ExecutiveSummaryTab() {
             📊 Resumen Ejecutivo
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
-            KPIs · Ranking automático · Estacionalidad dividendos · Tabla semáforo · {kpis.num_posiciones} posiciones
+            KPIs · Ranking automático · Estacionalidad dividendos · Tabla semáforo · {kpis.num_posiciones_clean || kpis.num_posiciones} posiciones limpias
+            {kpis.num_posiciones - (kpis.num_posiciones_clean || 0) > 0 && (
+              <span style={{ color: 'var(--gold)' }}> · {kpis.num_posiciones - kpis.num_posiciones_clean} outliers filtrados del ranking</span>
+            )}
           </div>
         </div>
-        <button onClick={fetchData} disabled={loading} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-alt)', color: 'var(--text-primary)', cursor: loading ? 'wait' : 'pointer', fontSize: 12 }}>
-          {loading ? '...' : '↻ Refrescar'}
-        </button>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          {dataSource.bridge_ok ? (
+            <span title="NLV en vivo desde IB Bridge" style={{ fontSize: 10, padding: '4px 10px', background: 'rgba(74,222,128,.12)', color: 'var(--green)', borderRadius: 8, fontWeight: 600 }}>
+              ● NLV LIVE
+            </span>
+          ) : (
+            <span title="Bridge OFF, usando agregado D1 (puede incluir phantoms)" style={{ fontSize: 10, padding: '4px 10px', background: 'rgba(200,164,78,.12)', color: 'var(--gold)', borderRadius: 8, fontWeight: 600 }}>
+              ● BRIDGE OFF — D1 AGG
+            </span>
+          )}
+          <button onClick={fetchData} disabled={loading} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-alt)', color: 'var(--text-primary)', cursor: loading ? 'wait' : 'pointer', fontSize: 12 }}>
+            {loading ? '...' : '↻ Refrescar'}
+          </button>
+        </div>
       </div>
+
+      {/* Phantom warning si hay delta material */}
+      {dataSource.phantom_warning && (
+        <div style={{ padding: '10px 14px', background: 'rgba(200,164,78,.08)', border: '1px solid var(--gold)', borderRadius: 10, fontSize: 12, color: 'var(--gold)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span>⚠</span>
+          <span>{dataSource.phantom_warning}</span>
+        </div>
+      )}
 
       {/* Zona 1: Banner de KPIs grandes (top) */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -252,9 +275,12 @@ export default function ExecutiveSummaryTab() {
             </thead>
             <tbody>
               {tableRows.map(r => (
-                <tr key={r.ticker} style={{ borderBottom: '1px solid var(--subtle-border)' }}>
+                <tr key={r.ticker} style={{ borderBottom: '1px solid var(--subtle-border)', opacity: r.outlier ? 0.45 : 1 }} title={r.outlier ? 'Outlier — data quality issue, no contado en ranking' : undefined}>
                   <td style={{ padding: '7px 6px', fontFamily: 'var(--fm)' }}>
-                    <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{r.ticker}</div>
+                    <div style={{ fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      {r.outlier && <span title="Outlier — data quality" style={{ fontSize: 10, color: 'var(--gold)' }}>⚠</span>}
+                      {r.ticker}
+                    </div>
                     {r.sector && <div style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>{r.sector}</div>}
                   </td>
                   <td style={{ padding: '7px 6px', textAlign: 'right', fontFamily: 'var(--fm)', fontWeight: 700, background: cellBg(r.valor_usd, 0, Math.max(...tableRows.map(x => x.valor_usd))) }}>
@@ -292,8 +318,9 @@ export default function ExecutiveSummaryTab() {
       </div>
 
       {/* Footer */}
-      <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textAlign: 'center', padding: 4 }}>
-        Datos en USD · Dividendos lifetime acumulados · Tabla ordenada por rentabilidad descendente · Inspirado en plantillas dividendero español
+      <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textAlign: 'center', padding: 4, lineHeight: 1.6 }}>
+        Datos en USD · NLV fuente: {dataSource.nlv_source === 'ib_bridge_live' ? 'IB Bridge LIVE' : 'positions D1 (puede incluir phantoms)'} · Dividendos lifetime acumulados · Tabla ordenada por rentabilidad
+        {dataSource.outliers_filtered > 0 && ` · ${dataSource.outliers_filtered} outliers filtrados del ranking (rent >500% o <-90%)`}
       </div>
 
     </div>

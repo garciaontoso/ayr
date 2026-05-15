@@ -11300,8 +11300,22 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // Agrega KPIs principales, ranking auto (mejor/peor por varias dimensiones),
       // dividendos por mes (estacionalidad), exposición por sector + divisa, y
       // tabla detallada por ticker con todos los KPIs ranked.
+      // 2026-05-15 v2: usa IB Bridge LIVE como source-of-truth para NLV (la tabla
+      // positions tiene phantoms inflando ~$1M). Yield real desde divs_12m table
+      // (no div_ttm que está en 0 para muchos).
       if (path === "/api/dashboard/executive" && request.method === "GET") {
         try {
+          // 0. IB Bridge LIVE — source of truth para NLV (positions D1 tiene phantoms)
+          let nlvBridge = null;
+          let bridgeOk = false;
+          try {
+            const bridgeData = await ibBridgeFetch(env, "/nav");
+            if (bridgeData?.accounts?.length) {
+              nlvBridge = bridgeData.accounts.reduce((s, a) => s + (a.net_liquidation || 0), 0);
+              bridgeOk = true;
+            }
+          } catch {}
+
           // 1. Posiciones activas (no historial) con datos pre-calculados
           const { results: positions } = await env.DB.prepare(
             `SELECT ticker, name, last_price, avg_price, cost_basis, shares, currency, fx,
@@ -11369,32 +11383,68 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const divs12mTotal = (divs12m && divs12m[0]?.total_usd) || 0;
 
           // 6. KPIs totales agregados
-          const totalValorUsd = positions.reduce((s, p) => s + (p.usd_value || 0), 0);
-          const totalInvertidoUsd = positions.reduce((s, p) => s + (p.total_invested || (p.shares * p.avg_price * (p.fx || 1)) || 0), 0);
+          // SOURCE OF TRUTH: bridge NLV si disponible (positions D1 tiene phantoms inflando)
+          const totalValorPositions = positions.reduce((s, p) => s + (p.usd_value || 0), 0);
+          const totalValorUsd = nlvBridge != null ? nlvBridge : totalValorPositions;
+          const phantomDelta = totalValorPositions - totalValorUsd; // diff que el usuario debería conocer
+
+          // Total invertido — current cost basis post-FIFO. NO usar p.total_invested (no
+          // descuenta ventas). Solo aplicar fx cuando currency != USD (algunas positions USD
+          // tienen fx≠1 incorrectamente, lo cual inflaba el agregado).
+          const ccyToUsdFx = (ccy, fx) => {
+            if (!ccy || ccy === 'USD') return 1;
+            return fx && fx > 0 ? fx : 1;
+          };
+          const totalInvertidoUsd = positions.reduce((s, p) => {
+            const fxUsd = ccyToUsdFx(p.currency, p.fx);
+            const invested = (p.shares || 0) * (p.avg_price || 0) * fxUsd;
+            return s + (Number.isFinite(invested) && invested > 0 ? invested : 0);
+          }, 0);
+
           const totalPnlUsd = totalValorUsd - totalInvertidoUsd;
           const rentabilidadAcumulada = totalInvertidoUsd > 0 ? (totalPnlUsd / totalInvertidoUsd) * 100 : 0;
-          const totalDivTtm = positions.reduce((s, p) => s + (p.div_ttm || 0), 0);
-          const yieldActual = totalValorUsd > 0 ? (totalDivTtm / totalValorUsd) * 100 : 0;
-          const yieldOnCost = totalInvertidoUsd > 0 ? (totalDivTtm / totalInvertidoUsd) * 100 : 0;
+
+          // Yield: usa divs_12m_usd reales en lugar de div_ttm (column tiene 0s)
+          const yieldActual = totalValorUsd > 0 ? (divs12mTotal / totalValorUsd) * 100 : 0;
+          const yieldOnCost = totalInvertidoUsd > 0 ? (divs12mTotal / totalInvertidoUsd) * 100 : 0;
+
           const totalDivsHistorico = (divsByTicker || []).reduce((s, r) => s + (r.total_divs_usd || 0), 0);
           const pnlPlusDivs = totalPnlUsd + totalDivsHistorico;
           const rentPlusDivsPct = totalInvertidoUsd > 0 ? (pnlPlusDivs / totalInvertidoUsd) * 100 : 0;
           const amortizacionInversion = totalInvertidoUsd > 0 ? (totalDivsHistorico / totalInvertidoUsd) * 100 : 0;
 
-          // 7. Build table rows enriquecidos
+          // 7. Build table rows enriquecidos + detección de outliers (data quality)
           const tableRows = positions.map(p => {
             const divHist = divsMap.get(p.ticker);
             const divUsd = divHist?.total_divs_usd || 0;
             const valorX = p.market_value || (p.shares * p.last_price) || 0;
             const valorUsd = p.usd_value || 0;
-            const invertidoUsd = p.total_invested || (p.shares * p.avg_price * (p.fx || 1)) || 0;
+            // invertido = shares × avg_price × fx (current cost basis post-ventas FIFO)
+            // fx solo si currency != USD
+            const fxUsd = ccyToUsdFx(p.currency, p.fx);
+            const invertidoUsd = (p.shares || 0) * (p.avg_price || 0) * fxUsd;
             const pnlUsd = valorUsd - invertidoUsd;
             const rentUsdPct = invertidoUsd > 0 ? (pnlUsd / invertidoUsd) * 100 : 0;
             const rentXPct = (p.shares > 0 && p.avg_price > 0) ? ((p.last_price - p.avg_price) / p.avg_price) * 100 : 0;
             const rentPlusDivsPct = invertidoUsd > 0 ? ((pnlUsd + divUsd) / invertidoUsd) * 100 : 0;
-            const yocPct = invertidoUsd > 0 ? ((p.div_ttm || 0) / invertidoUsd) * 100 : (p.yoc || 0);
+            // YoC: si div_ttm está disponible y >0 lo usa; si no, usa dividendos lifetime ÷ años poseído
+            const yocPct = invertidoUsd > 0 && p.div_ttm > 0
+              ? ((p.div_ttm) / invertidoUsd) * 100
+              : (p.yoc || 0);
             const amortPct = invertidoUsd > 0 ? (divUsd / invertidoUsd) * 100 : 0;
             const weight = totalValorUsd > 0 ? (valorUsd / totalValorUsd) * 100 : 0;
+
+            // Outlier detection — flagear data quality issues (más estricto)
+            // - rent extremo (>200% o <-80%): probable avg_price erróneo o split mal aplicado
+            // - sin invertido y con shares: data missing
+            // - sin valor pero con shares: precio missing (live no se actualiza)
+            // - sin avg_price: trades históricos sin coste base
+            const outlier =
+              rentUsdPct > 200 || rentUsdPct < -80 ||
+              (p.shares > 0 && invertidoUsd === 0) ||
+              (p.shares > 0 && valorUsd === 0) ||
+              !p.avg_price || p.avg_price <= 0;
+
             return {
               ticker: p.ticker, name: p.name, currency: p.currency,
               sector: p.sector, account: p.account,
@@ -11402,27 +11452,33 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
               pnl_usd: pnlUsd, rent_x_pct: rentXPct, rent_usd_pct: rentUsdPct,
               rent_plus_divs_pct: rentPlusDivsPct,
               div_usd: divUsd, yoc_pct: yocPct, amort_pct: amortPct,
-              weight_pct: weight, shares: p.shares,
+              weight_pct: weight, shares: p.shares, outlier,
             };
           });
+
+          // Filtrar outliers para ranking (no contaminar mejor/peor con data errors)
+          const cleanRows = tableRows.filter(r => !r.outlier && r.invertido_usd > 0);
+          const outlierCount = tableRows.length - cleanRows.length;
 
           // 8. Ranking automático
           const pickMax = (arr, key) => arr.reduce((best, x) => (x[key] != null && (best == null || x[key] > best[key])) ? x : best, null);
           const pickMin = (arr, key) => arr.reduce((best, x) => (x[key] != null && (best == null || x[key] < best[key])) ? x : best, null);
           const tickerVal = (r, key) => r ? { ticker: r.ticker, value: r[key] } : null;
 
+          // Ranking usa CLEAN rows (sin outliers) para no contaminar con data errors
           const ranking = {
-            mejor_rentabilidad: tickerVal(pickMax(tableRows, 'rent_usd_pct'), 'rent_usd_pct'),
-            peor_rentabilidad: tickerVal(pickMin(tableRows, 'rent_usd_pct'), 'rent_usd_pct'),
-            mas_ganado_usd: tickerVal(pickMax(tableRows, 'pnl_usd'), 'pnl_usd'),
-            mas_perdido_usd: tickerVal(pickMin(tableRows, 'pnl_usd'), 'pnl_usd'),
-            mas_invertido_usd: tickerVal(pickMax(tableRows, 'invertido_usd'), 'invertido_usd'),
-            menos_invertido_usd: tickerVal(pickMin(tableRows.filter(r => r.invertido_usd > 0), 'invertido_usd'), 'invertido_usd'),
-            mas_peso_cartera: tickerVal(pickMax(tableRows, 'weight_pct'), 'weight_pct'),
-            menos_peso_cartera: tickerVal(pickMin(tableRows.filter(r => r.weight_pct > 0), 'weight_pct'), 'weight_pct'),
+            mejor_rentabilidad: tickerVal(pickMax(cleanRows, 'rent_usd_pct'), 'rent_usd_pct'),
+            peor_rentabilidad: tickerVal(pickMin(cleanRows, 'rent_usd_pct'), 'rent_usd_pct'),
+            mas_ganado_usd: tickerVal(pickMax(cleanRows, 'pnl_usd'), 'pnl_usd'),
+            mas_perdido_usd: tickerVal(pickMin(cleanRows, 'pnl_usd'), 'pnl_usd'),
+            mas_invertido_usd: tickerVal(pickMax(cleanRows, 'invertido_usd'), 'invertido_usd'),
+            menos_invertido_usd: tickerVal(pickMin(cleanRows, 'invertido_usd'), 'invertido_usd'),
+            mas_peso_cartera: tickerVal(pickMax(cleanRows, 'weight_pct'), 'weight_pct'),
+            menos_peso_cartera: tickerVal(pickMin(cleanRows.filter(r => r.weight_pct > 0), 'weight_pct'), 'weight_pct'),
+            // Divs y YoC: usar tableRows completo, los outliers ahí no contaminan estos KPIs
             mas_dividendos_cobrados: tickerVal(pickMax(tableRows, 'div_usd'), 'div_usd'),
-            mayor_yield_on_cost: tickerVal(pickMax(tableRows, 'yoc_pct'), 'yoc_pct'),
-            mejor_amortizacion: tickerVal(pickMax(tableRows, 'amort_pct'), 'amort_pct'),
+            mayor_yield_on_cost: tickerVal(pickMax(cleanRows, 'yoc_pct'), 'yoc_pct'),
+            mejor_amortizacion: tickerVal(pickMax(cleanRows, 'amort_pct'), 'amort_pct'),
           };
 
           // Mejor/peor mes en divs
@@ -11465,6 +11521,17 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           return json({
             ok: true,
             as_of: new Date().toISOString(),
+            data_source: {
+              nlv_source: nlvBridge != null ? 'ib_bridge_live' : 'positions_d1_aggregated',
+              bridge_ok: bridgeOk,
+              positions_aggregated_usd: totalValorPositions,
+              bridge_nlv_usd: nlvBridge,
+              phantom_delta_usd: phantomDelta,
+              phantom_warning: Math.abs(phantomDelta) > 50000
+                ? `Positions D1 agrega $${Math.round(totalValorPositions).toLocaleString()} pero IB Bridge real $${Math.round(nlvBridge || 0).toLocaleString()} — diff $${Math.round(Math.abs(phantomDelta)).toLocaleString()} en phantoms`
+                : null,
+              outliers_filtered: outlierCount,
+            },
             kpis: {
               valor_cartera_usd: totalValorUsd,
               total_invertido_usd: totalInvertidoUsd,
@@ -11474,12 +11541,12 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
               rent_plus_divs_pct: rentPlusDivsPct,
               yield_actual_pct: yieldActual,
               yield_on_cost_pct: yieldOnCost,
-              div_ttm_usd: totalDivTtm,
               dividendos_totales_usd: totalDivsHistorico,
               dividendos_2026_usd: divs2026Total,
               dividendos_12m_usd: divs12mTotal,
               dividendos_12m_media: divs12mTotal / 12,
               num_posiciones: positions.length,
+              num_posiciones_clean: cleanRows.length,
               amortizacion_inversion_pct: amortizacionInversion,
             },
             ranking,
