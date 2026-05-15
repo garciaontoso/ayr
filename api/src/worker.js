@@ -11382,6 +11382,50 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           ).all();
           const divs12mTotal = (divs12m && divs12m[0]?.total_usd) || 0;
 
+          // 5b. PnL LIFETIME realizado — agregación SQL directa (después de tener positions).
+          // Stocks: -SUM(coste) total - current cost basis (lo abierto) = lo cerrado
+          // Options: +SUM(coste) signo invertido por convención IB (cobro de prima)
+          let pnlRealizedLifetime = { dividends_net: 0, options_pnl: 0, stocks_realized: 0, total: 0 };
+          try {
+            // Dividendos netos lifetime
+            const { results: divLifetime } = await env.DB.prepare(
+              `SELECT SUM(CASE WHEN divisa='USD' THEN neto
+                                WHEN divisa='EUR' THEN neto * 1.08
+                                WHEN divisa='GBP' THEN neto * 1.29
+                                WHEN divisa='HKD' THEN neto * 0.128
+                                WHEN divisa='CAD' THEN neto * 0.73
+                                ELSE neto END) as total_usd
+               FROM dividendos`
+            ).all();
+            pnlRealizedLifetime.dividends_net = (divLifetime && divLifetime[0]?.total_usd) || 0;
+
+            // Options realized lifetime: signo opuesto al naïve (memoria bug 2026-05-02 v2)
+            const { results: optPnl } = await env.DB.prepare(
+              `SELECT SUM(COALESCE(coste,0)) as pnl_usd
+               FROM cost_basis
+               WHERE tipo IN ('OPTION','OPT')`
+            ).all();
+            pnlRealizedLifetime.options_pnl = (optPnl && optPnl[0]?.pnl_usd) || 0;
+
+            // Stocks: -SUM(coste) - cost_basis_actual
+            const { results: stockTotal } = await env.DB.prepare(
+              `SELECT SUM(-COALESCE(coste,0)) as gross_pnl
+               FROM cost_basis
+               WHERE tipo IN ('EQUITY','STOCK','STK')`
+            ).all();
+            const grossStockPnl = (stockTotal && stockTotal[0]?.gross_pnl) || 0;
+            const currentCostBasis = positions.reduce((s, p) => {
+              const ccy = p.currency || 'USD';
+              const fx = (!ccy || ccy === 'USD') ? 1 : (p.fx && p.fx > 0 ? p.fx : 1);
+              return s + ((p.shares || 0) * (p.avg_price || 0) * fx);
+            }, 0);
+            pnlRealizedLifetime.stocks_realized = grossStockPnl - currentCostBasis;
+
+            pnlRealizedLifetime.total = pnlRealizedLifetime.dividends_net +
+                                        pnlRealizedLifetime.options_pnl +
+                                        pnlRealizedLifetime.stocks_realized;
+          } catch (e) { /* fallback zeros */ }
+
           // 6. KPIs totales agregados
           // SOURCE OF TRUTH: bridge NLV si disponible (positions D1 tiene phantoms inflando)
           const totalValorPositions = positions.reduce((s, p) => s + (p.usd_value || 0), 0);
@@ -11535,10 +11579,21 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             kpis: {
               valor_cartera_usd: totalValorUsd,
               total_invertido_usd: totalInvertidoUsd,
-              pnl_usd: totalPnlUsd,
+              pnl_unrealized_usd: totalPnlUsd,
+              pnl_usd: totalPnlUsd,  // alias para compatibilidad
               rentabilidad_acumulada_pct: rentabilidadAcumulada,
               pnl_plus_divs_usd: pnlPlusDivs,
               rent_plus_divs_pct: rentPlusDivsPct,
+              // PnL realizado lifetime (desde /api/pnl/monthly)
+              pnl_realizado_stocks_usd: pnlRealizedLifetime.stocks_realized,
+              pnl_realizado_options_usd: pnlRealizedLifetime.options_pnl,
+              dividendos_netos_lifetime_usd: pnlRealizedLifetime.dividends_net,
+              total_income_lifetime_usd: pnlRealizedLifetime.total,
+              // Total Wealth Gain = unrealized + realized stocks + realized options + dividends
+              wealth_gain_total_usd: totalPnlUsd + pnlRealizedLifetime.total,
+              wealth_gain_pct: totalInvertidoUsd > 0
+                ? ((totalPnlUsd + pnlRealizedLifetime.total) / totalInvertidoUsd) * 100
+                : 0,
               yield_actual_pct: yieldActual,
               yield_on_cost_pct: yieldOnCost,
               dividendos_totales_usd: totalDivsHistorico,

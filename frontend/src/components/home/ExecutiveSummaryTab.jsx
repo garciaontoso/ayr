@@ -158,19 +158,27 @@ export default function ExecutiveSummaryTab() {
         </div>
       )}
 
-      {/* Zona 1: Banner de KPIs grandes (top) */}
+      {/* Zona 1a: KPIs principales — Wealth Gain Total (lo que importa) */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <BigKpi icon="💼" label="Valor Cartera" value={fmtUSD(kpis.valor_cartera_usd)} subtitle={`${fmtNum(kpis.num_posiciones)} posiciones`} size="large" />
-        <BigKpi icon="💰" label="Total Invertido" value={fmtUSD(kpis.total_invertido_usd)} />
-        <BigKpi icon="📈" label="P&L USD" value={fmtUSD(kpis.pnl_usd)} subtitle={fmtPct(kpis.rentabilidad_acumulada_pct)} color={colorPnl(kpis.pnl_usd)} size="large" />
-        <BigKpi icon="🎁" label="P&L + Divs" value={fmtUSD(kpis.pnl_plus_divs_usd)} subtitle={fmtPct(kpis.rent_plus_divs_pct)} color={colorPnl(kpis.pnl_plus_divs_usd)} size="large" />
+        <BigKpi icon="💼" label="Valor Cartera (LIVE)" value={fmtUSD(kpis.valor_cartera_usd)} subtitle={`${fmtNum(kpis.num_posiciones)} posiciones · NLV bridge`} size="large" />
+        <BigKpi icon="🏆" label="Wealth Gain Total" value={fmtUSD(kpis.wealth_gain_total_usd)} subtitle={`${fmtPct(kpis.wealth_gain_pct)} · realized + unrealized + divs`} color={colorPnl(kpis.wealth_gain_total_usd)} size="large" />
+        <BigKpi icon="💵" label="Income Lifetime" value={fmtUSD(kpis.total_income_lifetime_usd)} subtitle="realizados + divs + opciones" color="var(--green)" size="large" />
       </div>
 
+      {/* Zona 1b: Desglose PnL Lifetime */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <BigKpi icon="💸" label="Yield Actual" value={fmtPctAbs(kpis.yield_actual_pct)} subtitle={`$${_sf(kpis.div_ttm_usd, 0)} TTM`} />
-        <BigKpi icon="🌱" label="Yield on Cost" value={fmtPctAbs(kpis.yield_on_cost_pct)} subtitle="div/coste" color={kpis.yield_on_cost_pct > 4 ? 'var(--green)' : 'var(--gold)'} />
-        <BigKpi icon="📅" label="Divs 2026 YTD" value={fmtUSD(kpis.dividendos_2026_usd)} subtitle="Cobrado este año" />
-        <BigKpi icon="💵" label="Divs Lifetime" value={fmtUSD(kpis.dividendos_totales_usd)} subtitle={`Media 12m: $${_sf(kpis.dividendos_12m_media, 0)}/mes`} />
+        <BigKpi icon="📈" label="Stocks Realizados Lifetime" value={fmtUSD(kpis.pnl_realizado_stocks_usd)} subtitle="ventas con beneficio histórico" color={colorPnl(kpis.pnl_realizado_stocks_usd)} />
+        <BigKpi icon="🎲" label="Opciones Realizadas Lifetime" value={fmtUSD(kpis.pnl_realizado_options_usd)} subtitle="primas netas cobradas" color={colorPnl(kpis.pnl_realizado_options_usd)} />
+        <BigKpi icon="💸" label="Divs Netos Lifetime" value={fmtUSD(kpis.dividendos_netos_lifetime_usd)} subtitle="después de WHT" color="var(--gold)" />
+        <BigKpi icon="📉" label="P&L No Realizado (actual)" value={fmtUSD(kpis.pnl_unrealized_usd)} subtitle={fmtPct(kpis.rentabilidad_acumulada_pct) + ' sobre coste'} color={colorPnl(kpis.pnl_unrealized_usd)} />
+      </div>
+
+      {/* Zona 1c: Métricas de yield / amortización */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <BigKpi icon="💰" label="Total Invertido (actual)" value={fmtUSD(kpis.total_invertido_usd)} subtitle="cost basis posiciones activas" />
+        <BigKpi icon="💸" label="Yield Actual" value={fmtPctAbs(kpis.yield_actual_pct)} subtitle={`$${_sf(kpis.dividendos_12m_usd, 0)} divs 12m`} />
+        <BigKpi icon="🌱" label="Yield on Cost" value={fmtPctAbs(kpis.yield_on_cost_pct)} subtitle="divs 12m / cost basis" color={kpis.yield_on_cost_pct > 4 ? 'var(--green)' : 'var(--gold)'} />
+        <BigKpi icon="📅" label="Divs YTD 2026" value={fmtUSD(kpis.dividendos_2026_usd)} subtitle={`Media: $${_sf(kpis.dividendos_12m_media, 0)}/mes`} />
         <BigKpi icon="🏠" label="Amortiz. Inversión" value={fmtPctAbs(kpis.amortizacion_inversion_pct)} subtitle="Divs / Coste base" color={kpis.amortizacion_inversion_pct > 10 ? 'var(--green)' : 'var(--text-primary)'} />
       </div>
 
