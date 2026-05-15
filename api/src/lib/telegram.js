@@ -11,7 +11,7 @@ export const TELEGRAM_EMOJI = {
   brain: '🧠', defense: '🛡️',
 };
 
-export async function sendTelegram(env, { text, severity = 'info', source = 'system' }) {
+export async function sendTelegram(env, { text, severity = 'info', source = 'system', parse_mode = 'Markdown' }) {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) {
     // Log silently — Telegram not configured yet
     try {
@@ -24,16 +24,21 @@ export async function sendTelegram(env, { text, severity = 'info', source = 'sys
   }
   const emoji = TELEGRAM_EMOJI[severity] || '';
   const fullText = `${emoji} ${text}`.slice(0, 4000);
+  // 2026-05-15: parse_mode opcional. Si parse_mode = 'none'/'' → texto plano
+  // (URLs con underscores rompen Markdown legacy → error "can't parse entities").
+  const tgBody = {
+    chat_id: env.TELEGRAM_CHAT_ID,
+    text: fullText,
+    disable_web_page_preview: true,
+  };
+  if (parse_mode && parse_mode !== 'none' && parse_mode !== '') {
+    tgBody.parse_mode = parse_mode;
+  }
   try {
     const resp = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: env.TELEGRAM_CHAT_ID,
-        text: fullText,
-        parse_mode: 'Markdown',
-        disable_web_page_preview: true,
-      }),
+      body: JSON.stringify(tgBody),
       signal: AbortSignal.timeout(10000),
     });
     const data = await resp.json();

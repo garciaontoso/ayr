@@ -27376,17 +27376,14 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
           // Extract Gmail verification code (typically 9-digit number) y link confirm
           const codeMatch = rawText2.match(/\b(\d{9})\b/);
           const linkMatch = rawText2.match(/https:\/\/mail-settings\.google\.com\/[^\s"<>]*/);
+          // Texto PLAIN sin Markdown — URLs y código con underscores rompen el parse
+          const codeText = codeMatch ? codeMatch[1] : 'NO_CODE_DETECTED';
+          const linkText = linkMatch ? linkMatch[0] : 'no link found';
           await sendTelegram(env, {
-            text: [
-              `📧 *Gmail verification email recibido*`,
-              ``,
-              `From: ${from}`,
-              `Subject: ${subject.slice(0, 100)}`,
-              ``,
-              codeMatch ? `🔑 Código: \`${codeMatch[1]}\`` : '⚠ Código no detectado, busca en el raw email',
-              linkMatch ? `\n🔗 Click confirm: ${linkMatch[0]}` : '',
-            ].filter(Boolean).join('\n'),
-            severity: 'info', source: 'gmail_verify',
+            text: `Gmail verification email\nFrom: ${from}\nCode: ${codeText}\nConfirm link: ${linkText}`,
+            severity: 'info',
+            source: 'gmail_verify',
+            parse_mode: 'none',  // signal helper to skip Markdown
           });
         } catch (e) {
           console.error('[email] gmail verify error:', e.message);
