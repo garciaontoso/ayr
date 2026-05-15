@@ -276,6 +276,72 @@
 - 5 sectores auto-corregidos vía auto-fix
 - Cron diario activo: 08:00 UTC con Telegram alert si regresión
 
+---
+
+## Bug #022 — EUR Dividends Doble-FX en agregación (2026-05-15)
+
+- **Síntoma**: `dividendos_totales_usd` (de query `divsByTicker`) overstaba ~8% vs `dividendos_netos_lifetime_usd` (de query `divLifetime`). Mismo data source, distinta query, números distintos.
+- **Root cause**: query `divsByTicker` en `/api/dashboard/executive` multiplicaba `neto × COALESCE(fx_eur, 1) × 1.08`. Pero `fx_eur` YA es el rate EUR/USD (~1.08), el `1.08` adicional duplicaba la conversión.
+- **Fix**: cambiar a `neto × COALESCE(NULLIF(fx_eur, 0), 1.08)` — un solo factor que cae a 1.08 si fx_eur es null/0.
+- **Prevención obligatoria**: cuando hay 2+ queries SQL agregando la misma métrica, verificar que dan idéntico resultado. Si difieren materialmente, hay un bug en una.
+- **Detectado por**: agente backend-reviewer en audit del 2026-05-15.
+
+## Bug #023 — Phantom positions sin avg_price / last_price (2026-05-15)
+
+- **Síntoma**: 7+ positions con `shares > 0` pero `avg_price = 0`, `last_price = 0`, `usd_value = 0`. Quedaban excluidas de KPIs sin alertar.
+- **Categoría afectada**: BME:ENG, HKG:1066, IIPR PRA, HRL, BFICQ, RED, VOYG.
+- **Root cause**: cuando IB Bridge inserta nueva position (via executions/sync), si no detecta precio en ese momento → fields quedan en 0. Sin proceso reconcile periódico, queda phantom para siempre.
+- **Fix permanente** (3 capas):
+  - Health check nuevo `positions_phantoms` que cuenta y alerta vía Telegram (cron 08:00 UTC).
+  - Endpoint `POST /api/positions/refresh-prices` que refresca todos los precios desde bridge (con batch).
+  - Cron piggyback cada 30min lun-vie 13-21 UTC ejecuta refresh-prices automáticamente.
+- **Patrones obligatorios**: 
+  - Cualquier sync que populates positions DEBE validar `shares × avg_price > 0` o flagear notes.
+  - Health checks deben monitorear data quality, no solo freshness.
+
+## Bug #024 — Duplicados de formato (ticker mapping incompleto) (2026-05-15)
+
+- **Síntoma**: `BME:ENG` (D1) y `ENG` (bridge) coexisten como entidades distintas para el mismo asset. Idem `HKG:1066` ↔ `1066`, `IIPR PRA` ↔ `IIPR-PRA`.
+- **Root cause**: `IB_MAP` duplicado en 5+ lugares del worker (líneas 663, 13935, 14045, 15122, 16026). Cada vez que se añade ticker nuevo a IB, el desarrollador olvida actualizar todas las copias.
+- **Mitigación actual**: health check `positions_duplicates` detecta pares conocidos vía heurística.
+- **Fix definitivo pendiente**: centralizar `IB_MAP` en module-level constant + helper `normalizeTicker(sym, ctx)` aplicado en TODOS los INSERTs.
+- **Patrón obligatorio**: NUNCA usar `IB_MAP[sym] || sym` ad-hoc en código nuevo. Llamar al helper centralizado.
+
+## Bug #025 — Wealth Gain con mismatch de sources (2026-05-15)
+
+- **Síntoma**: dashboard mostraba PnL -$1.07M (-43%) que parecía catastrófico vs +15.85% del Sheet manual del usuario.
+- **Root cause**: comparaba `Bridge NLV LIVE` ($1.37M, sin phantoms) contra `Positions D1 cost basis` ($2.44M, con phantoms). Dos sources de datos distintas mezcladas en la misma fórmula.
+- **Fix**: usar mismo source para ambos (positions agregado). Bridge NLV como reality check separado con `phantom_warning` si delta > $50K.
+- **Patrón obligatorio**: en fórmulas de PnL, **valor** y **invertido** SIEMPRE de la misma fuente. Si necesitas mezclar, normalizar primero.
+
+## Bug #026 — N+1 queries dentro de loop en endpoint (2026-05-15)
+
+- **Síntoma**: `/api/positions/refresh-prices` hacía 2 D1 queries por position (~90 positions = 180 round-trips), risk de 30s timeout Cloudflare Workers.
+- **Fix**: 1 SELECT pre-fetch a Map + 1 batch UPDATE en chunks de 50 statements.
+- **Patrón obligatorio**: cualquier loop sobre un array que toque D1 → batch o pre-fetch. NUNCA query D1 dentro de `for (const x of array)` si `array.length > 10`.
+
+## Bug #027 — `Math.max(...[])` retorna -Infinity, no 0 (2026-05-15)
+
+- **Síntoma**: si `tableRows` está vacío, `Math.max(...tableRows.map(...))` retorna `-Infinity`, propagado a `cellBg()` → `rgba(_,_,_,NaN)` → backgrounds renderizan extraño.
+- **Fix**: añadir guard `arr.length ? Math.max(...arr) : 0` o `Math.max(0, ...arr)`.
+- **Patrón obligatorio**: NUNCA `Math.max(...arr)` sin guard. Mismo para `Math.min`.
+
+## Bug #028 — `var(--card-alt)` no existe en CSS (2026-05-15)
+
+- **Síntoma**: botones de Refrescar en LiquidezTab + ExecutiveSummaryTab quedaban transparentes/invisibles.
+- **Root cause**: developer asumió que existía `--card-alt` por analogía con `--card`. En realidad existen `--card`, `--card-hover`, `--subtle-bg`, `--subtle-bg2`.
+- **Fix**: usar `var(--subtle-bg)`. 
+- **Patrón obligatorio**: antes de usar una CSS var nueva, grep en `App.css` o `index.css` para verificar que existe.
+
+## 📊 Estadísticas 2026-05-15
+
+- **28 bug patterns catalogados** (7 nuevos hoy)
+- **12 health checks activos** (10 antes + 2 nuevos: phantoms, duplicates)
+- **4 endpoints nuevos**: `/api/liquidez/snapshot`, `/api/dashboard/executive`, `/api/positions/refresh-prices`, + health checks expandidos
+- **Cron auto-refresh** cada 30min lun-vie + audit cron 08:00 UTC con Telegram alert phantom delta
+- **Tests**: 473/473 passing
+- **Audit estructural realizado con 3 agentes paralelos** (backend, frontend, regression) — 2 P0 + 5 P1 bugs encontrados y fixed en la misma sesión
+
 ## Próximas mejoras propuestas (orden de impacto)
 
 1. **Validators centralizados** — `frontend/src/validators/` con schemas para Position, Trade, Dividend, Fundamental

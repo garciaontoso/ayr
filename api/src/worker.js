@@ -26281,6 +26281,21 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
         });
         const data = await r.json().catch(() => ({}));
         console.log(`[scheduled] bridge sync: ${r.status} fetched=${data.fetched ?? 0} inserted=${data.inserted ?? 0}`);
+
+        // 2026-05-15: piggyback refresh-prices para mantener positions actualizadas + auto-fix phantoms.
+        // No-bloqueante: si falla, NO interrumpe el bridge sync.
+        try {
+          const rp = await fetch(`${apiBase}/api/positions/refresh-prices`, {
+            method: 'POST',
+            headers: { 'X-AYR-Auth': env.AYR_WORKER_TOKEN, 'Content-Type': 'application/json' },
+            body: '{}',
+            signal: AbortSignal.timeout(30000),
+          });
+          const rpData = await rp.json().catch(() => ({}));
+          console.log(`[scheduled] refresh-prices: refreshed=${rpData.refreshed ?? 0} fixed_phantoms=${rpData.fixed_phantoms ?? 0}`);
+        } catch (e) {
+          console.log(`[scheduled] refresh-prices error (non-blocking): ${e.message}`);
+        }
         // 2026-05-06: CIRCUIT BREAKER para evitar Telegram spam.
         // Antes: cada 30min con bridge caído → 18 alertas/día (incidente real).
         // Ahora: máximo 1 alerta cada 6h por mismo error code. Universal Freshness
@@ -26613,6 +26628,47 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
           await sendTelegram(env, { text, severity: summary.red > 0 ? 'warn' : 'info', source: 'audit_cron' });
         } else {
           console.log("[audit-cron] sin regresiones — no se envía Telegram");
+        }
+
+        // 2026-05-15: alert adicional para phantoms + duplicates de positions.
+        // Threshold: critical si phantoms > 5 (cron decide la severidad).
+        try {
+          const hr = await fetch(`${apiBase}/api/health/check`, {
+            signal: AbortSignal.timeout(30000),
+          });
+          const hd = await hr.json().catch(() => ({}));
+          const phantomCheck = (hd.checks || []).find(c => c.id === 'positions_phantoms');
+          const dupCheck = (hd.checks || []).find(c => c.id === 'positions_duplicates');
+          // Solo alert si critical (>5 phantoms) o si subió desde ayer.
+          const phantomMemKey = 'phantom_count_yesterday';
+          const prevPhantomRow = await env.DB.prepare(
+            `SELECT value FROM agent_memory WHERE key = ?`
+          ).bind(phantomMemKey).first().catch(() => null);
+          const prevCount = prevPhantomRow?.value ? parseInt(JSON.parse(prevPhantomRow.value).count, 10) : 0;
+          const currentCount = phantomCheck?.value?.match(/^(\d+)/)?.[1] || 0;
+          const phantomDelta = Number(currentCount) - prevCount;
+          if ((phantomCheck && phantomCheck.severity === 'critical') || phantomDelta > 0) {
+            await sendTelegram(env, {
+              text: [
+                `🚨 *Positions Data Quality*`,
+                ``,
+                phantomCheck ? `Phantoms: ${phantomCheck.value}` : '',
+                dupCheck ? `Duplicates: ${dupCheck.value}` : '',
+                phantomDelta > 0 ? `\n⚠ Subió +${phantomDelta} desde ayer` : '',
+                ``,
+                `Fix: ejecuta POST /api/positions/refresh-prices`,
+              ].filter(Boolean).join('\n'),
+              severity: phantomCheck?.severity === 'critical' ? 'critical' : 'warn',
+              source: 'positions_quality',
+            });
+          }
+          // Actualizar snapshot
+          await env.DB.prepare(
+            `INSERT INTO agent_memory (key, value, updated_at) VALUES (?, ?, datetime('now'))
+             ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')`
+          ).bind(phantomMemKey, JSON.stringify({ count: currentCount })).run().catch(() => {});
+        } catch (e) {
+          console.error('[audit-cron] phantom check error:', e.message);
         }
 
         // 5. Persistir snapshot
