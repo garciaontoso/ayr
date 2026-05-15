@@ -26984,6 +26984,41 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
           console.error('[audit-cron] phantom check error:', e.message);
         }
 
+        // 4b. GoCardless daily sync (gastos automaticos desde bancos europeos)
+        // No-bloqueante. Si secrets no configurados, falla silencioso.
+        if (env.GOCARDLESS_SECRET_ID && env.GOCARDLESS_SECRET_KEY) {
+          try {
+            const gcSync = await fetch(`${apiBase}/api/gocardless/sync`, {
+              method: 'POST',
+              headers: { 'X-AYR-Auth': env.AYR_WORKER_TOKEN, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ days_back: 7 }),  // ultimos 7 dias para overlap seguro
+              signal: AbortSignal.timeout(60000),
+            });
+            const gcData = await gcSync.json().catch(() => ({}));
+            console.log(`[audit-cron] gocardless sync: inserted=${gcData.inserted ?? 0} consents=${gcData.consents_processed ?? 0}`);
+            // Alert sobre consents proximos a expirar (renovar 90d)
+            const { results: expiring } = await env.DB.prepare(
+              `SELECT requisition_id, bank_label, institution_name, expires_at
+               FROM gocardless_consents
+               WHERE status = 'LINKED' AND date(expires_at) BETWEEN date('now') AND date('now', '+10 days')`
+            ).all().catch(() => ({ results: [] }));
+            if (expiring && expiring.length > 0) {
+              await sendTelegram(env, {
+                text: [
+                  `🏦 *GoCardless: Consents proximos a expirar*`,
+                  ``,
+                  ...expiring.map(c => `· ${c.bank_label || c.institution_name}: ${c.expires_at?.slice(0, 10)}`),
+                  ``,
+                  `Renueva en: https://ayr.onto-so.com -> Gastos -> Conectar Banco`,
+                ].join('\n'),
+                severity: 'warn', source: 'gocardless_consent_expiry',
+              }).catch(() => {});
+            }
+          } catch (e) {
+            console.error('[audit-cron] gocardless sync error:', e.message);
+          }
+        }
+
         // 5. Persistir snapshot
         await env.DB.prepare(
           `INSERT INTO agent_memory (key, value, updated_at) VALUES ('audit_snapshot', ?, datetime('now'))
