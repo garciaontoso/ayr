@@ -27339,11 +27339,58 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
       console.log(`[email] received from=${from} subject="${subject.slice(0,80)}"`);
 
       // Allowlist sender — protege de spam/spoofing
-      const ALLOWED_SENDERS = ['spendee.com', 'noreply@spendee.com', 'info@spendee.com'];
+      // 2026-05-15: añadidos google/forwarding-noreply para verificación inicial Gmail.
+      // Cuando user configura Gmail forward, Google manda código de verificación; lo
+      // reenviamos a Telegram para que copie el código en Gmail.
+      const ALLOWED_SENDERS = [
+        'spendee.com', 'noreply@spendee.com', 'info@spendee.com',
+        // Permitidos durante setup forwarding Gmail
+        'forwarding-noreply@google.com', 'noreply@google.com',
+      ];
       const isAllowed = ALLOWED_SENDERS.some(s => from.toLowerCase().includes(s));
       if (!isAllowed) {
         console.log(`[email] rejected: sender ${from} not in allowlist`);
         message.setReject('Sender not authorized');
+        return;
+      }
+
+      // Si es email de verificación Google (no Spendee), reenviar contenido a Telegram
+      // para que el user pueda copiar el código de verificación.
+      const isGoogleVerify = from.toLowerCase().includes('google.com');
+      if (isGoogleVerify) {
+        try {
+          // Read body to extract verification code
+          const rawStream2 = message.raw;
+          const chunks2 = [];
+          const reader2 = rawStream2.getReader();
+          while (true) {
+            const { done, value } = await reader2.read();
+            if (done) break;
+            chunks2.push(value);
+          }
+          const totalLen2 = chunks2.reduce((s, c) => s + c.length, 0);
+          const merged2 = new Uint8Array(totalLen2);
+          let off2 = 0;
+          for (const c of chunks2) { merged2.set(c, off2); off2 += c.length; }
+          const rawText2 = new TextDecoder('utf-8', { fatal: false }).decode(merged2);
+          // Extract Gmail verification code (typically 9-digit number) y link confirm
+          const codeMatch = rawText2.match(/\b(\d{9})\b/);
+          const linkMatch = rawText2.match(/https:\/\/mail-settings\.google\.com\/[^\s"<>]*/);
+          await sendTelegram(env, {
+            text: [
+              `📧 *Gmail verification email recibido*`,
+              ``,
+              `From: ${from}`,
+              `Subject: ${subject.slice(0, 100)}`,
+              ``,
+              codeMatch ? `🔑 Código: \`${codeMatch[1]}\`` : '⚠ Código no detectado, busca en el raw email',
+              linkMatch ? `\n🔗 Click confirm: ${linkMatch[0]}` : '',
+            ].filter(Boolean).join('\n'),
+            severity: 'info', source: 'gmail_verify',
+          });
+        } catch (e) {
+          console.error('[email] gmail verify error:', e.message);
+        }
         return;
       }
 
