@@ -11296,6 +11296,94 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return json(results, corsHeaders);
       }
 
+      // GET /api/liquidez/snapshot — vista unificada liquidez & colchón
+      // Combina datos LIVE del IB Bridge (NAV, Available, Margin, Cushion por
+      // cuenta) con la tabla cash_balances D1 (cash per currency, puede estar
+      // stale si Flex sync no se ha disparado).
+      // Devuelve totales agregados USD + breakdown por cuenta + cash por moneda.
+      if (path === "/api/liquidez/snapshot" && request.method === "GET") {
+        try {
+          // 1. Datos LIVE del bridge (NAV by account, includes margin)
+          let bridgeData = null, bridgeError = null;
+          try {
+            bridgeData = await ibBridgeFetch(env, "/nav");
+          } catch (e) { bridgeError = e.message; }
+
+          const accounts = bridgeData?.accounts || [];
+
+          // Agregar totales USD (todas cuentas son base USD según IB Bridge)
+          const totals = accounts.reduce((acc, a) => ({
+            nlv_usd: acc.nlv_usd + (a.net_liquidation || 0),
+            available_funds_usd: acc.available_funds_usd + (a.available_funds || 0),
+            excess_liquidity_usd: acc.excess_liquidity_usd + (a.excess_liquidity || 0),
+            init_margin_usd: acc.init_margin_usd + (a.init_margin_req || 0),
+            maint_margin_usd: acc.maint_margin_usd + (a.maint_margin_req || 0),
+            buying_power_usd: acc.buying_power_usd + (a.buying_power || 0),
+          }), { nlv_usd: 0, available_funds_usd: 0, excess_liquidity_usd: 0, init_margin_usd: 0, maint_margin_usd: 0, buying_power_usd: 0 });
+
+          // Cushion ponderado = excess_liquidity / nlv (avoid div-by-zero)
+          totals.cushion_pct = totals.nlv_usd > 0 ? totals.excess_liquidity_usd / totals.nlv_usd : 0;
+          // Leverage = margin used / NLV
+          totals.leverage_pct = totals.nlv_usd > 0 ? totals.init_margin_usd / totals.nlv_usd : 0;
+
+          // 2. Cash per currency (D1, puede ser stale)
+          let cashRows = [];
+          let cashStaleDays = null;
+          try {
+            const { results } = await env.DB.prepare(
+              `SELECT cb.cuenta, cb.divisa, cb.cash_balance, cb.fx_rate, cb.cash_balance_usd, cb.fecha
+               FROM cash_balances cb
+               INNER JOIN (SELECT cuenta, divisa, MAX(fecha) as max_fecha FROM cash_balances GROUP BY cuenta, divisa) latest
+                 ON cb.cuenta = latest.cuenta AND cb.divisa = latest.divisa AND cb.fecha = latest.max_fecha
+               ORDER BY cb.cuenta, cb.divisa`
+            ).all();
+            cashRows = results || [];
+            if (cashRows.length) {
+              const latestFecha = cashRows.map(r => r.fecha).sort().reverse()[0];
+              const ageMs = Date.now() - new Date(latestFecha + "T00:00:00Z").getTime();
+              cashStaleDays = Math.floor(ageMs / 86400000);
+            }
+          } catch {}
+
+          // Agregar cash USD-equiv por moneda (suma 4 cuentas)
+          const cashByCurrency = {};
+          for (const r of cashRows) {
+            const ccy = r.divisa || "USD";
+            if (!cashByCurrency[ccy]) cashByCurrency[ccy] = { currency: ccy, balance_native: 0, balance_usd: 0, fx_rate: r.fx_rate || 1 };
+            cashByCurrency[ccy].balance_native += (r.cash_balance || 0);
+            cashByCurrency[ccy].balance_usd += (r.cash_balance_usd || 0);
+          }
+          const cashCurrencyList = Object.values(cashByCurrency).sort((a, b) => Math.abs(b.balance_usd) - Math.abs(a.balance_usd));
+          const totalCashUsd = cashCurrencyList.reduce((s, c) => s + c.balance_usd, 0);
+
+          return json({
+            ok: true,
+            as_of: new Date().toISOString(),
+            bridge_ok: !!bridgeData && !bridgeError,
+            bridge_error: bridgeError,
+            totals,
+            accounts: accounts.map(a => ({
+              account_id: a.account_id,
+              nlv: a.net_liquidation,
+              equity_with_loan: a.equity_with_loan_value,
+              available_funds: a.available_funds,
+              excess_liquidity: a.excess_liquidity,
+              init_margin: a.init_margin_req,
+              maint_margin: a.maint_margin_req,
+              buying_power: a.buying_power,
+              cushion_pct: a.cushion_pct,
+              leverage_pct: a.net_liquidation > 0 ? (a.init_margin_req || 0) / a.net_liquidation : 0,
+            })),
+            cash_by_currency: cashCurrencyList,
+            cash_total_usd: totalCashUsd,
+            cash_stale_days: cashStaleDays,
+            cash_warning: cashStaleDays != null && cashStaleDays > 7 ? `Cash data is ${cashStaleDays} days old. Trigger sync-flex to refresh.` : null,
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
       // POST /api/cash — insert cash balance entry
       if (path === "/api/cash" && request.method === "POST") {
         const unauth = ytRequireToken(request, env);
