@@ -9369,6 +9369,59 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           note: hasAnthropicKey ? null : "Cron AI agents will fail. Run: wrangler secret put ANTHROPIC_API_KEY",
         });
 
+        // 6b) Positions data quality — phantoms + duplicates (Fase 1a)
+        // Crítico para evitar bugs recurrentes de:
+        //   - phantoms: shares > 0 pero avg_price/last_price = 0 (no contabilizan en PnL)
+        //   - duplicados de ticker: BME:ENG vs ENG, HKG:1066 vs 1066, IIPR PRA vs IIPR-PRA
+        //   - precios stale: updated_at > 3 días
+        try {
+          const { results: phantomRows } = await env.DB.prepare(
+            `SELECT ticker, shares, account FROM positions
+             WHERE shares > 0 AND (list IS NULL OR list != 'historial')
+             AND (avg_price IS NULL OR avg_price <= 0 OR last_price IS NULL OR last_price <= 0 OR usd_value IS NULL OR usd_value = 0)`
+          ).all();
+          const phantomCount = (phantomRows || []).length;
+          const phantomTickers = (phantomRows || []).slice(0, 8).map(r => r.ticker).join(', ');
+          checks.push({
+            id: "positions_phantoms",
+            label: "Positions zombi (shares>0 sin precio)",
+            value: phantomCount === 0 ? "0 phantoms" : `${phantomCount} phantoms: ${phantomTickers}`,
+            severity: phantomCount === 0 ? "ok" : phantomCount > 5 ? "critical" : "warn",
+            note: phantomCount > 0
+              ? "Refrescar precios o mover a historial. Causa: bridge insert sin precio o ticker mapping incompleto."
+              : null,
+          });
+        } catch (e) {
+          checks.push({ id: "positions_phantoms", severity: "error", error: e.message });
+        }
+
+        // 6c) Duplicados de ticker (mismo asset, distinto formato)
+        try {
+          // Detección heurística: tickers con prefijo vs su versión sin prefijo
+          const dupPatterns = [
+            { with: 'BME:ENG', without: 'ENG' },
+            { with: 'HKG:1066', without: '1066' },
+            { with: 'IIPR-PRA', without: 'IIPR PRA' },
+            { with: 'IIPR PRA', without: 'IIPR-PRA' },
+            { with: 'NET.UN', without: 'NET_UN' },
+          ];
+          const { results: posRows } = await env.DB.prepare(
+            `SELECT ticker, shares FROM positions WHERE shares > 0 AND (list IS NULL OR list != 'historial')`
+          ).all();
+          const activeTickers = new Set((posRows || []).map(r => r.ticker));
+          const dupsFound = dupPatterns.filter(p => activeTickers.has(p.with) && activeTickers.has(p.without));
+          const dupCount = dupsFound.length;
+          checks.push({
+            id: "positions_duplicates",
+            label: "Duplicados de ticker (formato distinto)",
+            value: dupCount === 0 ? "0 dups" : `${dupCount} dups: ${dupsFound.map(d => `${d.with}↔${d.without}`).join(', ')}`,
+            severity: dupCount === 0 ? "ok" : "warn",
+            note: dupCount > 0 ? "Consolidar a un solo ticker normalizado. Ver IB_MAP en worker.js." : null,
+          });
+        } catch (e) {
+          checks.push({ id: "positions_duplicates", severity: "error", error: e.message });
+        }
+
         // 7) IB Flex token presence (no actual call — only secret check)
         const hasFlexToken = !!env.IB_FLEX_TOKEN;
         checks.push({
@@ -13866,6 +13919,70 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           return json({ source: "ib-bridge", positions: data }, corsHeaders);
         } catch(e) {
           return json({ error: e.message, source: "ib-bridge" }, corsHeaders, 503);
+        }
+      }
+
+      // POST /api/positions/refresh-prices — refresca precios de positions desde IB Bridge.
+      // RESUELVE: phantoms con last_price=0, precios stale, positions no actualizadas tras trades.
+      // Para cada bridge position con precio:
+      //   - UPDATE last_price, market_value, usd_value
+      //   - Si avg_price = 0 → setear avg_price = last_price (fallback "flat", marca notes)
+      // No borra phantoms — los deja flag con notes para revisión manual.
+      // Auth: PROTECTED_WRITE (modifica positions)
+      if (path === "/api/positions/refresh-prices" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          const bp = await ibBridgeFetch(env, "/positions").catch(() => null);
+          if (!bp) {
+            return json({ error: "bridge_unreachable", refreshed: 0 }, corsHeaders, 503);
+          }
+          const bridgePositions = (Array.isArray(bp) ? bp : (bp?.positions || []))
+            .filter(p => p && Math.abs(p.qty || p.position || p.shares || 0) > 0);
+
+          const IB_MAP = {"VIS":"BME:VIS","AMS":"BME:AMS","IIPR PRA":"IIPR-PRA","9618":"HKG:9618","1052":"HKG:1052","2219":"HKG:2219","1910":"HKG:1910","9616":"HKG:9616","9988":"HKG:9988","1066":"HKG:1066","1999":"HKG:1999","2168":"HKG:2168","2678":"HKG:2678","3690":"HKG:3690","700":"HKG:0700","939":"HKG:0939","1":"HKG:0001","2102":"HKG:2102","ENGe":"ENG","LOGe":"LOG","REPe":"REP","ISPAd":"ISPA","VISe":"BME:VIS","IAGe":"BME:IAG","AIRd":"AIR","BAYNd":"BAYN","HEN3d":"HEN3"};
+
+          let refreshed = 0, fixed_phantoms = 0, skipped_no_price = 0;
+          const updated = [];
+          for (const p of bridgePositions) {
+            const sym = (p.ticker || p.symbol || p.localSymbol || "").trim();
+            if (!sym) continue;
+            const ticker = IB_MAP[sym] || sym;
+            const lastPrice = Number(p.market_price || p.last_price || p.marketPrice || 0);
+            if (!lastPrice || lastPrice <= 0) { skipped_no_price++; continue; }
+            const shares = Number(p.qty || p.position || p.shares || 0);
+            const marketValue = Number(p.market_value || (shares * lastPrice));
+            // Fetch existing row first to check avg_price status
+            const existing = await env.DB.prepare(
+              `SELECT avg_price, fx, currency, notes FROM positions WHERE ticker = ?`
+            ).bind(ticker).first().catch(() => null);
+            if (!existing) continue; // sólo refrescamos, no creamos rows nuevas aquí
+            const isPhantom = !existing.avg_price || existing.avg_price <= 0;
+            const newAvg = isPhantom ? lastPrice : existing.avg_price;
+            const fx = existing.fx || 1;
+            const usdValue = (existing.currency === 'USD' || !existing.currency) ? marketValue : marketValue * fx;
+            const notes = isPhantom
+              ? `Auto-refresh ${new Date().toISOString().slice(0,10)}: bridge ${lastPrice}, avg_price assumed flat (no cost basis)`
+              : existing.notes;
+            await env.DB.prepare(
+              `UPDATE positions SET last_price=?, avg_price=?, market_value=?, usd_value=?,
+                                      notes=COALESCE(?, notes), updated_at=datetime('now')
+               WHERE ticker = ?`
+            ).bind(lastPrice, newAvg, marketValue, usdValue, notes, ticker).run();
+            refreshed++;
+            if (isPhantom) fixed_phantoms++;
+            updated.push({ ticker, last_price: lastPrice, was_phantom: isPhantom });
+          }
+          return json({
+            ok: true,
+            refreshed,
+            fixed_phantoms,
+            skipped_no_price,
+            bridge_positions_total: bridgePositions.length,
+            updated: updated.slice(0, 20),
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
         }
       }
 
