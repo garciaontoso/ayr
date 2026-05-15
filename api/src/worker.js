@@ -11296,6 +11296,203 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         return json(results, corsHeaders);
       }
 
+      // GET /api/dashboard/executive — Resumen Ejecutivo estilo dashboard dividendero.
+      // Agrega KPIs principales, ranking auto (mejor/peor por varias dimensiones),
+      // dividendos por mes (estacionalidad), exposición por sector + divisa, y
+      // tabla detallada por ticker con todos los KPIs ranked.
+      if (path === "/api/dashboard/executive" && request.method === "GET") {
+        try {
+          // 1. Posiciones activas (no historial) con datos pre-calculados
+          const { results: positions } = await env.DB.prepare(
+            `SELECT ticker, name, last_price, avg_price, cost_basis, shares, currency, fx,
+                    market_value, usd_value, total_invested, pnl_pct, pnl_abs,
+                    div_ttm, div_yield, yoc, sector, account
+             FROM positions
+             WHERE shares > 0 AND (list IS NULL OR list != 'historial')
+             ORDER BY usd_value DESC NULLS LAST`
+          ).all();
+
+          // 2. Dividendos históricos por ticker (lifetime, en USD)
+          const { results: divsByTicker } = await env.DB.prepare(
+            `SELECT ticker, SUM(neto * COALESCE(fx_eur, 1)) as total_divs_eur,
+                    SUM(neto) as total_divs_native,
+                    SUM(CASE WHEN divisa='USD' THEN neto
+                              WHEN divisa='EUR' THEN neto * COALESCE(fx_eur, 1) * 1.08
+                              WHEN divisa='GBP' THEN neto * 1.29
+                              WHEN divisa='HKD' THEN neto * 0.128
+                              WHEN divisa='CAD' THEN neto * 0.73
+                              ELSE neto END) as total_divs_usd,
+                    COUNT(*) as cnt
+             FROM dividendos
+             GROUP BY ticker`
+          ).all();
+          const divsMap = new Map((divsByTicker || []).map(r => [r.ticker, r]));
+
+          // 3. Dividendos por mes (estacionalidad, lifetime aggregated)
+          const { results: divsByMonth } = await env.DB.prepare(
+            `SELECT CAST(strftime('%m', fecha) AS INTEGER) as month,
+                    SUM(CASE WHEN divisa='USD' THEN neto
+                              WHEN divisa='EUR' THEN neto * 1.08
+                              WHEN divisa='GBP' THEN neto * 1.29
+                              WHEN divisa='HKD' THEN neto * 0.128
+                              WHEN divisa='CAD' THEN neto * 0.73
+                              ELSE neto END) as total_usd,
+                    COUNT(*) as cnt
+             FROM dividendos
+             WHERE fecha IS NOT NULL
+             GROUP BY month ORDER BY month`
+          ).all();
+
+          // 4. Dividendos 2026 proyectado / acumulado
+          const currentYear = new Date().getUTCFullYear();
+          const { results: divs2026 } = await env.DB.prepare(
+            `SELECT SUM(CASE WHEN divisa='USD' THEN neto
+                              WHEN divisa='EUR' THEN neto * 1.08
+                              WHEN divisa='GBP' THEN neto * 1.29
+                              WHEN divisa='HKD' THEN neto * 0.128
+                              WHEN divisa='CAD' THEN neto * 0.73
+                              ELSE neto END) as total_usd
+             FROM dividendos WHERE strftime('%Y', fecha) = ?`
+          ).bind(String(currentYear)).all();
+          const divs2026Total = (divs2026 && divs2026[0]?.total_usd) || 0;
+
+          // 5. Dividendos últimos 12m (media móvil)
+          const { results: divs12m } = await env.DB.prepare(
+            `SELECT SUM(CASE WHEN divisa='USD' THEN neto
+                              WHEN divisa='EUR' THEN neto * 1.08
+                              WHEN divisa='GBP' THEN neto * 1.29
+                              WHEN divisa='HKD' THEN neto * 0.128
+                              WHEN divisa='CAD' THEN neto * 0.73
+                              ELSE neto END) as total_usd
+             FROM dividendos WHERE fecha >= date('now','-365 days')`
+          ).all();
+          const divs12mTotal = (divs12m && divs12m[0]?.total_usd) || 0;
+
+          // 6. KPIs totales agregados
+          const totalValorUsd = positions.reduce((s, p) => s + (p.usd_value || 0), 0);
+          const totalInvertidoUsd = positions.reduce((s, p) => s + (p.total_invested || (p.shares * p.avg_price * (p.fx || 1)) || 0), 0);
+          const totalPnlUsd = totalValorUsd - totalInvertidoUsd;
+          const rentabilidadAcumulada = totalInvertidoUsd > 0 ? (totalPnlUsd / totalInvertidoUsd) * 100 : 0;
+          const totalDivTtm = positions.reduce((s, p) => s + (p.div_ttm || 0), 0);
+          const yieldActual = totalValorUsd > 0 ? (totalDivTtm / totalValorUsd) * 100 : 0;
+          const yieldOnCost = totalInvertidoUsd > 0 ? (totalDivTtm / totalInvertidoUsd) * 100 : 0;
+          const totalDivsHistorico = (divsByTicker || []).reduce((s, r) => s + (r.total_divs_usd || 0), 0);
+          const pnlPlusDivs = totalPnlUsd + totalDivsHistorico;
+          const rentPlusDivsPct = totalInvertidoUsd > 0 ? (pnlPlusDivs / totalInvertidoUsd) * 100 : 0;
+          const amortizacionInversion = totalInvertidoUsd > 0 ? (totalDivsHistorico / totalInvertidoUsd) * 100 : 0;
+
+          // 7. Build table rows enriquecidos
+          const tableRows = positions.map(p => {
+            const divHist = divsMap.get(p.ticker);
+            const divUsd = divHist?.total_divs_usd || 0;
+            const valorX = p.market_value || (p.shares * p.last_price) || 0;
+            const valorUsd = p.usd_value || 0;
+            const invertidoUsd = p.total_invested || (p.shares * p.avg_price * (p.fx || 1)) || 0;
+            const pnlUsd = valorUsd - invertidoUsd;
+            const rentUsdPct = invertidoUsd > 0 ? (pnlUsd / invertidoUsd) * 100 : 0;
+            const rentXPct = (p.shares > 0 && p.avg_price > 0) ? ((p.last_price - p.avg_price) / p.avg_price) * 100 : 0;
+            const rentPlusDivsPct = invertidoUsd > 0 ? ((pnlUsd + divUsd) / invertidoUsd) * 100 : 0;
+            const yocPct = invertidoUsd > 0 ? ((p.div_ttm || 0) / invertidoUsd) * 100 : (p.yoc || 0);
+            const amortPct = invertidoUsd > 0 ? (divUsd / invertidoUsd) * 100 : 0;
+            const weight = totalValorUsd > 0 ? (valorUsd / totalValorUsd) * 100 : 0;
+            return {
+              ticker: p.ticker, name: p.name, currency: p.currency,
+              sector: p.sector, account: p.account,
+              valor_x: valorX, valor_usd: valorUsd, invertido_usd: invertidoUsd,
+              pnl_usd: pnlUsd, rent_x_pct: rentXPct, rent_usd_pct: rentUsdPct,
+              rent_plus_divs_pct: rentPlusDivsPct,
+              div_usd: divUsd, yoc_pct: yocPct, amort_pct: amortPct,
+              weight_pct: weight, shares: p.shares,
+            };
+          });
+
+          // 8. Ranking automático
+          const pickMax = (arr, key) => arr.reduce((best, x) => (x[key] != null && (best == null || x[key] > best[key])) ? x : best, null);
+          const pickMin = (arr, key) => arr.reduce((best, x) => (x[key] != null && (best == null || x[key] < best[key])) ? x : best, null);
+          const tickerVal = (r, key) => r ? { ticker: r.ticker, value: r[key] } : null;
+
+          const ranking = {
+            mejor_rentabilidad: tickerVal(pickMax(tableRows, 'rent_usd_pct'), 'rent_usd_pct'),
+            peor_rentabilidad: tickerVal(pickMin(tableRows, 'rent_usd_pct'), 'rent_usd_pct'),
+            mas_ganado_usd: tickerVal(pickMax(tableRows, 'pnl_usd'), 'pnl_usd'),
+            mas_perdido_usd: tickerVal(pickMin(tableRows, 'pnl_usd'), 'pnl_usd'),
+            mas_invertido_usd: tickerVal(pickMax(tableRows, 'invertido_usd'), 'invertido_usd'),
+            menos_invertido_usd: tickerVal(pickMin(tableRows.filter(r => r.invertido_usd > 0), 'invertido_usd'), 'invertido_usd'),
+            mas_peso_cartera: tickerVal(pickMax(tableRows, 'weight_pct'), 'weight_pct'),
+            menos_peso_cartera: tickerVal(pickMin(tableRows.filter(r => r.weight_pct > 0), 'weight_pct'), 'weight_pct'),
+            mas_dividendos_cobrados: tickerVal(pickMax(tableRows, 'div_usd'), 'div_usd'),
+            mayor_yield_on_cost: tickerVal(pickMax(tableRows, 'yoc_pct'), 'yoc_pct'),
+            mejor_amortizacion: tickerVal(pickMax(tableRows, 'amort_pct'), 'amort_pct'),
+          };
+
+          // Mejor/peor mes en divs
+          const monthLabels = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+          const divsMonthlyEnriched = (divsByMonth || []).map(r => ({ month: r.month, label: monthLabels[r.month - 1] || '?', total_usd: r.total_usd, cnt: r.cnt }));
+          const mejorMes = pickMax(divsMonthlyEnriched, 'total_usd');
+          const peorMes = pickMin(divsMonthlyEnriched.filter(m => m.total_usd > 0), 'total_usd');
+          ranking.mejor_mes = mejorMes ? mejorMes.label : null;
+          ranking.peor_mes = peorMes ? peorMes.label : null;
+
+          // 9. Por sector — top 8
+          const sectorMap = {};
+          tableRows.forEach(r => {
+            const s = r.sector || 'Sin sector';
+            if (!sectorMap[s]) sectorMap[s] = { sector: s, weight_pct: 0, n: 0, divs: 0 };
+            sectorMap[s].weight_pct += r.weight_pct || 0;
+            sectorMap[s].divs += r.div_usd || 0;
+            sectorMap[s].n += 1;
+          });
+          const bySector = Object.values(sectorMap).sort((a, b) => b.weight_pct - a.weight_pct);
+          ranking.sector_mas_presente = bySector[0]?.sector || null;
+          ranking.sector_menos_presente = bySector.length > 0 ? bySector[bySector.length - 1]?.sector : null;
+
+          // 10. Por divisa
+          const ccyMap = {};
+          tableRows.forEach(r => {
+            const c = r.currency || 'USD';
+            if (!ccyMap[c]) ccyMap[c] = { currency: c, invertido: 0, valor: 0, pnl: 0, divs: 0, n: 0 };
+            ccyMap[c].invertido += r.invertido_usd || 0;
+            ccyMap[c].valor += r.valor_usd || 0;
+            ccyMap[c].pnl += r.pnl_usd || 0;
+            ccyMap[c].divs += r.div_usd || 0;
+            ccyMap[c].n += 1;
+          });
+          const byCurrency = Object.values(ccyMap).map(c => ({
+            ...c,
+            rentabilidad_pct: c.invertido > 0 ? (c.pnl / c.invertido) * 100 : 0,
+          })).sort((a, b) => b.valor - a.valor);
+
+          return json({
+            ok: true,
+            as_of: new Date().toISOString(),
+            kpis: {
+              valor_cartera_usd: totalValorUsd,
+              total_invertido_usd: totalInvertidoUsd,
+              pnl_usd: totalPnlUsd,
+              rentabilidad_acumulada_pct: rentabilidadAcumulada,
+              pnl_plus_divs_usd: pnlPlusDivs,
+              rent_plus_divs_pct: rentPlusDivsPct,
+              yield_actual_pct: yieldActual,
+              yield_on_cost_pct: yieldOnCost,
+              div_ttm_usd: totalDivTtm,
+              dividendos_totales_usd: totalDivsHistorico,
+              dividendos_2026_usd: divs2026Total,
+              dividendos_12m_usd: divs12mTotal,
+              dividendos_12m_media: divs12mTotal / 12,
+              num_posiciones: positions.length,
+              amortizacion_inversion_pct: amortizacionInversion,
+            },
+            ranking,
+            divs_by_month: divsMonthlyEnriched,
+            by_sector: bySector,
+            by_currency: byCurrency,
+            table_rows: tableRows.sort((a, b) => (b.rent_usd_pct || 0) - (a.rent_usd_pct || 0)),
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message, stack: e.stack?.slice(0, 500) }, corsHeaders, 500);
+        }
+      }
+
       // GET /api/liquidez/snapshot — vista unificada liquidez & colchón
       // Combina datos LIVE del IB Bridge (NAV, Available, Margin, Cushion por
       // cuenta) con la tabla cash_balances D1 (cash per currency, puede estar

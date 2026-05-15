@@ -71,6 +71,7 @@ const OpenOptionsTab         = lazy(() => import('../home/OpenOptionsTab'));
 const PnLTab                 = lazy(() => import('../home/PnLTab'));
 const ErrorsTab              = lazy(() => import('../home/ErrorsTab'));
 const LiquidezTab            = lazy(() => import('../home/LiquidezTab'));
+const ExecutiveSummaryTab    = lazy(() => import('../home/ExecutiveSummaryTab'));
 
 // Tab skeleton shown while lazy chunks load
 const TabSkeleton = () => (
@@ -2263,6 +2264,7 @@ export default function HomeView() {
         {homeTab==="scanner" && <ScannerTab />}
         {homeTab==="open-options" && <OpenOptionsTab />}
         {homeTab==="liquidez" && <LiquidezTab />}
+        {homeTab==="executive" && <ExecutiveSummaryTab />}
         {homeTab==="pnl" && <PnLTab />}
         {homeTab==="elite-desk" && <EliteDeskTab />}
       </Suspense>
