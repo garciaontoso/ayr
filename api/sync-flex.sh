@@ -4,8 +4,8 @@
 # 2026-05-10: Updated FLEX_TOKEN + QUERY_ID. Removed deprecated sync-dividends.
 #             Added Telegram alert on failure (Bug #015 prevention).
 
-FLEX_TOKEN="4287951836214747115211682"
-QUERY_ID="1503189"
+FLEX_TOKEN="428795183621474711521682"
+QUERY_ID="1436396"  # CLAUDE FULL query (2026-05-15: rotación token + query ID corregidos)
 API_URL="https://api.onto-so.com"
 
 # Load worker auth token from ~/.ayr-env
