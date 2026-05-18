@@ -1,164 +1,341 @@
-// RentabilidadTab.jsx — modelo Phil Town / Lowell Miller / Gorka (2026-05-18).
+// RentabilidadTab.jsx — REPLICA LITERAL del Excel de Gorka (2026-05-18).
 //
-// Sustituye la plantilla Excel "Archivo Rentabilidad-2.xlsx" enviada por Gorka.
-// Proyecta BPA + EQUITY a 10y en 3 escenarios × 3 múltiplos = matriz 9 retornos.
-//
-// Doc: docs/RENTABILIDAD-TAB-PLAN.md
+// Estructura visual del Excel "Archivo Rentabilidad-2.xlsx":
+//   ┌──────────────────────────────────┬─────────────────────────┐
+//   │ TABLA HISTÓRICA 10y              │ PANEL CONFIGURACIÓN     │
+//   │ (años en filas, métricas cols)   │ Cotización, P/E, growth │
+//   │ VENTAS  BPA  DPA  EQUITY  RE A   │ Múltiplos, Coef Habil.  │
+//   │ ──── CAGR ────                   │                         │
+//   └──────────────────────────────────┴─────────────────────────┘
+//   ┌────────────────────────────────────────────────────────────┐
+//   │ PROYECCIÓN 10y                                              │
+//   │ Año │ BPA (Neg/Norm/Pos) │ EQUITY (Neg/Norm/Pos)            │
+//   └────────────────────────────────────────────────────────────┘
+//   ┌────────────────────────────────────────────────────────────┐
+//   │ VALORACIÓN AÑO 10 — Matriz 3×3                              │
+//   │            Negativo   Normal    Positivo                    │
+//   │ Deprimido    [...]    [...]      [...]                      │
+//   │ Normal       [...]    [...]      [...]                      │
+//   │ Caliente     [...]    [...]      [...]                      │
+//   └────────────────────────────────────────────────────────────┘
 
 import { useState, useMemo } from 'react';
 import { useAnalysis } from '../../context/AnalysisContext';
-import { Card } from '../ui';
 import { useRentabilidad10y } from '../../hooks/useRentabilidad10y';
-import { fP, fC, f2 } from '../../utils/formatters';
+import { fP, f2, _sf } from '../../utils/formatters';
+
+// Formato decimal con N decimales — usa _sf para flexibilidad
+const fN = (v, decimals = 0) => (v == null || !isFinite(v)) ? '—' : _sf(v, decimals);
 
 export default function RentabilidadTab() {
-  const { fin, cfg, fmpExtra, LD } = useAnalysis();
+  const { fin, cfg, fmpExtra } = useAnalysis();
   const ticker = cfg?.ticker || '';
   const currentPrice = cfg?.price || 0;
   const ccy = cfg?.currency || 'USD';
+  const ccySym = ccy === 'USD' ? '$' : ccy === 'EUR' ? '€' : ccy === 'GBP' ? '£' : ccy;
 
   const r = useRentabilidad10y({ ticker, fin, cfg, fmpExtra, currentPrice });
-
-  const [editingCell, setEditingCell] = useState(null);  // {year, field, value}
+  const [editingCell, setEditingCell] = useState(null);
 
   if (!ticker) {
-    return <div style={{ padding: 24, color: 'var(--text-secondary)' }}>Selecciona una empresa para ver Rentabilidad 10y.</div>;
+    return <div style={{ padding: 24, color: 'var(--text-secondary)' }}>Selecciona una empresa.</div>;
   }
 
-  // Detectar REIT/ETF para banner crítico
   const sector = (fmpExtra?.profile?.sector || '').toLowerCase();
   const isReit = sector === 'real estate' || (fmpExtra?.profile?.industry || '').toLowerCase().includes('reit');
   const isEtf = fmpExtra?.profile?.isEtf === true || fmpExtra?.profile?.isFund === true;
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+  // Construye filas históricas con año real (no t-X)
+  const yearsHist = r.seriesFromFin.years || [];
+  // El array está descending (idx 0 = más reciente). Reverse para mostrar -10..0 (de arriba abajo)
+  const histRows = yearsHist.map((y, idx) => idx).reverse();  // [9,8,...,0]
 
-      {/* ─── Banner crítico para REITs/ETFs ─── */}
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, fontFamily: 'var(--fm)' }}>
+
+      {/* Banner crítico REIT/ETF */}
       {(isReit || isEtf) && (
-        <div style={{
-          padding: '12px 16px', borderRadius: 12,
-          background: 'rgba(255, 159, 10, 0.12)',
-          border: '1px solid rgba(255, 159, 10, 0.4)',
-          color: '#ff9f0a',
-        }}>
+        <div style={banner('warn')}>
           {isReit
-            ? '⚠️ REIT — el modelo Phil Town usa EPS, pero los REITs deben valorarse con AFFO. Las proyecciones aquí son orientativas; usa la pestaña Dividendos para el análisis correcto.'
-            : '⚠️ ETF — modelo Phil Town no aplica. Esta pestaña es solo informativa para ETFs.'}
+            ? '⚠️ REIT — el modelo Phil Town usa EPS; los REITs deben valorarse con AFFO. Proyecciones orientativas.'
+            : '⚠️ ETF — modelo Phil Town no aplica. Vista solo informativa.'}
         </div>
       )}
 
-      {/* ─── Header con coeficiente habilidad + CAGRs ─── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
-        <KpiCard
-          label="Coef. Habilidad"
-          value={r.coefHabilidad}
-          format={fP}
-          tooltip="ΔBPA / Σ retenidos. Mide cuánto BPA genera por cada $ retenido. >0.15 excelente, <0.05 débil. (Phil Town)"
-          benchmark={v => v > 0.15 ? 'excellent' : v > 0.05 ? 'good' : v > 0 ? 'neutral' : 'bad'}
-        />
-        <KpiCard label="CAGR Ventas 10y" value={r.cagr.revenue} format={fP} />
-        <KpiCard label="CAGR BPA 10y" value={r.cagr.eps} format={fP} />
-        <KpiCard label="CAGR DPA 10y" value={r.cagr.dps} format={fP} />
-        <KpiCard label="CAGR Equity 10y" value={r.cagr.equity} format={fP} />
-        <KpiCard label="Yield actual" value={r.yieldActual} format={fP} />
+      {/* ═══ BLOQUE 1: Histórico + Configuración (lado a lado) ═══ */}
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, alignItems: 'start' }}>
+
+        {/* Tabla histórica vertical (años en filas) */}
+        <div style={panel()}>
+          <div style={panelTitle()}>📋 HISTÓRICO 10 AÑOS</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={tbl()}>
+              <thead>
+                <tr style={{ background: 'var(--card-hover)' }}>
+                  <th style={th({ width: 50 })}>Año</th>
+                  <th style={th()}>VENTAS</th>
+                  <th style={th()}>BPA</th>
+                  <th style={th()}>DPA</th>
+                  <th style={th()}>EQUITY</th>
+                  <th style={th()}>RET EARN</th>
+                  <th style={th()}>ACTIVOS</th>
+                  <th style={th({ background: 'rgba(200,164,78,0.08)' })}>Retenido</th>
+                </tr>
+              </thead>
+              <tbody>
+                {histRows.map(idx => {
+                  const offset = -idx;  // year offset (-10..-0)
+                  const yearLabel = idx === 0 ? '0 (hoy)' : `−${idx}`;
+                  const eps = r.seriesFinal.eps[idx];
+                  const dps = r.seriesFinal.dps[idx];
+                  const retained = eps != null && dps != null ? eps - dps : null;
+                  return (
+                    <tr key={idx}>
+                      <td style={td({ fontWeight: 600, color: idx === 0 ? 'var(--gold)' : 'var(--text-secondary)' })}>
+                        {yearLabel}
+                      </td>
+                      <EditableCell value={r.seriesFinal.revenue[idx]} raw={r.seriesFromFin.revenue[idx]}
+                        editing={editingCell?.year === offset && editingCell?.field === 'revenue'}
+                        onEdit={() => setEditingCell({ year: offset, field: 'revenue' })}
+                        onSave={(v) => { r.setOverride(offset, 'revenue', v); setEditingCell(null); }}
+                        onCancel={() => setEditingCell(null)} />
+                      <EditableCell value={eps} raw={r.seriesFromFin.eps[idx]} decimals={2}
+                        editing={editingCell?.year === offset && editingCell?.field === 'eps'}
+                        onEdit={() => setEditingCell({ year: offset, field: 'eps' })}
+                        onSave={(v) => { r.setOverride(offset, 'eps', v); setEditingCell(null); }}
+                        onCancel={() => setEditingCell(null)} />
+                      <EditableCell value={dps} raw={r.seriesFromFin.dps[idx]} decimals={2}
+                        editing={editingCell?.year === offset && editingCell?.field === 'dps'}
+                        onEdit={() => setEditingCell({ year: offset, field: 'dps' })}
+                        onSave={(v) => { r.setOverride(offset, 'dps', v); setEditingCell(null); }}
+                        onCancel={() => setEditingCell(null)} />
+                      <EditableCell value={r.seriesFinal.equity[idx]} raw={r.seriesFromFin.equity[idx]}
+                        editing={editingCell?.year === offset && editingCell?.field === 'equity'}
+                        onEdit={() => setEditingCell({ year: offset, field: 'equity' })}
+                        onSave={(v) => { r.setOverride(offset, 'equity', v); setEditingCell(null); }}
+                        onCancel={() => setEditingCell(null)} />
+                      <EditableCell value={r.seriesFinal.retEarnings[idx]} raw={r.seriesFromFin.retEarnings[idx]}
+                        editing={editingCell?.year === offset && editingCell?.field === 'retEarnings'}
+                        onEdit={() => setEditingCell({ year: offset, field: 'retEarnings' })}
+                        onSave={(v) => { r.setOverride(offset, 'retEarnings', v); setEditingCell(null); }}
+                        onCancel={() => setEditingCell(null)} />
+                      <EditableCell value={r.seriesFinal.assets[idx]} raw={r.seriesFromFin.assets[idx]}
+                        editing={editingCell?.year === offset && editingCell?.field === 'assets'}
+                        onEdit={() => setEditingCell({ year: offset, field: 'assets' })}
+                        onSave={(v) => { r.setOverride(offset, 'assets', v); setEditingCell(null); }}
+                        onCancel={() => setEditingCell(null)} />
+                      <td style={td({ textAlign: 'right', background: 'rgba(200,164,78,0.04)', color: retained != null && retained < 0 ? '#ff453a' : 'var(--text-secondary)' })}>
+                        {retained != null ? f2(retained) : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{ background: 'var(--card-hover)', borderTop: '2px solid var(--gold)' }}>
+                  <td style={td({ fontWeight: 700, color: 'var(--gold)' })}>CAGR</td>
+                  <td style={td({ textAlign: 'right', fontWeight: 700, color: cagrColor(r.cagr.revenue) })}>{r.cagr.revenue != null ? fP(r.cagr.revenue) : '—'}</td>
+                  <td style={td({ textAlign: 'right', fontWeight: 700, color: cagrColor(r.cagr.eps) })}>{r.cagr.eps != null ? fP(r.cagr.eps) : '—'}</td>
+                  <td style={td({ textAlign: 'right', fontWeight: 700, color: cagrColor(r.cagr.dps) })}>{r.cagr.dps != null ? fP(r.cagr.dps) : '—'}</td>
+                  <td style={td({ textAlign: 'right', fontWeight: 700, color: cagrColor(r.cagr.equity) })}>{r.cagr.equity != null ? fP(r.cagr.equity) : '—'}</td>
+                  <td style={td({ textAlign: 'right', fontWeight: 700, color: cagrColor(r.cagr.retEarnings) })}>{r.cagr.retEarnings != null ? fP(r.cagr.retEarnings) : '—'}</td>
+                  <td style={td({ textAlign: 'right', fontWeight: 700, color: cagrColor(r.cagr.assets) })}>{r.cagr.assets != null ? fP(r.cagr.assets) : '—'}</td>
+                  <td style={td({ textAlign: 'right', fontWeight: 700, background: 'rgba(200,164,78,0.08)', color: 'var(--gold)' })}>
+                    Σ {r.retainedSum != null ? f2(r.retainedSum) : '—'}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-tertiary)' }}>
+            Click cualquier celda para overridear FMP. Override = celdas en <span style={{ color: 'var(--gold)' }}>dorado</span>.
+            Retenido = BPA − DPA por año.
+          </div>
+        </div>
+
+        {/* Panel configuración (lado derecho) */}
+        <div style={panel()}>
+          <div style={panelTitle()}>⚙️ CONFIGURACIÓN</div>
+
+          {/* Cotización + P/E + Yield (read-only, calculados) */}
+          <ConfigRow label="Cotización cálculo" value={`${ccySym}${f2(currentPrice)}`} />
+          <ConfigRow label="P/E actual" value={r.peActual != null ? `${f2(r.peActual)}x` : '—'} />
+
+          <div style={{ height: 8 }} />
+
+          {/* Escenarios de crecimiento */}
+          <ConfigEditable
+            label="Escenario positivo"
+            value={r.growthBasePct + 1.5}
+            suffix="%"
+            tooltip="= Crecimiento base + 1.5pp"
+            disabled
+          />
+          <ConfigEditable
+            label="Crecimiento esperado"
+            value={r.growthBasePct}
+            suffix="%"
+            tooltip="Default = CAGR EPS histórico capped 15%. Persistido en D1."
+            onSave={(v) => r.setOverride(-99, 'growth', v)}
+          />
+          <ConfigEditable
+            label="Escenario negativo"
+            value={r.growthBasePct - 1.5}
+            suffix="%"
+            tooltip="= Crecimiento base − 1.5pp"
+            disabled
+          />
+
+          <div style={{ height: 8 }} />
+
+          {/* Dividendo + Yield */}
+          <ConfigRow label="Dividendo (DPA año 0)" value={r.seriesFinal.dps[0] != null ? `${ccySym}${f2(r.seriesFinal.dps[0])}` : '—'} />
+          <ConfigRow label="Yield actual" value={r.yieldActual != null ? fP(r.yieldActual) : '—'} highlight />
+
+          <div style={{ height: 8 }} />
+
+          {/* Rango de múltiplos P/E */}
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, fontWeight: 600 }}>RANGO MÚLTIPLOS P/E</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+            <ConfigPe label="Deprimido" value={r.peLow} def={r.peDefaults.low} onSave={v => r.setOverride(-99, 'peLow', v)} />
+            <ConfigPe label="Normal" value={r.peMid} def={r.peDefaults.mid} onSave={v => r.setOverride(-99, 'peMid', v)} />
+            <ConfigPe label="Caliente" value={r.peHigh} def={r.peDefaults.high} onSave={v => r.setOverride(-99, 'peHigh', v)} />
+          </div>
+
+          <div style={{ height: 10 }} />
+
+          {/* Coeficiente Habilidad — la métrica clave */}
+          <div style={{
+            padding: 12, borderRadius: 10,
+            background: 'rgba(200,164,78,0.10)',
+            border: '1px solid rgba(200,164,78,0.30)',
+            textAlign: 'center',
+          }}>
+            <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Coeficiente de Habilidad
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: coefColor(r.coefHabilidad), marginTop: 4 }}>
+              {r.coefHabilidad != null ? fP(r.coefHabilidad) : '—'}
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 4 }}>
+              ΔBPA / Σ retenidos = {r.bpaDelta != null ? f2(r.bpaDelta) : '—'} / {r.retainedSum != null ? f2(r.retainedSum) : '—'}
+            </div>
+          </div>
+
+          {r.sector && (
+            <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-tertiary)' }}>
+              Sector: <strong>{r.sector}</strong>
+            </div>
+          )}
+          {r.saving && <div style={{ marginTop: 6, fontSize: 11, color: 'var(--gold)' }}>Guardando...</div>}
+        </div>
       </div>
 
-      {/* ─── Asunciones editables ─── */}
-      <Card title="🎚 Asunciones de proyección" icon="⚙">
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
-          <AssumptionInput
-            label="Crecimiento BPA esperado (%)"
-            value={r.growthBasePct}
-            onChange={v => r.setOverride(-99, 'growth', v)}
-            tooltip={`Default = CAGR EPS histórico capped 15%. Rango ±1.5pp aplica para escenarios negativo/positivo.`}
-            suffix="%"
-          />
-          <AssumptionInput
-            label={`P/E Deprimido (default ${r.peDefaults.low})`}
-            value={r.peLow}
-            onChange={v => r.setOverride(-99, 'peLow', v)}
-          />
-          <AssumptionInput
-            label={`P/E Normal (default ${r.peDefaults.mid})`}
-            value={r.peMid}
-            onChange={v => r.setOverride(-99, 'peMid', v)}
-          />
-          <AssumptionInput
-            label={`P/E Caliente (default ${r.peDefaults.high})`}
-            value={r.peHigh}
-            onChange={v => r.setOverride(-99, 'peHigh', v)}
-          />
+      {/* ═══ BLOQUE 2: Proyección 10y BPA + EQUITY ═══ */}
+      <div style={panel()}>
+        <div style={panelTitle()}>📈 PROYECCIÓN 10 AÑOS — BPA + EQUITY (3 escenarios)</div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={tbl()}>
+            <thead>
+              <tr style={{ background: 'var(--card-hover)' }}>
+                <th rowSpan="2" style={th({ width: 60, verticalAlign: 'middle' })}>Año</th>
+                <th colSpan="3" style={th({ textAlign: 'center', borderBottom: '1px solid var(--gold)', color: 'var(--gold)' })}>BPA</th>
+                <th colSpan="3" style={th({ textAlign: 'center', borderBottom: '1px solid #64d2ff', color: '#64d2ff' })}>EQUITY</th>
+              </tr>
+              <tr style={{ background: 'var(--card-hover)' }}>
+                <th style={th({ textAlign: 'right', color: '#ff9f0a', fontSize: 10 })}>Negativo</th>
+                <th style={th({ textAlign: 'right', fontSize: 10 })}>Normal</th>
+                <th style={th({ textAlign: 'right', color: '#30d158', fontSize: 10 })}>Positivo</th>
+                <th style={th({ textAlign: 'right', color: '#ff9f0a', fontSize: 10 })}>Negativo</th>
+                <th style={th({ textAlign: 'right', fontSize: 10 })}>Normal</th>
+                <th style={th({ textAlign: 'right', color: '#30d158', fontSize: 10 })}>Positivo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: 10 }).map((_, i) => (
+                <tr key={i}>
+                  <td style={td({ fontWeight: 600 })}>+{i + 1}</td>
+                  <td style={td({ textAlign: 'right', color: '#ff9f0a' })}>{f2(r.bpaProyectado.negativo[i] || 0)}</td>
+                  <td style={td({ textAlign: 'right' })}>{f2(r.bpaProyectado.normal[i] || 0)}</td>
+                  <td style={td({ textAlign: 'right', color: '#30d158' })}>{f2(r.bpaProyectado.positivo[i] || 0)}</td>
+                  <td style={td({ textAlign: 'right', color: '#ff9f0a' })}>{f2(r.equityProyectado.negativo[i] || 0)}</td>
+                  <td style={td({ textAlign: 'right' })}>{f2(r.equityProyectado.normal[i] || 0)}</td>
+                  <td style={td({ textAlign: 'right', color: '#30d158' })}>{f2(r.equityProyectado.positivo[i] || 0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-        {r.sector && (
-          <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-tertiary)' }}>
-            Sector detectado: <strong>{r.sector}</strong>.
-            P/E actual: {r.peActual != null ? `${f2(r.peActual)}x` : '—'}.
-          </div>
-        )}
-        {r.saving && <div style={{ marginTop: 8, fontSize: 12, color: 'var(--gold)' }}>Guardando...</div>}
-        {r.error && <div style={{ marginTop: 8, fontSize: 12, color: '#ff453a' }}>Error: {r.error}</div>}
-      </Card>
+      </div>
 
-      {/* ─── Tabla histórica editable ─── */}
-      <Card title="📋 Histórico 10y (editable)" icon="📜">
-        <HistoricoTable
-          series={r.seriesFinal}
-          seriesRaw={r.seriesFromFin}
-          ticker={ticker}
-          onEdit={r.setOverride}
-          editingCell={editingCell}
-          setEditingCell={setEditingCell}
-          ccy={ccy}
-        />
+      {/* ═══ BLOQUE 3: Valoración matriz 3×3 ═══ */}
+      <div style={panel()}>
+        <div style={panelTitle()}>🎯 VALORACIÓN AÑO 10 — Matriz 3×3</div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={tbl()}>
+            <thead>
+              <tr style={{ background: 'var(--card-hover)' }}>
+                <th style={th({ width: 110 })}></th>
+                <th style={th({ textAlign: 'center', color: '#ff9f0a' })}>BPA Negativo</th>
+                <th style={th({ textAlign: 'center' })}>BPA Normal</th>
+                <th style={th({ textAlign: 'center', color: '#30d158' })}>BPA Positivo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                { key: 'deprimido', label: `Deprimido (${r.peLow}x)` },
+                { key: 'normal', label: `Normal (${r.peMid}x)` },
+                { key: 'caliente', label: `Caliente (${r.peHigh}x)` },
+              ].map(mult => (
+                <tr key={mult.key}>
+                  <td style={td({ fontWeight: 600 })}>{mult.label}</td>
+                  {['negativo', 'normal', 'positivo'].map(esc => {
+                    const total = r.retornoEsperado10y.retornoTotal[mult.key][esc];
+                    const cagr = r.retornoEsperado10y.cagrPrecio[mult.key][esc];
+                    const precio = r.precioFuturo10y[mult.key][esc];
+                    return (
+                      <td key={esc} style={td({ textAlign: 'center', padding: '12px 10px' })}>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: retornoColor(total) }}>
+                          {fP(total)}
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 4 }}>
+                          CAGR {fP(cagr)} · {ccySym}{f2(precio)}
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-tertiary)' }}>
-          Click en cualquier celda para sobrescribir el dato FMP. Los overrides se guardan automáticamente en D1.
+          Retorno total = CAGR precio + yield actual ({r.yieldActual != null ? fP(r.yieldActual) : '—'}).
+          🟢 ≥12% objetivo Gorka · 🔵 8-12% · 🟡 4-8% · 🔴 &lt;4%
         </div>
-      </Card>
+      </div>
 
-      {/* ─── Matriz 3x3 retornos esperados ─── */}
-      <Card title="🎯 Matriz Retornos Esperados a 10 años" icon="🎯">
-        <RetornoMatrix
-          retornoTotal={r.retornoEsperado10y.retornoTotal}
-          cagrPrecio={r.retornoEsperado10y.cagrPrecio}
-          precioFuturo={r.precioFuturo10y}
-          currentPrice={currentPrice}
-          ccy={ccy}
-        />
-        <div style={{ marginTop: 14, fontSize: 12, color: 'var(--text-tertiary)' }}>
-          <strong>Retorno total</strong> = CAGR precio + yield actual.
-          Verde si ≥12% (Gorka objetivo). Rojo si &lt;8%.
-        </div>
-      </Card>
-
-      {/* ─── Proyección BPA 10y ─── */}
-      <Card title="📈 BPA Proyectado 10y (3 escenarios)" icon="📈">
-        <ProyeccionBpaTable bpa={r.bpaProyectado} />
-      </Card>
-
-      {/* ─── Warnings ─── */}
+      {/* Warnings + Reset */}
       {r.warnings.length > 0 && (
-        <Card title="⚠️ Avisos del modelo" icon="⚠️">
-          <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: 'var(--text-secondary)' }}>
-            {r.warnings.map((w, i) => <li key={i} style={{ marginBottom: 4 }}>{w}</li>)}
+        <div style={banner('warn')}>
+          <strong>Avisos:</strong>
+          <ul style={{ margin: '6px 0 0', paddingLeft: 18, fontSize: 12 }}>
+            {r.warnings.map((w, i) => <li key={i}>{w}</li>)}
           </ul>
-        </Card>
+        </div>
       )}
-
-      {/* ─── Botón reset all ─── */}
       {r.overrides.length > 0 && (
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <button
             onClick={() => {
-              if (window.confirm(`¿Borrar TODOS los overrides manuales de ${ticker}? Volverá a usar datos FMP.`)) {
-                r.resetAll();
-              }
+              if (window.confirm(`¿Borrar TODOS los overrides de ${ticker}?`)) r.resetAll();
             }}
             style={{
-              padding: '8px 16px', borderRadius: 8,
+              padding: '6px 12px', borderRadius: 8,
               background: 'transparent', border: '1px solid var(--border)',
-              color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13,
+              color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 12,
             }}>
-            ↺ Restaurar defaults FMP ({r.overrides.length} override{r.overrides.length !== 1 ? 's' : ''})
+            ↺ Restaurar FMP ({r.overrides.length})
           </button>
         </div>
       )}
@@ -168,239 +345,180 @@ export default function RentabilidadTab() {
 
 // ═══ Subcomponentes ═══
 
-function KpiCard({ label, value, format, tooltip, benchmark }) {
-  const score = benchmark && value != null ? benchmark(value) : null;
-  const color = score === 'excellent' ? '#30d158'
-              : score === 'good' ? '#64d2ff'
-              : score === 'neutral' ? '#ffd60a'
-              : score === 'bad' ? '#ff453a'
-              : 'var(--text-primary)';
+function EditableCell({ value, raw, decimals = 0, editing, onEdit, onSave, onCancel }) {
+  const isOverride = raw !== value && raw != null;
   return (
-    <div
-      title={tooltip || ''}
-      style={{
-        padding: 16, borderRadius: 12,
-        background: 'var(--card)',
-        border: '1px solid var(--border)',
-        textAlign: 'center',
-      }}>
-      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color, marginTop: 6 }}>
-        {value == null ? '—' : format(value)}
-      </div>
+    <td
+      style={td({
+        textAlign: 'right',
+        color: isOverride ? 'var(--gold)' : value == null ? 'var(--text-tertiary)' : 'var(--text-primary)',
+        cursor: 'pointer',
+        background: editing ? 'rgba(200,164,78,0.08)' : 'transparent',
+        fontWeight: isOverride ? 600 : 400,
+      })}
+      onClick={() => !editing && onEdit()}>
+      {editing ? (
+        <input
+          type="number" step={decimals === 0 ? '1' : '0.01'}
+          defaultValue={value ?? ''}
+          autoFocus
+          onBlur={e => {
+            const num = e.target.value === '' ? null : Number(e.target.value);
+            onSave(num);
+          }}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              const num = e.target.value === '' ? null : Number(e.target.value);
+              onSave(num);
+            } else if (e.key === 'Escape') onCancel();
+          }}
+          style={{
+            width: 80, padding: 3, fontSize: 11, fontFamily: 'var(--fm)',
+            textAlign: 'right',
+            background: 'var(--card-hover)',
+            border: '1px solid var(--gold)',
+            color: 'var(--text-primary)', borderRadius: 4,
+          }}
+        />
+      ) : (value == null ? '—' : fN(value, decimals))}
+    </td>
+  );
+}
+
+function ConfigRow({ label, value, highlight }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--border)' }}>
+      <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: 600, color: highlight ? 'var(--gold)' : 'var(--text-primary)' }}>{value}</span>
     </div>
   );
 }
 
-function AssumptionInput({ label, value, onChange, tooltip, suffix }) {
+function ConfigEditable({ label, value, suffix, tooltip, onSave, disabled }) {
   const [local, setLocal] = useState(value);
-  // Sincronizar local cuando value cambia exteriormente
   useMemo(() => setLocal(value), [value]);
-
   const commit = () => {
     const num = Number(local);
-    if (isFinite(num) && num !== value) onChange(num);
+    if (isFinite(num) && num !== value && onSave) onSave(num);
   };
-
   return (
-    <div title={tooltip || ''}>
-      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6 }}>{label}</div>
+    <div title={tooltip || ''} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: '1px solid var(--border)' }}>
+      <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{label}</span>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
         <input
-          type="number"
-          step="0.01"
-          value={local}
+          type="number" step="0.1"
+          value={Number.isFinite(local) ? local : ''}
           onChange={e => setLocal(e.target.value)}
           onBlur={commit}
           onKeyDown={e => { if (e.key === 'Enter') commit(); }}
+          disabled={disabled}
           style={{
-            flex: 1, padding: '8px 10px', borderRadius: 8,
-            background: 'var(--card-hover)', border: '1px solid var(--border)',
-            color: 'var(--text-primary)', fontSize: 14, fontFamily: 'var(--fm)',
-            width: '100%',
+            width: 60, padding: '3px 6px', borderRadius: 4,
+            background: disabled ? 'transparent' : 'var(--card-hover)',
+            border: '1px solid var(--border)',
+            color: disabled ? 'var(--text-secondary)' : 'var(--text-primary)',
+            fontSize: 12, textAlign: 'right',
           }}
         />
-        {suffix && <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{suffix}</span>}
+        <span style={{ fontSize: 11, color: 'var(--text-tertiary)', width: 12 }}>{suffix}</span>
       </div>
     </div>
   );
 }
 
-function HistoricoTable({ series, seriesRaw, ticker, onEdit, editingCell, setEditingCell, ccy }) {
-  const years = series.revenue.map((_, i) => `t-${i}`);
-  const fields = [
-    { key: 'revenue', label: 'Ventas (M)' },
-    { key: 'eps', label: 'BPA' },
-    { key: 'dps', label: 'DPA' },
-    { key: 'equity', label: 'Equity (M)' },
-    { key: 'retEarnings', label: 'Ret. Earnings (M)' },
-    { key: 'assets', label: 'Activos (M)' },
-  ];
-
+function ConfigPe({ label, value, def, onSave }) {
+  const [local, setLocal] = useState(value);
+  useMemo(() => setLocal(value), [value]);
+  const isOverride = value !== def;
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 700 }}>
-        <thead>
-          <tr style={{ background: 'var(--card-hover)' }}>
-            <th style={th()}>Campo</th>
-            {years.map((y, i) => <th key={i} style={th()}>{i === 0 ? 'Hoy' : y}</th>)}
-          </tr>
-        </thead>
-        <tbody>
-          {fields.map(f => (
-            <tr key={f.key}>
-              <td style={td({ fontWeight: 600 })}>{f.label}</td>
-              {series[f.key].map((v, i) => {
-                const raw = seriesRaw[f.key][i];
-                const isOverride = raw !== v;
-                const isEditing = editingCell?.year === -i && editingCell?.field === f.key;
-                return (
-                  <td
-                    key={i}
-                    style={td({
-                      textAlign: 'right',
-                      color: isOverride ? 'var(--gold)' : v == null ? 'var(--text-tertiary)' : 'var(--text-primary)',
-                      cursor: 'pointer',
-                      background: isEditing ? 'rgba(200,164,78,0.08)' : 'transparent',
-                    })}
-                    onClick={() => setEditingCell({ year: -i, field: f.key })}>
-                    {isEditing ? (
-                      <input
-                        type="number"
-                        step="0.01"
-                        defaultValue={v ?? ''}
-                        autoFocus
-                        onBlur={e => {
-                          const num = e.target.value === '' ? null : Number(e.target.value);
-                          if (num !== v) onEdit(-i, f.key, num);
-                          setEditingCell(null);
-                        }}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') {
-                            const num = e.target.value === '' ? null : Number(e.target.value);
-                            if (num !== v) onEdit(-i, f.key, num);
-                            setEditingCell(null);
-                          } else if (e.key === 'Escape') {
-                            setEditingCell(null);
-                          }
-                        }}
-                        style={{
-                          width: 80, padding: 4, fontSize: 12, fontFamily: 'var(--fm)',
-                          textAlign: 'right',
-                          background: 'var(--card-hover)',
-                          border: '1px solid var(--gold)',
-                          color: 'var(--text-primary)', borderRadius: 4,
-                        }}
-                      />
-                    ) : (v == null ? '—' : f2(v))}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div style={{ textAlign: 'center' }}>
+      <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 3 }}>{label}</div>
+      <input
+        type="number" step="0.5"
+        value={Number.isFinite(local) ? local : ''}
+        onChange={e => setLocal(e.target.value)}
+        onBlur={() => { const n = Number(local); if (isFinite(n) && n !== value) onSave(n); }}
+        onKeyDown={e => { if (e.key === 'Enter') { const n = Number(local); if (isFinite(n) && n !== value) onSave(n); } }}
+        style={{
+          width: '100%', padding: '4px 6px', borderRadius: 6,
+          background: 'var(--card-hover)',
+          border: `1px solid ${isOverride ? 'var(--gold)' : 'var(--border)'}`,
+          color: isOverride ? 'var(--gold)' : 'var(--text-primary)',
+          fontSize: 13, fontWeight: 600, textAlign: 'center',
+          fontFamily: 'var(--fm)',
+        }}
+      />
+      <div style={{ fontSize: 9, color: 'var(--text-tertiary)', marginTop: 2 }}>def {def}x</div>
     </div>
   );
 }
 
-function RetornoMatrix({ retornoTotal, cagrPrecio, precioFuturo, currentPrice, ccy }) {
-  const escenarios = [
-    { key: 'negativo', label: 'BPA −1.5pp' },
-    { key: 'normal', label: 'BPA base' },
-    { key: 'positivo', label: 'BPA +1.5pp' },
-  ];
-  const multipliers = [
-    { key: 'deprimido', label: 'Múltiplo Deprimido' },
-    { key: 'normal', label: 'Múltiplo Normal' },
-    { key: 'caliente', label: 'Múltiplo Caliente' },
-  ];
+// ═══ Helpers ═══
 
-  const colorFor = (r) => {
-    if (r >= 0.12) return '#30d158';
-    if (r >= 0.08) return '#64d2ff';
-    if (r >= 0.04) return '#ffd60a';
-    return '#ff453a';
-  };
-
-  return (
-    <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-        <thead>
-          <tr style={{ background: 'var(--card-hover)' }}>
-            <th style={th()}></th>
-            {multipliers.map(m => <th key={m.key} style={th()}>{m.label}</th>)}
-          </tr>
-        </thead>
-        <tbody>
-          {escenarios.map(es => (
-            <tr key={es.key}>
-              <td style={td({ fontWeight: 600 })}>{es.label}</td>
-              {multipliers.map(m => {
-                const total = retornoTotal[m.key][es.key];
-                const cagr = cagrPrecio[m.key][es.key];
-                const precio = precioFuturo[m.key][es.key];
-                return (
-                  <td key={m.key} style={td({ textAlign: 'center' })}>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: colorFor(total) }}>{fP(total)}</div>
-                    <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 4 }}>
-                      CAGR precio {fP(cagr)} · {ccy === 'USD' ? '$' : ccy} {f2(precio)}/sh @ 10y
-                    </div>
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div style={{ marginTop: 14, padding: 10, background: 'var(--card-hover)', borderRadius: 8, fontSize: 11, color: 'var(--text-secondary)' }}>
-        <strong>Cómo leer:</strong> Cada celda muestra el retorno total esperado a 10 años partiendo de hoy ({ccy === 'USD' ? '$' : ccy}{f2(currentPrice)}).
-        Es la combinación CAGR precio + dividendos. Las 9 celdas representan la sensibilidad a:
-        crecimiento BPA (-1.5pp / base / +1.5pp) × múltiplo de salida (deprimido / normal / caliente).
-      </div>
-    </div>
-  );
+function cagrColor(v) {
+  if (v == null) return 'var(--text-tertiary)';
+  if (v >= 0.10) return '#30d158';
+  if (v >= 0.05) return '#64d2ff';
+  if (v >= 0) return '#ffd60a';
+  return '#ff453a';
 }
 
-function ProyeccionBpaTable({ bpa }) {
-  const years = bpa.normal.map((_, i) => `+${i + 1}`);
-  return (
-    <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-        <thead>
-          <tr style={{ background: 'var(--card-hover)' }}>
-            <th style={th()}>Año</th>
-            <th style={th()}>Negativo</th>
-            <th style={th()}>Base</th>
-            <th style={th()}>Positivo</th>
-          </tr>
-        </thead>
-        <tbody>
-          {years.map((y, i) => (
-            <tr key={i}>
-              <td style={td({ fontWeight: 600 })}>{y}</td>
-              <td style={td({ textAlign: 'right', color: '#ff9f0a' })}>{f2(bpa.negativo[i])}</td>
-              <td style={td({ textAlign: 'right' })}>{f2(bpa.normal[i])}</td>
-              <td style={td({ textAlign: 'right', color: '#30d158' })}>{f2(bpa.positivo[i])}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+function coefColor(v) {
+  if (v == null) return 'var(--text-tertiary)';
+  if (v >= 0.15) return '#30d158';
+  if (v >= 0.05) return '#64d2ff';
+  if (v >= 0) return '#ffd60a';
+  return '#ff453a';
 }
 
-// Helpers de estilo
+function retornoColor(v) {
+  if (v >= 0.12) return '#30d158';
+  if (v >= 0.08) return '#64d2ff';
+  if (v >= 0.04) return '#ffd60a';
+  return '#ff453a';
+}
+
+const panel = () => ({
+  background: 'var(--card)',
+  border: '1px solid var(--border)',
+  borderRadius: 12,
+  padding: 16,
+});
+const panelTitle = () => ({
+  fontSize: 11,
+  fontWeight: 700,
+  color: 'var(--gold)',
+  letterSpacing: 0.5,
+  marginBottom: 12,
+  textTransform: 'uppercase',
+});
+const tbl = () => ({
+  width: '100%',
+  borderCollapse: 'collapse',
+  fontSize: 12,
+});
 const th = (extra = {}) => ({
-  padding: '8px 10px', textAlign: 'left',
+  padding: '6px 8px',
+  textAlign: 'left',
   borderBottom: '1px solid var(--border)',
-  fontWeight: 600, color: 'var(--text-secondary)',
-  fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.3,
+  fontWeight: 600,
+  color: 'var(--text-secondary)',
+  fontSize: 10,
+  textTransform: 'uppercase',
+  letterSpacing: 0.3,
   ...extra,
 });
 const td = (extra = {}) => ({
-  padding: '6px 10px',
+  padding: '5px 8px',
   borderBottom: '1px solid var(--border)',
   fontFamily: 'var(--fm)',
   ...extra,
+});
+const banner = (kind) => ({
+  padding: '10px 14px',
+  borderRadius: 10,
+  background: kind === 'warn' ? 'rgba(255,159,10,0.12)' : 'rgba(255,69,58,0.12)',
+  border: `1px solid ${kind === 'warn' ? 'rgba(255,159,10,0.4)' : 'rgba(255,69,58,0.4)'}`,
+  color: kind === 'warn' ? '#ff9f0a' : '#ff453a',
+  fontSize: 13,
 });

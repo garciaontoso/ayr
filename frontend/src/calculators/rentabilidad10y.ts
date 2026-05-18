@@ -58,6 +58,12 @@ export interface RentabilidadOutputs {
     normal: number[];                // g
     positivo: number[];              // g + 1.5pp
   };
+  // Equity proyectado paralelo (Excel cols E/F/G)
+  equityProyectado: {
+    negativo: number[];
+    normal: number[];
+    positivo: number[];
+  };
   precioFuturo10y: {
     // [escenario][múltiplo]
     deprimido: { negativo: number; normal: number; positivo: number };
@@ -202,6 +208,7 @@ export function calcRentabilidad10y(inputs: RentabilidadInputs): RentabilidadOut
     return {
       cagr, coefHabilidad: ch.coef, retainedSum: ch.retainedSum, bpaDelta: ch.bpaDelta,
       bpaProyectado: { negativo: [], normal: [], positivo: [] },
+      equityProyectado: { negativo: [], normal: [], positivo: [] },
       precioFuturo10y: emptyMatrix(),
       retornoEsperado10y: { cagrPrecio: emptyMatrix(), retornoTotal: emptyMatrix() },
       yieldActual: null, peActual: null, warnings,
@@ -214,6 +221,16 @@ export function calcRentabilidad10y(inputs: RentabilidadInputs): RentabilidadOut
     normal:   projectBpa(epsActual, inputs.growthBasePct),
     positivo: projectBpa(epsActual, inputs.growthBasePct + range),
   };
+
+  // Equity proyectado (Excel columns E/F/G filas 21-30 — paralelo a BPA)
+  const equityActual = inputs.equity.find(v => v != null && isFinite(v as number)) as number | undefined;
+  const equityProyectado = equityActual != null
+    ? {
+        negativo: projectBpa(equityActual, inputs.growthBasePct - range),
+        normal:   projectBpa(equityActual, inputs.growthBasePct),
+        positivo: projectBpa(equityActual, inputs.growthBasePct + range),
+      }
+    : { negativo: [], normal: [], positivo: [] };
 
   // Precio futuro año 10 = BPA año 10 × múltiplo
   const bpa10Negativo = bpaProyectado.negativo[9] || 0;
@@ -291,6 +308,7 @@ export function calcRentabilidad10y(inputs: RentabilidadInputs): RentabilidadOut
     retainedSum: ch.retainedSum,
     bpaDelta: ch.bpaDelta,
     bpaProyectado,
+    equityProyectado,
     precioFuturo10y,
     retornoEsperado10y: { cagrPrecio, retornoTotal },
     yieldActual,
