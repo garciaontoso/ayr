@@ -250,6 +250,61 @@
 - **Archivos**: `api/sync-flex.sh`, `api/src/worker.js` `/api/ib-flex-sync`.
 - **Commit**: 2026-05-10
 
+### Bug #021 — POST /api/gastos auth regresión recurrente (PWA sync roto) (2026-05-18) ⚠️ 3ª regresión
+- **Síntoma**: el usuario abre el PWA `gastos.html` desde el móvil, añade gastos, pero
+  el badge "X pendientes de sincronizar" nunca baja. Los gastos quedan colgados en
+  IndexedDB local sin poder llegar a D1. **Esta es la 3ª vez** que se reporta (2026-05-04,
+  fecha intermedia desconocida, 2026-05-18). Frustración del usuario: "ya no recuerdo
+  cuántas veces hemos tenido que arreglarla".
+- **Causa raíz**: el código `POST /api/gastos` en `worker.js` requería `X-AYR-Auth`
+  con el patrón estricto `const unauth = ytRequireToken(request, env); if (unauth) return unauth;`.
+  Los PWAs instalados pre-2026-05-01 no tienen el monkey-patch de `main.jsx`
+  que añade el header automáticamente → 401 en cada sync. El comentario encima del
+  endpoint decía "auth removed" pero el código real seguía llamando `ytRequireToken`
+  → comentario y código divergían. La regresión vuelve cada vez que alguien rebasea
+  o copia código de otros endpoints WRITE (PUT, bulk-update, etc.).
+- **Fix permanente**: usar el patrón origin-aware idéntico a `DELETE /api/gastos/:id`:
+  ```js
+  { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
+  ```
+  Permite POST sin auth desde orígenes CORS-allowed (ayr.onto-so.com, *.pages.dev,
+  localhost), pero requiere auth desde curl/external. Mismo patrón que ya usa DELETE.
+- **Prevención (CRÍTICA)**:
+  - `frontend/tests/regressions/bug-gastos-sync-auth.test.js` lee `worker.js` y verifica
+    el patrón en POST/PUT/DELETE de `/api/gastos`. Si reaparece el patrón PROHIBIDO
+    `const unauth = ytRequireToken(...); if (unauth) return unauth`, el test rompe.
+  - Test adicional verifica que `gastos.html` usa `api.onto-so.com` (no workers.dev).
+- **Smoke test live (debe siempre pasar)**:
+  ```bash
+  # ✅ 200 — POST desde origin allowed sin auth
+  curl -X POST https://api.onto-so.com/api/gastos -H "Origin: https://ayr.onto-so.com" \
+    -H "Content-Type: application/json" \
+    -d '{"fecha":"2026-05-18","categoria":"OTH","importe":1,"divisa":"EUR"}'
+  # ✅ 401 — origin no allowed
+  curl -X POST https://api.onto-so.com/api/gastos -H "Origin: https://evil.com" -d '{}'
+  ```
+- **Archivos**: `api/src/worker.js` líneas ~10345, `frontend/public/gastos.html`,
+  `frontend/tests/regressions/bug-gastos-sync-auth.test.js`.
+- **Commit**: 2026-05-18, worker version `de7a38eb`.
+
+### Bug #022 — Worktree git sin .env.local → frontend bundle con token vacío (2026-05-18)
+- **Síntoma**: tras `git worktree add`, hacer `npm run build && wrangler pages deploy`
+  desde el worktree resulta en 11+ endpoints devolviendo 401: `/api/positions`,
+  `/api/dividendos`, `/api/patrimonio`, `/api/fire`, etc.
+- **Causa raíz**: `.env.local` está en `.gitignore` (correcto — contiene `VITE_AYR_TOKEN`).
+  Al crear un worktree NO se copia. Vite hace `import.meta.env.VITE_AYR_TOKEN = undefined`
+  → token bundleado vacío → monkey-patch en `main.jsx` setea `X-AYR-Auth: ''` → 401.
+- **Fix immediate**:
+  ```bash
+  cp /Users/ricardogarciaontoso/IA/AyR/frontend/.env.local <worktree>/frontend/.env.local
+  npm run build && npx wrangler pages deploy dist
+  ```
+- **Prevención**: pre-build check en `vite.config.js` que aborte si `VITE_AYR_TOKEN`
+  vacía en producción. Documentar en `CLAUDE.md` del worktree.
+- **Lección meta**: archivos en `.gitignore` son frecuentemente REQUIRED para que el
+  producto funcione. Crear worktree = pensar en copiarlos.
+- **Commit**: 2026-05-18.
+
 ---
 
 ## 📊 Estadísticas hoy 2026-05-03

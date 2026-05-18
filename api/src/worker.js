@@ -10340,11 +10340,11 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
       // 2026-05-05: auth removed for POST. PWAs instaladas pre-2026-05-01 no tienen
       // el monkey-patch de auth en main.jsx y se quedaban con gastos colgados en localStorage
       // sin poder sincronizar (issue reportado: 5 gastos del usuario + 5 de su mujer atascados).
-      // Trade-off: alguien que conozca la URL puede insertar gastos spam, pero son
-      // recuperables con DELETE individual y CORS sigue protegiendo de ataques browser-based.
+      // 2026-05-18: el auth fue revertido por error en algún rebase. RE-AROLADO con el
+      // patrón origin-aware idéntico a DELETE (CORS protege browser-based). Esta es la
+      // 3ª regresión del mismo bug — añadido test en tests/regressions/bug-gastos-sync.
       if (path === "/api/gastos" && request.method === "POST") {
-        const unauth = ytRequireToken(request, env);
-        if (unauth) return unauth;
+        { const _ua = (isAllowed && origin) ? null : ytRequireToken(request, env); if (_ua) return _ua; }
         const body = await parseBody(request);
         const fechaErr = validateFecha(body.fecha);
         if (fechaErr) return validationError(fechaErr, corsHeaders);
