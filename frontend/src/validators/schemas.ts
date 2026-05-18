@@ -75,13 +75,221 @@ export const KeyMetricsAnnualSchema = z.object({
   payoutRatio: z.number().optional().nullable(),
 }).passthrough();
 
+// Income statement — Bug schema FMP 2025-08-31. Si interestExpense desaparece
+// o cambia signo, Zod loggea drift.
+export const IncomeAnnualSchema = z.object({
+  fiscalYear: z.union([z.string(), z.number()]).optional(),
+  date: z.string().optional(),
+  revenue: z.number().optional().nullable(),
+  grossProfit: z.number().optional().nullable(),
+  operatingIncome: z.number().optional().nullable(),
+  netIncome: z.number().optional().nullable(),
+  eps: z.number().optional().nullable(),
+  epsDiluted: z.number().optional().nullable(),
+  // interestExpense en FMP siempre es POSITIVO (gasto). Si viene negativo
+  // es señal de drift — el schema lo acepta pero el sign-check lo flagea.
+  interestExpense: z.number().optional().nullable(),
+  incomeTaxExpense: z.number().optional().nullable(),
+  depreciationAndAmortization: z.number().optional().nullable(),
+  weightedAverageShsOut: z.number().optional().nullable(),
+  weightedAverageShsOutDil: z.number().optional().nullable(),
+}).passthrough();
+
+// Balance sheet
+export const BalanceAnnualSchema = z.object({
+  fiscalYear: z.union([z.string(), z.number()]).optional(),
+  date: z.string().optional(),
+  totalDebt: z.number().optional().nullable(),
+  longTermDebt: z.number().optional().nullable(),
+  shortTermDebt: z.number().optional().nullable(),
+  cashAndCashEquivalents: z.number().optional().nullable(),
+  cashAndShortTermInvestments: z.number().optional().nullable(),
+  totalStockholdersEquity: z.number().optional().nullable(),
+  totalEquity: z.number().optional().nullable(),  // alias schema cambió
+  retainedEarnings: z.number().optional().nullable(),
+}).passthrough();
+
+// Cash flow — campos críticos con convención de signos.
+// Bug recurrente: FMP migró `dividendsPaid → commonDividendsPaid` y
+// `debtRepayment → netDebtIssuance` (signo flipped). El schema acepta ambos
+// y _checkSignConventions detecta cuando ambos están vacíos.
+export const CashflowAnnualSchema = z.object({
+  fiscalYear: z.union([z.string(), z.number()]).optional(),
+  date: z.string().optional(),
+  operatingCashFlow: z.number().optional().nullable(),
+  netCashProvidedByOperatingActivities: z.number().optional().nullable(),  // alias
+  // CapEx siempre debe ser NEGATIVO (cash outflow). Si viene positivo → drift.
+  capitalExpenditure: z.number().optional().nullable(),
+  // dividendsPaid (legacy) o commonDividendsPaid (nuevo). Ambos NEGATIVOS.
+  dividendsPaid: z.number().optional().nullable(),
+  commonDividendsPaid: z.number().optional().nullable(),
+  netDividendsPaid: z.number().optional().nullable(),
+  // Repurchases siempre NEGATIVO
+  commonStockRepurchased: z.number().optional().nullable(),
+  // netDebtIssuance: positivo = emitió deuda, negativo = neto pagado.
+  netDebtIssuance: z.number().optional().nullable(),
+  longTermNetDebtIssuance: z.number().optional().nullable(),
+  debtRepayment: z.number().optional().nullable(),  // legacy, positivo
+  // acquisitionsNet: negativo = compró, positivo = vendió neto. Bug solía
+  // usar Math.abs() invirtiendo desinversiones como adquisiciones.
+  acquisitionsNet: z.number().optional().nullable(),
+  depreciationAndAmortization: z.number().optional().nullable(),
+}).passthrough();
+
+// ── Position (D1) ───────────────────────────────────────────────────────
+
+const CurrencySchema = z.enum([
+  'USD','EUR','GBP','GBX','HKD','CAD','CHF',
+  'JPY','AUD','SGD','SEK','NOK','DKK','NZD','CNY',
+]);
+
+// Position con guard de currency-consistency. Si market_value y usd_value
+// divergen >5% cuando ambos están poblados y la moneda no es USD, hay drift.
+export const PositionSchema = z.object({
+  ticker: z.string().min(1),
+  shares: z.number(),
+  avgCost: z.number().optional().nullable(),
+  lastPrice: z.number().optional().nullable(),
+  // Bug #014/RED: currency='USD' cuando debería ser EUR — el UPSERT no
+  // actualizaba el campo currency. Aceptamos string libre pero loggeamos
+  // cuando la moneda no está en el set canónico.
+  currency: z.string().optional().nullable(),
+  market_value: z.number().optional().nullable(),  // moneda nativa
+  usd_value: z.number().optional().nullable(),     // SIEMPRE en USD
+  account: z.string().optional().nullable(),
+  sector: z.string().optional().nullable(),
+  industry: z.string().optional().nullable(),
+}).passthrough();
+
+// Lista de posiciones
+export const PositionsArraySchema = z.array(PositionSchema);
+
+// ── Dividend (D1) ───────────────────────────────────────────────────────
+
+// Bug DEO $177 phantom: shares=7 + dps>1 alta para una "Payment In Lieu" que
+// no era dividendo normal. Validator marca filas con shares=0 + bruto>1
+// como sospechosas.
+export const DividendSchema = z.object({
+  ticker: z.string().min(1),
+  fecha: z.string(),  // ISO YYYY-MM-DD
+  shares: z.number().optional().nullable(),
+  bruto: z.number().optional().nullable(),
+  neto: z.number().optional().nullable(),
+  account: z.string().optional().nullable(),
+  currency: z.string().optional().nullable(),
+}).passthrough();
+
+export const DividendsArraySchema = z.array(DividendSchema);
+
+// ── IB Bridge response ──────────────────────────────────────────────────
+
+// Bug #BridgeArray: a veces devuelve {positions: [...]} y a veces el array
+// directo. El schema acepta ambos shapes mediante z.union.
+const BridgePositionItemSchema = z.object({
+  ticker: z.string().optional(),
+  symbol: z.string().optional(),
+  shares: z.union([z.number(), z.string()]).optional(),
+  position: z.union([z.number(), z.string()]).optional(),
+  market_value: z.number().optional(),
+  marketValue: z.number().optional(),
+  market_price: z.number().optional(),
+  marketPrice: z.number().optional(),
+  account: z.string().optional(),
+}).passthrough();
+
+export const BridgePositionsResponseSchema = z.union([
+  z.array(BridgePositionItemSchema),
+  z.object({ positions: z.array(BridgePositionItemSchema) }).passthrough(),
+  z.object({ data: z.array(BridgePositionItemSchema) }).passthrough(),
+]);
+
+/**
+ * Normaliza bridge response a Array. Si llega {positions: [...]}, extrae array.
+ * Defensa central contra Bug #BridgeArray.
+ */
+export function normalizeBridgePositions(raw: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(raw)) return raw as Array<Record<string, unknown>>;
+  if (raw && typeof raw === 'object') {
+    const obj = raw as { positions?: unknown; data?: unknown };
+    if (Array.isArray(obj.positions)) return obj.positions as Array<Record<string, unknown>>;
+    if (Array.isArray(obj.data)) return obj.data as Array<Record<string, unknown>>;
+  }
+  return [];
+}
+
 // Respuesta completa de /api/fundamentals/bulk PER TICKER.
 // `passthrough()` permite que el worker añada campos nuevos sin romper.
 export const FundamentalsResponseSchema = z.object({
   profile: ProfileSchema.optional(),
   ratios: z.array(RatioAnnualSchema).optional().default([]),
   keyMetrics: z.array(KeyMetricsAnnualSchema).optional().default([]),
+  income: z.array(IncomeAnnualSchema).optional().default([]),
+  balance: z.array(BalanceAnnualSchema).optional().default([]),
+  cashflow: z.array(CashflowAnnualSchema).optional().default([]),
 }).passthrough();
+
+// ── Sign convention runtime checks ──────────────────────────────────────
+// Estos NO son schemas Zod — son guardas adicionales que ejecutamos sobre
+// los arrays parseados para detectar bugs como capex positivo (FMP drift)
+// o ambas claves de dividendsPaid vacías.
+
+export interface SignConventionReport {
+  ticker: string;
+  drifts: Array<{ field: string; value: number; expected: 'negative' | 'positive' | 'present' }>;
+}
+
+/**
+ * Comprueba convenciones de signos sobre el último año de cashflow.
+ * Devuelve {drifts: []} cuando todo OK. Si hay drifts, log + report.
+ */
+export function checkSignConventions(fund: unknown, ticker: string): SignConventionReport {
+  const drifts: SignConventionReport['drifts'] = [];
+  if (!fund || typeof fund !== 'object') return { ticker, drifts };
+  const f = fund as { cashflow?: unknown[]; income?: unknown[] };
+  const cf = Array.isArray(f.cashflow) ? f.cashflow[0] as Record<string, unknown> : null;
+  const inc = Array.isArray(f.income) ? f.income[0] as Record<string, unknown> : null;
+
+  if (cf) {
+    // capex debe ser <= 0 (cash outflow)
+    if (typeof cf.capitalExpenditure === 'number' && cf.capitalExpenditure > 0) {
+      drifts.push({ field: 'capitalExpenditure', value: cf.capitalExpenditure, expected: 'negative' });
+    }
+    // commonDividendsPaid debe ser <= 0
+    const divPaid = cf.commonDividendsPaid ?? cf.dividendsPaid ?? cf.netDividendsPaid;
+    if (typeof divPaid === 'number' && divPaid > 0) {
+      drifts.push({ field: 'dividendsPaid', value: divPaid, expected: 'negative' });
+    }
+    // Si ambas claves de divs están vacías Y la empresa paga divs (income.netIncome > 0)
+    // probablemente migración FMP. Lo flageamos:
+    if (divPaid == null && cf.commonStockRepurchased == null) {
+      drifts.push({ field: 'dividendsPaid|netDividendsPaid|commonDividendsPaid', value: 0, expected: 'present' });
+    }
+  }
+  if (inc) {
+    // interestExpense debe ser >= 0 (gasto positivo en income statement)
+    if (typeof inc.interestExpense === 'number' && inc.interestExpense < 0) {
+      drifts.push({ field: 'interestExpense', value: inc.interestExpense, expected: 'positive' });
+    }
+  }
+
+  if (drifts.length > 0) {
+    if (_shouldReport(`sign-${ticker}`)) {
+      try {
+        fetch(`${API_URL}/api/error-log`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            severity: 'warn',
+            message: 'sign-convention drift',
+            context: JSON.stringify({ ticker, drifts }),
+            ticker,
+          }),
+        }).catch(() => {});
+      } catch (_) {}
+    }
+  }
+  return { ticker, drifts };
+}
 
 // /api/fundamentals/bulk devuelve { results: { TICKER1: {...}, TICKER2: {...} } }
 // según el código actual de PortfolioTab.jsx, pero también soportamos shape
