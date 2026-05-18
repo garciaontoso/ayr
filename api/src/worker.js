@@ -17520,6 +17520,36 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const cashflow = JSON.parse(cached.cashflow || "[]");
           const profile = JSON.parse(cached.profile || "{}");
 
+          // ─── FIX 2 (Agent 3): arrays vacíos → flag critical en lugar de silencio ───
+          // ETFs como SPY/BIZD, foreign sin cobertura FMP (BME:ENG, HKG:1066) o
+          // preferred shares (IIPR-PRA) devuelven income vacío. Antes el endpoint
+          // respondía con arrays vacíos sin warning → UI mostraba pestaña en blanco.
+          if (income.length === 0) {
+            const companyName = (profile.companyName || '').toLowerCase();
+            const isEtfFromName = /\b(etf|fund|trust|index|spdr|vanguard|ishares)\b/.test(companyName);
+            const isForeign = /^(HKG:|BME:)|\.(L|MC|PA|DE|MI|AS|VI)$/.test(tk);
+            const isPreferred = /\b(PRA|PR[A-Z]|-P[A-Z]?)\b/.test(tk);
+            let kindMsg = 'Sin datos FMP — ticker no soportado';
+            if (isEtfFromName) kindMsg = 'ETF — modelo Phil Town no aplica (no hay income statement)';
+            else if (isPreferred) kindMsg = 'Preferred share — sin EPS (no aplica Phil Town)';
+            else if (isForeign) kindMsg = `Foreign listing — FMP poco fiable para ${tk}. Considera ticker .L/.MC/.PA equivalente.`;
+            return json({
+              ticker: tk,
+              historico: { revenue: [], eps: [], dps: [], equity: [], retEarnings: [], assets: [], years: [] },
+              flags: [{
+                year: null, field: null, type: 'kind', severity: 'critical',
+                message: kindMsg,
+              }],
+              fmp_source: {
+                sector: profile.sector, industry: profile.industry,
+                isReit: false, isEtf: isEtfFromName,
+                currency: profile.currency || 'USD',
+                companyName: profile.companyName,
+                cached_at: cached.updated_at,
+              },
+            }, corsHeaders);
+          }
+
           // Index por año (descending — primero el más reciente)
           const sortByYear = (arr) => [...arr].sort((a, b) =>
             (b.fiscalYear || +(b.date || '').slice(0, 4) || 0) - (a.fiscalYear || +(a.date || '').slice(0, 4) || 0)
@@ -17558,7 +17588,14 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           });
 
           const equity = series(bal, d => d.totalStockholdersEquity || d.totalEquity);
-          const retEarnings = series(bal, d => d.retainedEarnings);
+          // 2026-05-18: retEarnings fallback chain. Para algunas empresas FMP no expone
+          // retainedEarnings (especialmente europeas) — usar equity como proxy (Gorka
+          // hace esto en su Excel cuando los valores son idénticos para WKL).
+          const retEarnings = bal.map((d, i) => {
+            if (d.retainedEarnings != null && d.retainedEarnings !== 0) return d.retainedEarnings;
+            // Fallback: equity es el mejor proxy disponible
+            return equity[i];
+          });
           const assets = series(bal, d => d.totalAssets);
 
           // ─── Cross-check flags ───────────────────────────────────────────
@@ -17670,6 +17707,87 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         }
       }
 
+      // POST /api/rentabilidad/warm-cache — pre-fetch FMP para tickers de positions
+      // sin cache, en paralelo limitado. Útil para llenar la vista cartera-wide.
+      if (path === "/api/rentabilidad/warm-cache" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          // 1) Identificar tickers de positions sin cache fundamentals reciente
+          const posRes = await env.DB.prepare(
+            `SELECT DISTINCT p.ticker
+             FROM positions p
+             LEFT JOIN fundamentals f ON UPPER(f.symbol) = UPPER(p.ticker)
+             WHERE p.shares > 0
+               AND (f.updated_at IS NULL OR f.updated_at < datetime('now', '-7 days'))
+             ORDER BY p.ticker`
+          ).all();
+          const missing = (posRes.results || []).map(r => r.ticker);
+
+          if (missing.length === 0) {
+            return json({ ok: true, fetched: 0, message: "Todos los tickers tienen cache fresca" }, corsHeaders);
+          }
+
+          // 2) Pre-fetch SECUENCIAL (cada /api/fundamentals = 19 subrequests FMP)
+          // Parallel rompe el CF Worker time budget. Maximo 10 por llamada del endpoint.
+          const results = { fetched: 0, errors: [], skipped: [] };
+          const SKIP_PREFIX = ['HKG:', 'BME:', 'BME ', 'IIPR PRA', 'IIPR-PRA'];
+          const SKIP_EXACT = new Set(['BFICQ', 'WEEL', 'XYZ', 'YYY', 'PEO']);
+          const MAX_PER_CALL = 10;  // ~1.5s each → ~15s total dentro budget
+
+          let processed = 0;
+          for (const tk of missing) {
+            if (processed >= MAX_PER_CALL) break;
+            if (SKIP_PREFIX.some(p => tk.startsWith(p))) {
+              results.skipped.push({ ticker: tk, reason: 'foreign/preferred — FMP poco fiable' });
+              continue;
+            }
+            if (SKIP_EXACT.has(tk)) {
+              results.skipped.push({ ticker: tk, reason: 'no listado FMP' });
+              continue;
+            }
+            processed++;
+            try {
+              const r = await fetch(`${url.origin}/api/fundamentals?symbol=${encodeURIComponent(tk)}&refresh=1`, {
+                headers: { 'Origin': 'https://ayr.onto-so.com' },
+              });
+              if (r.ok) {
+                const data = await r.json();
+                if (data && data.income && data.income.length > 0) {
+                  results.fetched++;
+                } else {
+                  results.errors.push({ ticker: tk, error: 'no income data' });
+                }
+              } else {
+                results.errors.push({ ticker: tk, error: `HTTP ${r.status}` });
+              }
+            } catch (e) {
+              results.errors.push({ ticker: tk, error: e.message?.slice(0, 100) });
+            }
+          }
+
+          // Info sobre cuántos quedan pendientes
+          const pending = missing.length - processed - results.skipped.length;
+
+          return json({
+            ok: true,
+            attempted: missing.length,
+            processed_this_call: processed,
+            fetched: results.fetched,
+            skipped_count: results.skipped.length,
+            error_count: results.errors.length,
+            pending_for_next_call: pending,
+            skipped: results.skipped,
+            errors: results.errors.slice(0, 20),
+            message: pending > 0
+              ? `Procesados ${processed}, quedan ${pending} pendientes. Re-llamar este endpoint para continuar.`
+              : `Completado: ${results.fetched} fetched, ${results.skipped.length} skipped, ${results.errors.length} errors`,
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
       // GET /api/rentabilidad/portfolio?tickers=KO,PG,WKL
       // O sin tickers → usa positions D1.
       // Para cada ticker computa el modelo Gorka completo y devuelve:
@@ -17686,6 +17804,11 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             const posRes = await env.DB.prepare(`SELECT DISTINCT ticker FROM positions WHERE shares > 0 ORDER BY ticker`).all();
             tickers = (posRes.results || []).map(r => r.ticker);
           }
+
+          // ─── FIX 5 (Agent 2): dedup preferred shares con normalización ───
+          // IIPR PRA (espacio) y IIPR-PRA (guión) son la misma posición — un parser
+          // CSV viejo metió la versión con espacio. Normalizar todo a guión.
+          tickers = [...new Set(tickers.map(t => t.replace(/\s+/g, '-')))];
 
           // Defaults P/E por sector (sync con SECTOR_PE_DEFAULTS en frontend calc)
           const SECTOR_PE = {
@@ -17753,49 +17876,109 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
 
               // Buscar precio en positions o usar profile
               const posRow = await env.DB.prepare(`SELECT last_price, currency FROM positions WHERE ticker = ? LIMIT 1`).bind(tk).first();
-              const price = posRow?.last_price || profile.price || 0;
-              const ccy = posRow?.currency || profile.currency || 'USD';
+              let price = posRow?.last_price || profile.price || 0;
+              let ccy = posRow?.currency || profile.currency || 'USD';
+
+              // ─── FIX 1 (Agent 2): LSEG GBX (peniques) vs GBP (libras) ─────
+              // UK stocks listadas en LSE cotizan en peniques (GBX), pero EPS
+              // reportado en libras (GBP). Sin corrección: PE inflado 100×.
+              // Heurística: si currency='GBX' o precio anormalmente alto vs EPS,
+              // dividir precio por 100.
+              if (ccy === 'GBX' || ccy === 'GBp') {
+                price = price / 100;
+                ccy = 'GBP';
+              } else if (ccy === 'GBP' && epsCagr != null && eps[0] > 0 && price / eps[0] > 200) {
+                // Probable bug FMP: precio en peniques con currency GBP
+                price = price / 100;
+              }
+              // Para tickers .L o LSE explícitos, ratio sanity check
+              if ((tk.endsWith('.L') || tk === 'LSEG') && price / (eps[0] || 1) > 200) {
+                price = price / 100;
+              }
+
               const epsActual = eps[0] || 0;
               const dpsActual = dpsArr[0] || 0;
               const peActual = (price > 0 && epsActual > 0) ? price / epsActual : null;
               const yieldActual = (price > 0 && dpsActual > 0) ? dpsActual / price : null;
 
-              // Growth default: capped histórico CAGR a 15%, min 0
+              // ─── FIX 4 (Agent 2): cap Coef Habilidad a [-1, 1] ────────────
+              // CAG mostraba 111.3% que aunque matemáticamente posible (write-downs
+              // anteriores hicieron retainedSum bajo), confunde al usuario.
+              const coefHabilidadCapped = coefHabilidad != null
+                ? Math.max(-1, Math.min(1, coefHabilidad))
+                : null;
+
+              // ─── FIX 6 (Agent 2): si cagrEps NULL → no propagar retorno ───
+              // Antes el endpoint devolvía retornoBase no-null aunque cagrEps fuera
+              // NULL (caso EPS negativo en algún año), engañando al usuario.
               const growthBase = epsCagr != null
                 ? Math.max(0, Math.min(15, epsCagr * 100))
-                : 5;
+                : null;  // ANTES: 5 default oculto. Ahora: null transparente.
               const range = 1.5;
 
               // Múltiplos
               const sector = profile.sector || '';
               const peDefaults = SECTOR_PE[sector] || { low: 12, mid: 16, high: 20 };
 
-              // Proyección 10y BPA
-              const bpa10 = {
+              // Proyección 10y BPA (solo si growthBase es válido)
+              const bpa10 = (growthBase != null && epsActual > 0) ? {
                 negativo: epsActual * Math.pow(1 + (growthBase - range) / 100, 10),
                 normal:   epsActual * Math.pow(1 + growthBase / 100, 10),
                 positivo: epsActual * Math.pow(1 + (growthBase + range) / 100, 10),
-              };
+              } : null;
 
-              // Matriz 3×3 retorno
+              // Matriz 3×3 retorno — null cascade si no hay growth
               const cagrPrecio = (precioFut) => (price > 0 && precioFut > 0) ? Math.pow(precioFut / price, 1/10) - 1 : 0;
               const ya = yieldActual || 0;
               const matriz = {};
-              ['low', 'mid', 'high'].forEach(m => {
-                const mLabel = m === 'low' ? 'deprimido' : m === 'mid' ? 'normal' : 'caliente';
-                matriz[mLabel] = {};
-                ['negativo', 'normal', 'positivo'].forEach(esc => {
-                  const precio = bpa10[esc] * peDefaults[m];
-                  const cagr = cagrPrecio(precio);
-                  matriz[mLabel][esc] = cagr + ya;
+              let retornoBase = null;
+              if (bpa10) {
+                ['low', 'mid', 'high'].forEach(m => {
+                  const mLabel = m === 'low' ? 'deprimido' : m === 'mid' ? 'normal' : 'caliente';
+                  matriz[mLabel] = {};
+                  ['negativo', 'normal', 'positivo'].forEach(esc => {
+                    const precio = bpa10[esc] * peDefaults[m];
+                    const cagr = cagrPrecio(precio);
+                    matriz[mLabel][esc] = cagr + ya;
+                  });
                 });
-              });
+                retornoBase = matriz.normal.normal;
+              }
 
-              // REIT/ETF detection
+              // ─── FIX 2+3 (Agent 3): detection de casos especiales ──────────
               const sectorLower = sector.toLowerCase();
               const industry = (profile.industry || '').toLowerCase();
               const isReit = sectorLower === 'real estate' || industry.includes('reit');
-              const isEtf = profile.isEtf === true || profile.isFund === true;
+              const companyName = (profile.companyName || '').toLowerCase();
+              // ETF detection mejorada: por flag profile.isEtf O por arrays vacíos +
+              // sector "Asset Management" + nombre con "ETF" o "Fund" o "Trust"
+              const isEtf = profile.isEtf === true || profile.isFund === true
+                || /\b(etf|fund|trust|index|spdr|vanguard|ishares)\b/.test(companyName)
+                || (sectorLower === 'asset management' && eps.length < 3);
+
+              // FIX 3: equity negativo persistente (>=3 de últimos 5 años)
+              const balCached = JSON.parse(cached.balance || "[]");
+              const sortDescBal = [...balCached].sort((a, b) =>
+                (b.fiscalYear || +(b.date || '').slice(0, 4) || 0) - (a.fiscalYear || +(a.date || '').slice(0, 4) || 0)
+              ).slice(0, 5);
+              const negEquityYears = sortDescBal.filter(b => (b.totalStockholdersEquity || b.totalEquity || 0) < 0).length;
+              const negativeEquityPersistent = negEquityYears >= 3;
+
+              // Currency mismatch detection: HKG/BME/etc dicen USD pero son HKD/EUR
+              let currencyHint = null;
+              if (tk.startsWith('HKG:') && ccy === 'USD') { currencyHint = 'HKD'; }
+              else if (tk.startsWith('BME:') && ccy === 'USD') { currencyHint = 'EUR'; }
+              else if (tk.endsWith('.MC') && ccy === 'USD') { currencyHint = 'EUR'; }
+              else if (tk.endsWith('.PA') && ccy === 'USD') { currencyHint = 'EUR'; }
+              else if (tk.endsWith('.L') && ccy === 'USD') { currencyHint = 'GBP'; }
+
+              // Build comprehensive warning
+              let warning = null;
+              if (isEtf) warning = 'ETF — modelo Phil Town no aplica';
+              else if (isReit) warning = 'REIT — usar AFFO en lugar de EPS';
+              else if (negativeEquityPersistent) warning = `Equity negativo persistente (${negEquityYears}/5y) — buybacks; ROE/Sticker no aplican`;
+              else if (retornoBase == null && eps.length >= 2) warning = 'EPS negativo en histórico — growth Phil Town inválido';
+              else if (currencyHint) warning = `Currency mal etiquetada (FMP dice USD, real ${currencyHint}) — valores nativos`;
 
               return {
                 ticker: tk,
@@ -17807,16 +17990,17 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
                 dpsActual,
                 peActual,
                 yieldActual,
-                coefHabilidad,
+                coefHabilidad: coefHabilidadCapped,
                 cagrEps: epsCagr,
-                growthDefault: growthBase / 100,
+                growthDefault: growthBase != null ? growthBase / 100 : null,
                 peLow: peDefaults.low,
                 peMid: peDefaults.mid,
                 peHigh: peDefaults.high,
                 retornos: matriz,
-                retornoBase: matriz.normal.normal,  // celda central
-                isReit, isEtf,
-                warning: isReit ? 'REIT: usar AFFO no EPS' : isEtf ? 'ETF: modelo Phil Town no aplica' : null,
+                retornoBase,
+                isReit, isEtf, negativeEquityPersistent,
+                currencyHint,
+                warning,
               };
             } catch (e) {
               return { ticker: tk, error: e.message };
