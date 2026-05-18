@@ -134,6 +134,10 @@ export const HOME_TAB_GROUPS = [
       {id:"action-plan",lbl:"Acciones",ico:"🎯"},
       {id:"briefing",lbl:"Briefing",ico:"☀️"},
       {id:"portfolio",lbl:"Portfolio",ico:"💼"},
+      // 2026-05-18: vista CARTERA-WIDE de Rentabilidad 10y (modelo Gorka).
+      // Auto-calcula los 9 retornos esperados para CADA empresa en cartera.
+      // Sortable, color-coded. Click → detalle en pestaña empresa.
+      {id:"rentabilidad-cartera",lbl:"Retornos 10y",ico:"📊"},
       {id:"open-options",lbl:"Opciones Abiertas",ico:"🎯"},
       {id:"tt",lbl:"TT",ico:"💎"},
       {id:"agentes",lbl:"Agentes",ico:"🤖"},

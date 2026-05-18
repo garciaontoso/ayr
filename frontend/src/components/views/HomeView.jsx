@@ -58,6 +58,7 @@ const AttributionTab     = lazy(() => import('../home/AttributionTab'));
 const AlertRulesTab      = lazy(() => import('../home/AlertRulesTab'));
 const RebalancingTab     = lazy(() => import('../home/RebalancingTab'));
 const ActionPlanTab      = lazy(() => import('../home/ActionPlanTab'));
+const RentabilidadCarteraTab = lazy(() => import('../home/RentabilidadCarteraTab'));
 const NominaTab          = lazy(() => import('../home/NominaTab'));
 const PresupuestoTab     = lazy(() => import('../home/PresupuestoTab'));
 const DripTab            = lazy(() => import('../home/DripTab'));
@@ -2244,6 +2245,7 @@ export default function HomeView() {
         {homeTab==="analytics" && <AnalyticsTab />}
         {homeTab==="attribution" && <AttributionTab />}
         {homeTab==="rebalance" && <RebalancingTab />}
+        {homeTab==="rentabilidad-cartera" && <RentabilidadCarteraTab />}
         {homeTab==="opciones-cs" && <OpcionesTab strategy="CS" view="list" />}
         {homeTab==="opciones-roc" && <OpcionesTab strategy="ROC" view="list" />}
         {homeTab==="opciones-rop" && <OpcionesTab strategy="ROP" view="list" />}

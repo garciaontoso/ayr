@@ -17670,6 +17670,171 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         }
       }
 
+      // GET /api/rentabilidad/portfolio?tickers=KO,PG,WKL
+      // O sin tickers → usa positions D1.
+      // Para cada ticker computa el modelo Gorka completo y devuelve:
+      //   { ticker, sector, currentPrice, peActual, yieldActual, coefHabilidad,
+      //     cagrEps, growthDefault, retornos: {deprimido/normal/caliente × neg/norm/pos},
+      //     warning, flags_count }
+      // Lee de cache /api/fundamentals (no re-fetch FMP) → fast.
+      if (path === "/api/rentabilidad/portfolio" && request.method === "GET") {
+        try {
+          const tickersParam = url.searchParams.get("tickers") || "";
+          let tickers = tickersParam.split(",").map(t => t.trim().toUpperCase()).filter(Boolean);
+          // Si no se pasaron tickers, usar todas las posiciones con shares > 0
+          if (tickers.length === 0) {
+            const posRes = await env.DB.prepare(`SELECT DISTINCT ticker FROM positions WHERE shares > 0 ORDER BY ticker`).all();
+            tickers = (posRes.results || []).map(r => r.ticker);
+          }
+
+          // Defaults P/E por sector (sync con SECTOR_PE_DEFAULTS en frontend calc)
+          const SECTOR_PE = {
+            'Consumer Staples':       { low: 14, mid: 18, high: 22 },
+            'Consumer Defensive':     { low: 14, mid: 18, high: 22 },
+            'Consumer Discretionary': { low: 12, mid: 16, high: 20 },
+            'Consumer Cyclical':      { low: 12, mid: 16, high: 20 },
+            'Industrials':            { low: 12, mid: 16, high: 20 },
+            'Technology':             { low: 18, mid: 25, high: 32 },
+            'Financial Services':     { low: 8,  mid: 11, high: 14 },
+            'Financial':              { low: 8,  mid: 11, high: 14 },
+            'Healthcare':             { low: 14, mid: 18, high: 24 },
+            'Utilities':              { low: 12, mid: 16, high: 18 },
+            'Energy':                 { low: 8,  mid: 12, high: 16 },
+            'Basic Materials':        { low: 10, mid: 14, high: 18 },
+            'Materials':              { low: 10, mid: 14, high: 18 },
+            'Communication Services': { low: 10, mid: 13, high: 16 },
+            'Real Estate':            { low: 14, mid: 18, high: 22 },
+          };
+
+          // Helper: calcula matriz para un ticker
+          async function computeForTicker(tk) {
+            try {
+              const cached = await env.DB.prepare("SELECT * FROM fundamentals WHERE symbol = ?").bind(tk).first();
+              if (!cached) return { ticker: tk, error: "no fundamentals cache" };
+
+              const income = JSON.parse(cached.income || "[]");
+              const balance = JSON.parse(cached.balance || "[]");
+              const cashflow = JSON.parse(cached.cashflow || "[]");
+              const profile = JSON.parse(cached.profile || "{}");
+              const ratios = JSON.parse(cached.ratios || "[]");
+
+              if (income.length < 2) return { ticker: tk, error: "insufficient income data" };
+
+              const sortDesc = (a, b) => (b.fiscalYear || +(b.date || '').slice(0, 4) || 0) - (a.fiscalYear || +(a.date || '').slice(0, 4) || 0);
+              const inc = [...income].sort(sortDesc).slice(0, 11);
+              const cf = [...cashflow].sort(sortDesc).slice(0, 11);
+
+              // Series
+              const eps = inc.map(d => d.eps || d.epsDiluted || null).filter(v => v != null);
+              const sharesOut = inc.map(d => d.weightedAverageShsOutDil || d.weightedAverageShsOut || 0);
+              const dpsArr = inc.map((d, i) => {
+                if (d.dividendsPerShare > 0) return d.dividendsPerShare;
+                const cfY = cf[i] || {};
+                const divPaid = Math.abs(cfY.commonDividendsPaid || cfY.dividendsPaid || cfY.netDividendsPaid || 0);
+                const sh = sharesOut[i] || 0;
+                return (divPaid > 0 && sh > 0) ? divPaid / sh : null;
+              });
+
+              // CAGR EPS
+              const epsCagr = (eps.length >= 2 && eps[0] > 0 && eps[eps.length - 1] > 0)
+                ? Math.pow(eps[0] / eps[eps.length - 1], 1 / (eps.length - 1)) - 1
+                : null;
+
+              // Coeficiente Habilidad
+              let retainedSum = 0;
+              for (let i = 0; i < eps.length; i++) {
+                const e = eps[i];
+                const d = dpsArr[i];
+                if (e == null) continue;
+                retainedSum += e - (d || 0);
+              }
+              const bpaDelta = eps.length >= 2 ? eps[0] - eps[eps.length - 1] : null;
+              const coefHabilidad = (retainedSum > 0 && bpaDelta != null) ? bpaDelta / retainedSum : null;
+
+              // Buscar precio en positions o usar profile
+              const posRow = await env.DB.prepare(`SELECT last_price, currency FROM positions WHERE ticker = ? LIMIT 1`).bind(tk).first();
+              const price = posRow?.last_price || profile.price || 0;
+              const ccy = posRow?.currency || profile.currency || 'USD';
+              const epsActual = eps[0] || 0;
+              const dpsActual = dpsArr[0] || 0;
+              const peActual = (price > 0 && epsActual > 0) ? price / epsActual : null;
+              const yieldActual = (price > 0 && dpsActual > 0) ? dpsActual / price : null;
+
+              // Growth default: capped histórico CAGR a 15%, min 0
+              const growthBase = epsCagr != null
+                ? Math.max(0, Math.min(15, epsCagr * 100))
+                : 5;
+              const range = 1.5;
+
+              // Múltiplos
+              const sector = profile.sector || '';
+              const peDefaults = SECTOR_PE[sector] || { low: 12, mid: 16, high: 20 };
+
+              // Proyección 10y BPA
+              const bpa10 = {
+                negativo: epsActual * Math.pow(1 + (growthBase - range) / 100, 10),
+                normal:   epsActual * Math.pow(1 + growthBase / 100, 10),
+                positivo: epsActual * Math.pow(1 + (growthBase + range) / 100, 10),
+              };
+
+              // Matriz 3×3 retorno
+              const cagrPrecio = (precioFut) => (price > 0 && precioFut > 0) ? Math.pow(precioFut / price, 1/10) - 1 : 0;
+              const ya = yieldActual || 0;
+              const matriz = {};
+              ['low', 'mid', 'high'].forEach(m => {
+                const mLabel = m === 'low' ? 'deprimido' : m === 'mid' ? 'normal' : 'caliente';
+                matriz[mLabel] = {};
+                ['negativo', 'normal', 'positivo'].forEach(esc => {
+                  const precio = bpa10[esc] * peDefaults[m];
+                  const cagr = cagrPrecio(precio);
+                  matriz[mLabel][esc] = cagr + ya;
+                });
+              });
+
+              // REIT/ETF detection
+              const sectorLower = sector.toLowerCase();
+              const industry = (profile.industry || '').toLowerCase();
+              const isReit = sectorLower === 'real estate' || industry.includes('reit');
+              const isEtf = profile.isEtf === true || profile.isFund === true;
+
+              return {
+                ticker: tk,
+                name: profile.companyName || tk,
+                sector,
+                currency: ccy,
+                currentPrice: price,
+                epsActual,
+                dpsActual,
+                peActual,
+                yieldActual,
+                coefHabilidad,
+                cagrEps: epsCagr,
+                growthDefault: growthBase / 100,
+                peLow: peDefaults.low,
+                peMid: peDefaults.mid,
+                peHigh: peDefaults.high,
+                retornos: matriz,
+                retornoBase: matriz.normal.normal,  // celda central
+                isReit, isEtf,
+                warning: isReit ? 'REIT: usar AFFO no EPS' : isEtf ? 'ETF: modelo Phil Town no aplica' : null,
+              };
+            } catch (e) {
+              return { ticker: tk, error: e.message };
+            }
+          }
+
+          // Compute en paralelo (D1 max ~20 concurrent ok)
+          const results = await Promise.all(tickers.map(computeForTicker));
+          return json({
+            count: results.length,
+            results,
+            generated_at: new Date().toISOString(),
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
       // GET /api/fundamentals?symbol=AAPL — get cached or fetch fresh
       // v6: Now fetches 12 FMP endpoints (was 6) — adds rating, DCF, estimates, price targets, key metrics, financial growth
       if (path === "/api/fundamentals" && request.method === "GET") {
