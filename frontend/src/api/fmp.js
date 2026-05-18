@@ -73,7 +73,8 @@ export async function fetchViaFMP(ticker, { forceRefresh = false } = {}) {
   const ratByYear = {};
   (data.ratios || []).forEach(d => { if(d.fiscalYear) ratByYear[d.fiscalYear] = d; });
 
-  const allYears = [...new Set([...Object.keys(incomeByYear), ...Object.keys(balByYear), ...Object.keys(cfByYear)])].sort().reverse().slice(0, 10);
+  // 2026-05-18: 15 años para soportar Excel Gorka (11 años) + CAGR 10y completo.
+  const allYears = [...new Set([...Object.keys(incomeByYear), ...Object.keys(balByYear), ...Object.keys(cfByYear)])].sort().reverse().slice(0, 15);
 
   allYears.forEach(yStr => {
     const y = parseInt(yStr, 10);
@@ -89,14 +90,26 @@ export async function fetchViaFMP(ticker, { forceRefresh = false } = {}) {
       grossProfit: M(inc.grossProfit),
       operatingIncome: M(inc.operatingIncome),
       netIncome: M(inc.netIncome),
-      eps: inc.epsDiluted || inc.eps || 0,
+      // 2026-05-18: cambiado de DILUTED → BASIC para BPA en modelo Phil Town / Gorka.
+      // Empresas con buybacks agresivos (WKL, AAPL, MCD, IBM) tienen diluted EPS 15-25%
+      // menor que basic por opciones vivas. "BPA" en español usa convención Basic.
+      // Para modelos que necesiten diluted explícito, usar fin[y].epsDiluted.
+      eps: inc.eps || inc.epsDiluted || 0,
       epsBasic: inc.eps || 0,
       epsDiluted: inc.epsDiluted || inc.eps || 0,
-      // 2026-05-03: FMP /ratios in stable schema dropped dividendPerShare for
-      // some tickers. Fallback chain: ratios.dps → derived from dividendsPaid
-      // ÷ shares (per-year exact) → derived from netIncome × payoutRatio ÷
-      // shares (less precise but always available when ratios.payoutRatio is).
+      // 2026-05-18: fallback chain mejorada para matchear "DPS declarada anual"
+      // que es lo que reporta annual report (no el paid-during-year):
+      //   1. inc.dividendsPerShare — algunos snapshots FMP lo dan en income
+      //   2. inc.dividendDeclared — variant naming
+      //   3. rat.dividendPerShare — FMP /ratios canonical
+      //   4. divPaid/shares — proxy paid-during-year (underestima para empresas con
+      //      buybacks o europeas semi-anuales)
+      //   5. ni * payoutRatio / shares — último recurso
+      // Para empresas europeas (WKL, AEX, BME, EuroSTOXX) el orden es importante
+      // porque divPaid suele lagear ~6 meses del DPS declarado.
       dps: (() => {
+        if (inc.dividendsPerShare != null && inc.dividendsPerShare > 0) return inc.dividendsPerShare;
+        if (inc.dividendDeclared != null && inc.dividendDeclared > 0) return inc.dividendDeclared;
         if (rat.dividendPerShare != null && rat.dividendPerShare > 0) return rat.dividendPerShare;
         const sh = inc.weightedAverageShsOutDil || inc.weightedAverageShsOut;
         const divPaid = Math.abs(cf.commonDividendsPaid || cf.dividendsPaid || cf.netDividendsPaid || 0);
@@ -111,6 +124,9 @@ export async function fetchViaFMP(ticker, { forceRefresh = false } = {}) {
       cash: M(bal.cashAndCashEquivalents || bal.cashAndShortTermInvestments || 0),
       equity: M(bal.totalStockholdersEquity || bal.totalEquity || 0),
       retainedEarnings: M(bal.retainedEarnings || 0),
+      // 2026-05-18: añadido para RentabilidadTab (modelo Gorka). Antes el hook usaba
+      // proxy (totalDebt+equity) que no es total assets real. Ahora viene directo del balance.
+      totalAssets: M(bal.totalAssets || 0),
       ocf: M(cf.operatingCashFlow || cf.netCashProvidedByOperatingActivities || 0),
       capex: Math.abs(M(cf.capitalExpenditure || 0)),
       interestExpense: M(inc.interestExpense || 0),

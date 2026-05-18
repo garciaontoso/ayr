@@ -75,7 +75,8 @@ export function useRentabilidad10y({ ticker, fin, cfg, fmpExtra, currentPrice })
         years: [],
       };
     }
-    const yearKeys = Object.keys(fin).map(Number).filter(y => !isNaN(y) && y > 1900).sort((a, b) => b - a).slice(0, 10);
+    // 2026-05-18: 11 años para soportar año 0 a año -10 (Excel Gorka).
+    const yearKeys = Object.keys(fin).map(Number).filter(y => !isNaN(y) && y > 1900).sort((a, b) => b - a).slice(0, 11);
     const revenue = [];
     const eps = [];
     const dps = [];
@@ -85,13 +86,21 @@ export function useRentabilidad10y({ ticker, fin, cfg, fmpExtra, currentPrice })
     for (const y of yearKeys) {
       const d = fin[y] || {};
       revenue.push(d.revenue != null && isFinite(d.revenue) ? d.revenue : null);
-      eps.push(d.eps != null && isFinite(d.eps) ? d.eps : null);
+      // 2026-05-18: usar epsBasic (BPA estándar Gorka). Si no, fallback a eps (que ahora
+      // ya defaults a basic en fmp.js post-fix), luego diluted.
+      const epsVal = d.epsBasic != null && isFinite(d.epsBasic) && d.epsBasic > 0
+        ? d.epsBasic
+        : (d.eps != null && isFinite(d.eps) ? d.eps : (d.epsDiluted ?? null));
+      eps.push(epsVal);
       dps.push(d.dps != null && isFinite(d.dps) ? d.dps : null);
       equity.push(d.equity != null && isFinite(d.equity) ? d.equity : null);
       retEarnings.push(d.retainedEarnings != null && isFinite(d.retainedEarnings) ? d.retainedEarnings : null);
-      // 'assets' no está directamente en fin — usar totalDebt + equity como proxy
-      const assetProxy = (d.totalDebt || 0) + (d.equity || 0);
-      assets.push(assetProxy > 0 ? assetProxy : null);
+      // 2026-05-18: usar totalAssets REAL del balance (añadido en fmp.js).
+      // Fallback al proxy (totalDebt + equity) si falta para tickers con cache vieja.
+      const assetsVal = d.totalAssets != null && isFinite(d.totalAssets) && d.totalAssets > 0
+        ? d.totalAssets
+        : ((d.totalDebt || 0) + (d.equity || 0));
+      assets.push(assetsVal > 0 ? assetsVal : null);
     }
     return { revenue, eps, dps, equity, retEarnings, assets, years: yearKeys };
   }, [fin]);

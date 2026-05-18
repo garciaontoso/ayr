@@ -17524,9 +17524,10 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const sortByYear = (arr) => [...arr].sort((a, b) =>
             (b.fiscalYear || +(b.date || '').slice(0, 4) || 0) - (a.fiscalYear || +(a.date || '').slice(0, 4) || 0)
           );
-          const inc = sortByYear(income).slice(0, 10);
-          const bal = sortByYear(balance).slice(0, 10);
-          const cf  = sortByYear(cashflow).slice(0, 10);
+          // 2026-05-18: 11 años para soportar año 0 a año -10 (Excel Gorka).
+          const inc = sortByYear(income).slice(0, 11);
+          const bal = sortByYear(balance).slice(0, 11);
+          const cf  = sortByYear(cashflow).slice(0, 11);
 
           // Función para extraer un campo año a año
           const series = (arr, getter) => arr.map(d => {
@@ -17537,15 +17538,18 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
           const years = inc.map(d => d.fiscalYear || +(d.date || '').slice(0, 4) || null);
 
           // Phil Town field mapping
+          // 2026-05-18: cambiado de DILUTED → BASIC (eps before epsDiluted).
+          // Convención Phil Town/Gorka usa basic. Empresas con buybacks (WKL, AAPL, MCD)
+          // diluida ~15-25% menor.
           const revenue = series(inc, d => d.revenue);
-          const eps = series(inc, d => d.epsDiluted || d.eps);
+          const eps = series(inc, d => d.eps || d.epsDiluted);
           const sharesOut = series(inc, d => d.weightedAverageShsOutDil || d.weightedAverageShsOut);
 
-          // DPS: prioriza ratios.dividendPerShare, fallback a |dividendsPaid|/sharesOut
+          // DPS: same fallback chain than fmp.js — prefers DECLARED ANNUAL DPS
+          // over paid-during-year cashflow proxy (que lagea para europeas semi-anuales).
           const dps = inc.map((d, i) => {
-            // Try income statement first (rare)
-            if (d.dividendsPerShare != null) return d.dividendsPerShare;
-            // Cash flow ABS / shares
+            if (d.dividendsPerShare != null && d.dividendsPerShare > 0) return d.dividendsPerShare;
+            if (d.dividendDeclared != null && d.dividendDeclared > 0) return d.dividendDeclared;
             const cfYear = cf[i] || {};
             const divPaid = Math.abs(cfYear.commonDividendsPaid || cfYear.dividendsPaid || cfYear.netDividendsPaid || 0);
             const sh = sharesOut[i] || 0;
@@ -17738,19 +17742,21 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
                ratingResp, dcfResp, estResp, ptResp, kmResp, fgResp, gradesResp, oeResp,
                revSegResp, geoSegResp, peersResp, earningsResp, ptSummResp] = await Promise.allSettled([
           // Original 6
-          fmpFetch(`income-statement?symbol=${fmpSym}&period=annual&limit=10`),
-          fmpFetch(`balance-sheet-statement?symbol=${fmpSym}&period=annual&limit=10`),
-          fmpFetch(`cash-flow-statement?symbol=${fmpSym}&period=annual&limit=10`),
+          // 2026-05-18: limit aumentado de 10 → 15 para soporte modelo Gorka (11 años)
+          // y Big5 Phil Town (CAGR 5y/10y). Sin coste extra (FMP Ultimate ilimitado).
+          fmpFetch(`income-statement?symbol=${fmpSym}&period=annual&limit=15`),
+          fmpFetch(`balance-sheet-statement?symbol=${fmpSym}&period=annual&limit=15`),
+          fmpFetch(`cash-flow-statement?symbol=${fmpSym}&period=annual&limit=15`),
           fmpFetch(`profile?symbol=${fmpSym}`),
           fmpFetchPath(`historical-price-eod/dividend/${fmpSym}`),
-          fmpFetch(`ratios?symbol=${fmpSym}&period=annual&limit=10`),
+          fmpFetch(`ratios?symbol=${fmpSym}&period=annual&limit=15`),
           // +13 new endpoints
           fmpFetch(`ratings-snapshot?symbol=${fmpSym}`),
           fmpFetch(`discounted-cash-flow?symbol=${fmpSym}`),
           fmpFetch(`analyst-estimates?symbol=${fmpSym}&period=annual&limit=5`),
           fmpFetch(`price-target-consensus?symbol=${fmpSym}`),
-          fmpFetch(`key-metrics?symbol=${fmpSym}&period=annual&limit=10`),
-          fmpFetch(`financial-growth?symbol=${fmpSym}&period=annual&limit=10`),
+          fmpFetch(`key-metrics?symbol=${fmpSym}&period=annual&limit=15`),
+          fmpFetch(`financial-growth?symbol=${fmpSym}&period=annual&limit=15`),
           fmpFetch(`grades-consensus?symbol=${fmpSym}`),
           fmpFetch(`owner-earnings?symbol=${fmpSym}&period=annual&limit=5`),
           fmpFetch(`revenue-product-segmentation?symbol=${fmpSym}&period=annual`),
