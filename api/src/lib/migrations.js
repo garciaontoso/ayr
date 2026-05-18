@@ -1499,6 +1499,26 @@ export async function ensureMigrations(env) {
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_thetagang_paper_status ON thetagang_paper_trades(status, open_date DESC)`).run();
     await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_thetagang_paper_strat ON thetagang_paper_trades(strategy_id, open_date DESC)`).run();
 
+    // ─── 2026-05-18: tabla Rentabilidad 10y (modelo Phil Town / Gorka) ───
+    // Persiste overrides manuales del usuario sobre los datos auto-rellenados
+    // desde FMP. Cada (ticker, year, field) puede tener un override.
+    // field ∈ {revenue, eps, dps, equity, retEarnings, assets, growth, peLow, peMid, peHigh, peTarget}
+    //   year = -10..0 para histórico (0 = año actual), -99 = config global del ticker
+    // value NULL → restaurar default FMP
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS rentabilidad_inputs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      field TEXT NOT NULL,
+      value REAL,
+      source TEXT DEFAULT 'manual',
+      notes TEXT,
+      updated_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(ticker, year, field)
+    )`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_rentabilidad_ticker ON rentabilidad_inputs(ticker)`).run();
+    await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_rentabilidad_ticker_year ON rentabilidad_inputs(ticker, year)`).run();
+
     migrationState.migrated = true;
   } catch(e) {
     console.error("Migration error:", e.message);

@@ -128,9 +128,9 @@ function heuristicIsReit(LD: LatestFinLike | null | undefined): boolean {
   if (rev <= 0) return false;
   const daRatio = da / rev;
   // REITs distribuyen >90% del income gravable y suelen tener D&A pesado
-  if (daRatio > 0.20 && dps > 0 && ni > 0) {
+  if (daRatio >= 0.20 && dps > 0 && ni > 0) {
     const yieldImplicit = (dps / (rev / 100)) || 0;
-    if (yieldImplicit > 0.5) return true;
+    if (yieldImplicit >= 0.5) return true;
   }
   return false;
 }

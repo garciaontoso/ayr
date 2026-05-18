@@ -17398,6 +17398,274 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         }
       }
 
+      // ─── Rentabilidad 10y (modelo Phil Town / Gorka) ─────────────────
+      //
+      // GET  /api/rentabilidad/inputs?ticker=X
+      //   Devuelve TODOS los overrides manuales para el ticker.
+      //   Lectura libre (no auth) — son solo asunciones de proyección, no datos sensibles.
+      //
+      // POST /api/rentabilidad/inputs
+      //   body: { ticker, year, field, value }
+      //   - value=null → DELETE el override
+      //   - field debe estar en whitelist (anti-injection)
+      //   AUTH requerida.
+      //
+      // DELETE /api/rentabilidad/inputs?ticker=X[&year=Y][&field=Z]
+      //   Borra overrides: si solo ticker, borra todos. Si year y field, borra ese único.
+      //   AUTH requerida.
+      const RENTAB_FIELDS = new Set([
+        'revenue', 'eps', 'dps', 'equity', 'retEarnings', 'assets',
+        'growth', 'peLow', 'peMid', 'peHigh', 'peTarget', 'notes',
+      ]);
+
+      if (path === "/api/rentabilidad/inputs" && request.method === "GET") {
+        const tk = (url.searchParams.get("ticker") || "").toUpperCase().trim();
+        if (!tk) return json({ error: "Missing ?ticker=" }, corsHeaders, 400);
+        try {
+          await ensureMigrations(env);
+          const rows = await env.DB.prepare(
+            `SELECT year, field, value, notes, updated_at FROM rentabilidad_inputs WHERE ticker = ? ORDER BY year ASC, field ASC`
+          ).bind(tk).all();
+          return json({ ticker: tk, inputs: rows.results || [] }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message, ticker: tk, inputs: [] }, corsHeaders, 500);
+        }
+      }
+
+      if (path === "/api/rentabilidad/inputs" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          const body = await request.json().catch(() => ({}));
+          const tk = String(body.ticker || "").toUpperCase().trim();
+          const year = Number.isFinite(+body.year) ? +body.year : null;
+          const field = String(body.field || "").trim();
+          const value = body.value == null ? null : Number(body.value);
+          const notes = body.notes ? String(body.notes).slice(0, 500) : null;
+
+          if (!tk) return json({ error: "Missing ticker" }, corsHeaders, 400);
+          if (year == null || year < -99 || year > 10) return json({ error: "Invalid year (must be -99..10)" }, corsHeaders, 400);
+          if (!RENTAB_FIELDS.has(field)) return json({ error: `Invalid field. Must be one of: ${[...RENTAB_FIELDS].join(',')}` }, corsHeaders, 400);
+          if (value != null && !Number.isFinite(value)) return json({ error: "value must be finite number or null" }, corsHeaders, 400);
+
+          await ensureMigrations(env);
+
+          // value=null → DELETE override (restaurar default FMP)
+          if (value == null) {
+            await env.DB.prepare(
+              `DELETE FROM rentabilidad_inputs WHERE ticker = ? AND year = ? AND field = ?`
+            ).bind(tk, year, field).run();
+            return json({ ok: true, action: 'deleted', ticker: tk, year, field }, corsHeaders);
+          }
+
+          // UPSERT
+          await env.DB.prepare(
+            `INSERT INTO rentabilidad_inputs (ticker, year, field, value, source, notes, updated_at)
+             VALUES (?, ?, ?, ?, 'manual', ?, datetime('now'))
+             ON CONFLICT(ticker, year, field) DO UPDATE SET
+               value = excluded.value,
+               notes = excluded.notes,
+               updated_at = excluded.updated_at,
+               source = 'manual'`
+          ).bind(tk, year, field, value, notes).run();
+          return json({ ok: true, action: 'upserted', ticker: tk, year, field, value }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      if (path === "/api/rentabilidad/inputs" && request.method === "DELETE") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          const tk = (url.searchParams.get("ticker") || "").toUpperCase().trim();
+          const yearStr = url.searchParams.get("year");
+          const field = (url.searchParams.get("field") || "").trim();
+          if (!tk) return json({ error: "Missing ?ticker=" }, corsHeaders, 400);
+          await ensureMigrations(env);
+          if (yearStr != null && field) {
+            const year = +yearStr;
+            if (!Number.isFinite(year)) return json({ error: "Invalid year" }, corsHeaders, 400);
+            if (!RENTAB_FIELDS.has(field)) return json({ error: "Invalid field" }, corsHeaders, 400);
+            const r = await env.DB.prepare(
+              `DELETE FROM rentabilidad_inputs WHERE ticker = ? AND year = ? AND field = ?`
+            ).bind(tk, year, field).run();
+            return json({ ok: true, action: 'deleted', deleted: r.meta?.changes ?? 0 }, corsHeaders);
+          }
+          // Borra todos los overrides del ticker
+          const r = await env.DB.prepare(
+            `DELETE FROM rentabilidad_inputs WHERE ticker = ?`
+          ).bind(tk).run();
+          return json({ ok: true, action: 'deleted_all', ticker: tk, deleted: r.meta?.changes ?? 0 }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
+      // GET /api/rentabilidad/historicals?ticker=X
+      // Devuelve serie 10y normalizada + cross-checks contra el modelo Phil Town:
+      //   { historico: { revenue[], eps[], dps[], equity[], retEarnings[], assets[], years[] },
+      //     flags: [ {year, field, type, message}... ],   // anomalías detectadas
+      //     fmp_source: { sector, industry, isReit, ... } }
+      // Lee de la cache D1 de /api/fundamentals (no re-fetch FMP).
+      if (path === "/api/rentabilidad/historicals" && request.method === "GET") {
+        const tk = (url.searchParams.get("ticker") || "").toUpperCase().trim();
+        if (!tk) return json({ error: "Missing ?ticker=" }, corsHeaders, 400);
+        try {
+          const cached = await env.DB.prepare("SELECT * FROM fundamentals WHERE symbol = ?").bind(tk).first();
+          if (!cached) return json({ error: `No fundamentals cached for ${tk}. Visit /api/fundamentals?symbol=${tk} first.` }, corsHeaders, 404);
+
+          const income = JSON.parse(cached.income || "[]");
+          const balance = JSON.parse(cached.balance || "[]");
+          const cashflow = JSON.parse(cached.cashflow || "[]");
+          const profile = JSON.parse(cached.profile || "{}");
+
+          // Index por año (descending — primero el más reciente)
+          const sortByYear = (arr) => [...arr].sort((a, b) =>
+            (b.fiscalYear || +(b.date || '').slice(0, 4) || 0) - (a.fiscalYear || +(a.date || '').slice(0, 4) || 0)
+          );
+          const inc = sortByYear(income).slice(0, 10);
+          const bal = sortByYear(balance).slice(0, 10);
+          const cf  = sortByYear(cashflow).slice(0, 10);
+
+          // Función para extraer un campo año a año
+          const series = (arr, getter) => arr.map(d => {
+            const v = getter(d);
+            return (v == null || !isFinite(v)) ? null : v;
+          });
+
+          const years = inc.map(d => d.fiscalYear || +(d.date || '').slice(0, 4) || null);
+
+          // Phil Town field mapping
+          const revenue = series(inc, d => d.revenue);
+          const eps = series(inc, d => d.epsDiluted || d.eps);
+          const sharesOut = series(inc, d => d.weightedAverageShsOutDil || d.weightedAverageShsOut);
+
+          // DPS: prioriza ratios.dividendPerShare, fallback a |dividendsPaid|/sharesOut
+          const dps = inc.map((d, i) => {
+            // Try income statement first (rare)
+            if (d.dividendsPerShare != null) return d.dividendsPerShare;
+            // Cash flow ABS / shares
+            const cfYear = cf[i] || {};
+            const divPaid = Math.abs(cfYear.commonDividendsPaid || cfYear.dividendsPaid || cfYear.netDividendsPaid || 0);
+            const sh = sharesOut[i] || 0;
+            if (divPaid > 0 && sh > 0) return Math.round((divPaid / sh) * 10000) / 10000;
+            return null;
+          });
+
+          const equity = series(bal, d => d.totalStockholdersEquity || d.totalEquity);
+          const retEarnings = series(bal, d => d.retainedEarnings);
+          const assets = series(bal, d => d.totalAssets);
+
+          // ─── Cross-check flags ───────────────────────────────────────────
+          const flags = [];
+
+          // Flag 1: EPS año anómalo (>3σ vs media 5y rolling)
+          for (let i = 0; i < eps.length - 4; i++) {
+            const window = eps.slice(i + 1, i + 6).filter(v => v != null && isFinite(v));
+            if (window.length < 3) continue;
+            const mean = window.reduce((s, v) => s + v, 0) / window.length;
+            const variance = window.reduce((s, v) => s + (v - mean) ** 2, 0) / window.length;
+            const std = Math.sqrt(variance);
+            const curr = eps[i];
+            if (curr != null && std > 0 && Math.abs(curr - mean) > 3 * std) {
+              flags.push({
+                year: years[i],
+                field: 'eps',
+                type: 'anomaly',
+                severity: 'warning',
+                message: `EPS ${curr.toFixed(2)} >3σ de media 5y (${mean.toFixed(2)} ±${std.toFixed(2)}) — posible write-down`,
+              });
+            }
+          }
+
+          // Flag 2: EPS × shares ≠ netIncome (±2%)
+          for (let i = 0; i < inc.length; i++) {
+            const ni = inc[i]?.netIncome;
+            const e = eps[i];
+            const sh = sharesOut[i];
+            if (!ni || !e || !sh) continue;
+            const implied = e * sh;
+            const diff = Math.abs(implied - ni) / Math.abs(ni);
+            if (diff > 0.05) {
+              flags.push({
+                year: years[i],
+                field: 'eps',
+                type: 'consistency',
+                severity: 'info',
+                message: `EPS × shares (${(implied/1e6).toFixed(0)}M) ≠ netIncome (${(ni/1e6).toFixed(0)}M) — diff ${(diff*100).toFixed(1)}%`,
+              });
+            }
+          }
+
+          // Flag 3: dato falta totalmente en algún año
+          ['revenue', 'eps', 'dps', 'equity', 'retEarnings', 'assets'].forEach(field => {
+            const arr = { revenue, eps, dps, equity, retEarnings, assets }[field];
+            arr.forEach((v, i) => {
+              if (v == null) {
+                flags.push({
+                  year: years[i],
+                  field,
+                  type: 'missing',
+                  severity: 'warning',
+                  message: `${field} no disponible en FMP para ${years[i]} — completa manualmente`,
+                });
+              }
+            });
+          });
+
+          // Flag 4: equity año anómalo (más de ±50% YoY = posible write-down)
+          for (let i = 0; i < equity.length - 1; i++) {
+            const curr = equity[i];
+            const prev = equity[i + 1];
+            if (!curr || !prev) continue;
+            const change = (curr - prev) / Math.abs(prev);
+            if (Math.abs(change) > 0.5) {
+              flags.push({
+                year: years[i],
+                field: 'equity',
+                type: 'change',
+                severity: 'info',
+                message: `Equity ${change > 0 ? '+' : ''}${(change*100).toFixed(0)}% YoY — posible write-down, recap, o buyback masivo`,
+              });
+            }
+          }
+
+          // Detección REIT/ETF/Crypto para advertir que el modelo Phil Town no aplica directamente
+          const sector = (profile.sector || '').toLowerCase();
+          const industry = (profile.industry || '').toLowerCase();
+          const isReit = sector === 'real estate' || industry.includes('reit');
+          const isEtf = profile.isEtf === true || profile.isFund === true;
+
+          if (isReit) {
+            flags.push({
+              year: null, field: null, type: 'kind', severity: 'critical',
+              message: 'REIT — usar AFFO en lugar de EPS para Phil Town. Considera modo REIT.',
+            });
+          }
+          if (isEtf) {
+            flags.push({
+              year: null, field: null, type: 'kind', severity: 'critical',
+              message: 'ETF — modelo Phil Town no aplica. Vista solo informativa.',
+            });
+          }
+
+          return json({
+            ticker: tk,
+            historico: { revenue, eps, dps, equity, retEarnings, assets, years },
+            flags,
+            fmp_source: {
+              sector: profile.sector, industry: profile.industry,
+              isReit, isEtf, currency: profile.currency || 'USD',
+              companyName: profile.companyName,
+              cached_at: cached.updated_at,
+            },
+          }, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message, ticker: tk }, corsHeaders, 500);
+        }
+      }
+
       // GET /api/fundamentals?symbol=AAPL — get cached or fetch fresh
       // v6: Now fetches 12 FMP endpoints (was 6) — adds rating, DCF, estimates, price targets, key metrics, financial growth
       if (path === "/api/fundamentals" && request.method === "GET") {

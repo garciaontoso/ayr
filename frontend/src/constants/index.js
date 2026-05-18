@@ -77,6 +77,10 @@ export const TABS = [
   // {id:"fast",lbl:"FAST",ico:"⚡"},
   {id:"verdict",lbl:"Veredicto",ico:"★"},
   {id:"veredicto-experto",lbl:"Veredicto Experto",ico:"🎓"},
+  // 2026-05-18: pestaña Rentabilidad 10y — modelo Phil Town/Gorka.
+  // Proyecta BPA + EQUITY a 10y en 3 escenarios × 3 múltiplos = matriz 9 retornos esperados.
+  // Coeficiente Habilidad = ΔBPA / Σ retenidos. Overrides manuales persistidos en D1.
+  {id:"rentabilidad",lbl:"Rentabilidad 10y",ico:"📊"},
   {id:"data",lbl:"Datos",ico:"▤"},
   {id:"report",lbl:"Informe",ico:"📄"},
   {id:"dst",lbl:"DividendST",ico:"📊"},
