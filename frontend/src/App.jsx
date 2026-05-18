@@ -49,6 +49,7 @@ const DirectivaTab = lazy(() => import('./components/analysis/DirectivaTab'));
 const DSTTab = lazy(() => import('./components/analysis/DSTTab'));
 const OptionsChainTab = lazy(() => import('./components/analysis/OptionsChainTab'));
 const RentabilidadTab = lazy(() => import('./components/analysis/RentabilidadTab'));
+const FlujoTab = lazy(() => import('./components/analysis/FlujoTab'));
 
 // ─── Loading fallback ───
 const Loading = () => <div style={{padding:"24px",display:"flex",flexDirection:"column",gap:12}}>
@@ -2010,6 +2011,7 @@ function buildPositionsFromCB() {
     tesis:() => <TesisTab />,
     directiva:() => <DirectivaTab />,
     rentabilidad:() => <RentabilidadTab />,
+    flujo:() => <FlujoTab />,
     "cost-basis":() => <CostBasisView />,
   };
 

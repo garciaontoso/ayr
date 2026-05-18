@@ -81,6 +81,9 @@ export const TABS = [
   // Proyecta BPA + EQUITY a 10y en 3 escenarios × 3 múltiplos = matriz 9 retornos esperados.
   // Coeficiente Habilidad = ΔBPA / Σ retenidos. Overrides manuales persistidos en D1.
   {id:"rentabilidad",lbl:"Rentabilidad 10y",ico:"📊"},
+  // 2026-05-18 (recuperada): Flujo del dinero. Cascada Revenue→FCF→Allocation,
+  // Quality Card 6 criterios, Cobertura dividendo gauge, TIR 7y. Adaptable REIT/BDC.
+  {id:"flujo",lbl:"Flujo",ico:"💧"},
   {id:"data",lbl:"Datos",ico:"▤"},
   {id:"report",lbl:"Informe",ico:"📄"},
   {id:"dst",lbl:"DividendST",ico:"📊"},
