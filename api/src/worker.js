@@ -13088,6 +13088,204 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         }
       }
 
+      // POST /api/reconcile/daily — Capa 4 hardening.
+      // Reconciliación cross-check completa (NO solo "está fresco?"):
+      //   1. cost_basis aggregations match positions.shares per ticker
+      //   2. dividend bruto sum coherent (no shares=0 + bruto>1 phantoms)
+      //   3. positions usd_value × fxRate ≈ market_value (no Bug #014 inflation)
+      //   4. cost_basis tipo='DIVIDENDS' with shares>0 = 0 (Bug #011 legacy)
+      //   5. UNIQUE INDEX violations don't exist (orphan dups)
+      //   6. NAV from bridge matches Σ positions.usd_value (Bug #014 multi-currency)
+      //
+      // Telegram CRITICAL si hay regresión. Lectura solo, no modifica D1.
+      if (path === "/api/reconcile/daily" && request.method === "POST") {
+        const unauth = ytRequireToken(request, env);
+        if (unauth) return unauth;
+        try {
+          const issues = { critical: [], warning: [], info: [] };
+
+          // ─── Check 1: shares en cost_basis aggregada vs positions.shares ────
+          // Bug #002 / #030. Tolera diff < 0.5 (fracciones por DRIP).
+          const aggQuery = `
+            SELECT
+              p.ticker,
+              p.shares as pos_shares,
+              COALESCE((
+                SELECT SUM(CASE WHEN tipo IN ('DIVIDENDS','DIVIDEND','DIV') THEN 0
+                                WHEN tipo = 'SELL' OR shares < 0 THEN -ABS(shares)
+                                ELSE shares END)
+                FROM cost_basis
+                WHERE UPPER(ticker) = UPPER(p.ticker)
+              ), 0) as cb_shares
+            FROM positions p
+            WHERE p.shares > 0
+          `;
+          const aggResults = await env.DB.prepare(aggQuery).all();
+          for (const row of aggResults.results || []) {
+            const diff = (row.cb_shares || 0) - (row.pos_shares || 0);
+            // Permitir trades aún sin importar (cost_basis < positions) — solo flag si cost_basis >> positions
+            if (diff > 1) {
+              issues.critical.push({
+                check: 'cost_basis_inflated',
+                ticker: row.ticker,
+                positions_shares: row.pos_shares,
+                cost_basis_shares: row.cb_shares,
+                diff,
+                action: 'cost_basis has MORE shares than positions — possible duplicate trades',
+              });
+            }
+          }
+
+          // ─── Check 2: DIVIDENDS legacy with shares populated (Bug #011) ─────
+          const divLegacy = await env.DB.prepare(
+            `SELECT COUNT(*) as n FROM cost_basis WHERE tipo IN ('DIVIDENDS','DIVIDEND','DIV') AND shares > 0`
+          ).first();
+          if ((divLegacy?.n || 0) > 0) {
+            issues.critical.push({
+              check: 'div_legacy_with_shares',
+              count: divLegacy.n,
+              action: 'cost_basis rows with tipo=DIVIDENDS AND shares>0 — bug #011 legacy. Run cleanup.',
+            });
+          }
+
+          // ─── Check 3: phantom dividends (shares=0 + bruto>1) ─────────────────
+          // Bug DEO $177 phantom — payment-in-lieu rows.
+          const phantomDivs = await env.DB.prepare(
+            `SELECT COUNT(*) as n FROM dividendos WHERE (shares IS NULL OR shares = 0) AND bruto > 1`
+          ).first();
+          if ((phantomDivs?.n || 0) > 0) {
+            issues.warning.push({
+              check: 'phantom_dividends',
+              count: phantomDivs.n,
+              action: 'dividendos rows with shares=0 + bruto>1 — possible payment-in-lieu, verify manually',
+            });
+          }
+
+          // ─── Check 4: positions sin currency o currency wrong ───────────────
+          // Bug RED: row.currency='USD' cuando real es EUR (UPSERT no actualizaba currency).
+          const badCcy = await env.DB.prepare(
+            `SELECT ticker, currency, market_value, usd_value
+             FROM positions
+             WHERE shares > 0
+               AND market_value IS NOT NULL AND market_value > 0
+               AND usd_value IS NOT NULL AND usd_value > 0
+               AND ABS((market_value - usd_value) / usd_value) > 0.05
+               AND currency = 'USD'`
+          ).all();
+          for (const p of badCcy.results || []) {
+            issues.warning.push({
+              check: 'currency_mismatch',
+              ticker: p.ticker,
+              currency: p.currency,
+              market_value: p.market_value,
+              usd_value: p.usd_value,
+              ratio: (p.market_value / p.usd_value).toFixed(3),
+              action: 'currency=USD but market_value ≠ usd_value — UPSERT no actualizó currency',
+            });
+          }
+
+          // ─── Check 5: NAV bridge vs Σ positions.usd_value ──────────────────
+          let navIssue = null;
+          try {
+            const navData = await ibBridgeFetch(env, '/nav').catch(() => null);
+            if (navData) {
+              const navBridge = Array.isArray(navData)
+                ? navData.reduce((s, x) => s + (x.nlv || x.netLiquidationValue || 0), 0)
+                : (navData.nlv || navData.netLiquidationValue || navData.total || 0);
+              const totalUsd = await env.DB.prepare(
+                `SELECT SUM(usd_value) as total FROM positions WHERE shares > 0`
+              ).first();
+              if (navBridge > 0 && totalUsd?.total > 0) {
+                const ratio = totalUsd.total / navBridge;
+                if (Math.abs(ratio - 1) > 0.10) {
+                  navIssue = {
+                    check: 'nav_mismatch',
+                    bridge_nav: navBridge,
+                    app_total: totalUsd.total,
+                    ratio: ratio.toFixed(3),
+                    diff_pct: ((ratio - 1) * 100).toFixed(1),
+                    action: 'NAV diverge >10% — multi-currency leak (Bug #014) or stale positions',
+                  };
+                  issues.critical.push(navIssue);
+                }
+              }
+            }
+          } catch (e) {
+            issues.info.push({ check: 'nav_unreachable', error: e.message });
+          }
+
+          // ─── Check 6: UNIQUE INDEX violations latentes ─────────────────────
+          // Detecta dups en dividendos que esquivaron índice por NULL en account.
+          const divDups = await env.DB.prepare(
+            `SELECT ticker, fecha, COUNT(*) as n
+             FROM dividendos
+             GROUP BY COALESCE(account, '_'), ticker, fecha
+             HAVING n > 1
+             LIMIT 20`
+          ).all();
+          for (const d of divDups.results || []) {
+            issues.warning.push({
+              check: 'dividend_dup',
+              ticker: d.ticker,
+              fecha: d.fecha,
+              count: d.n,
+              action: 'duplicate dividend rows — UNIQUE INDEX bypassed',
+            });
+          }
+
+          // ─── Check 7: cost_basis sin exec_id ───────────────────────────────
+          const noExecId = await env.DB.prepare(
+            `SELECT COUNT(*) as n FROM cost_basis WHERE (exec_id IS NULL OR exec_id = '') AND tipo NOT IN ('DIVIDENDS','DIVIDEND','DIV')`
+          ).first();
+          if ((noExecId?.n || 0) > 100) {
+            issues.info.push({
+              check: 'cost_basis_no_exec_id',
+              count: noExecId.n,
+              action: `${noExecId.n} trades sin exec_id — backfillable con fingerprint`,
+            });
+          }
+
+          // ─── Resumen + Telegram ────────────────────────────────────────────
+          const summary = {
+            ok: issues.critical.length === 0,
+            critical_count: issues.critical.length,
+            warning_count: issues.warning.length,
+            info_count: issues.info.length,
+            issues,
+            checked_at: new Date().toISOString(),
+          };
+
+          if (issues.critical.length > 0) {
+            const lines = [`🚨 *RECONCILE DAILY CRITICAL* — ${issues.critical.length} problemas`];
+            for (const c of issues.critical.slice(0, 10)) {
+              const ticker = c.ticker ? ` [${c.ticker}]` : '';
+              lines.push(`\n• \`${c.check}\`${ticker}: ${c.action}`);
+            }
+            if (issues.warning.length > 0) lines.push(`\n\n_+${issues.warning.length} warnings_`);
+            await sendTelegram(env, {
+              text: lines.join('\n'),
+              severity: 'crit',
+              source: 'reconcile_daily',
+            });
+          } else if (issues.warning.length > 5) {
+            await sendTelegram(env, {
+              text: `⚠️ *Reconcile Daily* — ${issues.warning.length} warnings (no critical). Revisa /api/reconcile/daily`,
+              severity: 'warn',
+              source: 'reconcile_daily',
+            });
+          }
+
+          return json(summary, corsHeaders);
+        } catch (e) {
+          await sendTelegram(env, {
+            text: `⚠️ Reconcile daily falló: ${e.message?.slice(0, 200)}`,
+            severity: 'warn',
+            source: 'reconcile_daily',
+          });
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
       if (path === "/api/ib-bridge/quotes" && request.method === "GET") {
         const symbols = (url.searchParams.get("symbols") || "").trim();
         if (!symbols) return json({ error: "Missing ?symbols=AAPL,MSFT" }, corsHeaders, 400);
@@ -25451,6 +25649,32 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
         }
       } catch (e) {
         console.error("[scheduled] universal freshness monitor failed:", e.message);
+      }
+
+      // ─── PIGGYBACK Capa 4: Reconciliación cruzada diaria ─────────────
+      // Después del freshness, llamamos al endpoint /api/reconcile/daily
+      // que cross-checkea aggregations, currency, NAV, dups. Telegram CRITICAL si hay problemas.
+      // Razón del piggyback: CF Workers limit = 5 crons. Ya tenemos 4.
+      try {
+        console.log('[scheduled] piggyback Reconcile Daily');
+        const apiBase = env.AYR_API_URL || 'https://api.onto-so.com';
+        const authToken = env.AYR_WORKER_TOKEN || env.AYR_TOKEN || '';
+        const r = await fetch(`${apiBase}/api/reconcile/daily`, {
+          method: 'POST',
+          headers: {
+            'X-AYR-Auth': authToken,
+            'Content-Type': 'application/json',
+            'Origin': 'https://ayr.onto-so.com',
+          },
+        });
+        if (r.ok) {
+          const d = await r.json();
+          console.log(`[reconcile-daily] ok=${d.ok} critical=${d.critical_count} warning=${d.warning_count}`);
+        } else {
+          console.warn(`[reconcile-daily] HTTP ${r.status}`);
+        }
+      } catch (e) {
+        console.error('[scheduled] reconcile daily piggyback failed:', e.message);
       }
       return;
     }
