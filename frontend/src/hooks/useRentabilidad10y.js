@@ -76,7 +76,20 @@ export function useRentabilidad10y({ ticker, fin, cfg, fmpExtra, currentPrice })
       };
     }
     // 2026-05-18: 11 años para soportar año 0 a año -10 (Excel Gorka).
-    const yearKeys = Object.keys(fin).map(Number).filter(y => !isNaN(y) && y > 1900).sort((a, b) => b - a).slice(0, 11);
+    // 2026-05-19 BUG FIX: filtrar años "ghost" donde FMP no tiene income data.
+    // Antes incluíamos años donde revenue=0 y eps=0 → fila "hoy" salía con todo en cero
+    // y propagaba ceros a toda la proyección y matriz 3×3. Causa: balance/cashflow
+    // a veces tienen un año más que income → fmp.js creaba entrada con todo 0.
+    const yearKeys = Object.keys(fin)
+      .map(Number)
+      .filter(y => !isNaN(y) && y > 1900)
+      .filter(y => {
+        const d = fin[y] || {};
+        // Requiere al menos uno de: revenue > 0 O eps > 0 (datos reales)
+        return (d.revenue > 0) || (d.eps > 0) || (d.epsBasic > 0) || (d.epsDiluted > 0);
+      })
+      .sort((a, b) => b - a)
+      .slice(0, 11);
     const revenue = [];
     const eps = [];
     const dps = [];

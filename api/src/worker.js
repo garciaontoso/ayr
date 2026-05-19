@@ -17555,7 +17555,12 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             (b.fiscalYear || +(b.date || '').slice(0, 4) || 0) - (a.fiscalYear || +(a.date || '').slice(0, 4) || 0)
           );
           // 2026-05-18: 11 años para soportar año 0 a año -10 (Excel Gorka).
-          const inc = sortByYear(income).slice(0, 11);
+          // 2026-05-19 BUG FIX: filtrar income rows ghost (revenue=0 y eps=0).
+          // FMP a veces devuelve año adicional con datos vacíos → fila "hoy" con
+          // todo cero → propagación de ceros a toda la matriz Phil Town.
+          const isRealRow = (r) =>
+            (r.revenue > 0) || (r.eps > 0) || (r.epsDiluted > 0) || (r.netIncome > 0);
+          const inc = sortByYear(income).filter(isRealRow).slice(0, 11);
           const bal = sortByYear(balance).slice(0, 11);
           const cf  = sortByYear(cashflow).slice(0, 11);
 
@@ -17844,7 +17849,9 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
               if (income.length < 2) return { ticker: tk, error: "insufficient income data" };
 
               const sortDesc = (a, b) => (b.fiscalYear || +(b.date || '').slice(0, 4) || 0) - (a.fiscalYear || +(a.date || '').slice(0, 4) || 0);
-              const inc = [...income].sort(sortDesc).slice(0, 11);
+              // 2026-05-19 BUG FIX: filtrar años ghost (revenue=0 y eps=0)
+              const isRealRow = (r) => (r.revenue > 0) || (r.eps > 0) || (r.epsDiluted > 0) || (r.netIncome > 0);
+              const inc = [...income].sort(sortDesc).filter(isRealRow).slice(0, 11);
               const cf = [...cashflow].sort(sortDesc).slice(0, 11);
 
               // Series
