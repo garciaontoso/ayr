@@ -29,6 +29,11 @@ export const FMP_MAP = {
   "RAND": "RAND.AS",     // Randstad (Netherlands), NOT Rand Capital
   "NET.UN": "NET-UN.V",  // Canadian Net REIT (TSX Venture) — was wrongly NET-UN.TO
   "CNSWF": "CNSWF",
+  // 2026-05-19: MC en cartera del usuario = LVMH (Euronext Paris), NO Moelis (NYSE).
+  // FMP devolvía datos de Moelis (US "MC") con EPS $3.11 cuando LVMH real reporta ~€25 EPS.
+  // Fix: forzar mapping a MC.PA. Hardcoded porque el usuario es ÚNICO con LVMH bajo
+  // ticker bare "MC" (US holders usarían LVMUY o MC.PA explícito).
+  "MC": "MC.PA",
 };
 // Helper: convert our ticker to FMP symbol
 export const toFMP = (t) => FMP_MAP[t] || t;

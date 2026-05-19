@@ -17555,11 +17555,15 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
             (b.fiscalYear || +(b.date || '').slice(0, 4) || 0) - (a.fiscalYear || +(a.date || '').slice(0, 4) || 0)
           );
           // 2026-05-18: 11 años para soportar año 0 a año -10 (Excel Gorka).
-          // 2026-05-19 BUG FIX: filtrar income rows ghost (revenue=0 y eps=0).
-          // FMP a veces devuelve año adicional con datos vacíos → fila "hoy" con
-          // todo cero → propagación de ceros a toda la matriz Phil Town.
-          const isRealRow = (r) =>
-            (r.revenue > 0) || (r.eps > 0) || (r.epsDiluted > 0) || (r.netIncome > 0);
+          // 2026-05-19 v2 BUG FIX: filtrar income rows ghost.
+          // Requiere revenue>0 Y EPS presente (puede ser negativo). PATH 2026 con
+          // revenue pero EPS=null pasaba antes y rompía proyección. TAP -10.83 EPS
+          // sí debe pasar (write-down real).
+          const isRealRow = (r) => {
+            const hasRev = r.revenue > 0;
+            const hasEps = (r.eps != null) || (r.epsDiluted != null) || (r.netIncome != null && r.netIncome !== 0);
+            return hasRev && hasEps;
+          };
           const inc = sortByYear(income).filter(isRealRow).slice(0, 11);
           const bal = sortByYear(balance).slice(0, 11);
           const cf  = sortByYear(cashflow).slice(0, 11);
@@ -17849,8 +17853,12 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
               if (income.length < 2) return { ticker: tk, error: "insufficient income data" };
 
               const sortDesc = (a, b) => (b.fiscalYear || +(b.date || '').slice(0, 4) || 0) - (a.fiscalYear || +(a.date || '').slice(0, 4) || 0);
-              // 2026-05-19 BUG FIX: filtrar años ghost (revenue=0 y eps=0)
-              const isRealRow = (r) => (r.revenue > 0) || (r.eps > 0) || (r.epsDiluted > 0) || (r.netIncome > 0);
+              // 2026-05-19 v2 BUG FIX: requiere revenue>0 Y EPS presente
+              const isRealRow = (r) => {
+                const hasRev = r.revenue > 0;
+                const hasEps = (r.eps != null) || (r.epsDiluted != null) || (r.netIncome != null && r.netIncome !== 0);
+                return hasRev && hasEps;
+              };
               const inc = [...income].sort(sortDesc).filter(isRealRow).slice(0, 11);
               const cf = [...cashflow].sort(sortDesc).slice(0, 11);
 

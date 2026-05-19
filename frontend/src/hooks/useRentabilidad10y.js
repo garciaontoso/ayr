@@ -85,8 +85,14 @@ export function useRentabilidad10y({ ticker, fin, cfg, fmpExtra, currentPrice })
       .filter(y => !isNaN(y) && y > 1900)
       .filter(y => {
         const d = fin[y] || {};
-        // Requiere al menos uno de: revenue > 0 O eps > 0 (datos reales)
-        return (d.revenue > 0) || (d.eps > 0) || (d.epsBasic > 0) || (d.epsDiluted > 0);
+        // 2026-05-19 v2: requiere revenue > 0 Y EPS presente (puede ser negativo).
+        // Antes solo requería OR — PATH 2026 con revenue>0 + eps=null pasaba el filtro
+        // y rompía el modelo. TAP -10.83 EPS sí debe pasar (write-down real).
+        const hasRev = d.revenue > 0;
+        const hasEps = (d.eps != null && isFinite(d.eps)) ||
+                       (d.epsBasic != null && isFinite(d.epsBasic)) ||
+                       (d.epsDiluted != null && isFinite(d.epsDiluted));
+        return hasRev && hasEps;
       })
       .sort((a, b) => b - a)
       .slice(0, 11);
