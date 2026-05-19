@@ -25,7 +25,8 @@ export default function ChecklistTab() {
       { cat: "Crecimiento", name: "Dividendo CAGR 5Y > 5%", val: da.cagr5, threshold: 0.05, pass: da.cagr5 >= 0.05, display: da.cagr5 != null ? fP(da.cagr5) : "—" },
       
       // ─── DEUDA ───
-      { cat: "Deuda / Solidez", name: "Deuda Neta/EBITDA < 3x", val: L.ebitda > 0 ? (L.netDebt||0)/L.ebitda : null, pass: L.ebitda > 0 && (L.netDebt||0)/L.ebitda < 3, display: L.ebitda > 0 ? fX((L.netDebt||0)/L.ebitda) : "—" },
+      // 2026-05-19 BUG FIX: requerir netDebt presente (no || 0). Si missing, FAIL silencioso era PASS falso (empresa sin reportar deuda parecía sin deuda).
+      { cat: "Deuda / Solidez", name: "Deuda Neta/EBITDA < 3x", val: (L.ebitda > 0 && L.netDebt != null) ? L.netDebt/L.ebitda : null, pass: (L.ebitda > 0 && L.netDebt != null) && L.netDebt/L.ebitda < 3, display: (L.ebitda > 0 && L.netDebt != null) ? fX(L.netDebt/L.ebitda) : "—" },
       { cat: "Deuda / Solidez", name: "Cobertura Intereses > 5x", val: L.ic, pass: L.ic > 5, display: L.ic ? fX(L.ic) : "—" },
       { cat: "Deuda / Solidez", name: "Piotroski F-Score ≥ 5", val: piotroski.score, threshold: 5, pass: piotroski.score >= 5, display: `${piotroski.score}/9` },
       { cat: "Deuda / Solidez", name: "Altman Z > 2.99 (Segura)", val: altmanZ.score, threshold: 2.99, pass: altmanZ.score > 2.99, display: altmanZ.score != null ? _sf(altmanZ.score,2) : "—" },
@@ -33,7 +34,8 @@ export default function ChecklistTab() {
       
       // ─── DIVIDENDO ───
       { cat: "Dividendo", name: "Dividend Yield > 2%", val: price > 0 && LD.dps > 0 ? LD.dps/price : null, pass: price > 0 && LD.dps > 0 && LD.dps/price >= 0.02, display: price > 0 && LD.dps > 0 ? fP(LD.dps/price) : "—" },
-      { cat: "Dividendo", name: "FCF Payout < 70%", val: L.fcf > 0 && LD.dps > 0 ? (LD.dps * (LD.sharesOut||1)) / L.fcf : null, pass: L.fcf > 0 && LD.dps > 0 && ((LD.dps * (LD.sharesOut||1)) / L.fcf) < 0.70, display: L.fcf > 0 && LD.dps > 0 ? fP((LD.dps * (LD.sharesOut||1)) / L.fcf) : "—" },
+      // 2026-05-19 BUG FIX: requerir sharesOut presente (no ||1 que divide millones por 1)
+      { cat: "Dividendo", name: "FCF Payout < 70%", val: (L.fcf > 0 && LD.dps > 0 && LD.sharesOut > 1) ? (LD.dps * LD.sharesOut) / L.fcf : null, pass: (L.fcf > 0 && LD.dps > 0 && LD.sharesOut > 1) && ((LD.dps * LD.sharesOut) / L.fcf) < 0.70, display: (L.fcf > 0 && LD.dps > 0 && LD.sharesOut > 1) ? fP((LD.dps * LD.sharesOut) / L.fcf) : "—" },
       { cat: "Dividendo", name: "Racha crecimiento ≥ 5 años", val: ssd.growthStreak, pass: ssd.growthStreak >= 5, display: `${ssd.growthStreak} años` },
       { cat: "Dividendo", name: "Safety Score ≥ 60", val: ssd.safetyScore, pass: ssd.safetyScore >= 60, display: `${ssd.safetyScore}/100` },
       { cat: "Dividendo", name: "Sin recorte de dividendo", val: ssd.uninterruptedStreak, pass: ssd.uninterruptedStreak >= 5, display: `${ssd.uninterruptedStreak} años sin corte` },

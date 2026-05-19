@@ -181,13 +181,29 @@ export const COL_DEFS = [
     val:p=>p.valueUSD||0, fmt:v=>v>=1e3?"$"+_sf(v/1e3,1)+"K":"$"+_sf(v,0), sortV:p=>p.valueUSD||0 },
   { id:"divIncome", label:"DIV $", group:"Core", w:"44px", priv:true, defaultOn:true,
     val:p=>p.divAnnualUSD||0, fmt:v=>v>0?"$"+_sf(v,0):"\u2014", color:v=>v>0?"var(--gold)":"var(--text-tertiary)", sortV:p=>p.divAnnualUSD||0 },
+  // 2026-05-19 BUG FIX (Agent C): API devuelve divYieldTTM en moneda nativa
+  // \u2192 NVO 19.82%, RAND 28.84%, FLO 23.91% (cross-currency wrong).
+  // Recalcular SIEMPRE como divAnnualUSD/valueUSD (ambos FX-corrected en portfolioComputed).
   { id:"divYield", label:"YIELD%", group:"Dividendo", w:"44px", defaultOn:true,
-    val:p=>{const dy=p.divYieldTTM||p.dy||0;return dy>0?dy*100:(p.divTTM&&p.lastPrice?(p.divTTM/p.lastPrice)*100:0);},
-    fmt:v=>v>0?_sf(v,2)+"%":"\u2014", color:v=>v>=5?"var(--gold)":v>0?"var(--text-primary)":"var(--text-tertiary)", sortV:p=>p.divYieldTTM||p.dy||0 },
+    val:p=>{
+      // Preferir nuestro c\u00e1lculo FX-correct
+      const dyUsd = (p.divAnnualUSD && p.valueUSD) ? (p.divAnnualUSD / p.valueUSD) : null;
+      if (dyUsd != null && dyUsd > 0) return dyUsd * 100;
+      // Fallback: API value SOLO si moneda es USD (sin FX risk)
+      if (p.currency === 'USD' && p.divYieldTTM > 0) return p.divYieldTTM * 100;
+      return 0;
+    },
+    fmt:v=>v>0?_sf(v,2)+"%":"\u2014", color:v=>v>=5?"var(--gold)":v>0?"var(--text-primary)":"var(--text-tertiary)",
+    sortV:p=>(p.divAnnualUSD && p.valueUSD) ? p.divAnnualUSD / p.valueUSD : 0 },
   { id:"yoc", label:"YOC%", group:"Dividendo", w:"42px", defaultOn:false,
     val:p=>(p.yoc||0)*100, fmt:v=>v>0?_sf(v,2)+"%":"\u2014", color:v=>v>0?"var(--gold)":"var(--text-tertiary)", sortV:p=>p.yoc||0 },
-  { id:"dps", label:"DPS", group:"Dividendo", w:"42px", defaultOn:false,
-    val:p=>p.divTTM||p.dps||0, fmt:v=>v>0?"$"+_sf(v,2):"\u2014", sortV:p=>p.divTTM||p.dps||0 },
+  // 2026-05-19 BUG FIX (Agent C): DPS estaba mostrando valor nativo formateado con $
+  // \u2192 NVO mostraba "$7.30" cuando real es 7.30 DKK = $1.10.
+  // Usar divAnnualUSD/shares para tener DPS en USD siempre.
+  { id:"dps", label:"DPS $", group:"Dividendo", w:"42px", defaultOn:false,
+    val:p=>(p.divAnnualUSD && p.shares>0) ? p.divAnnualUSD/p.shares : (p.currency==='USD' ? (p.divTTM||p.dps||0) : 0),
+    fmt:v=>v>0?"$"+_sf(v,2):"\u2014",
+    sortV:p=>(p.divAnnualUSD && p.shares>0) ? p.divAnnualUSD/p.shares : 0 },
   { id:"monthlyDiv", label:"DIV/MES", group:"Dividendo", w:"46px", priv:true, defaultOn:false,
     val:p=>(p.divAnnualUSD||0)/12, fmt:v=>v>0?"$"+_sf(v,0):"\u2014", color:v=>v>0?"var(--gold)":"var(--text-tertiary)", sortV:p=>(p.divAnnualUSD||0)/12 },
   { id:"payoutRatio", label:"PAYOUT%", group:"Dividendo", w:"46px", defaultOn:false,

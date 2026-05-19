@@ -5,20 +5,26 @@ import { YEARS } from '../../constants/index.js';
 
 export default function TenCapTab() {
   const { L, LD, cfg, comp, fin } = useAnalysis();
-    // ═══ CLAUDE: OE = Net Income + D&A - CapEx (100%) ═══
+    // 2026-05-19 BUG FIX: missing sharesOut || 1 inflaba precio 10 Cap 1M× (Agente B)
+    // No usar fallback || 1 — si shares missing, devolver null y skipping cálculo.
     const oeLatest = L.oe;
     const oePositiveYrs = YEARS.filter(y => comp[y]?.oe > 0);
     const oeForCalc = oeLatest > 0 ? oeLatest : (oePositiveYrs.length ? comp[oePositiveYrs[0]].oe : 0);
-    const oepsForCalc = oeForCalc > 0 && (oePositiveYrs.length > 0 || fin[YEARS[0]]?.sharesOut > 0) ? div(oeForCalc, fin[oePositiveYrs[0]||YEARS[0]]?.sharesOut || 1) : 0;
-    const tenCapClaude = oepsForCalc ? oepsForCalc * 10 : 0;
+    const oeYear = oePositiveYrs[0] || YEARS[0];
+    const oeShares = fin[oeYear]?.sharesOut;
+    // ═══ CLAUDE: OE = Net Income + D&A - CapEx (100%) ═══
+    // Solo calcular si TENEMOS sharesOut real (>1M) — evita inflación 1M× falsa
+    const oepsForCalc = (oeForCalc > 0 && oeShares > 1) ? div(oeForCalc, oeShares) : null;
+    const tenCapClaude = oepsForCalc != null ? oepsForCalc * 10 : null;
 
     // ═══ RULE #1: OE = OCF - Maint.CapEx(70%) + Tax Provision ═══
-    const r1OCF = LD.ocf || 0;
-    const r1MaintCapex = (LD.capex || 0) * 0.70;
-    const r1Tax = LD.taxProvision || 0;
-    const r1OE = r1OCF - r1MaintCapex + r1Tax;
-    const r1OEps = r1OE > 0 ? div(r1OE, LD.sharesOut) : 0;
-    const tenCapR1 = r1OEps ? r1OEps * 10 : 0;
+    // 2026-05-19 BUG FIX: requerir TODOS los campos (no defaults silenciosos)
+    const r1OCF = LD.ocf;
+    const r1MaintCapex = LD.capex != null ? LD.capex * 0.70 : null;
+    const r1Tax = LD.taxProvision;
+    const r1OE = (r1OCF != null && r1MaintCapex != null && r1Tax != null) ? r1OCF - r1MaintCapex + r1Tax : null;
+    const r1OEps = (r1OE != null && r1OE > 0 && LD.sharesOut > 1) ? div(r1OE, LD.sharesOut) : null;
+    const tenCapR1 = r1OEps != null ? r1OEps * 10 : null;
     const histYrs = YEARS.slice(0, 10);
 
     const MethodBadge = ({label, color, icon}) => (

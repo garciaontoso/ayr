@@ -34,6 +34,8 @@ export const FMP_MAP = {
   // Fix: forzar mapping a MC.PA. Hardcoded porque el usuario es ÚNICO con LVMH bajo
   // ticker bare "MC" (US holders usarían LVMUY o MC.PA explícito).
   "MC": "MC.PA",
+  // 2026-05-19 Agent D: Shandong Weigao Group Medical Polymer (HK 1066)
+  "HKG:1066": "1066.HK",
 };
 // Helper: convert our ticker to FMP symbol
 export const toFMP = (t) => FMP_MAP[t] || t;

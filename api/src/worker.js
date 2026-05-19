@@ -13088,6 +13088,167 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
         }
       }
 
+      // GET /api/audit/data-sanity — defensa post-mortem auditoría 2026-05-19.
+      // Detecta los 4 patrones de bugs encontrados por 4 agentes:
+      //   1. Ghost rows en fundamentals cache (income vacío + cached:true)
+      //   2. PE/yield absurdos (data quality FX)
+      //   3. Tickers con companyName != positions.name (mapping wrong)
+      //   4. NaN/Infinity visibles en cualquier campo numérico
+      // Lectura solo. Telegram CRITICAL si critical_count > 0.
+      if (path === "/api/audit/data-sanity" && request.method === "GET") {
+        try {
+          const issues = { critical: [], warning: [], info: [] };
+
+          // ─── Check 1: fundamentals cache vacío sirviendo silenciosamente ───
+          const emptyCache = await env.DB.prepare(
+            `SELECT symbol FROM fundamentals
+             WHERE income = '[]' OR income IS NULL OR LENGTH(income) < 5`
+          ).all();
+          if ((emptyCache.results || []).length > 0) {
+            issues.warning.push({
+              check: 'empty_fundamentals_cache',
+              count: emptyCache.results.length,
+              tickers: emptyCache.results.slice(0, 10).map(r => r.symbol),
+              action: 'Re-fetch FMP for these tickers OR mark as ETF/preferred sin cobertura',
+            });
+          }
+
+          // ─── Check 2: expert_analyses con verdict='##' o null ───
+          // Verdict bueno: NULL no, '##' no, debe contener al menos uno de los keywords válidos
+          const badVerdict = await env.DB.prepare(
+            `SELECT COUNT(*) as n FROM expert_analyses
+             WHERE verdict IS NULL OR verdict = '##' OR verdict = ''
+                OR (UPPER(verdict) NOT LIKE '%BUY%'
+                    AND UPPER(verdict) NOT LIKE '%HOLD%'
+                    AND UPPER(verdict) NOT LIKE '%SELL%'
+                    AND UPPER(verdict) NOT LIKE '%TRIM%'
+                    AND UPPER(verdict) NOT LIKE '%ACCUM%')`
+          ).first();
+          if ((badVerdict?.n || 0) > 0) {
+            issues.critical.push({
+              check: 'expert_analysis_bad_verdict',
+              count: badVerdict.n,
+              action: 'Verdict debe contener BUY/HOLD/SELL/TRIM/ACCUM keyword',
+            });
+          }
+
+          // ─── Check 3: scores stale (>30 días) ───
+          const staleScores = await env.DB.prepare(
+            `SELECT COUNT(*) as n FROM scores
+             WHERE julianday('now') - julianday(snapshot_date) > 30`
+          ).first().catch(() => ({ n: 0 }));
+          if ((staleScores?.n || 0) > 0) {
+            issues.warning.push({
+              check: 'scores_stale',
+              count: staleScores.n,
+              action: 'Re-compute scores (run agentes Q+S pipeline)',
+            });
+          }
+
+          // ─── Check 4: positions con NaN/Infinity en numéricos ───
+          // SQLite no soporta NaN literal pero podemos detectar str 'NaN' o 'Infinity'
+          const nanPos = await env.DB.prepare(
+            `SELECT ticker, market_value, usd_value, pnl_pct FROM positions
+             WHERE (CAST(market_value AS TEXT) IN ('NaN', 'Infinity', '-Infinity')
+                OR  CAST(usd_value AS TEXT) IN ('NaN', 'Infinity', '-Infinity')
+                OR  CAST(pnl_pct AS TEXT) IN ('NaN', 'Infinity', '-Infinity'))
+               AND shares > 0`
+          ).all();
+          for (const p of (nanPos.results || []).slice(0, 10)) {
+            issues.critical.push({
+              check: 'position_nan_field',
+              ticker: p.ticker,
+              market_value: p.market_value, usd_value: p.usd_value, pnl_pct: p.pnl_pct,
+              action: 'Re-sync positions desde IB Bridge — campo numérico inválido',
+            });
+          }
+
+          // ─── Check 5: tickers en positions.name vacío o = ticker ───
+          const emptyNames = await env.DB.prepare(
+            `SELECT COUNT(*) as n FROM positions
+             WHERE shares > 0
+               AND (name IS NULL OR name = '' OR name = ticker)`
+          ).first();
+          if ((emptyNames?.n || 0) > 0) {
+            issues.info.push({
+              check: 'positions_empty_name',
+              count: emptyNames.n,
+              action: 'Sync names desde FMP profile.companyName (visit /api/fundamentals?symbol=X)',
+            });
+          }
+
+          // ─── Check 6: positions con currency inconsistente (Bug RED) ───
+          const ccyBugs = await env.DB.prepare(
+            `SELECT ticker, currency, market_value, usd_value FROM positions
+             WHERE shares > 0
+               AND market_value > 0 AND usd_value > 0
+               AND ABS((market_value - usd_value) / usd_value) > 0.05
+               AND currency = 'USD'`
+          ).all();
+          for (const p of (ccyBugs.results || []).slice(0, 5)) {
+            issues.warning.push({
+              check: 'currency_mismatch',
+              ticker: p.ticker,
+              ratio: (p.market_value / p.usd_value).toFixed(3),
+              action: `Currency='USD' pero market_value/usd_value=${(p.market_value / p.usd_value).toFixed(2)} — moneda real probablemente EUR/HKD`,
+            });
+          }
+
+          // ─── Check 7: yields absurdos en positions (>15%) ───
+          const wildYields = await env.DB.prepare(
+            `SELECT ticker, div_yield, currency, last_price FROM positions
+             WHERE shares > 0
+               AND div_yield > 0.15
+               AND div_yield < 1.0
+             LIMIT 10`
+          ).all();
+          for (const p of wildYields.results || []) {
+            issues.warning.push({
+              check: 'wild_yield',
+              ticker: p.ticker,
+              yield: (p.div_yield * 100).toFixed(2) + '%',
+              currency: p.currency,
+              action: `Yield ${(p.div_yield * 100).toFixed(1)}% sospechoso — verificar cross-currency calc o reciente cut`,
+            });
+          }
+
+          // ─── Resumen + Telegram ────────────────────────────────────────
+          const summary = {
+            ok: issues.critical.length === 0,
+            critical_count: issues.critical.length,
+            warning_count: issues.warning.length,
+            info_count: issues.info.length,
+            checks_run: 7,
+            issues,
+            checked_at: new Date().toISOString(),
+          };
+
+          if (issues.critical.length > 0) {
+            const lines = [`🚨 *DATA-SANITY CRITICAL* — ${issues.critical.length} problemas`];
+            for (const c of issues.critical.slice(0, 10)) {
+              const ticker = c.ticker ? ` [${c.ticker}]` : '';
+              lines.push(`\n• \`${c.check}\`${ticker}: ${c.action}`);
+            }
+            if (issues.warning.length > 0) lines.push(`\n\n_+${issues.warning.length} warnings_`);
+            await sendTelegram(env, {
+              text: lines.join('\n'),
+              severity: 'crit',
+              source: 'data_sanity',
+            });
+          } else if (issues.warning.length > 5) {
+            await sendTelegram(env, {
+              text: `⚠️ *Data Sanity Audit* — ${issues.warning.length} warnings (sin críticos). Revisa /api/audit/data-sanity`,
+              severity: 'warn',
+              source: 'data_sanity',
+            });
+          }
+
+          return json(summary, corsHeaders);
+        } catch (e) {
+          return json({ error: e.message }, corsHeaders, 500);
+        }
+      }
+
       // POST /api/reconcile/daily — Capa 4 hardening.
       // Reconciliación cross-check completa (NO solo "está fresco?"):
       //   1. cost_basis aggregations match positions.shares per ticker
@@ -18301,15 +18462,21 @@ Formato de salida (JSON estricto, sin markdown fences alrededor):
                 const age = Date.now() - new Date(cached.updated_at).getTime();
                 if (age < 24 * 3600 * 1000) {
                   try {
+                    // 2026-05-19 BUG FIX: skip cache si income está vacío.
+                    // Antes: SPY/DIVO/SCHD/ETFs cacheaban {income:[]} y servían
+                    // silenciosamente {cached:true, income:[]} → frontend builds matrices
+                    // of zeros. Mirror /api/fundamentals guard (línea 18053).
+                    const cachedIncome = JSON.parse(cached.income || "[]");
+                    if (cachedIncome.length === 0) throw new Error("cached income empty — re-fetch");
                     return { symbol: sym, cached: true,
-                      income: JSON.parse(cached.income || "[]"), balance: JSON.parse(cached.balance || "[]"),
+                      income: cachedIncome, balance: JSON.parse(cached.balance || "[]"),
                       cashflow: JSON.parse(cached.cashflow || "[]"), profile: JSON.parse(cached.profile || "{}"),
                       ratios: JSON.parse(cached.ratios || "[]"),
                       rating: JSON.parse(cached.rating || "{}"), dcf: JSON.parse(cached.dcf || "{}"),
                       estimates: JSON.parse(cached.estimates || "[]"), priceTarget: JSON.parse(cached.price_target || "{}"),
                       keyMetrics: JSON.parse(cached.key_metrics || "[]"), finGrowth: JSON.parse(cached.fin_growth || "[]"),
                     };
-                  } catch(parseErr) { console.error("Batch fundamentals parse error for", sym, ":", parseErr.message); }
+                  } catch(parseErr) { console.warn("Bulk fundamentals re-fetch", sym, ":", parseErr.message); }
                 }
               }
 
@@ -26313,6 +26480,25 @@ REGLAS DURAS (VIOLARLAS = VEREDICTO INVÁLIDO):
         }
       } catch (e) {
         console.error('[scheduled] reconcile daily piggyback failed:', e.message);
+      }
+
+      // ─── PIGGYBACK 2: Data Sanity Audit (Bug catcher) 2026-05-19 ────────
+      // Detecta los 4 patrones de bugs encontrados por auditoría 4 agentes.
+      try {
+        console.log('[scheduled] piggyback Data Sanity Audit');
+        const apiBase = env.AYR_API_URL || 'https://api.onto-so.com';
+        const r = await fetch(`${apiBase}/api/audit/data-sanity`, {
+          method: 'GET',
+          headers: { 'Origin': 'https://ayr.onto-so.com' },
+        });
+        if (r.ok) {
+          const d = await r.json();
+          console.log(`[data-sanity] ok=${d.ok} critical=${d.critical_count} warning=${d.warning_count} info=${d.info_count}`);
+        } else {
+          console.warn(`[data-sanity] HTTP ${r.status}`);
+        }
+      } catch (e) {
+        console.error('[scheduled] data sanity piggyback failed:', e.message);
       }
       return;
     }
